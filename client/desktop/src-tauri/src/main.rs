@@ -17,7 +17,7 @@ use std::time::Duration;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use tauri::plugin::PermissionState;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
@@ -31,6 +31,105 @@ const BUILD_VERSION: &str = match option_env!("AGENT_MANAGER_RELEASE_VERSION") {
     None => "dev",
 };
 const UI_STATE_SIGNAL_NAME: &str = "ui-state-revision.json";
+mod aidr_manager;
+mod system_collector;
+mod runtime_watch;
+#[cfg(target_os = "windows")]
+mod windows_shell;
+
+#[tauri::command]
+async fn aidr_system_targets(action: String, selection: Option<serde_json::Value>, custom: Option<String>) -> Result<serde_json::Value, String> {
+    let home = client_homes().into_iter().next().ok_or("aidr_desktop_home_invalid")?;
+    let binary = client_binary().map_err(|_| "aidr_desktop_binary_missing")?;
+    tauri::async_runtime::spawn_blocking(move || system_collector::targets(&home, &binary, &action, selection, custom))
+        .await.map_err(|_| "aidr_system_runtime_failed".to_string())?
+}
+
+#[tauri::command]
+async fn aidr_system_action(app: AppHandle, action: String) -> Result<serde_json::Value, String> {
+    let home = client_homes().into_iter().next().ok_or("aidr_desktop_home_invalid")?;
+    let binary = client_binary().map_err(|_| "aidr_desktop_binary_missing")?;
+    let resources = if cfg!(debug_assertions) {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/aidr-system")
+    } else {
+        app.path().resource_dir().map_err(|_| "aidr_system_component_missing")?.join("aidr-system")
+    };
+    tauri::async_runtime::spawn_blocking(move || system_collector::action(&home, &binary, &resources, &action))
+        .await.map_err(|_| "aidr_system_runtime_failed".to_string())?
+}
+
+#[tauri::command]
+fn aidr_receiver_status() -> aidr_manager::Snapshot {
+    aidr_manager::snapshot()
+}
+
+#[tauri::command]
+async fn aidr_collection_status() -> Result<serde_json::Value, String> {
+    let home = client_homes()
+        .into_iter()
+        .next()
+        .ok_or("aidr_desktop_home_invalid")?;
+    let binary = client_binary().map_err(|_| "aidr_desktop_binary_missing")?;
+    tauri::async_runtime::spawn_blocking(move || aidr_manager::collection_status(&home, &binary))
+        .await
+        .map_err(|_| "aidr_desktop_status_failed".to_string())?
+}
+
+#[tauri::command]
+async fn aidr_plugin_action(
+    app: AppHandle,
+    action: String,
+    agent: String,
+) -> Result<serde_json::Value, String> {
+    let home = client_homes()
+        .into_iter()
+        .next()
+        .ok_or("aidr_desktop_home_invalid")?;
+    let binary = client_binary().map_err(|_| "aidr_desktop_binary_missing")?;
+    let source = if cfg!(debug_assertions) {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/aidr-plugins")
+    } else {
+        app.path()
+            .resource_dir()
+            .map_err(|_| "aidr_plugin_package_unreadable")?
+            .join("aidr-plugins")
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        aidr_manager::action(&home, &binary, &source, &action, &agent)
+    })
+    .await
+    .map_err(|_| "aidr_desktop_receiver_failed".to_string())?
+}
+
+#[tauri::command]
+fn runtime_observation_supported() -> bool {
+    cfg!(target_os = "macos")
+}
+
+#[tauri::command]
+async fn start_runtime_watch(socket_path: String) -> Result<String, String> {
+    if !cfg!(target_os = "macos") {
+        return Err("runtime_observation_unsupported_platform".into());
+    }
+    let binary = client_binary().map_err(|_| "runtime_bridge_binary_missing".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || runtime_watch::start(socket_path.trim(), &binary))
+        .await
+        .map_err(|_| "runtime_bridge_worker_failed".to_string())?
+}
+
+#[tauri::command]
+async fn read_runtime_watch(watch_id: String) -> Result<runtime_watch::Batch, String> {
+    tauri::async_runtime::spawn_blocking(move || runtime_watch::read(&watch_id))
+        .await
+        .map_err(|_| "runtime_bridge_worker_failed".to_string())?
+}
+
+#[tauri::command]
+async fn stop_runtime_watch(watch_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || runtime_watch::stop_id(&watch_id))
+        .await
+        .map_err(|_| "runtime_bridge_worker_failed".to_string())?
+}
 
 #[tauri::command]
 fn get_build_version() -> &'static str {
@@ -111,6 +210,11 @@ fn display_release_version(version: &str) -> String {
 }
 
 fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, String> {
+    // An alternate desktop home owns its AIDR child but must not replace the
+    // per-user base service, whose launchd/systemd identity is shared.
+    if command == "reconcile-service" && alternate_client_home() {
+        return Ok(serde_json::json!({"restarted": false, "reason": "client_service_alternate_home", "state": {"installed": false, "running": false}}).to_string());
+    }
     const ALLOWED: &[&str] = &[
         "configure",
         "connections",
@@ -285,10 +389,10 @@ async fn select_skill_directory() -> Result<Option<String>, String> {
 
 fn reveal_path_sync(path: &Path) -> Result<(), String> {
     if !path.is_absolute() {
-        return Err("只能打开绝对路径".to_string());
+        return Err("folder_open_absolute_required".to_string());
     }
     if !path.exists() {
-        return Err(format!("路径不存在或已被移动: {}", path.display()));
+        return Err(format!("folder_open_path_missing: {}", path.display()));
     }
     #[cfg(target_os = "macos")]
     let status = if path.is_dir() {
@@ -297,13 +401,7 @@ fn reveal_path_sync(path: &Path) -> Result<(), String> {
         Command::new("open").arg("-R").arg(path).status()
     };
     #[cfg(target_os = "windows")]
-    let status = if path.is_dir() {
-        Command::new("explorer").arg(path).status()
-    } else {
-        Command::new("explorer")
-            .arg(format!("/select,{}", path.display()))
-            .status()
-    };
+    return windows_shell::reveal(path);
     #[cfg(target_os = "linux")]
     let status = Command::new("xdg-open")
         .arg(if path.is_dir() {
@@ -313,25 +411,42 @@ fn reveal_path_sync(path: &Path) -> Result<(), String> {
         })
         .status();
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    return Err("当前系统暂不支持打开文件夹".to_string());
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    return Err("folder_open_unsupported".to_string());
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     match status {
         Ok(value) if value.success() => Ok(()),
-        Ok(value) => Err(format!("系统文件管理器返回失败状态: {value}")),
-        Err(error) => Err(format!("无法打开系统文件管理器: {error}")),
+        Ok(value) => Err(format!("folder_open_shell_failed: {value}")),
+        Err(error) => Err(format!("folder_open_launch_failed: {error}")),
     }
 }
 
 #[tauri::command]
 async fn reveal_path(path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || reveal_path_sync(&PathBuf::from(path)))
-        .await
-        .map_err(|error| format!("打开文件夹操作异常: {error}"))?
+    let diagnostic_path = path.clone();
+    let started = std::time::Instant::now();
+    let result =
+        tauri::async_runtime::spawn_blocking(move || reveal_path_sync(&PathBuf::from(path)))
+            .await
+            .map_err(|error| format!("folder_open_worker_failed: {error}"))
+            .and_then(|result| result);
+    let error = result.as_ref().err().cloned().unwrap_or_default();
+    let record = serde_json::json!({
+        "event": "path_open_finished", "path": diagnostic_path,
+        "outcome": if result.is_ok() { "accepted" } else { "failed" },
+        "error_code": error.split(':').next().unwrap_or_default(),
+        "message": error, "duration_ms": started.elapsed().as_millis(),
+        "version": BUILD_VERSION, "count": 1,
+    });
+    // Diagnostic failures must not change the Shell operation's result.
+    tauri::async_runtime::spawn(async move {
+        let _ = record_desktop_diagnostic(record).await;
+    });
+    result
 }
 
 #[tauri::command]
 async fn open_client_location(kind: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    let path = tauri::async_runtime::spawn_blocking(move || {
         let home = system_home().ok_or_else(|| "无法确定当前用户目录".to_string())?;
         let path = match kind.as_str() {
             "logs" => home.join(".agent-manager").join("logs"),
@@ -339,10 +454,11 @@ async fn open_client_location(kind: String) -> Result<(), String> {
             _ => return Err("不支持的客户端目录类型".to_string()),
         };
         fs::create_dir_all(&path).map_err(|error| format!("无法创建客户端目录: {error}"))?;
-        reveal_path_sync(&path)
+        Ok(path)
     })
     .await
-    .map_err(|error| format!("打开客户端目录异常: {error}"))?
+    .map_err(|error| format!("folder_open_worker_failed: {error}"))??;
+    reveal_path(path.to_string_lossy().into_owned()).await
 }
 
 #[tauri::command]
@@ -715,6 +831,7 @@ async fn check_client_update(
                 total: None,
             },
         );
+        aidr_manager::shutdown();
         app.restart();
     }
     Ok(result)
@@ -748,6 +865,24 @@ fn client_homes() -> Vec<PathBuf> {
     }
     homes.dedup();
     homes
+}
+fn alternate_client_home() -> bool {
+    different_client_home(
+        env::var_os("AGENT_MANAGER_CLIENT_HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from),
+        system_home(),
+    )
+}
+fn different_client_home(override_home: Option<PathBuf>, normal_home: Option<PathBuf>) -> bool {
+    let Some(override_home) = override_home else {
+        return false;
+    };
+    let Some(normal_home) = normal_home else {
+        return true;
+    };
+    let normalize = |path: PathBuf| path.canonicalize().unwrap_or(path);
+    normalize(override_home) != normalize(normal_home)
 }
 
 fn client_runtime_root() -> Option<PathBuf> {
@@ -865,6 +1000,7 @@ fn mask_token(token: &str) -> String {
 }
 
 fn client_binary() -> Result<PathBuf, String> {
+    #[cfg(debug_assertions)]
     if let Ok(value) = env::var("AGENT_MANAGER_CLIENT_BINARY") {
         let path = PathBuf::from(value);
         if path.is_file() {
@@ -916,6 +1052,26 @@ fn main() {
                 eprintln!("could not register macOS notification identity: {error}");
             }
             start_local_state_watcher(app.handle().clone());
+            if let (Some(home), Ok(binary)) = (client_homes().into_iter().next(), client_binary()) {
+                aidr_manager::init(home, binary);
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let closing_window = window.clone();
+                window.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        if runtime_watch::begin_shutdown() {
+                            let window = closing_window.clone();
+                            thread::spawn(move || {
+                                aidr_manager::shutdown();
+                                if runtime_watch::shutdown().is_ok() {
+                                    let _ = window.destroy();
+                                }
+                            });
+                        }
+                    }
+                });
+            }
             Ok(())
         })
         .plugin(tauri_plugin_notification::init())
@@ -926,7 +1082,16 @@ fn main() {
         )
         .invoke_handler(tauri::generate_handler![
             execute_client,
+            aidr_receiver_status,
+            aidr_collection_status,
+            aidr_system_action,
+            aidr_system_targets,
+            aidr_plugin_action,
             execute_client_with_progress,
+            runtime_observation_supported,
+            start_runtime_watch,
+            read_runtime_watch,
+            stop_runtime_watch,
             select_skill_directory,
             reveal_path,
             open_client_location,
@@ -940,18 +1105,76 @@ fn main() {
             check_client_update,
             get_build_version
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run Agent Manager Client desktop");
+        .build(tauri::generate_context!())
+        .expect("failed to build Agent Manager Client desktop")
+        .run(|app, event| {
+            // Native macOS Quit can go directly through applicationWillTerminate
+            // to Exit, without ExitRequested. Cleanup is idempotent and must
+            // finish before that native callback returns.
+            if let tauri::RunEvent::Exit = event {
+                aidr_manager::shutdown();
+                runtime_watch::begin_shutdown();
+                let _ = runtime_watch::shutdown();
+            }
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                aidr_manager::shutdown();
+                if runtime_watch::begin_shutdown() {
+                    api.prevent_exit();
+                    let app = app.clone();
+                    thread::spawn(move || {
+                        if runtime_watch::shutdown().is_ok() {
+                            app.exit(0);
+                        }
+                    });
+                } else if runtime_watch::active() {
+                    api.prevent_exit();
+                }
+            }
+        });
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    #[test]
+    fn reveal_path_rejects_invalid_targets_before_launch() {
+        assert_eq!(
+            super::reveal_path_sync(Path::new("relative-skill")),
+            Err("folder_open_absolute_required".into())
+        );
+        let missing = std::env::temp_dir().join(format!(
+            "agent-manager-missing-skill-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        assert!(super::reveal_path_sync(&missing)
+            .unwrap_err()
+            .starts_with("folder_open_path_missing:"));
+    }
+
+    #[test]
+    fn alternate_home_does_not_own_global_base_service() {
+        let normal = Some(PathBuf::from("/Users/customer"));
+        assert!(!different_client_home(None, normal.clone()));
+        assert!(!different_client_home(normal.clone(), normal.clone()));
+        assert!(different_client_home(
+            Some(PathBuf::from("/private/customer-profile")),
+            normal
+        ));
+        assert!(different_client_home(
+            Some(PathBuf::from("/private/customer-profile")),
+            None
+        ));
+    }
+    use std::path::{Path, PathBuf};
     use std::sync::mpsc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use super::{
-        client_binary, display_release_version, is_ui_state_signal_path, mask_token, system_home,
+        client_binary, different_client_home, display_release_version, is_ui_state_signal_path,
+        mask_token, system_home,
     };
     use notify::{RecursiveMode, Watcher};
 

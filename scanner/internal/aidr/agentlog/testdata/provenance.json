@@ -1,0 +1,42 @@
+[
+  {
+    "fixture": "claude-2.1.220.jsonl",
+    "agent": "claude",
+    "observed_version": "2.1.220",
+    "records": 16,
+    "source": "local read-only log; paths and IDs not retained",
+    "anonymization": "all timestamps, session/turn/call IDs, inputs and outputs replaced; tool names and structural types retained"
+  },
+  {
+    "fixture": "codex-0.155.0-alpha.9.2.jsonl",
+    "agent": "codex",
+    "observed_version": "0.155.0-alpha.9.2",
+    "records": 100,
+    "source": "local read-only log; paths and IDs not retained",
+    "anonymization": "all timestamps, session/turn/call IDs, inputs and outputs replaced; tool names and structural types retained"
+  },
+  {
+    "fixture": "codex-0.158.0-alpha.2.1.jsonl",
+    "agent": "codex",
+    "observed_version": "0.158.0-alpha.2.1",
+    "records": 22,
+    "source": "2026-09-27 owned temporary ten-command live CLI task",
+    "anonymization": "session, turn, call IDs and timestamps replaced; only synthetic commands retained; output bodies omitted, explicit exit codes retained"
+  },
+  {
+    "fixture": "codex-0.160.0.jsonl",
+    "agent": "codex",
+    "observed_version": "0.160.0",
+    "records": 17,
+    "source": "2026-10-04 owned temporary seven-command native CLI task; exit 0, six tool exit codes 0 and one 7",
+    "anonymization": "session/turn/call IDs, timestamps and owned workspace replaced; only controlled commands retained; output bodies and private metadata omitted, explicit exit codes retained"
+  },
+  {
+    "fixture": "codex-0.160.1.jsonl",
+    "agent": "codex",
+    "observed_version": "0.160.1",
+    "records": 8,
+    "source": "2026-10-07 owned native CLI session; one harmless printf, commentary and final reply; six Hook events uploaded",
+    "anonymization": "timestamps, session/turn/call IDs and cwd replaced; context messages omitted; controlled prompt simplified; native custom tool input and output structure retained"
+  }
+]

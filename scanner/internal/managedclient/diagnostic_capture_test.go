@@ -1,6 +1,7 @@
 package managedclient
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -114,6 +115,48 @@ func TestDiagnosticDesktopStateMetadataIsPersisted(t *testing.T) {
 	for _, value := range []string{"desktop_snapshot_refreshed", "pending_status_changed", "discover", "local_snapshot", "18"} {
 		if !strings.Contains(string(body), value) {
 			t.Fatalf("metadata %q missing: %s", value, body)
+		}
+	}
+}
+
+func TestDiagnosticPathOpenResultIsPersisted(t *testing.T) {
+	home := t.TempDir()
+	for _, record := range []string{
+		`{"event":"path_open_finished","path":"C:\\Users\\用户\\Skill 目录","outcome":"accepted","duration_ms":12,"count":1}`,
+		`{"event":"path_open_finished","path":"C:\\Users\\用户\\Skill 目录","outcome":"failed","error_code":"folder_open_shell_failed","message":"ShellExecuteW 5 token=PRIVATE","payload":"SHOULD_NOT_EXPORT","count":1}`,
+	} {
+		if err := RecordDesktopDiagnostic(home, []byte(record)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := diagnosticFiles(filepath.Join(home, ".agent-manager"))
+	if err != nil || len(files) != 1 {
+		t.Fatal(err, files)
+	}
+	body, err := os.ReadFile(files[0].path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "PRIVATE") || strings.Contains(string(body), "SHOULD_NOT_EXPORT") {
+		t.Fatal("unexpected input persisted")
+	}
+	lines := bytes.Split(bytes.TrimSpace(body), []byte("\n"))
+	if len(lines) != 2 {
+		t.Fatalf("expected two operation results, got %d", len(lines))
+	}
+	for i, line := range lines {
+		var record DiagnosticRecord
+		if err := json.Unmarshal(line, &record); err != nil {
+			t.Fatal(err)
+		}
+		if record.Event != "path_open_finished" || record.Fields["path"] != `C:\Users\用户\Skill 目录` {
+			t.Fatalf("path open metadata missing: %s", line)
+		}
+		if i == 0 && (record.Level != "info" || record.Fields["outcome"] != "accepted") {
+			t.Fatalf("accepted request recorded incorrectly: %s", line)
+		}
+		if i == 1 && (record.Level != "error" || record.Fields["error_code"] != "folder_open_shell_failed") {
+			t.Fatalf("failure evidence missing: %s", line)
 		}
 	}
 }

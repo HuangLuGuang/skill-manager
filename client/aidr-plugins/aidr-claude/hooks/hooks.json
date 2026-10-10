@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" SessionStart"}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" SessionEnd"}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" UserPromptSubmit"}]}],
+    "PreToolUse": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" PreToolUse", "timeout": 60}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" PostToolUse"}]}],
+    "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" PostToolUseFailure"}]}],
+    "PermissionRequest": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" PermissionRequest"}]}],
+    "PermissionDenied": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" PermissionDenied"}]}],
+    "SubagentStart": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" SubagentStart"}]}],
+    "SubagentStop": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" SubagentStop"}]}],
+    "PreCompact": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" PreCompact"}]}],
+    "PostCompact": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" PostCompact"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" Stop"}]}],
+    "Notification": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" Notification"}]}],
+    "TaskCompleted": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" TaskCompleted"}]}],
+    "TeammateIdle": [{"hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bridge.sh\" TeammateIdle"}]}]
+  }
+}

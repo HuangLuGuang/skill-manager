@@ -1,0 +1,42 @@
+[
+  {
+    "input": "git commit -m \"fix scanner ownership across client credential rotation\" && git status --short --branch",
+    "expected": "git commit -m \"fix scanner ownership across client credential rotation\" && git status --short --branch"
+  },
+  {
+    "input": "tool --password 'synthetic secret' && git status",
+    "expected": "tool --password '[REDACTED]' && git status"
+  },
+  {
+    "input": "API_TOKEN=synthetic-value tool --password=\"synthetic-other\" | cat",
+    "expected": "API_TOKEN=[REDACTED] tool --password=\"[REDACTED]\" | cat"
+  },
+  {
+    "input": "curl -H \"Authorization: Bearer synthetic-value\" https://example.invalid",
+    "expected": "curl -H \"Authorization: Bearer [REDACTED]\" https://example.invalid"
+  },
+  {
+    "input": "git commit -m 'token password credential changes'",
+    "expected": "git commit -m 'token password credential changes'"
+  },
+  {
+    "input": "tool --password \"real [REDACTED]\"",
+    "expected": "tool --password \"[REDACTED]\""
+  },
+  {
+    "input": "tool --password synthetic; git status",
+    "expected": "tool --password [REDACTED]; git status"
+  },
+  {
+    "input": "tool --password synthetic\\ value && next",
+    "expected": "tool --password [REDACTED] && next"
+  },
+  {
+    "input": "curl -H \"Cookie: session=synthetic; other=synthetic-two\" && next",
+    "expected": "curl -H \"Cookie: [REDACTED]\" && next"
+  },
+  {
+    "input": "sh -c 'exit 7'",
+    "expected": "sh -c 'exit 7'"
+  }
+]

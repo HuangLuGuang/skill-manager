@@ -49,7 +49,7 @@ func syncError(store *Store, kind string, err error) {
 }
 
 func heartbeatOnce(ctx context.Context, home string, api API, store *Store) error {
-	policy, err := api.Heartbeat(ctx, Inventory{ClientID: clientIDForHome(home), ClientVersion: Version})
+	policy, err := api.Heartbeat(ctx, Inventory{ClientID: clientIDForHome(home), ClientVersion: Version}, home)
 	if err != nil {
 		return err
 	}
@@ -200,6 +200,13 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var workers sync.WaitGroup
+	if AIDRLogRunner != nil {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			AIDRLogRunner(ctx, home, func() Policy { return cachedPolicy(store) })
+		}()
+	}
 	var inventorySync sync.Mutex
 	registered := false
 	synchronizeInventory := func(request context.Context, localReady func()) error {
@@ -283,7 +290,9 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 				request, cancel := context.WithTimeout(ctx, 30*time.Second)
 				err := callback(request)
 				cancel()
-				syncError(store, kind, err)
+				if kind != "events" {
+					syncError(store, kind, err)
+				}
 				select {
 				case <-ctx.Done():
 					return
@@ -297,10 +306,16 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		heartbeatInterval = 10 * time.Second
 	}
 	periodic(heartbeatInterval, "heartbeat", func(request context.Context) error { return heartbeatOnce(request, home, api, store) })
+	if AIDRRuntimeInspect != nil {
+		periodic(5*time.Minute, "aidr_runtime_inspect", func(request context.Context) error {
+			return AIDRRuntimeInspect(request, home, cachedPolicy(store))
+		})
+	}
 	periodic(10*time.Second, "task_reports", func(request context.Context) error {
 		taskErr := flushTaskResults(request, clientIDForHome(home), api, store)
-		return errors.Join(taskErr, flushEvents(request, api, store))
+		return taskErr
 	})
+	periodic(time.Second, "events", func(request context.Context) error { return flushEvents(request, api, store) })
 	workers.Add(1)
 	go func() {
 		defer workers.Done()
@@ -447,6 +462,11 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		}
 	}()
 	// An interrupted task is reevaluated against current state after restart.
+	// Native plugin installation may have partially completed. Report that
+	// uncertainty explicitly, preserving the task and queues for an explicit retry.
+	if err := store.InterruptAIDRTasks(); err != nil {
+		return err
+	}
 	_, _ = store.db.Exec(`UPDATE client_tasks SET status='pending' WHERE status='running'`)
 	defer workers.Wait()
 	defer cancel()

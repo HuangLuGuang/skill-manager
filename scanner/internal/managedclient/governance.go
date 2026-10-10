@@ -16,14 +16,17 @@ import (
 )
 
 type ClassificationPolicy struct {
-	Compression       *CompressionPolicy `json:"compression,omitempty"`
-	PromptGuard       *PromptGuardPolicy `json:"prompt_guard,omitempty"`
-	PromptGuardSource string             `json:"prompt_guard_source,omitempty"`
-	Protocol          int                `json:"protocol"`
-	Enabled           bool               `json:"enabled"`
-	Version           string             `json:"version"`
-	Rules             map[string]string  `json:"rules"`
-	Sources           map[string]string  `json:"sources"`
+	RuntimeGovernance           *RuntimeGovernancePolicy `json:"runtime_governance,omitempty"`
+	RuntimeGovernanceConfigured bool                     `json:"runtime_governance_configured"`
+	RuntimeGovernanceVersion    string                   `json:"runtime_governance_version,omitempty"`
+	Compression                 *CompressionPolicy       `json:"compression,omitempty"`
+	PromptGuard                 *PromptGuardPolicy       `json:"prompt_guard,omitempty"`
+	PromptGuardSource           string                   `json:"prompt_guard_source,omitempty"`
+	Protocol                    int                      `json:"protocol"`
+	Enabled                     bool                     `json:"enabled"`
+	Version                     string                   `json:"version"`
+	Rules                       map[string]string        `json:"rules"`
+	Sources                     map[string]string        `json:"sources"`
 }
 
 type PromptGuardPolicy struct {
@@ -51,6 +54,8 @@ type SkillObservation struct {
 	LastConfirmedAt  string                `json:"last_confirmed_at,omitempty"`
 	ActionKey        string                `json:"action_key,omitempty"`
 	ActionStatus     string                `json:"action_status,omitempty"`
+	ActionFailures   int                   `json:"action_failures,omitempty"`
+	NextActionAt     string                `json:"next_action_at,omitempty"`
 	ErrorCode        string                `json:"error_code,omitempty"`
 	Count            int                   `json:"count"`
 	PendingID        string                `json:"pending_id,omitempty"`
@@ -288,6 +293,7 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 				value.ActionKey = actionKey
 				value.ActionStatus = "pending"
 				value.ErrorCode = ""
+				value.ActionFailures, value.NextActionAt = 0, ""
 			}
 			if value.Trigger != "" {
 				eventType := "skill_governance_detected"
@@ -302,13 +308,14 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 					"path": skill.Path, "signature": skill.Signature, "trigger": value.Trigger, "action": value.Action,
 					"policy_version": value.PolicyVersion, "event_key": observationKey(skill.Path) + ":" + actionKey,
 					"observation_count": value.Count, "last_seen_at": value.LastSeenAt,
+					"action_status": value.ActionStatus, "error_code": value.ErrorCode,
 				}
 				var err error
 				if !online || value.Action == "quarantine" || value.Action == "uninstall" || value.Action == "restore_trusted" {
 					// Persist detection evidence before touching the filesystem, but
 					// do not let a slow platform round trip gate enforcement. The
 					// regular event flush uploads this evidence afterward.
-					err = queueEventWithLocalNotification(store, inventory.ClientID, eventType, agent.AgentType, skill.Name, details, notifyDetection)
+					err = queueEventWithLocalNotification(store, api.server, inventory.ClientID, eventType, agent.AgentType, skill.Name, details, notifyDetection)
 				} else {
 					err = reportEventWithLocalNotification(ctx, api, store, inventory.ClientID, eventType, agent.AgentType, skill.Name, details, notifyDetection)
 				}
@@ -318,7 +325,7 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 			}
 			if value.Trigger == "" {
 				value.ActionStatus = "completed"
-			} else if value.ActionStatus != "completed" {
+			} else if value.ActionStatus != "completed" && !automaticFileActionDeferred(value, time.Now()) {
 				if value.Action == "record" || value.Action == "record_only" {
 					value.ActionStatus = "completed"
 				} else if value.ErrorCode == "policy_action_not_supported" {
@@ -357,12 +364,14 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 					recoveryIDs, err = applyAutomaticObservedAction(ctx, home, actionInventory, agent, skill, key, policy, api, store, &value)
 					if err != nil {
 						value.ActionStatus = "failed"
+						deferAutomaticFileAction(&value, time.Now())
 						if value.ErrorCode == "" {
 							value.ErrorCode = "skill_action_failed"
 						}
 						failures = append(failures, err)
 					} else {
 						value.ActionStatus, value.ErrorCode = "completed", ""
+						value.ActionFailures, value.NextActionAt = 0, ""
 					}
 					notifyAction := newIncident || value.ActionStatus != previous.ActionStatus || value.ErrorCode != previous.ErrorCode
 					actionDetails := map[string]any{
@@ -372,7 +381,7 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 						"quarantine_ids_by_path": recoveryIDs,
 					}
 					if !online || value.Action == "quarantine" || value.Action == "uninstall" || value.Action == "restore_trusted" {
-						_ = queueEventWithLocalNotification(store, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, actionDetails, notifyAction)
+						_ = queueEventWithLocalNotification(store, api.server, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, actionDetails, notifyAction)
 					} else {
 						_ = reportEventWithLocalNotification(ctx, api, store, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, actionDetails, notifyAction)
 					}
@@ -701,8 +710,8 @@ func executeObservedTask(ctx context.Context, home string, policy Policy, api AP
 
 // ExecuteImmediateSkillAction applies a fast local remediation after the
 // caller has confirmed the current content signature. The resulting
-// governance event is reported immediately when online or queued by
-// reportEvent for the next successful sync.
+// governance event is persisted locally and delivered by the paced ordinary
+// event sender.
 func ExecuteImmediateSkillAction(ctx context.Context, home string, api API, store *Store, request SkillActionRequest, actor string) error {
 	if request.Action != "uninstall" && request.Action != "quarantine" {
 		return fmt.Errorf("immediate_skill_action_unsupported")

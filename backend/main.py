@@ -27,6 +27,8 @@ from .dify_inventory_migration import migrate_dify_asset_inventory
 from .request_limits import WorkerCompletionBodyLimitMiddleware
 from .routers import (
     access_tokens,
+    aidr,
+    aidr_enforcement,
     agent_security,
     agents,
     asset_lifecycle,
@@ -104,17 +106,32 @@ async def application_lifespan(_: FastAPI):
     warmup_skill_scanner()
     cleanup_runtime_traces_once()
     retention_task = asyncio.create_task(runtime_trace_retention_loop())
+    from .aidr_retention import retention_loop as aidr_retention_loop
+    aidr_retention_task = asyncio.create_task(aidr_retention_loop())
+    from .aidr_skill_usage import audit_loop
+    skill_audit_task = asyncio.create_task(audit_loop())
+    from .aidr_overview import projection_loop
+    overview_task = asyncio.create_task(projection_loop())
     from .services.asset_sync import lifecycle_loop
     asset_task = asyncio.create_task(lifecycle_loop())
     try:
         yield
     finally:
         retention_task.cancel()
+        aidr_retention_task.cancel()
+        skill_audit_task.cancel()
+        overview_task.cancel()
         asset_task.cancel()
         with suppress(asyncio.CancelledError):
             await asset_task
         with suppress(asyncio.CancelledError):
             await retention_task
+        with suppress(asyncio.CancelledError):
+            await aidr_retention_task
+        with suppress(asyncio.CancelledError):
+            await skill_audit_task
+        with suppress(asyncio.CancelledError):
+            await overview_task
 
 
 app = FastAPI(
@@ -156,6 +173,9 @@ app.include_router(runtime_traces.router, prefix=settings.API_PREFIX)
 app.include_router(mcp_gateway.admin_router, prefix=f"{settings.API_PREFIX}/v1", dependencies=[Depends(get_current_admin_user)])
 app.include_router(mcp_gateway.runtime_router)
 app.include_router(clients.router, prefix=settings.API_PREFIX)
+app.include_router(aidr.router, prefix=settings.API_PREFIX)
+app.include_router(aidr.global_tool_router, prefix=settings.API_PREFIX)
+app.include_router(aidr_enforcement.router, prefix=settings.API_PREFIX)
 app.include_router(external_ai_gateways.router, prefix=settings.API_PREFIX)
 app.include_router(external_ai_gateways.runtime_router, prefix=settings.API_PREFIX)
 app.include_router(llm_gateway.runtime_router)
@@ -211,6 +231,12 @@ async def append_admin_security_audit(request, call_next):
 
 def ensure_sqlite_schema() -> None:
     Base.metadata.create_all(bind=engine)
+    from .aidr_migrations import upgrade_aidr_schema
+    upgrade_aidr_schema(engine)
+    from .aidr_tool_policy_scope import initialize_global_policy
+    with SessionLocal() as policy_db:
+        initialize_global_policy(policy_db)
+        policy_db.commit()
     from .iam import initialize as initialize_iam, migrate as migrate_iam
     migrate_iam(engine)
     with SessionLocal() as iam_db:
@@ -281,6 +307,8 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql("ALTER TABLE client_governance_policies ADD COLUMN compression_json TEXT NOT NULL DEFAULT 'null'")
         if "model_routing_json" not in governance_columns:
             conn.exec_driver_sql("ALTER TABLE client_governance_policies ADD COLUMN model_routing_json TEXT NOT NULL DEFAULT 'null'")
+        if "runtime_governance_json" not in governance_columns:
+            conn.exec_driver_sql("ALTER TABLE client_governance_policies ADD COLUMN runtime_governance_json TEXT NOT NULL DEFAULT 'null'")
         access_token_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(access_tokens)").fetchall()}
         if "bound_client_id" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN bound_client_id VARCHAR(128)")

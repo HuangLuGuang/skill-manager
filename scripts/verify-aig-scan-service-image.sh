@@ -19,6 +19,13 @@ test "$(docker image inspect --format '{{.Config.User}}' "$IMAGE")" = "10002:100
 test "$(docker image inspect --format '{{json .Config.Healthcheck.Test}}' "$IMAGE")" = '["CMD","python","/opt/service/healthcheck.py"]'
 test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE")" = "e8931cc68001b66ad024fd87ef07394e9e96524a"
 
+HEALTH_TIMEOUT=5s
+HEALTH_ATTEMPTS=18
+if [ "$EXPECTED_ARCH" = "arm64" ]; then
+    HEALTH_TIMEOUT=30s
+    HEALTH_ATTEMPTS=36
+fi
+
 SUFFIX="${EXPECTED_ARCH}-$$"
 CONTAINER="aig-scan-verify-${SUFFIX}"
 VOLUME="aig-scan-verify-${SUFFIX}"
@@ -39,10 +46,11 @@ docker run -d --name "$CONTAINER" \
     --pids-limit 256 \
     --memory 2g \
     --cpus 2 \
+    --health-timeout "$HEALTH_TIMEOUT" \
     -e AIG_WRAPPER_TOKEN=test-only-aig-wrapper-auth-value \
     "$IMAGE" >/dev/null
 
-for _ in $(seq 1 18); do
+for _ in $(seq 1 "$HEALTH_ATTEMPTS"); do
     STATE="$(docker inspect --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$CONTAINER")"
     [ "$STATE" = "running healthy" ] && break
     case "$STATE" in exited*|dead*) docker logs --tail 100 "$CONTAINER" >&2; exit 1 ;; esac

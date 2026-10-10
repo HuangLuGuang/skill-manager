@@ -22,6 +22,17 @@ def route_permission(request):
         return "docs:view"
     if path == "/api/config/docs-assistant" and method == "GET":
         return None  # Configuration readers and editors are checked by the handler.
+    if method == "POST" and path in {
+        "/api/v1/clients/{client_id}/aidr/hook-policy/preview",
+        "/api/v1/clients/{client_id}/aidr/enforcement/policy/preview",
+    }:
+        return "clients:view"
+    if method == "POST" and path in {"/api/v1/clients/{client_id}/aidr/enforcement/policy", "/api/v1/clients/{client_id}/aidr/enforcement/collection", "/api/v1/clients/{client_id}/aidr/enforcement/collection/rediscover"}:
+        return "clients:update"
+    if method == "POST" and path == "/api/v1/clients/{client_id}/aidr/enforcement/terminate":
+        return "clients:execute"
+    if method == "POST" and path == "/api/v1/clients/{client_id}/aidr/hook-approvals/{approval_id}/decision":
+        return "clients:execute"
     if method == "GET" and path.startswith("/api/v1/agent-security/tasks/"):
         if path.endswith("/mcp-calls") or ("/inventory/items/" in path and path.endswith("/content")):
             return "privacy_audit:raw"

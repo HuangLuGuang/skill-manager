@@ -192,7 +192,7 @@ func ApplyTakeover(home string, plan *TakeoverPlan) (string, error) {
 			continue
 		}
 		backup := filepath.Join(backupRoot, item.AgentType, filepath.Base(item.Source))
-		if err := copyDir(item.Source, backup); err != nil {
+		if err := copyRecoveryTree(item.Source, backup); err != nil {
 			rollback(processed, backupRoot)
 			return "", err
 		}
@@ -326,6 +326,8 @@ func copyDir(source, target string) error {
 		mode os.FileMode
 	}
 	var directories []copiedDirectory
+	remaining := recoveryCopyMaxBytes
+	entries := 1
 	err = filepath.WalkDir(resolved, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -336,25 +338,44 @@ func copyDir(source, target string) error {
 		}
 		if rel == "." {
 			directories = append(directories, copiedDirectory{target, info.Mode().Perm()})
-			return os.MkdirAll(target, info.Mode().Perm()|0700)
+			return makeCopyDirectory(target, info.Mode().Perm()|0700)
 		}
-		if strings.HasPrefix(rel, "..") || entry.Type()&os.ModeSymlink != 0 {
-			return nil
+		entries++
+		if entries > recoveryCopyMaxEntries {
+			return fmt.Errorf("skill_copy_limit_exceeded")
+		}
+		if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("skill_copy_path_invalid")
 		}
 		dst := filepath.Join(target, rel)
+		if entry.Type()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(link, dst)
+		}
 		if entry.IsDir() {
 			current, err := entry.Info()
 			if err != nil {
 				return err
 			}
 			directories = append(directories, copiedDirectory{dst, current.Mode().Perm()})
-			return os.MkdirAll(dst, current.Mode().Perm()|0700)
+			return makeCopyDirectory(dst, current.Mode().Perm()|0700)
 		}
 		current, err := entry.Info()
 		if err != nil {
 			return err
 		}
-		return copyFile(path, dst, current.Mode().Perm())
+		if !current.Mode().IsRegular() {
+			return fmt.Errorf("skill_copy_type_unsupported")
+		}
+		if current.Size() > remaining {
+			return fmt.Errorf("skill_copy_limit_exceeded")
+		}
+		copied, err := copyFileBounded(path, dst, current.Mode().Perm(), remaining)
+		remaining -= copied
+		return err
 	})
 	if err != nil {
 		return err
@@ -365,6 +386,46 @@ func copyDir(source, target string) error {
 		}
 	}
 	return nil
+}
+
+func makeCopyDirectory(path string, mode os.FileMode) error {
+	if info, err := os.Lstat(path); err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("skill_copy_target_conflict")
+		}
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return os.MkdirAll(path, mode)
+}
+
+func copyFileBounded(source, target string, mode os.FileMode, limit int64) (int64, error) {
+	src, err := os.Open(source)
+	if err != nil {
+		return 0, err
+	}
+	defer src.Close()
+	// Directory copies may merge into existing directories, but must never
+	// follow an existing destination link and overwrite its external target.
+	if info, err := os.Lstat(target); err == nil && !info.Mode().IsRegular() {
+		return 0, fmt.Errorf("skill_copy_target_conflict")
+	} else if err != nil && !os.IsNotExist(err) {
+		return 0, err
+	}
+	out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return 0, err
+	}
+	copied, copyErr := io.Copy(out, io.LimitReader(src, limit+1))
+	closeErr := out.Close()
+	if copyErr != nil {
+		return copied, copyErr
+	}
+	if copied > limit {
+		return copied, fmt.Errorf("skill_copy_limit_exceeded")
+	}
+	return copied, closeErr
 }
 
 func copyFile(source, target string, mode os.FileMode) error {

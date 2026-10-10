@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" SessionStart"}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" SessionEnd"}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" UserPromptSubmit"}]}],
+    "PreToolUse": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" PreToolUse", "timeout": 60}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" PostToolUse"}]}],
+    "PermissionRequest": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" PermissionRequest"}]}],
+    "SubagentStart": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" SubagentStart"}]}],
+    "SubagentStop": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" SubagentStop"}]}],
+    "PreCompact": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" PreCompact"}]}],
+    "PostCompact": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" PostCompact"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" Stop"}]}],
+    "Interrupt": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" Interrupt"}]}]
+  }
+}

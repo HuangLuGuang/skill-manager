@@ -1250,6 +1250,25 @@ class Registry:
         with self._lock, self._connect() as conn:
             return int(conn.execute("SELECT count(*) FROM skill_families").fetchone()[0])
 
+    def list_certification_candidates(self, *, skill_id: str | None = None, name: str | None = None) -> list[RegistryEntry]:
+        """Read identity/signature metadata without loading scan reports.
+
+        A deployment version takes precedence over a name. All exact-name
+        matches remain candidates so ambiguous registrations are not hidden.
+        """
+        if skill_id:
+            where, values = "WHERE skill_id = ?", (skill_id,)
+        elif name:
+            where, values = "WHERE name = ?", (name,)
+        else:
+            where, values = "", ()
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT skill_id, name, payload, updated_at FROM skill_registry {where} ORDER BY updated_at DESC",
+                values,
+            ).fetchall()
+            return self._entries_from_rows(rows)
+
     def count_review_queue(self) -> int:
         with self._lock, self._connect() as conn:
             return int(conn.execute("SELECT count(*) FROM skill_review_queue").fetchone()[0])

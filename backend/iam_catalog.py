@@ -19,7 +19,7 @@ MODULE_ACTIONS = {
     "privacy_audit": "view raw",
     "mcp": "view create update delete execute approve reject",
     "agents": "view create update delete",
-    "clients": "view create update execute",
+    "clients": "view create update execute read-audit-content",
     "external_gateways": "view create update delete test reveal",
     "runtime": "view create update delete execute",
     "traces": "view raw delete",
@@ -28,7 +28,7 @@ MODULE_ACTIONS = {
     "docs": "view update",
 }
 PERMISSIONS = {f"{module}:{action}" for module, actions in MODULE_ACTIONS.items() for action in actions.split()}
-SENSITIVE_PERMISSIONS = {"privacy_audit:raw", "traces:raw", "scans:raw", "external_gateways:reveal"}
+SENSITIVE_PERMISSIONS = {"privacy_audit:raw", "traces:raw", "scans:raw", "external_gateways:reveal", "clients:read-audit-content"}
 
 # name, parent, Chinese title, English title, path, permission, icon, feature
 PAGES = [

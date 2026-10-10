@@ -43,7 +43,7 @@ func runOnce(ctx context.Context, home string, api API, store *Store, forceFullS
 	if _, err := ReconcileInstalledRecoveryCopies(home, store); err != nil {
 		return err
 	}
-	policy, heartbeatErr := api.Heartbeat(ctx, inventory)
+	policy, heartbeatErr := api.Heartbeat(ctx, inventory, home)
 	online := heartbeatErr == nil
 	if online {
 		if policy.Mode == "" {
@@ -55,9 +55,7 @@ func runOnce(ctx context.Context, home string, api API, store *Store, forceFullS
 			if err := store.SetState("policy", string(body)); err != nil {
 				return err
 			}
-			if err := flushEvents(ctx, api, store); err != nil {
-				online = false
-			}
+			_ = flushEvents(ctx, api, store)
 		}
 	}
 	discoveryAfter, _ := json.Marshal(discoveryCatalog(home))
@@ -148,7 +146,7 @@ func PollTasks(ctx context.Context, home string, api API, store *Store) error {
 	if err != nil {
 		return err
 	}
-	policy, policyErr := api.Heartbeat(ctx, cached)
+	policy, policyErr := api.Heartbeat(ctx, cached, home)
 	if policyErr == nil && policy.Mode == "" {
 		policy, policyErr = api.Policy(ctx, cached.ClientID)
 	}
@@ -216,6 +214,16 @@ func executeTasks(ctx context.Context, home string, inventory Inventory, policy 
 			return err
 		}
 		if completed {
+			if task.TaskType == "aidr_plugin_action" {
+				saved, err := store.StoredTask(task.ID)
+				if err != nil {
+					return err
+				}
+				if err := api.ReportExecutedTask(ctx, inventory.ClientID, saved.Task, saved.Status, saved.Error); err != nil {
+					return err
+				}
+				continue
+			}
 			_ = api.ReportExecutedTask(ctx, inventory.ClientID, task, "succeeded", "")
 			continue
 		}
@@ -383,6 +391,65 @@ func ConfigureAgentModel(ctx context.Context, home string, inventory Inventory, 
 
 func executeTask(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, task Task) error {
 	switch task.TaskType {
+	case "aidr_plugin_action":
+		if AIDRTaskHandler == nil {
+			return fmt.Errorf("aidr_desktop_version_unsupported")
+		}
+		if action := stringValue(task.Payload, "action"); action == "enable" || action == "disable" {
+			fresh, err := api.Policy(ctx, inventory.ClientID)
+			if err != nil {
+				return fmt.Errorf("aidr_desktop_policy_unavailable")
+			}
+			if fresh.Classification != nil && fresh.Classification.RuntimeGovernanceConfigured {
+				return fmt.Errorf("aidr_desktop_task_superseded")
+			}
+		}
+		if stringValue(task.Payload, "action") == "reconcile" {
+			fresh, err := api.Policy(ctx, inventory.ClientID)
+			if err != nil {
+				return fmt.Errorf("aidr_desktop_policy_unavailable")
+			}
+			if fresh.Classification == nil || !fresh.Classification.RuntimeGovernanceConfigured || fresh.Classification.RuntimeGovernanceVersion != stringValue(task.Payload, "policy_version") {
+				return fmt.Errorf("aidr_desktop_task_superseded")
+			}
+			target, _ := json.Marshal(task.Payload["target"])
+			current, _ := json.Marshal(fresh.Classification.RuntimeGovernance)
+			var a, b map[string]any
+			if json.Unmarshal(target, &a) != nil || json.Unmarshal(current, &b) != nil {
+				return fmt.Errorf("aidr_desktop_task_invalid")
+			}
+			// Nullable legacy fields are omitted when the typed API policy is
+			// marshaled. Their null wire form carries the same policy meaning.
+			for _, field := range []string{"modes", "channels", "log_sources", "system_targets"} {
+				if a[field] == nil {
+					delete(a, field)
+				}
+				if b[field] == nil {
+					delete(b, field)
+				}
+			}
+			// A nullable channel mode preserves its current behavior. Go's
+			// string fields encode that same value as an empty string.
+			for _, target := range []map[string]any{a, b} {
+				if modes, ok := target["modes"].(map[string]any); ok {
+					for _, channel := range []string{"hooks", "system"} {
+						if modes[channel] == nil {
+							modes[channel] = ""
+						}
+					}
+				}
+			}
+			canonicalA, _ := json.Marshal(a)
+			canonicalB, _ := json.Marshal(b)
+			if string(canonicalA) != string(canonicalB) {
+				return fmt.Errorf("aidr_desktop_policy_content_mismatch")
+			}
+		}
+		result, err := AIDRTaskHandler(ctx, home, task)
+		if result != nil {
+			task.Payload["aidr_result"] = result
+		}
+		return err
 	case "skill_action":
 		return executeObservedTask(ctx, home, policy, api, store, task)
 	case "sync_policy":
@@ -1608,17 +1675,24 @@ func reportEventWithLocalNotification(ctx context.Context, api API, store *Store
 	if err != nil {
 		return err
 	}
-	if err := api.ReportEvent(ctx, clientID, eventType, agentType, skillName, event.Details); err == nil {
+	event.Server = api.server
+	if err := store.QueueEvent(event); err != nil {
+		return err
+	}
+	// Continuous observations are drained by the event worker, allowing coalescing.
+	if observationIdentity(event) != "" {
 		return nil
 	}
-	return store.QueueEvent(event)
+	_ = flushEventsLimit(ctx, api, store, 2)
+	return nil
 }
 
-func queueEventWithLocalNotification(store *Store, clientID, eventType, agentType, skillName string, details map[string]any, notifyLocal bool) error {
+func queueEventWithLocalNotification(store *Store, server, clientID, eventType, agentType, skillName string, details map[string]any, notifyLocal bool) error {
 	event, err := recordEventLocally(store, clientID, eventType, agentType, skillName, details, notifyLocal)
 	if err != nil {
 		return err
 	}
+	event.Server = server
 	return store.QueueEvent(event)
 }
 
@@ -1644,19 +1718,7 @@ func recordEventLocally(store *Store, clientID, eventType, agentType, skillName 
 }
 
 func flushEvents(ctx context.Context, api API, store *Store) error {
-	items, err := store.QueuedEvents()
-	if err != nil {
-		return err
-	}
-	for _, item := range items {
-		if err := api.ReportEvent(ctx, item.ClientID, item.EventType, item.AgentType, item.SkillName, item.Details); err != nil {
-			return err
-		}
-		if err := store.DeleteQueuedEvent(item.ID); err != nil {
-			return err
-		}
-	}
-	return nil
+	return flushEventsLimit(ctx, api, store, 20)
 }
 
 func installPathPresent(install Installation) bool {

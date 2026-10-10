@@ -4,8 +4,9 @@
       <template #title>
         <a-page-header :title="$t('legacy.hx2vnc')" :sub-title="$t('legacy.ud53vr')">
           <template #extra>
+            <a-button v-if="hasAccess('clients:update')" @click="globalToolPolicyOpen = true">{{ $t('aidr.hooks.scope.title') }}</a-button>
             <a-button v-if="hasAccess('clients:update')" @click="discoveryOpen = true">{{ $t('clientDiscovery.title') }}</a-button>
-            <a-button v-if="hasAccess('clients:update')" @click="openClassification('')">{{ $t('clientGovernance.defaults') }}</a-button>
+            <a-button v-if="hasAccess('clients:view') || hasAccess('settings:view')" @click="openClassification('')">{{ $t('clientGovernance.title') }}</a-button>
             <a-button type="primary" @click="installGuideVisible = true">{{ $t("legacy.18h6c95") }}</a-button>
             <a-button :loading="loading" @click="loadClients">{{ $t("legacy.12qo56a") }}</a-button>
           </template>
@@ -23,7 +24,7 @@
       <a-table :columns="columns" :data-source="clients" row-key="client_id" :loading="loading" :pagination="{ pageSize: 10 }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'client'">
-            <a @click="openDetail(record)">{{ record.name }}</a>
+            <a role="button" tabindex="0" @click="openDetail(record)" @keydown.enter.prevent="openDetail(record)" @keydown.space.prevent="openDetail(record)">{{ record.name }}</a>
             <div class="muted">{{ record.hostname }} · {{ record.client_id }}</div>
           </template>
           <template v-else-if="column.key === 'platform'">
@@ -31,9 +32,9 @@
             <div class="muted">{{ governanceShortLabel(record.governance_mode) }} · Client {{ record.client_version }}</div>
           </template>
           <template v-else-if="column.key === 'agents'">
-            <span>{{ actualAgentCount(record) }} {{ $t("legacy.d5a1x9") }}</span>
-            <span class="muted inline-note">{{ $t("legacy.mhoty8") }}{{ managedAgentCount(record) }}</span>
-            <span v-if="sharedSkillsCount(record)" class="muted inline-note">{{ $t("legacy.1mn8gxl") }}{{ sharedSkillsCount(record) }}</span>
+            <span>{{ $t('clientGovernance.counts.discoveredAgents', { count: actualAgentCount(record) }) }}</span>
+            <span class="muted inline-note">{{ $t('clientGovernance.counts.manageableAgents', { count: managedAgentCount(record) }) }}</span>
+            <span v-if="sharedSkillsCount(record)" class="muted inline-note">{{ $t('clientGovernance.counts.sharedSkillSources', { count: sharedSkillsCount(record) }) }}</span>
           </template>
           <template v-else-if="column.key === 'skills'">{{ skillCount(record) }}</template>
           <template v-else-if="column.key === 'credentialOwner'">{{ record.registered_by || '-' }}</template>
@@ -42,7 +43,7 @@
           </template>
           <template v-else-if="column.key === 'lastSeen'">{{ formatTime(record.last_seen_at) }}</template>
           <template v-else-if="column.key === 'action'">
-            <a @click="openDetail(record)">{{ $t("legacy.10fbkvl") }}</a>
+            <a role="button" tabindex="0" @click="openDetail(record)" @keydown.enter.prevent="openDetail(record)" @keydown.space.prevent="openDetail(record)">{{ $t("legacy.10fbkvl") }}</a>
           </template>
         </template>
       </a-table>
@@ -51,77 +52,75 @@
     </a-card>
     <ClientDiscoveryConfig v-model:open="discoveryOpen" />
 
-    <a-drawer v-model:open="detailVisible" :title="$t('legacy.95lv9i')" width="min(1080px, 100vw)" :destroy-on-close="true">
-      <a-spin :spinning="detailLoading">
+    <a-drawer v-model:open="detailVisible" :title="$t('legacy.95lv9i')" width="min(1280px, 100vw)" :destroy-on-close="true" :body-style="fixedDetailActive ? { padding: '12px 16px', overflow: 'hidden', display: 'flex', flexDirection: 'column' } : {}">
+      <a-spin :spinning="detailLoading" :wrapper-class-name="fixedDetailActive ? 'session-audit-layout' : ''">
         <template v-if="detail">
           <div class="detail-head">
             <div>
               <div class="detail-title">{{ detail.name }}</div>
-              <div class="muted">{{ detail.hostname }} · {{ detail.os }}/{{ detail.arch }} · {{ detail.client_id }}</div>
-              <div class="muted">{{ $t("legacy.4xeakj") }}{{ detail.registered_by || '-' }}</div>
+              <div class="muted"><span v-if="detail.hostname !== detail.name">{{ detail.hostname }} · </span>{{ detail.os }}/{{ detail.arch }}</div>
+              <details class="device-info"><summary>{{ $t('agentRuntimeGovernance.presentation.deviceInfo') }}</summary><div>{{ $t('agentRuntimeGovernance.presentation.deviceId') }}: <code>{{ detail.client_id }}</code></div><div>{{ $t("legacy.4xeakj") }}{{ detail.registered_by || '-' }}</div></details>
             </div>
-            <div class="policy-controls">
-              <label>
+            <div v-if="runtimeTab !== 'plugins' && runtimeTab !== 'audit'" class="policy-controls">
+              <a-button @click="refreshDetail">{{ $t('clientDetail.deviceRefresh') }}</a-button>
+            </div>
+          </div>
+
+          <div class="device-status-line"><a-tag :color="isOnline(detail) ? 'green' : 'default'">{{ $t(isOnline(detail) ? 'agentRuntimeGovernance.detail.online' : 'agentRuntimeGovernance.detail.offline') }}</a-tag><span>{{ $t('agentRuntimeGovernance.detail.lastHeartbeat') }}: {{ formatTime(detail.last_seen_at) }}</span></div>
+          <a-tabs v-model:active-key="runtimeTab" :destroy-inactive-tab-pane="true" class="device-runtime-tabs">
+            <a-tab-pane key="overview" :tab="$t('agentRuntimeGovernance.detail.overview')"><ClientDeviceOverview ref="overviewPanel" :client="detail" @navigate="navigateDetail" @activity="openAuditActivity" /></a-tab-pane>
+            <a-tab-pane key="skills" :tab="$t('agentRuntimeGovernance.detail.skills')">
+              <a-radio-group v-model:value="inventoryView" class="inventory-navigation" button-style="solid">
+                <a-radio-button value="inventory">{{ $t('clientDetail.inventory') }}</a-radio-button>
+                <a-radio-button value="tasks">{{ $t('clientDetail.tasks') }}</a-radio-button>
+                <a-radio-button value="history">{{ $t('clientDetail.history') }}</a-radio-button>
+                <a-radio-button value="recovery">{{ $t('clientDetail.recovery') }}<span v-if="detail.recovery?.length"> · {{ detail.recovery.length }}</span></a-radio-button>
+              </a-radio-group>
+              <template v-if="inventoryView === 'inventory'">
+              <div class="skill-policy-controls">
+                <a-radio-group v-model:value="inventoryType" :aria-label="$t('clientDetail.sourceType')"><a-radio-button value="agents">{{ $t('clientDetail.agents') }} · {{ actualAgentCount(detail) }}</a-radio-button><a-radio-button value="shared">{{ $t('clientDetail.shared') }} · {{ sharedSkillsCount(detail) }}</a-radio-button></a-radio-group>
+                <label>
                 <span>{{ $t("legacy.1bb65oo") }}</span>
-                <a-select :value="currentGovernance" style="width: 170px" @change="saveGovernance">
+                <a-select :value="currentGovernance" :disabled="!hasAccess('clients:update')" class="governance-select" @change="saveGovernance">
                   <a-select-option value="registry">{{ $t("legacy.12wr3db") }}</a-select-option>
                   <a-select-option value="strict">{{ $t("legacy.1bqmand") }}</a-select-option>
                 </a-select>
               </label>
-              <a-button @click="openClassification(detail.client_id)">{{ $t('clientGovernance.title') }}</a-button>
-              <a-button @click="refreshDetail">{{ $t("legacy.2fhcc7") }}</a-button>
-            </div>
-          </div>
+              </div>
+          <details><summary>{{ $t('agentRuntimeGovernance.presentation.policyHelp') }}</summary><p>{{ detail.classification?.enabled ? $t('clientGovernance.active') : policyDescription(currentPolicy) }}</p><p>{{ governanceDescription(currentGovernance) }}</p></details>
 
-          <a-alert
-            type="info"
-            show-icon
-            class="policy-note"
-            :message="detail.classification?.enabled ? $t('clientGovernance.active') : policyDescription(currentPolicy)"
-            :description="governanceDescription(currentGovernance)"
-          />
-
-          <div class="section-title">{{ $t("legacy.4ig27k") }}</div>
-          <a-table class="local-agents-table" :columns="agentColumns" :data-source="detail.agents || []" :row-key="row => row.local_agent_id || row.agent_type" size="small" :pagination="false" :expandable="agentTableExpandable" :scroll="{ x: 760 }">
+          <p v-if="inventoryType === 'shared'" class="muted">{{ $t('clientDetail.sharedNote') }}</p>
+          <a-table class="local-agents-table" :columns="visibleAgentColumns" :data-source="inventoryAgents" :row-key="row => row.local_agent_id || row.agent_type" size="small" :pagination="{ pageSize: 8, hideOnSinglePage: true }" :expandable="agentTableExpandable" :scroll="{ x: 650 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">
-                <strong>{{ agentLabel(record.agent_type, record) }}</strong>
-                <a-tag v-if="isSharedSkillsRecord(record)" color="blue">{{ $t("legacy.y5th5l") }}</a-tag>
+                <a-button v-if="record.managed_agent_id && hasAccess('agents:view') && !isSharedSkillsRecord(record)" type="link" size="small" :title="$t('agentWorkspace.openAgent')" @click="router.push({ path: '/agents', query: { agent: record.managed_agent_id, client: detail.client_id, local: record.local_agent_id } })">{{ agentLabel(record.agent_type, record) }}</a-button><strong v-else>{{ agentLabel(record.agent_type, record) }}</strong>
                 <div class="muted">{{ isSharedSkillsRecord(record) ? sharedSkillsDescription(record) : (record.version || $t('legacy.g4nqyc')) }}</div>
-              </template>
-              <template v-else-if="column.key === 'capability'">
-                <a-tag :color="record.skill_management_supported ? 'green' : 'default'">
-                  {{ record.skill_management_supported ? $t('legacy.1uut84r') : $t('legacy.lp0s29') }}
-                </a-tag>
+                <small v-if="!record.skill_management_supported" class="muted">{{ $t('clientDetail.unsupported') }}</small>
               </template>
               <template v-else-if="column.key === 'model'">
                 <div>{{ record.applied_model || record.desired_model || managedAgentDefaultModel(record) || '-' }}</div>
                 <a-tag v-if="record.model_config_status && record.model_config_status !== 'not_configured'" :color="modelConfigColor(record.model_config_status)">
                   {{ modelConfigStatusLabel(record.model_config_status) }}
                 </a-tag>
-                <div v-if="record.model_config_error" class="muted model-error">{{ modelErrorLabel(record.model_config_error) }}</div>
-                <details v-if="record.capabilities?.model_config_state?.verification?.length" class="model-config-evidence">
+                <details v-if="record.model_config_error || record.capabilities?.model_config_state?.verification?.length" class="model-config-evidence">
                   <summary>{{ $t('clientModelConfig.evidence') }}</summary>
-                  <pre>{{ JSON.stringify(record.capabilities.model_config_state.verification, null, 2) }}</pre>
+                  <p v-if="record.model_config_error" class="muted model-error">{{ modelErrorLabel(record.model_config_error) }}</p>
+                  <pre v-if="record.capabilities?.model_config_state?.verification?.length">{{ JSON.stringify(record.capabilities.model_config_state.verification, null, 2) }}</pre>
                 </details>
               </template>
               <template v-else-if="column.key === 'skills'">{{ record.skills?.length || 0 }}</template>
               <template v-else-if="column.key === 'action'">
-                <a-space direction="vertical" size="small">
-                  <a-button v-if="hasAccess('clients:execute')"
-                    type="link"
-                    :disabled="!record.skill_management_supported || (currentGovernance === 'strict' && isSharedSkillsRecord(record))"
-                    :title="currentGovernance === 'strict' && isSharedSkillsRecord(record) ? $t('legacy.13rv9dd') : ''"
-                    @click="openInstall(record)"
-                  >{{ $t("legacy.1byrs80") }}</a-button>
-                  <a-button v-if="hasAccess('clients:execute')"
-                    type="link"
-                    :disabled="!canConfigureModel(record)"
-                    :title="modelConfigDisabledReason(record)"
-                    @click="openModelConfig(record)"
-                  >{{ $t('clientModelConfig.action') }}</a-button>
-                  <a-button v-if="hasAccess('clients:execute') && record.capabilities?.model_config_verification && record.capabilities?.model_config_state?.change_id" type="link" :loading="modelOperationBusy === record.local_agent_id + ':verify_model_config'" :disabled="!!modelOperationBusy" @click="runModelOperation(record, 'verify_model_config')">{{ $t('clientModelConfig.verify') }}</a-button>
-                  <a-button v-if="hasAccess('clients:execute') && record.capabilities?.model_config_state?.change_id" type="link" :loading="modelOperationBusy === record.local_agent_id + ':restore_model_config'" :disabled="!!modelOperationBusy || !record.capabilities?.model_config_state?.can_restore" @click="runModelOperation(record, 'restore_model_config')">{{ $t('clientModelConfig.restore') }}</a-button>
+                <a-space wrap size="small">
+                  <a-button v-if="hasAccess('clients:execute')" type="link" :disabled="!record.skill_management_supported || (currentGovernance === 'strict' && isSharedSkillsRecord(record))" :title="currentGovernance === 'strict' && isSharedSkillsRecord(record) ? $t('legacy.13rv9dd') : ''" @click="openInstall(record)">{{ $t('legacy.1byrs80') }}</a-button>
+                  <a-dropdown v-if="hasAccess('clients:execute') && !isSharedSkillsRecord(record)" :trigger="['click']">
+                    <a-button type="link">{{ $t('clientDetail.more') }}</a-button>
+                    <template #overlay><a-menu>
+                    <a-menu-item key="model" :disabled="!canConfigureModel(record)" :title="modelConfigDisabledReason(record)" @click="openModelConfig(record)">{{ $t('clientModelConfig.action') }}</a-menu-item>
+                    <a-menu-item v-if="record.capabilities?.model_config_verification && record.capabilities?.model_config_state?.change_id" key="verify" :disabled="!!modelOperationBusy" @click="runModelOperation(record, 'verify_model_config')">{{ $t('clientModelConfig.verify') }}</a-menu-item>
+                    <a-menu-item v-if="record.capabilities?.model_config_state?.change_id" key="restore" :disabled="!!modelOperationBusy || !record.capabilities?.model_config_state?.can_restore" @click="runModelOperation(record, 'restore_model_config')">{{ $t('clientModelConfig.restore') }}</a-menu-item>
+                    </a-menu></template>
+                  </a-dropdown>
+                  <a-spin v-if="modelOperationBusy?.startsWith(record.local_agent_id + ':')" size="small" />
 
                 </a-space>
               </template>
@@ -147,7 +146,9 @@
               </a-table>
             </template>
           </a-table>
+              </template>
 
+          <template v-if="inventoryView === 'recovery'">
           <div class="section-title">{{ $t('clientGovernance.recoveryCopies') }}</div>
           <a-table :columns="recoveryColumns" :data-source="detail.recovery || []" row-key="id" size="small" :pagination="{ pageSize: 6 }" :scroll="{ x: 650 }">
             <template #bodyCell="{ column, record }">
@@ -157,8 +158,10 @@
             </template>
           </a-table>
 
-          <div class="section-title">{{ $t("legacy.uiriue") }}</div>
-          <a-table :columns="taskColumns" :data-source="detail.tasks || []" row-key="id" size="small" :pagination="{ pageSize: 6 }">
+          </template>
+          <template v-if="inventoryView === 'tasks'">
+          <div class="section-title">{{ $t("agentRuntimeGovernance.detail.skillTasks") }}</div>
+          <a-table :columns="taskColumns" :data-source="skillTasks" row-key="id" size="small" :pagination="{ pageSize: 6 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">
                 <strong>{{ taskLabel(record) }}</strong>
@@ -177,13 +180,16 @@
               </template>
             </template>
           </a-table>
+          </template>
 
-          <div class="section-title">{{ $t("legacy.1hnc5z3") }}</div>
+          <template v-if="inventoryView === 'history'">
+          <div class="section-title">{{ $t("agentRuntimeGovernance.detail.skillEvents") }}</div>
           <a-spin :spinning="eventsLoading">
           <a-timeline v-if="detail.events?.length">
             <a-timeline-item v-for="event in detail.events" :key="event.id" :color="eventColor(event)">
               <strong>{{ eventLabel(event.event_type) }}</strong>
               <span v-if="event.skill_name"> · {{ event.skill_name }}</span>
+              <div v-if="event.event_type === 'aidr_skill_alert'" class="muted">{{ $t('aidr.skillUse.' + event.details.behavior) }} · {{ $t('aidr.skillUse.' + event.details.stage) }} · {{ $t('aidr.skillUse.' + event.details.reason_code) }}<span v-if="event.details.active === false"> · {{ $t('aidr.skillUse.inactiveAlert') }}</span></div>
               <div class="muted">{{ formatTime(event.created_at) }}</div>
               <div v-if="event.details?.trigger" class="muted">{{ governanceEventValue(event.details.trigger) }} · {{ governanceEventValue(event.details.action) }}</div>
               <div v-if="event.observation_count > 1" class="muted">{{ $t('clientGovernance.observations', { count: event.observation_count }) }} · {{ $t('clientGovernance.lastSeen', { time: formatTime(event.last_seen_at) }) }}</div>
@@ -192,10 +198,21 @@
           <a-empty v-else :description="$t('legacy.1fxykwc')" />
           <a-pagination v-if="detail.events_total" class="event-more" :current="detail.event_page" :page-size="detail.event_page_size" :total="detail.events_total" :show-size-changer="false" :disabled="eventsLoading" @change="changeEventPage" />
           </a-spin>
+          </template>
+            </a-tab-pane>
+            <a-tab-pane key="plugins" :tab="$t('agentRuntimeGovernance.tabs.plugins')"><ClientRuntimeGovernance :client-id="detail.client_id" @collection="navigateDetail('collection')" @policy="navigateDetail('control')" @events="openHookEvents" /></a-tab-pane>
+            <a-tab-pane key="audit" :tab="$t('agentRuntimeGovernance.tabs.audit')"><ClientBehaviorAudit v-model:view="auditView" :client-id="detail.client_id" :activity-request="activityRequest" @policy="openClassification(detail.client_id)" @plugins="runtimeTab = 'plugins'" /></a-tab-pane>
+            <a-tab-pane key="control" :tab="$t('agentRuntimeGovernance.detail.control')">
+              <ClientPolicyWorkbench :key="detail.client_id" v-model="controlView" :client-id="detail.client_id" @configure="tab => openClassification(detail.client_id, tab)" />
+            </a-tab-pane>
+          </a-tabs>
         </template>
       </a-spin>
     </a-drawer>
 
+    <a-drawer v-model:open="globalToolPolicyOpen" :title="$t('aidr.hooks.scope.title')" width="min(1100px, 100vw)" :destroy-on-close="true">
+      <ClientHookPanel v-if="globalToolPolicyOpen" global />
+    </a-drawer>
     <a-modal v-model:open="installVisible" :title="$t('legacy.1mz4184')" :ok-text="$t('legacy.zerco7')" @ok="createInstall" :confirm-loading="submitting">
       <a-form layout="vertical">
         <a-form-item :label="$t('legacy.5v4zar')">
@@ -299,13 +316,18 @@
       </a-steps>
     </a-modal>
   </div>
-    <ClientGovernancePolicy v-model:open="classificationOpen" :client-id="classificationClientId" @saved="loadClients(); detailVisible && refreshDetail()" />
+    <ClientGovernancePolicy v-model:open="classificationOpen" :client-id="classificationClientId" :initial-tab="classificationTab" @saved="loadClients(); detailVisible && refreshDetail()" />
 </template>
 
 <script setup>
 import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
 import ClientGovernancePolicy from '../components/ClientGovernancePolicy.vue'
+import ClientPolicyWorkbench from '../components/ClientPolicyWorkbench.vue'
+import ClientBehaviorAudit from '../components/ClientBehaviorAudit.vue'
+import ClientDeviceOverview from '../components/ClientDeviceOverview.vue'
+import ClientRuntimeGovernance from '../components/ClientRuntimeGovernance.vue'
+import ClientHookPanel from '../components/ClientHookPanel.vue'
 import ClientSkillScan from '../components/ClientSkillScan.vue'
 import ClientSkillActions from '../components/ClientSkillActions.vue'
 import {
@@ -317,8 +339,10 @@ import {
 } from '../i18n'
 
 import ClientDiscoveryConfig from '../components/ClientDiscoveryConfig.vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 const discoveryOpen = ref(false)
+const globalToolPolicyOpen = ref(false)
 import { message } from 'ant-design-vue'
 
 import {
@@ -339,12 +363,40 @@ import {
 const loading = ref(false)
 const classificationOpen = ref(false)
 const classificationClientId = ref('')
-const openClassification = clientId => { classificationClientId.value = clientId; classificationOpen.value = true }
+const classificationTab = ref('integration')
+const route = useRoute(), router = useRouter()
+const openClassification = (clientId, tab = 'integration') => { classificationClientId.value = clientId; classificationTab.value = tab; classificationOpen.value = true }
+watch(() => [route.query.policy, route.query.client], ([value, clientId]) => {
+  if (value !== 'audit' || !hasAccess('settings:view')) return
+  openClassification(typeof clientId === 'string' ? clientId : '', 'audit')
+  const query = { ...route.query }; delete query.policy; delete query.client
+  router.replace({ query })
+}, { immediate: true })
 const detailLoading = ref(false)
 const submitting = ref(false)
 const eventsLoading = ref(false)
 let eventSequence = 0
 const detailVisible = ref(false)
+const runtimeTab = ref('overview')
+const inventoryView = ref('inventory'), inventoryType = ref('agents')
+const auditView = ref('tools'), controlView = ref('tools')
+const activityRequest = ref(null)
+const openAuditActivity = request => {
+  activityRequest.value = { clientId: detail.value.client_id, ...request }
+  auditView.value = request.source === 'logs' ? 'tools' : 'hooks'; runtimeTab.value = 'audit'
+}
+const openHookEvents = agent => {
+  activityRequest.value = { clientId: detail.value.client_id, agent }
+  auditView.value = 'hooks'; runtimeTab.value = 'audit'
+}
+const fixedDetailActive = computed(() => ['audit', 'plugins'].includes(runtimeTab.value))
+const navigateDetail = target => {
+  auditView.value = target === 'collection' ? 'collection' : target === 'systemEvents' ? 'system' : 'tools'
+  if (target === 'skillTasks') inventoryView.value = 'tasks'
+  if (target === 'systemControl') controlView.value = 'system'
+  runtimeTab.value = ['collection', 'systemEvents'].includes(target) ? 'audit' : target === 'systemControl' ? 'control' : target === 'skillTasks' ? 'skills' : target
+}
+const skillTasks = computed(() => (detail.value?.tasks || []).filter(task => task.task_type !== 'aidr_plugin_action'))
 const installVisible = ref(false)
 const modelConfigVisible = ref(false)
 const modelConfigSubmitting = ref(false)
@@ -357,6 +409,7 @@ const skills = ref([])
 const skillsLoading = ref(false)
 const targetInstalledSkills = ref([])
 const detail = ref(null)
+const overviewPanel = ref(null)
 const taskOperations = reactive(new Set())
 let detailSequence = 0
 const recoveryColumns = computed(() => [
@@ -422,12 +475,15 @@ const columns = [
   { title: phrase('legacy.501w24'), key: 'action', width: 80 },
 ]
 const agentColumns = [
-  { title: phrase('legacy.tus94r'), key: 'type' },
-  { title: phrase('legacy.uwo0jt'), key: 'capability', width: 150 },
-  { title: i18n.global.t('clientModelConfig.model'), key: 'model', width: 160 },
+  { title: 'Agent', key: 'type' },
+  { title: i18n.global.t('clientModelConfig.model'), key: 'model', width: 230 },
   { title: 'Skill', key: 'skills', width: 70 },
-  { title: phrase('legacy.501w24'), key: 'action', width: 150, fixed: 'right' },
+  { title: phrase('legacy.501w24'), key: 'action', width: 170, fixed: 'right' },
 ]
+const visibleAgentColumns = computed(() => agentColumns
+  .filter(column => inventoryType.value !== 'shared' || column.key !== 'model')
+  .map(column => column.key === 'type' && inventoryType.value === 'shared' ? { ...column, title: i18n.global.t('clientDetail.shared') } : column))
+const inventoryAgents = computed(() => (detail.value?.agents || []).filter(agent => isSharedSkillsRecord(agent) === (inventoryType.value === 'shared')))
 const skillColumns = [
   { title: 'Skill', key: 'name' },
   { title: phrase('legacy.1ccx4t4'), key: 'status', width: 240 },
@@ -504,6 +560,8 @@ const loadClients = async () => {
   }
 }
 const openDetail = async (record) => {
+  inventoryView.value = 'inventory'; inventoryType.value = 'agents'
+  runtimeTab.value = 'overview'; auditView.value = 'tools'; controlView.value = 'tools'
   const sequence = ++detailSequence
   ++eventSequence
   eventsLoading.value = false
@@ -533,6 +591,7 @@ const refreshDetail = async () => {
   detail.value = result
   currentPolicy.value = detail.value.policy_mode || 'audit'
   currentGovernance.value = detail.value.governance_mode || 'registry'
+  await overviewPanel.value?.refresh()
 }
 const changeEventPage = async page => {
   const clientId = detail.value?.client_id
@@ -772,11 +831,14 @@ const formatBytes = value => {
 }
 const managedAgentDefaultModel = record => agents.value.find(agent => agent.agent_id === record.managed_agent_id)?.default_model || ''
 const modelConfigStatusLabel = value => i18n.global.t(`clientModelConfig.status.${value}`)
-const taskCannotCancel = task => task.status === 'running' && ['skill_action', 'remove_skill', 'install_skill', 'repair_skill', 'apply_model_config', 'verify_model_config', 'restore_model_config'].includes(task.task_type)
+const taskCannotCancel = task => task.status === 'running' && ['aidr_plugin_action', 'skill_action', 'remove_skill', 'install_skill', 'repair_skill', 'apply_model_config', 'verify_model_config', 'restore_model_config'].includes(task.task_type)
 const modelErrorLabel = value => {
   if (!value) return '-'
   const code = String(value).match(/^model_config\.([a-z_]+)/)?.[1]
-  if (!code) return value
+  if (!code) {
+    const runtimeKey = `agentRuntimeGovernance.codes.${value}`
+    return i18n.global.te(runtimeKey) ? `${i18n.global.t(runtimeKey)} (${value})` : i18n.global.t('clientGovernance.errorDetail', { error: String(value) })
+  }
   const key = `clientModelConfig.errors.${code}`
   return `${i18n.global.t(i18n.global.te(key) ? key : 'clientModelConfig.errors.fallback')} (${value})`
 }
@@ -808,7 +870,7 @@ const eventLabel = value => ['skill_governance_recorded', 'skill_governance_dete
   : translateDomain('auditEvent', value, value)
 const governanceEventValue = value => i18n.global.te(`clientGovernance.${value}`) ? i18n.global.t(`clientGovernance.${value}`) : value || '-'
 const eventColor = event => event.details?.action === 'record_only' ? 'default' : event.details?.trigger === 'malicious' || event.details?.status === 'failed' || ['skill_blocked', 'skill_quarantined'].includes(event.event_type)
-  ? 'red' : ['skill_modified', 'skill_governance_detected'].includes(event.event_type) ? 'orange' : 'green'
+  ? 'red' : ['skill_modified', 'skill_governance_detected', 'aidr_skill_alert'].includes(event.event_type) ? 'orange' : 'green'
 const taskLabel = task => {
   if (task.task_type === 'skill_action') return governanceEventValue(task.payload?.action)
   if (task.task_type === 'rescan' && task.payload?.reason === 'policy_changed') return phrase('legacy.q9utgp')
@@ -818,6 +880,14 @@ const taskStatusLabel = (value, task) => task?.task_type === 'sync_policy' && ta
   ? i18n.global.t('clientGovernance.superseded') : task?.task_type === 'sync_policy' && value === 'succeeded'
     ? i18n.global.t('clientGovernance.policyApplied') : translateDomain('taskStatus', value, value)
 const taskColor = value => ({ pending: 'default', running: 'blue', succeeded: 'green', failed: 'red', cancelled: 'default' }[value] || 'default')
+
+watch(() => [route.query.client, route.query.section], async ([clientId, section]) => {
+  if (typeof clientId !== 'string' || !hasAccess('clients:view') || !['overview', 'control', 'audit', 'plugins', 'skills'].includes(section)) return
+  try {
+    await openDetail({ client_id: clientId })
+    if (route.query.client === clientId && detail.value?.client_id === clientId) runtimeTab.value = section
+  } catch { message.error(i18n.global.t('agentWorkspace.readFailed')) }
+}, { immediate: true })
 
 onMounted(async () => {
   const [agentRows, downloads, tokenRows, models] = await Promise.all([
@@ -871,9 +941,35 @@ onMounted(async () => {
   gap: 16px;
 }
 .detail-head > :first-child { min-width: 0; overflow-wrap: anywhere; }
+.session-audit-layout { flex: 1; min-height: 0; }
+.session-audit-layout :deep(.ant-spin-container) { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.session-audit-layout .detail-head { flex-shrink: 0; gap: 8px; }
+.session-audit-layout .detail-head > :first-child { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.session-audit-layout .detail-title { font-size: 17px; }
+.session-audit-layout .device-info { margin: 0; font-size: 12px; }
+.session-audit-layout .device-status-line { flex-shrink: 0; margin: 4px 0; font-size: 12px; }
+.session-audit-layout .device-runtime-tabs { flex: 1; min-height: 0; }
+.session-audit-layout .device-runtime-tabs :deep(.ant-tabs-nav) { flex-shrink: 0; margin-bottom: 8px; }
+.session-audit-layout .device-runtime-tabs :deep(.ant-tabs-tab) { padding-top: 8px; padding-bottom: 8px; }
+.session-audit-layout .device-runtime-tabs :deep(.ant-tabs-content-holder),
+.session-audit-layout .device-runtime-tabs :deep(.ant-tabs-content),
+.session-audit-layout .device-runtime-tabs :deep(.ant-tabs-tabpane-active) { height: 100%; min-height: 0; }
 .agent-skill-table { width: min(984px, calc(100vw - 96px)); max-width: 100%; }
 .agent-skill-table :deep(td) { overflow-wrap: anywhere; }
 .local-agents-table :deep(.ant-tag) { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.local-agents-table :deep(.ant-space-vertical), .local-agents-table :deep(.ant-space-item) { max-width: 100%; }
+.local-agents-table :deep(.ant-btn-link) { max-width: 100%; height: auto; white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.skill-policy-controls > label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 100%; }
+.inventory-navigation { margin: 12px 0; }
+.inventory-navigation { display: flex; flex-wrap: wrap; }
+.inventory-navigation :deep(.ant-radio-button-wrapper), .skill-policy-controls :deep(.ant-radio-button-wrapper) { height: auto; white-space: normal; }
+.governance-select { width: 270px; max-width: 100%; }
+.device-status-line { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; color: #627480; }
+.device-info { margin-top: 6px; color: #627480; overflow-wrap: anywhere; }
+.detail-panel-heading, .skill-policy-controls { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; margin: 16px 0; }
+.detail-panel-heading p { margin: 0; flex: 1; color: #627480; }
+.detail-view-switch { display: flex; flex-wrap: wrap; margin: 16px 0; }
+.detail-view-switch :deep(.ant-radio-button-wrapper) { height: auto; white-space: normal; }
 .detail-title {
   color: #16324f;
   font-size: 20px;

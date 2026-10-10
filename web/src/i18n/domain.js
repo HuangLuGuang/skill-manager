@@ -30,6 +30,7 @@ export const domainMessages = {
       cancelled: '已取消',
     },
     taskType: {
+      aidr_plugin_action: 'Agent 运行治理接入',
       install_skill: '安装 Skill',
       remove_skill: '移除 Skill',
       repair_skill: '恢复可信版本',
@@ -96,6 +97,7 @@ export const domainMessages = {
       unmanaged_skill_verified: '校验未受管 Skill',
       skill_modified: '发现 Skill 修改',
       skill_repaired: '恢复批准版本',
+      aidr_skill_alert: 'Skill 使用审计告警',
       skill_blocked: '阻止异常 Skill',
       skill_quarantined: '隔离 Skill',
       skill_quarantine_restored: '恢复隔离 Skill',
@@ -134,6 +136,7 @@ export const domainMessages = {
       cancelled: 'Cancelled',
     },
     taskType: {
+      aidr_plugin_action: 'Agent runtime governance access',
       install_skill: 'Install Skill',
       remove_skill: 'Remove Skill',
       repair_skill: 'Restore Trusted Version',
@@ -200,6 +203,7 @@ export const domainMessages = {
       unmanaged_skill_verified: 'Unmanaged Skill Verified',
       skill_modified: 'Skill Modification Detected',
       skill_repaired: 'Approved Version Restored',
+      aidr_skill_alert: 'Skill use audit alert',
       skill_blocked: 'Abnormal Skill Blocked',
       skill_quarantined: 'Skill Quarantined',
       skill_quarantine_restored: 'Quarantined Skill Restored',

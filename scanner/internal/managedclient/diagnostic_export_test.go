@@ -23,7 +23,7 @@ func TestDiagnosticExportOfflineIncludesEvidenceNotCredentials(t *testing.T) {
 	store.SetState("policy", `{"mode":"audit","release_public_key":"public","token":"TOPSECRET"}`)
 	store.SaveTask(Task{ID: 21, TaskType: "apply_model_config", Payload: map[string]any{"api_key": "PRIVATEKEY"}}, "failed", "connection_failed")
 	store.LogDiagnostic("warning", "test", "failed", map[string]any{"password": "SECRETPASSWORD", "task_id": 21, "error": "request rejected UNLABELED-CREDENTIAL and SAVED-UNLABELED-CREDENTIAL"})
-	store.QueueEvent(QueuedEvent{ClientID: "offline-client", EventType: "skill_quarantined", Details: map[string]any{"signature": "signed-content", "token": "OFFLINESECRET"}})
+	store.QueueEvent(QueuedEvent{CreatedAt: "2026-09-12T12:34:56.789Z", ClientID: "offline-client", EventType: "skill_quarantined", Details: map[string]any{"signature": "signed-content", "token": "OFFLINESECRET"}})
 	_, err = store.db.Exec(`UPDATE client_events_queue SET created_at = ?`, "2026-09-12T12:34:56.789Z")
 	if err != nil {
 		t.Fatal(err)

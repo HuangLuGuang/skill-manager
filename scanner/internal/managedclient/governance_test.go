@@ -93,20 +93,24 @@ func TestDefaultRecordsWithoutMovingSkillsAndReportsObservationCounts(t *testing
 				if strings.HasSuffix(r.URL.Path, "/events") {
 					events++
 					var event struct {
-						Count   int            `json:"observation_count"`
-						Details map[string]any `json:"details"`
+						DeliveryID string         `json:"delivery_id"`
+						Count      int            `json:"observation_count"`
+						Details    map[string]any `json:"details"`
 					}
 					if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
 						t.Error(err)
 					}
 					counts = append(counts, event.Count)
 					keys[event.Details["event_key"].(string)] = true
+					json.NewEncoder(w).Encode(map[string]any{"ok": true, "event_id": events, "delivery_id": event.DeliveryID, "durable": true})
+					return
 				}
 				w.Write([]byte(`{}`))
 			}))
 			defer server.Close()
 			api := NewAPI(server.URL, "token", time.Second)
-			policy := Policy{Classification: DefaultClassificationPolicy()}
+			policy := Policy{Classification: DefaultClassificationPolicy(), OrdinaryEventsProtocol: 1}
+			store.SetState("policy", `{"ordinary_events_protocol":1}`)
 			for i := 0; i < 2; i++ {
 				if err := patrol(context.Background(), home, inventory, policy, api, store, true, true); err != nil {
 					t.Fatal(err)
@@ -127,6 +131,9 @@ func TestDefaultRecordsWithoutMovingSkillsAndReportsObservationCounts(t *testing
 			skill.Signature += "-changed"
 			inventory.Agents[0].Skills[0].Signature = skill.Signature
 			if err := patrol(context.Background(), home, inventory, policy, api, store, true, true); err != nil {
+				t.Fatal(err)
+			}
+			if err := flushEvents(context.Background(), api, store); err != nil {
 				t.Fatal(err)
 			}
 			if events != 3 || len(keys) != 2 || counts[0] != 1 || counts[1] != 2 || counts[2] != 1 {
