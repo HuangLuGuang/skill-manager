@@ -153,7 +153,7 @@
           <div class="basic-field">
             <dt>{{ $t('skillDetail.sandboxRuntime') }}</dt>
             <dd>
-              {{ sandboxRuntimeLabel }}
+              <SandboxDebugHelp field="runtime" :value="sandboxRuntime" />
             </dd>
           </div>
           <div class="basic-field sandbox-target-field">
@@ -444,8 +444,8 @@
                       <a-collapse-panel key="sandbox-debug" :header="$t('legacy.enkq9u')">
                         <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered>
                           <a-descriptions-item :label="$t('legacy.2xyc8z')">{{ sandboxAnalysis.executed ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
-                          <a-descriptions-item :label="$t('skillDetail.sandboxRuntime')">{{ sandboxRuntimeLabel }}</a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.1dltjhr')">
+                          <a-descriptions-item><template #label><SandboxDebugHelp field="runtime" :value="sandboxRuntime" label>{{ $t('skillDetail.sandboxRuntime') }}</SandboxDebugHelp></template><SandboxDebugHelp field="runtime" :value="sandboxRuntime" /></a-descriptions-item>
+                          <a-descriptions-item><template #label><SandboxDebugHelp field="entrypoint" :value="sandboxAnalysis.entrypoint" label>{{ $t('legacy.1dltjhr') }}</SandboxDebugHelp></template>
                             <a-button
                               v-if="sandboxAnalysis.entrypoint"
                               type="link"
@@ -454,19 +454,25 @@
                             >
                               {{ sandboxAnalysis.entrypoint }}
                             </a-button>
-                            <span v-else>-</span>
+                            <SandboxDebugHelp v-else field="entrypoint" />
                           </a-descriptions-item>
-                          <a-descriptions-item :label="sandboxTargetLabel">
-                            {{ sandboxTarget }}
+                          <a-descriptions-item><template #label><SandboxDebugHelp field="target" :value="sandboxTarget" label>{{ sandboxTargetLabel }}</SandboxDebugHelp></template>
+                            <SandboxDebugHelp field="target" :value="sandboxTarget" />
                           </a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.1abimny')">{{ sandboxAnalysis.probe_strategy || '-' }}</a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.hvs01l')">
-                            {{ Array.isArray(sandboxAnalysis.probe_args) && sandboxAnalysis.probe_args.length ? sandboxAnalysis.probe_args.join(' ') : '-' }}
+                          <a-descriptions-item>
+                            <template #label><SandboxDebugHelp field="strategy" label>{{ $t('legacy.1abimny') }}</SandboxDebugHelp></template>
+                            <SandboxDebugHelp field="strategy" :value="sandboxAnalysis.probe_strategy || '-'" /></a-descriptions-item>
+                          <a-descriptions-item>
+                            <template #label><SandboxDebugHelp field="args" :value="sandboxAnalysis.probe_args" label>{{ $t('legacy.hvs01l') }}</SandboxDebugHelp></template>
+
+                            <SandboxDebugHelp field="args" :value="Array.isArray(sandboxAnalysis.probe_args) && sandboxAnalysis.probe_args.length ? sandboxAnalysis.probe_args.join(' ') : '-'" />
                           </a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.1cjrdy2')">{{ sandboxAnalysis.exit_code ?? '-' }}</a-descriptions-item>
+                          <a-descriptions-item>
+                            <template #label><SandboxDebugHelp field="exit" label>{{ $t('legacy.1cjrdy2') }}</SandboxDebugHelp></template>
+                            <SandboxDebugHelp field="exit" :value="sandboxAnalysis.exit_code ?? '-'" /></a-descriptions-item>
                           <a-descriptions-item :label="$t('legacy.181sskz')">{{ sandboxAnalysis.timed_out ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ sandboxAnalysis.duration_ms ?? '-' }} ms</a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ sandboxAnalysis.network_attempts ?? 0 }}</a-descriptions-item>
+                          <a-descriptions-item><template #label><SandboxDebugHelp field="duration" :value="sandboxAnalysis.duration_ms" label>{{ $t('legacy.12sj4tc') }}</SandboxDebugHelp></template><SandboxDebugHelp field="duration" :value="sandboxAnalysis.duration_ms ?? '-'" /> ms</a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ $t('skillDetail.networkAttempts', { count: sandboxAnalysis.network_attempts ?? 0 }) }}</a-descriptions-item>
                           <a-descriptions-item v-if="sandboxAnalysis.reason" :label="$t('legacy.1mi4vdj')" :span="2">
                             {{ platformResultText(sandboxAnalysis.reason) }}
                           </a-descriptions-item>
@@ -515,11 +521,15 @@
                           :pagination="false"
                         >
                           <template #title> {{ $t("legacy.yq0ehw") }} </template>
+                          <template #headerCell="{ column }">
+                            <SandboxDebugHelp v-if="sandboxHeaderHelp(column.key)" :field="sandboxHeaderHelp(column.key)" label>{{ column.title }}</SandboxDebugHelp>
+                            <span v-else-if="column.key">{{ column.title }}</span>
+                          </template>
                           <template #bodyCell="{ column, record }">
                             <template v-if="column.key === 'probe'">
                               <a-space direction="vertical" size="small">
-                                <strong>{{ record.probe_name }}</strong>
-                                <span class="muted">{{ record.probe_description || '-' }}</span>
+                                <strong><SandboxDebugHelp field="probe" :value="record.probe_name" /></strong>
+                                <span class="muted"><SandboxDebugHelp field="description" :value="record.probe_description || '-'" /></span>
                               </a-space>
                             </template>
                             <template v-else-if="column.key === 'entrypoint'">
@@ -531,13 +541,16 @@
                               >
                                 {{ record.probe_entrypoint }}
                               </a-button>
-                              <span v-else>-</span>
+                              <SandboxDebugHelp v-else field="entrypoint" />
                             </template>
                             <template v-else-if="column.key === 'command'">
-                              <code class="inline-command">{{ formatSandboxCommand(record) }}</code>
+                              <code class="inline-command"><SandboxDebugHelp field="command" :value="formatSandboxCommand(record)" /></code>
                             </template>
                             <template v-else-if="column.key === 'exit_code'">
-                              <a-tag :color="record.exit_code === 0 ? 'green' : 'orange'">{{ record.exit_code ?? '-' }}</a-tag>
+                              <a-tag :color="record.exit_code === 0 ? 'green' : 'orange'"><SandboxDebugHelp field="exit" :value="record.exit_code ?? '-'" /></a-tag>
+                            </template>
+                            <template v-else-if="column.key === 'duration_ms'">
+                              <SandboxDebugHelp field="duration" :value="record.duration_ms" /> ms
                             </template>
                             <template v-else-if="column.key === 'timeout'">
                               <a-tag :color="record.timed_out ? 'red' : 'green'">{{ record.timed_out ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-tag>
@@ -550,13 +563,15 @@
                           </template>
                           <template #expandedRowRender="{ record }">
                         <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered>
-                          <a-descriptions-item :label="$t('legacy.54f4h3')" :span="2">
-                            <pre class="command-block">{{ formatSandboxCommand(record) }}</pre>
+                          <a-descriptions-item :span="2"><template #label><SandboxDebugHelp field="command" :value="formatSandboxCommand(record)" label>{{ $t('legacy.54f4h3') }}</SandboxDebugHelp></template>
+                            <pre class="command-block"><SandboxDebugHelp field="command" :value="formatSandboxCommand(record)" /></pre>
                           </a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.c8d7bb')">{{ record.probe_generated_by || '-' }}</a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.1sdwzrx')">{{ record.runtime || sandboxAnalysis.runtime || '-' }}</a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ record.duration_ms ?? '-' }} ms</a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ record.network_attempts ?? 0 }}</a-descriptions-item>
+                          <a-descriptions-item>
+                            <template #label><SandboxDebugHelp field="source" label>{{ $t('legacy.c8d7bb') }}</SandboxDebugHelp></template>
+                            <SandboxDebugHelp field="source" :value="record.probe_generated_by || '-'" /></a-descriptions-item>
+                          <a-descriptions-item><template #label><SandboxDebugHelp field="runtime" :value="record.runtime || sandboxAnalysis.runtime" label>{{ $t('legacy.1sdwzrx') }}</SandboxDebugHelp></template><SandboxDebugHelp field="runtime" :value="record.runtime || sandboxAnalysis.runtime || '-'" /></a-descriptions-item>
+                          <a-descriptions-item><template #label><SandboxDebugHelp field="duration" :value="record.duration_ms" label>{{ $t('legacy.12sj4tc') }}</SandboxDebugHelp></template><SandboxDebugHelp field="duration" :value="record.duration_ms ?? '-'" /> ms</a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ $t('skillDetail.networkAttempts', { count: record.network_attempts ?? 0 }) }}</a-descriptions-item>
                           <a-descriptions-item :label="$t('legacy.1suldox')" :span="2">
                             {{ sandboxProbeResultText(record) }}
                           </a-descriptions-item>
@@ -1093,6 +1108,7 @@ import { analysisState } from '../utils/decisionFlow'
 import { translateDomain } from '../i18n'
 import { useLocaleText } from '../i18n/useLocaleText'
 import AttackChainGraph from '../components/AttackChainGraph.vue'
+import SandboxDebugHelp from '../components/SandboxDebugHelp.vue'
 
 const { isEnglish, phrase, text, t } = useLocaleText()
 const route = useRoute()
@@ -1434,6 +1450,15 @@ const openScanRuns = async (record) => {
   } finally {
     loadingScanRuns.value = false
   }
+}
+
+const sandboxHeaderHelp = (key) => {
+  if (key === 'probe') return 'probe'
+  if (key === 'exit_code') return 'exit'
+  if (key === 'entrypoint' && sandboxProbeResults.value.some(record => !record.probe_entrypoint)) return 'entrypoint'
+  if (key === 'command' && sandboxProbeResults.value.some(record => formatSandboxCommand(record) === '-')) return 'command'
+  if (key === 'duration_ms' && sandboxProbeResults.value.some(record => record.duration_ms == null)) return 'duration'
+  return ''
 }
 
 const sandboxProbeColumns = computed(() => [
@@ -2126,10 +2151,6 @@ const analyzerNames = computed(() => (detail.value?.vetting?.analyzers_used || [
   name.startsWith('sandbox:') && ['remote', 'docker'].includes(sandboxRuntime.value)
     ? `sandbox:${sandboxRuntime.value}` : name,
 ))
-const sandboxRuntimeLabel = computed(() => {
-  const runtime = sandboxRuntime.value
-  return ['remote', 'docker'].includes(runtime) ? t(`skillDetail.${runtime}`) : runtime || t('decisionFlow.unrecorded')
-})
 const sandboxTargetLabel = computed(() => t(sandboxRuntime.value === 'remote'
   ? 'skillDetail.sandboxService' : sandboxRuntime.value === 'docker' ? 'skillDetail.sandboxImage' : 'skillDetail.sandboxTarget'))
 const sandboxTarget = computed(() => {
