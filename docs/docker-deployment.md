@@ -358,7 +358,7 @@ MCP Scan vendored source；任一未登记文件变化都会使镜像构建失�
 ./package-release.sh -v v1.0.0 -p linux/amd64 -i /path/to/docker-installer-28.5.2-x86-arm.tar.gz -c /path/to/client-releases
 
 # ARM
-./package-release.sh -v v1.0.0 -p linux/arm64 -i /path/to/docker-installer-28.5.2-x86-arm.tar.gz -c /path/to/client-releases
+./package-release.sh -v v1.0.0_arm -p linux/arm64 -i /path/to/docker-installer-28.5.2-x86-arm.tar.gz -c /path/to/client-releases
 ```
 
 输出：
@@ -368,11 +368,19 @@ agent-manager_v1.0.0_x86.tar.gz
 agent-manager_v1.0.0_arm.tar.gz
 ```
 
-安装包内包含：
+每个安装包只包含所选服务器架构的镜像，按以下部署清单组包：
 
 ```text
-docker_images/x86/agent-manager-images-v1.0.0.tar.xz
-docker_images/arm/agent-manager-images-v1.0.0.tar.xz
+docker-compose.yaml
+.env.example
+start.sh
+upgrade.sh
+deploy/offline.py
+deploy/nginx/default.conf
+release-provenance.json
+docs/offline-deployment.md
+docs/docker-deployment.md
+docker_images/<x86 或 arm>/agent-manager-images-<tag>.tar.xz
 installers/docker-installer-28.5.2-x86-arm.tar.gz
 scanner/releases/agent-manager-client-26.03.15.1-darwin-aarch64.dmg
 scanner/releases/agent-manager-client-26.03.15.1-darwin-x86_64.dmg
@@ -380,34 +388,61 @@ scanner/releases/agent-manager-client-26.03.15.1-windows-x86_64.exe
 scanner/releases/agent-manager-client-26.03.15.1-linux-x86_64.AppImage
 ```
 
+仓库源码树、测试、构建脚本和开发工具不进入安装包；容器镜像保留应用运行所需的程序。
+打包时将 Compose 的应用镜像引用写为实际发布版本；源码仓库内的 `latest` 开发默认值保持原样。
+现场通过 `./start.sh` 自动加载镜像、初始化缺失的签名密钥、启动并检查服务；
+默认 HTTP 端口为 80；`./start.sh --port 8088` 将端口写入 `.env` 的 `HTTP_PORT`，
+以后启动和升级都会沿用，访问地址为 `http://<服务器IP>:8088`。
+`./upgrade.sh /path/to/package.tar.gz` 自动解压、备份并更新部署文件、加载镜像、重建并检查服务。
+脚本使用 Bash、Python 3 标准库和 Docker Compose，保留现场 `.env` 和数据卷。
+启动和升级会检查 Docker 命令、服务连接与访问权限，优先选择可用的 `docker compose`，
+否则尝试 `docker-compose`；需支持健康等待、JSON 配置输出及当前编排格式，旧版 Compose v1 需更新。
+缺少程序、服务不可达、权限不足或版本不兼容时给出明确提示；处理步骤见现场实施指南的“部署前检查”。
+升级备份仅覆盖部署文件，业务数据需另行备份；操作步骤见 [现场实施指南](offline-deployment.md)。
+`--source-dir .` 可用当前工作区构建诊断包，正式 CI 发布使用干净的 Git clone；诊断包不能替代正式发布验证。
+
 Docker Compose 已将宿主机 `scanner/releases` 只读挂载到后端。部署完成后，管理员可在“客户端管理 → 安装客户端”按系统和版本下载；新增版本只需把新的 release 文件复制到该目录，无需重建镜像。
 
 ## 自动部署与离线发布
 
-内部 GitLab Runner 使用 `agent-manager-release` 标签，流水线分为两个独立任务：
+内部 GitLab Runner 使用 `agent-manager-release` 标签，所有任务共用 `production-35` 资源锁：
 
-- 快速部署任务：只构建 x86 镜像、更新 Compose 并执行健康检查。代码合并并推送到 `dev` 时自动执行，镜像版本为 `dev-提交短哈希`。
-- `offline-package`：推送正式版本标签时，在快速部署成功后自动生成 x86、ARM 离线包。
-  x86 包完成 provenance、镜像和安全 Worker 校验后立即上传 S3，并发送企业微信通知；ARM 包
-  完成同样校验后再上传并通知，最后发送双架构全部完成通知。上传前会分别验证两个包中的
-  `release-provenance.json`，要求版本等于 tag、Commit 等于流水线 Commit、架构匹配，并且来自
-  干净的 `git_clone`；任一不一致都会阻止对应架构发布。
+| 推送内容 | 执行任务 | 输出 |
+| --- | --- | --- |
+| `dev` 分支 | `deploy-35` 构建 x86、更新 Compose、健康检查 | 35 部署，镜像版本 `dev-提交短哈希` |
+| `1.0.6` 或 `v1.0.6` | `deploy-35` 成功后执行 `offline-package` | 仅 x86 包 |
+| `1.0.6_arm` 或 `v1.0.6_arm` | `offline-package-arm` | 仅 ARM 包 |
+
+从已验证的 `dev` 提交分别创建所需 tag，例如：
 
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
+# x86 发布
+git tag 1.0.6
+git push origin 1.0.6
+
+# 需要 ARM 时单独发布
+git tag 1.0.6_arm
+git push origin 1.0.6_arm
 ```
 
-标签推送后，发布环境会先完成快速部署，再自动生成并上传客户离线包。
+产物分别为 `/home/ubuntu/releases/agent-manager_1.0.6_x86.tar.gz` 和
+`/home/ubuntu/releases/agent-manager_1.0.6_arm.tar.gz`。带 `v` 前缀时文件名也保留 `v`。
+ARM 包内的镜像 tag、Compose 镜像引用和 provenance 版本均为完整 tag（例如 `1.0.6_arm`），
+压缩包文件名只保留一次 `_arm`。ARM 作业使用独立应用镜像 tag，并在成功或失败退出时恢复
+35 上共享的 `nginx:1.27-alpine` x86 镜像 tag。
 
-发布产物保存在：
+每个包上传前验证 `release-provenance.json` 的版本、流水线 Commit、目标架构及干净的
+`git_clone` 来源，并加载归档中的镜像执行 Worker 和 AIG Scan Service 镜像校验。
+随后上传 S3、检查对象、生成具体文件的预签名下载链接；
+`scripts/publish_release_notification.py` 通过 Range 请求读取文件内容，核对远端大小与本地包一致后发送通知。
+企业微信最终通知使用 Markdown，包含版本、平台、文件名、文件大小、MD5 和独占一行的完整下载链接，方便复制。
+签名有效期最长 7 天；若使用临时 AWS 凭据，
+链接可能随凭据提前失效。下载验证或企业微信返回码异常都会使发布任务失败。
 
-```text
-/home/ubuntu/releases/agent-manager_v1.0.1_arm.tar.gz
-/home/ubuntu/releases/agent-manager_v1.0.1_x86.tar.gz
-```
-
-如需企业微信通知，在 GitLab 项目的 `Settings → CI/CD → Variables` 中添加掩码变量 `WECHAT_WEBHOOK_URL`。只有在 `v*` 发布标签已配置为 Protected tag 时才同时勾选 Protected，否则标签流水线读不到该变量。正式发布标签使用 `v数字.数字.数字` 格式；`client-vYY.MM.DD.N` 仍由 GitHub Actions 构建并同步桌面客户端。
+在 GitLab 项目的 `Settings → CI/CD → Variables` 中配置掩码变量 `WECHAT_WEBHOOK_URL`，
+发布任务必须能够读取它。若变量设置为 Protected，需要同时保护所使用的数字版本 tag 和
+带 `v` 前缀的版本 tag（包括 `_arm`）。Runner 的 AWS 凭据需要具备桶检查、对象上传及读取权限。
+`client-vYY.MM.DD.N` 继续由 GitHub Actions 构建并同步桌面客户端。
 
 内部发布环境的 Docker daemon 使用外网代理拉取基础镜像；GitLab CI 还通过 `BUILD_DOCKER_PROXY` 仅为 Buildx 进程设置 `HTTP_PROXY`/`HTTPS_PROXY`，确保 Docker Hub token 鉴权请求走代理。Backend 的 Debian 与 GitHub 下载分别通过 `BUILD_APT_PROXY`、`BUILD_GIT_PROXY` 使用代理，Python 包通过 `BUILD_PYPI_INDEX` 使用清华源；npm 保持直连。Docker 代理配置位于 `/etc/systemd/system/docker.service.d/http-proxy.conf`；修改后执行 `sudo systemctl daemon-reload && sudo systemctl restart docker`。
 

@@ -97,7 +97,11 @@ if [ "$ARCH" = "unknown" ]; then
     exit 1
 fi
 
-ARCHIVE_NAME="agent-manager_${VERSION}_${ARCH}.tar.gz"
+ARCHIVE_VERSION="$VERSION"
+if [ "$ARCH" = "arm" ]; then
+    ARCHIVE_VERSION="${VERSION%_arm}"
+fi
+ARCHIVE_NAME="agent-manager_${ARCHIVE_VERSION}_${ARCH}.tar.gz"
 ARCHIVE_PATH="${OUTPUT_DIR}/${ARCHIVE_NAME}"
 
 echo ""
@@ -203,15 +207,6 @@ with open("release-provenance.json", "w", encoding="utf-8") as stream:
     stream.write("\n")
 PY
 
-log "Copying docker installer..."
-mkdir -p installers
-cp "$DOCKER_INSTALLER" "installers/docker-installer-28.5.2-x86-arm.tar.gz"
-
-if [ -n "$CLIENT_RELEASES" ]; then
-    log "Copying desktop client releases..."
-    cp -R "$CLIENT_RELEASES"/. scanner/releases/
-fi
-
 if [ "$REUSE_IMAGES" = true ]; then
     log "Saving existing Docker images..."
     bash build.sh -t "$VERSION" -p "$PLATFORM" --save
@@ -227,13 +222,39 @@ if [ -f "$IMAGE_TAR" ] && [ ! -f "$IMAGE_XZ" ]; then
     xz -vf -2 -T 4 "$IMAGE_TAR"
 fi
 
-log "Creating release archive..."
-rm -rf .git
+test -s "$IMAGE_XZ"
+
+log "Staging deployment files..."
 WORK_PARENT="$(dirname "$WORK_DIR")"
 PACKAGE_PARENT="$(mktemp -d "${WORK_PARENT}/agent-manager-package.XXXXXX")"
-mv "$WORK_DIR" "${PACKAGE_PARENT}/agent-manager"
-tar -czf "$ARCHIVE_PATH" -C "$PACKAGE_PARENT" agent-manager
+trap 'rm -rf "$PACKAGE_PARENT"' EXIT
+PACKAGE_DIR="${PACKAGE_PARENT}/agent-manager"
+mkdir -p "$PACKAGE_DIR/$IMAGE_DIR" "$PACKAGE_DIR/installers" \
+    "$PACKAGE_DIR/deploy/nginx" "$PACKAGE_DIR/docs" "$PACKAGE_DIR/scanner/releases"
+cp docker-compose.yaml .env.example release-provenance.json "$PACKAGE_DIR/"
+PACKAGE_COMPOSE="$PACKAGE_DIR/docker-compose.yaml" PACKAGE_VERSION="$VERSION" python3 - <<'PY'
+import os
+from pathlib import Path
+
+compose = Path(os.environ["PACKAGE_COMPOSE"])
+compose.write_text(compose.read_text().replace("${TAG:-latest}", os.environ["PACKAGE_VERSION"]))
+PY
+cp start.sh upgrade.sh "$PACKAGE_DIR/"
+chmod +x "$PACKAGE_DIR/start.sh" "$PACKAGE_DIR/upgrade.sh"
+cp deploy/offline.py "$PACKAGE_DIR/deploy/"
+cp deploy/nginx/default.conf "$PACKAGE_DIR/deploy/nginx/"
+cp docs/offline-deployment.md docs/docker-deployment.md "$PACKAGE_DIR/docs/"
+mv "$IMAGE_XZ" "$PACKAGE_DIR/$IMAGE_DIR/"
+cp "$DOCKER_INSTALLER" "$PACKAGE_DIR/installers/docker-installer-28.5.2-x86-arm.tar.gz"
+if [ -n "$CLIENT_RELEASES" ]; then
+    log "Copying desktop client release feed..."
+    cp -R "$CLIENT_RELEASES"/. "$PACKAGE_DIR/scanner/releases/"
+fi
+
+log "Creating release archive..."
+COPYFILE_DISABLE=1 tar -czf "$ARCHIVE_PATH" -C "$PACKAGE_PARENT" agent-manager
 rm -rf "$PACKAGE_PARENT"
+trap - EXIT
 
 log "Archive created: ${ARCHIVE_PATH}"
 log "Archive size: $(du -h "$ARCHIVE_PATH" | cut -f1)"
