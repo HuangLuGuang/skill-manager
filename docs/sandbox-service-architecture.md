@@ -220,3 +220,10 @@ Agent Manager 需要的只是一个稳定返回结果的 HTTP API，不关心对
    - `sandbox_runtime`
    - `sandbox_analysis.probe_cases`
    - `sandbox_analysis.probe_results`
+
+## Sandbox 调试信息悬浮说明
+
+Skill 详情的调试信息、Probe 列表及展开详情复用 `SandboxDebugHelp.vue`，双语文案位于 `skillDetail.sandboxHelp`。术语与全部取值含义集中在字段名或表头的说明图标；缺失信息的 `-` 也在对应字段说明中解释。运行时显示“远程服务 / 本地 Docker”或英文名称。网络尝试直接显示次数（如 `0次 / 0 attempts`）。
+
+将鼠标移至说明图标或使用键盘聚焦，可查看说明。`cli-help` 表示平台传入 `--help`，让入口脚本显示使用方法和可用参数。退出码说明分为通用、本地 Docker 模式和远程服务模式：0 为正常结束，Docker 125/126/127 分别表示容器启动失败、命令无法执行和命令未找到，其余非零值说明为异常结束。具体原因查看错误输出或 Sandbox 服务日志。Probe 参数说明按报告区分空数组（未附加参数）与字段缺失或 null（未提供参数信息）。
+

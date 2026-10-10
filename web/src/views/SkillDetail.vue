@@ -153,7 +153,7 @@
           <div class="basic-field">
             <dt>{{ $t('skillDetail.sandboxRuntime') }}</dt>
             <dd>
-              {{ sandboxRuntimeLabel }}
+              <SandboxDebugHelp field="runtime" :value="sandboxRuntime" />
             </dd>
           </div>
           <div class="basic-field sandbox-target-field">
@@ -444,8 +444,8 @@
                       <a-collapse-panel key="sandbox-debug" :header="$t('legacy.enkq9u')">
                         <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered>
                           <a-descriptions-item :label="$t('legacy.2xyc8z')">{{ sandboxAnalysis.executed ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
-                          <a-descriptions-item :label="$t('skillDetail.sandboxRuntime')">{{ sandboxRuntimeLabel }}</a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.1dltjhr')">
+                          <a-descriptions-item><template #label><SandboxDebugHelp field="runtime" :value="sandboxRuntime" label>{{ $t('skillDetail.sandboxRuntime') }}</SandboxDebugHelp></template><SandboxDebugHelp field="runtime" :value="sandboxRuntime" /></a-descriptions-item>
+                          <a-descriptions-item><template #label><SandboxDebugHelp field="entrypoint" :value="sandboxAnalysis.entrypoint" label>{{ $t('legacy.1dltjhr') }}</SandboxDebugHelp></template>
                             <a-button
                               v-if="sandboxAnalysis.entrypoint"
                               type="link"
@@ -454,19 +454,25 @@
                             >
                               {{ sandboxAnalysis.entrypoint }}
                             </a-button>
-                            <span v-else>-</span>
+                            <SandboxDebugHelp v-else field="entrypoint" />
                           </a-descriptions-item>
-                          <a-descriptions-item :label="sandboxTargetLabel">
-                            {{ sandboxTarget }}
+                          <a-descriptions-item><template #label><SandboxDebugHelp field="target" :value="sandboxTarget" label>{{ sandboxTargetLabel }}</SandboxDebugHelp></template>
+                            <SandboxDebugHelp field="target" :value="sandboxTarget" />
                           </a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.1abimny')">{{ sandboxAnalysis.probe_strategy || '-' }}</a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.hvs01l')">
-                            {{ Array.isArray(sandboxAnalysis.probe_args) && sandboxAnalysis.probe_args.length ? sandboxAnalysis.probe_args.join(' ') : '-' }}
+                          <a-descriptions-item>
+                            <template #label><SandboxDebugHelp field="strategy" label>{{ $t('legacy.1abimny') }}</SandboxDebugHelp></template>
+                            <SandboxDebugHelp field="strategy" :value="sandboxAnalysis.probe_strategy || '-'" /></a-descriptions-item>
+                          <a-descriptions-item>
+                            <template #label><SandboxDebugHelp field="args" :value="sandboxAnalysis.probe_args" label>{{ $t('legacy.hvs01l') }}</SandboxDebugHelp></template>
+
+                            <SandboxDebugHelp field="args" :value="Array.isArray(sandboxAnalysis.probe_args) && sandboxAnalysis.probe_args.length ? sandboxAnalysis.probe_args.join(' ') : '-'" />
                           </a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.1cjrdy2')">{{ sandboxAnalysis.exit_code ?? '-' }}</a-descriptions-item>
+                          <a-descriptions-item>
+                            <template #label><SandboxDebugHelp field="exit" label>{{ $t('legacy.1cjrdy2') }}</SandboxDebugHelp></template>
+                            <SandboxDebugHelp field="exit" :value="sandboxAnalysis.exit_code ?? '-'" /></a-descriptions-item>
                           <a-descriptions-item :label="$t('legacy.181sskz')">{{ sandboxAnalysis.timed_out ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ sandboxAnalysis.duration_ms ?? '-' }} ms</a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ sandboxAnalysis.network_attempts ?? 0 }}</a-descriptions-item>
+                          <a-descriptions-item><template #label><SandboxDebugHelp field="duration" :value="sandboxAnalysis.duration_ms" label>{{ $t('legacy.12sj4tc') }}</SandboxDebugHelp></template><SandboxDebugHelp field="duration" :value="sandboxAnalysis.duration_ms ?? '-'" /> ms</a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ $t('skillDetail.networkAttempts', { count: sandboxAnalysis.network_attempts ?? 0 }) }}</a-descriptions-item>
                           <a-descriptions-item v-if="sandboxAnalysis.reason" :label="$t('legacy.1mi4vdj')" :span="2">
                             {{ platformResultText(sandboxAnalysis.reason) }}
                           </a-descriptions-item>
@@ -515,11 +521,15 @@
                           :pagination="false"
                         >
                           <template #title> {{ $t("legacy.yq0ehw") }} </template>
+                          <template #headerCell="{ column }">
+                            <SandboxDebugHelp v-if="sandboxHeaderHelp(column.key)" :field="sandboxHeaderHelp(column.key)" label>{{ column.title }}</SandboxDebugHelp>
+                            <span v-else-if="column.key">{{ column.title }}</span>
+                          </template>
                           <template #bodyCell="{ column, record }">
                             <template v-if="column.key === 'probe'">
                               <a-space direction="vertical" size="small">
-                                <strong>{{ record.probe_name }}</strong>
-                                <span class="muted">{{ record.probe_description || '-' }}</span>
+                                <strong><SandboxDebugHelp field="probe" :value="record.probe_name" /></strong>
+                                <span class="muted"><SandboxDebugHelp field="description" :value="record.probe_description || '-'" /></span>
                               </a-space>
                             </template>
                             <template v-else-if="column.key === 'entrypoint'">
@@ -531,13 +541,16 @@
                               >
                                 {{ record.probe_entrypoint }}
                               </a-button>
-                              <span v-else>-</span>
+                              <SandboxDebugHelp v-else field="entrypoint" />
                             </template>
                             <template v-else-if="column.key === 'command'">
-                              <code class="inline-command">{{ formatSandboxCommand(record) }}</code>
+                              <code class="inline-command"><SandboxDebugHelp field="command" :value="formatSandboxCommand(record)" /></code>
                             </template>
                             <template v-else-if="column.key === 'exit_code'">
-                              <a-tag :color="record.exit_code === 0 ? 'green' : 'orange'">{{ record.exit_code ?? '-' }}</a-tag>
+                              <a-tag :color="record.exit_code === 0 ? 'green' : 'orange'"><SandboxDebugHelp field="exit" :value="record.exit_code ?? '-'" /></a-tag>
+                            </template>
+                            <template v-else-if="column.key === 'duration_ms'">
+                              <SandboxDebugHelp field="duration" :value="record.duration_ms" /> ms
                             </template>
                             <template v-else-if="column.key === 'timeout'">
                               <a-tag :color="record.timed_out ? 'red' : 'green'">{{ record.timed_out ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-tag>
@@ -550,13 +563,15 @@
                           </template>
                           <template #expandedRowRender="{ record }">
                         <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered>
-                          <a-descriptions-item :label="$t('legacy.54f4h3')" :span="2">
-                            <pre class="command-block">{{ formatSandboxCommand(record) }}</pre>
+                          <a-descriptions-item :span="2"><template #label><SandboxDebugHelp field="command" :value="formatSandboxCommand(record)" label>{{ $t('legacy.54f4h3') }}</SandboxDebugHelp></template>
+                            <pre class="command-block"><SandboxDebugHelp field="command" :value="formatSandboxCommand(record)" /></pre>
                           </a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.c8d7bb')">{{ record.probe_generated_by || '-' }}</a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.1sdwzrx')">{{ record.runtime || sandboxAnalysis.runtime || '-' }}</a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ record.duration_ms ?? '-' }} ms</a-descriptions-item>
-                          <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ record.network_attempts ?? 0 }}</a-descriptions-item>
+                          <a-descriptions-item>
+                            <template #label><SandboxDebugHelp field="source" label>{{ $t('legacy.c8d7bb') }}</SandboxDebugHelp></template>
+                            <SandboxDebugHelp field="source" :value="record.probe_generated_by || '-'" /></a-descriptions-item>
+                          <a-descriptions-item><template #label><SandboxDebugHelp field="runtime" :value="record.runtime || sandboxAnalysis.runtime" label>{{ $t('legacy.1sdwzrx') }}</SandboxDebugHelp></template><SandboxDebugHelp field="runtime" :value="record.runtime || sandboxAnalysis.runtime || '-'" /></a-descriptions-item>
+                          <a-descriptions-item><template #label><SandboxDebugHelp field="duration" :value="record.duration_ms" label>{{ $t('legacy.12sj4tc') }}</SandboxDebugHelp></template><SandboxDebugHelp field="duration" :value="record.duration_ms ?? '-'" /> ms</a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ $t('skillDetail.networkAttempts', { count: record.network_attempts ?? 0 }) }}</a-descriptions-item>
                           <a-descriptions-item :label="$t('legacy.1suldox')" :span="2">
                             {{ sandboxProbeResultText(record) }}
                           </a-descriptions-item>
@@ -590,7 +605,10 @@
             </a-tab-pane>
             <a-tab-pane key="llm" :tab="$t('decisionFlow.llmAnalysis')">
                 <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
-                  <template v-if="llmAnalysis">
+                  <a-alert v-if="llmFailure !== null" type="error" show-icon :message="$t('skillDetail.llmFailed')">
+                    <template #description><div style="white-space: pre-wrap; overflow-wrap: anywhere">{{ llmFailure || $t('skillDetail.llmFailureUnavailable') }}</div></template>
+                  </a-alert>
+                  <template v-else-if="llmAnalysis">
                     <a-card id="llm-section" size="small" :title="$t('legacy.1iy14k9')">
                       <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered style="margin-bottom: 12px">
                         <a-descriptions-item :label="$t('legacy.1l721lr')">{{ llmAnalysis.provider || '-' }}</a-descriptions-item>
@@ -928,7 +946,7 @@
       :ok-text="$t('legacy.1srvmx8')"
       :cancel-text="$t('legacy.1589w37')"
       :confirm-loading="actionLoading"
-      :ok-button-props="{ disabled: actionLoading || !approvalVersionId }"
+      :ok-button-props="{ disabled: actionLoading || !approvalVersionId || approveTooLong }"
       @ok="submitApprove"
     >
       <a-form layout="vertical">
@@ -949,7 +967,7 @@
         <a-form-item :label="$t('legacy.1lakt7z')">
           <a-input :value="currentUser()" disabled />
         </a-form-item>
-        <a-form-item :label="$t('legacy.1v900uo')">
+        <a-form-item :label="$t('legacy.1v900uo')" :tooltip="$t('skillDetail.reviewTextHelp', { max: REVIEW_TEXT_LIMIT })" :validate-status="approveTooLong ? 'error' : undefined" :help="$t(approveTooLong ? 'skillDetail.reviewTextCountOver' : 'skillDetail.reviewTextCount', { count: approveTextLength, max: REVIEW_TEXT_LIMIT, excess: approveTextLength - REVIEW_TEXT_LIMIT })">
           <a-textarea v-model:value="approveNote" :rows="4" :placeholder="$t('legacy.y7iiel')" />
         </a-form-item>
       </a-form>
@@ -961,6 +979,7 @@
       :ok-text="$t('legacy.iwk43y')"
       :cancel-text="$t('legacy.1589w37')"
       :confirm-loading="actionLoading"
+      :ok-button-props="{ disabled: actionLoading || rejectTooLong }"
       @ok="submitReject"
     >
       <a-form layout="vertical">
@@ -970,7 +989,7 @@
         <a-form-item :label="$t('legacy.1gs5bzm')">
           <a-input :value="currentUser()" disabled />
         </a-form-item>
-        <a-form-item :label="$t('legacy.1l7e57j')" required>
+        <a-form-item :label="$t('legacy.1l7e57j')" :tooltip="$t('skillDetail.reviewTextHelp', { max: REVIEW_TEXT_LIMIT })" :validate-status="rejectTooLong ? 'error' : undefined" :help="$t(rejectTooLong ? 'skillDetail.reviewTextCountOver' : 'skillDetail.reviewTextCount', { count: rejectTextLength, max: REVIEW_TEXT_LIMIT, excess: rejectTextLength - REVIEW_TEXT_LIMIT })" required>
           <a-textarea v-model:value="rejectReason" :rows="4" :placeholder="$t('legacy.1gqmn09')" />
         </a-form-item>
       </a-form>
@@ -1058,6 +1077,8 @@
 </template>
 
 <script setup>
+import { REVIEW_TEXT_LIMIT, reviewTextLength } from '../utils/reviewText'
+
 import { can as hasAccess } from '../access'
 import SkillDecisionFlow from '../components/SkillDecisionFlow.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
@@ -1089,10 +1110,12 @@ import {
 } from '../api'
 import { formatDateTime } from '../utils/format'
 import { parseUnifiedDiff } from '../utils/diff'
-import { analysisState } from '../utils/decisionFlow'
+import { analysisState, formatLlmFailureReason, llmFailureReason } from '../utils/decisionFlow'
 import { translateDomain } from '../i18n'
+import { legacyKey, legacyMessages } from '../i18n/legacy'
 import { useLocaleText } from '../i18n/useLocaleText'
 import AttackChainGraph from '../components/AttackChainGraph.vue'
+import SandboxDebugHelp from '../components/SandboxDebugHelp.vue'
 
 const { isEnglish, phrase, text, t } = useLocaleText()
 const route = useRoute()
@@ -1169,6 +1192,10 @@ const approveModalOpen = ref(false)
 const rejectModalOpen = ref(false)
 const approveNote = ref('')
 const rejectReason = ref('')
+const approveTextLength = computed(() => reviewTextLength(approveNote.value))
+const rejectTextLength = computed(() => reviewTextLength(rejectReason.value))
+const approveTooLong = computed(() => approveTextLength.value > REVIEW_TEXT_LIMIT)
+const rejectTooLong = computed(() => rejectTextLength.value > REVIEW_TEXT_LIMIT)
 const clientInstallOpen = ref(false)
 const clientInstallLoading = ref(false)
 const clientInstallClient = ref()
@@ -1261,35 +1288,6 @@ const auditColumns = computed(() => [
   { title: text('操作人', 'Operator'), dataIndex: 'actor', key: 'actor', width: 120 },
   { title: text('详情', 'Details'), dataIndex: 'details', key: 'details' },
 ])
-
-const auditEventLabels = {
-  skill_submitted: phrase('legacy.1ctggg0'),
-  skill_processing_completed: phrase('legacy.4q96e1'),
-  skill_queued_for_review: phrase('legacy.13g0wa9'),
-  skill_vetted: phrase('legacy.14mw4ld'),
-  skill_approved: phrase('legacy.1irm9dn'),
-  skill_rejected: phrase('legacy.v95xbp'),
-  skill_deployed: phrase('legacy.10iljsa'),
-  skill_retired: phrase('legacy.xrktp3'),
-  skill_signature_verified: phrase('legacy.niy9wk'),
-  skill_tamper_detected: phrase('legacy.1r553w'),
-  skill_load_allowed: phrase('legacy.13u1sex'),
-  skill_load_blocked: phrase('legacy.1yqcn2t'),
-  tool_invoked: phrase('legacy.13iq9ke'),
-  tool_blocked: phrase('legacy.1hed6yi'),
-}
-
-const auditDetailLabels = {
-  skill_path: phrase('legacy.1lv21p9'),
-  status: phrase('legacy.1ccx4t4'),
-  risk_level: phrase('legacy.hm077g'),
-  pre_llm_risk_level: phrase('legacy.s1hoes'),
-  max_severity: phrase('legacy.syac4h'),
-  violations: phrase('legacy.1mfo0dp'),
-  verification_mode: phrase('legacy.1x88724'),
-  reason: phrase('legacy.jsgjbe'),
-  note: phrase('legacy.b5m1l6'),
-}
 
 const fileColumns = computed(() => [
   { title: text('路径', 'Path'), dataIndex: 'path', key: 'path' },
@@ -1434,6 +1432,15 @@ const openScanRuns = async (record) => {
   } finally {
     loadingScanRuns.value = false
   }
+}
+
+const sandboxHeaderHelp = (key) => {
+  if (key === 'probe') return 'probe'
+  if (key === 'exit_code') return 'exit'
+  if (key === 'entrypoint' && sandboxProbeResults.value.some(record => !record.probe_entrypoint)) return 'entrypoint'
+  if (key === 'command' && sandboxProbeResults.value.some(record => formatSandboxCommand(record) === '-')) return 'command'
+  if (key === 'duration_ms' && sandboxProbeResults.value.some(record => record.duration_ms == null)) return 'duration'
+  return ''
 }
 
 const sandboxProbeColumns = computed(() => [
@@ -1683,7 +1690,7 @@ const openRejectModal = () => {
 }
 
 const submitApprove = async () => {
-  if (actionLoading.value || !approvalVersionId.value) return
+  if (actionLoading.value || !approvalVersionId.value || approveTooLong.value) return
   actionLoading.value = true
   actionType.value = 'approve'
   try {
@@ -1700,7 +1707,7 @@ const submitApprove = async () => {
 }
 
 const submitReject = async () => {
-  if (!detail.value) return
+  if (actionLoading.value || !detail.value || rejectTooLong.value) return
   if (!rejectReason.value.trim()) {
     message.warning(phrase('legacy.erwuhg'))
     return
@@ -1736,6 +1743,7 @@ const llmAnalysis = computed(() => {
     risk_level: analysis.risk_level || 'benign',
   }
 })
+const llmFailure = computed(() => formatLlmFailureReason(llmFailureReason(scanReport.value, policyNotes.value), t))
 const llmExplanationHtml = computed(() => {
   const text = llmAnalysis.value?.report || ''
   if (!text) return phrase('legacy.xsay8c')
@@ -2126,10 +2134,6 @@ const analyzerNames = computed(() => (detail.value?.vetting?.analyzers_used || [
   name.startsWith('sandbox:') && ['remote', 'docker'].includes(sandboxRuntime.value)
     ? `sandbox:${sandboxRuntime.value}` : name,
 ))
-const sandboxRuntimeLabel = computed(() => {
-  const runtime = sandboxRuntime.value
-  return ['remote', 'docker'].includes(runtime) ? t(`skillDetail.${runtime}`) : runtime || t('decisionFlow.unrecorded')
-})
 const sandboxTargetLabel = computed(() => t(sandboxRuntime.value === 'remote'
   ? 'skillDetail.sandboxService' : sandboxRuntime.value === 'docker' ? 'skillDetail.sandboxImage' : 'skillDetail.sandboxTarget'))
 const sandboxTarget = computed(() => {
@@ -2425,8 +2429,9 @@ const bilingualText = (value) => {
 const platformResultText = (value) => {
   const displayValue = String(value || '').trim()
   if (!displayValue || !isEnglish.value) return displayValue
-  const translated = phrase(displayValue)
-  if (translated !== displayValue) return translated
+  // 仅使用已有英文译文，动态说明缺少翻译时继续按原文展示。
+  const translationKey = legacyKey(displayValue)
+  if (Object.hasOwn(legacyMessages['en-US'], translationKey.split('.')[1])) return t(translationKey)
   return displayValue
     .replace(/^规则：/, 'Rule: ')
     .replace(/^命中片段：/, 'Matched excerpt: ')
@@ -2489,20 +2494,23 @@ const sourceLabel = (entry) => {
   if (pathLabel) return pathLabel
   return originLabel(source.origin)
 }
-const auditEventLabel = (value) => phrase(auditEventLabels[value] || value || '-')
+// 审计编码只翻译一次，避免将已翻译文案再次转换为 legacy 编号。
+const auditEventLabel = (value) => translateDomain('auditEvent', value, value || '-')
 
 const formatAuditValue = (key, value) => {
   if (value === null || value === undefined || value === '') return '-'
-  if (key === 'status') return statusDisplay(String(value))
+  if (typeof value === 'boolean') return translateDomain('auditValue', String(value))
+  if (key === 'status') return translateDomain('skillStatus', value, String(value))
   if (key === 'risk_level' || key === 'pre_llm_risk_level') {
-    return riskDisplay(value)
+    return translateDomain('risk', String(value).toLowerCase(), String(value))
   }
   if (key === 'max_severity') {
-    return isEnglish.value ? String(value).toUpperCase() : (severityLabels[String(value).toUpperCase()] || String(value))
+    return translateDomain('risk', String(value).toLowerCase(), String(value))
   }
   if (Array.isArray(value)) return value.length ? value.join(text('、', ', ')) : text('无', 'None')
   if (typeof value === 'object') return JSON.stringify(value)
-  return phrase(String(value))
+  // 路径及其他原始值保持原文，不作为翻译键。
+  return String(value)
 }
 
 const formatAuditDetails = (details, limit = 6) => {
@@ -2510,7 +2518,7 @@ const formatAuditDetails = (details, limit = 6) => {
   const entries = Object.entries(details).slice(0, limit)
   if (!entries.length) return '-'
   return entries
-    .map(([key, value]) => `${phrase(auditDetailLabels[key] || key)}${text('：', ': ')}${formatAuditValue(key, value)}`)
+    .map(([key, value]) => `${translateDomain('auditDetail', key, key)}${text('：', ': ')}${formatAuditValue(key, value)}`)
     .join(text('；', '; '))
 }
 

@@ -1530,6 +1530,8 @@ onMounted(loadAll)
 .model-name { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
 .model-display-name { color: var(--catalog-muted); font-size: 12px; overflow-wrap: anywhere; }
 .discovery-actions { display: grid; grid-template-columns: 100px 64px; align-items: center; gap: 8px; }
+/* 操作文字与表头左对齐，保留各操作的固定列宽。 */
+.discovery-actions :deep(.ant-btn) { text-align: left; padding-inline: 0; }
 .model-actions { display: flex; align-items: center; flex-shrink: 0; gap: 8px; }
 .model-actions :deep(.ant-btn) { height: 28px; }
 .model-actions :deep(.test-model-button) { color: #2457be; border-color: #dce6f8; background: #f8faff; padding-inline: 10px; }

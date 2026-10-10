@@ -550,6 +550,10 @@ class ClawHubSubmitRequest(BaseModel):
     judgement_mode: str | None = None
 
 
+# 审核文本按 Unicode 字符计数，写入前限制大小，不改写已有记录。
+REVIEW_TEXT_MAX_LENGTH = 1000
+
+
 class ApproveRequest(BaseModel):
     approver: str
     note: str | None = None
@@ -2309,6 +2313,11 @@ def approve_skill(
     body: ApproveRequest,
     mgr: AgentManager = Depends(get_manager),
 ):
+    if len(body.note or "") > REVIEW_TEXT_MAX_LENGTH:
+        raise ApiError(
+            422, "skill.review_note_too_long",
+            "审批备注不能超过 1000 个字符", "Approval note must not exceed 1000 characters",
+        )
     try:
         entry = mgr.approve(skill_id, approver=body.approver, note=body.note)
         from backend.client_task_notifications import notify_all
@@ -2324,6 +2333,11 @@ def reject_skill(
     body: RejectRequest,
     mgr: AgentManager = Depends(get_manager),
 ):
+    if len(body.reason or "") > REVIEW_TEXT_MAX_LENGTH:
+        raise ApiError(
+            422, "skill.review_reason_too_long",
+            "拒绝原因不能超过 1000 个字符", "Rejection reason must not exceed 1000 characters",
+        )
     try:
         entry = mgr.reject(skill_id, reviewer=body.reviewer, reason=body.reason)
         from backend.client_task_notifications import notify_all

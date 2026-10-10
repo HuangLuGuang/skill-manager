@@ -95,6 +95,7 @@
       :ok-text="$t('legacy.1srvmx8')"
       :cancel-text="$t('legacy.1589w37')"
       :confirm-loading="actionLoading"
+      :ok-button-props="{ disabled: actionLoading || approveTooLong }"
       @ok="submitApprove"
     >
       <a-form layout="vertical">
@@ -104,7 +105,7 @@
         <a-form-item :label="$t('legacy.1lakt7z')">
           <a-input :value="currentUser()" disabled />
         </a-form-item>
-        <a-form-item :label="$t('legacy.1v900uo')">
+        <a-form-item :label="$t('legacy.1v900uo')" :tooltip="$t('skillDetail.reviewTextHelp', { max: REVIEW_TEXT_LIMIT })" :validate-status="approveTooLong ? 'error' : undefined" :help="$t(approveTooLong ? 'skillDetail.reviewTextCountOver' : 'skillDetail.reviewTextCount', { count: approveTextLength, max: REVIEW_TEXT_LIMIT, excess: approveTextLength - REVIEW_TEXT_LIMIT })">
           <a-textarea v-model:value="approveNote" :rows="4" :placeholder="$t('legacy.y7iiel')" />
         </a-form-item>
       </a-form>
@@ -116,6 +117,7 @@
       :ok-text="$t('legacy.iwk43y')"
       :cancel-text="$t('legacy.1589w37')"
       :confirm-loading="actionLoading"
+      :ok-button-props="{ disabled: actionLoading || rejectTooLong }"
       @ok="submitReject"
     >
       <a-form layout="vertical">
@@ -125,7 +127,7 @@
         <a-form-item :label="$t('legacy.1gs5bzm')">
           <a-input :value="currentUser()" disabled />
         </a-form-item>
-        <a-form-item :label="$t('legacy.1l7e57j')" required>
+        <a-form-item :label="$t('legacy.1l7e57j')" :tooltip="$t('skillDetail.reviewTextHelp', { max: REVIEW_TEXT_LIMIT })" :validate-status="rejectTooLong ? 'error' : undefined" :help="$t(rejectTooLong ? 'skillDetail.reviewTextCountOver' : 'skillDetail.reviewTextCount', { count: rejectTextLength, max: REVIEW_TEXT_LIMIT, excess: rejectTextLength - REVIEW_TEXT_LIMIT })" required>
           <a-textarea v-model:value="rejectReason" :rows="4" :placeholder="$t('legacy.1gqmn09')" />
         </a-form-item>
       </a-form>
@@ -134,6 +136,8 @@
 </template>
 
 <script setup>
+import { REVIEW_TEXT_LIMIT, reviewTextLength } from '../utils/reviewText'
+
 import { can as hasAccess } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 
@@ -158,6 +162,10 @@ const approveModalOpen = ref(false)
 const rejectModalOpen = ref(false)
 const approveNote = ref('')
 const rejectReason = ref('')
+const approveTextLength = computed(() => reviewTextLength(approveNote.value))
+const rejectTextLength = computed(() => reviewTextLength(rejectReason.value))
+const approveTooLong = computed(() => approveTextLength.value > REVIEW_TEXT_LIMIT)
+const rejectTooLong = computed(() => rejectTextLength.value > REVIEW_TEXT_LIMIT)
 const pagination = ref({
   current: 1,
   pageSize: 10,
@@ -259,7 +267,7 @@ const openRejectModal = (record) => {
 }
 
 const submitApprove = async () => {
-  if (!selectedRecord.value) return
+  if (actionLoading.value || !selectedRecord.value || approveTooLong.value) return
   actionLoading.value = true
   try {
     await approveSkill(selectedRecord.value.skill_id, {
@@ -277,7 +285,7 @@ const submitApprove = async () => {
 }
 
 const submitReject = async () => {
-  if (!selectedRecord.value) return
+  if (actionLoading.value || !selectedRecord.value || rejectTooLong.value) return
   if (!rejectReason.value.trim()) {
     message.warning(phrase('legacy.erwuhg'))
     return
