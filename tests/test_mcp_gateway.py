@@ -666,3 +666,52 @@ def test_rejected_mcp_approval_request_cannot_be_consumed(tmp_path, monkeypatch)
     denied = client.post("/mcp/readonly", headers=headers, json=call).json()
     assert denied["error"]["message"] == "MCP Tool 调用已被管理员拒绝"
     assert denied["error"]["data"]["reason"] == "scope is too broad"
+
+
+@pytest.mark.parametrize("operation", ["connection_failed", "debug_failed"])
+@pytest.mark.parametrize("locale", ["zh-CN", "en-US"])
+def test_mcp_http_failure_is_localized(tmp_path, monkeypatch, operation, locale):
+    client, session_factory = _client(tmp_path, monkeypatch)
+    server = client.post("/api/v1/mcp/servers", json={
+        "slug": "failure", "name": "Failure", "endpoint": "https://mcp.example.com/mcp",
+    }).json()
+
+    async def fail_call(*_args):
+        response = httpx.Response(405, request=httpx.Request("POST", server["endpoint"]))
+        response.raise_for_status()
+
+    monkeypatch.setattr(mcp_gateway, "_call_upstream", fail_call)
+    path = (f"/api/v1/mcp/servers/{server['id']}/discover"
+            if operation == "connection_failed" else "/api/v1/mcp/debug/upstream")
+    response = client.post(path, json={"server_id": server["id"], "method": "tools/list"},
+                           headers={"Accept-Language": locale})
+    assert response.status_code == 502
+    data = response.json()
+    assert data["error_code"] == f"mcp.{operation}.http_status"
+    assert "405 Method Not Allowed" in data["detail"]
+    assert server["endpoint"] in data["detail"]
+    assert "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/405" in data["detail"]
+    if locale == "zh-CN":
+        assert "更多信息请参阅" in data["detail"]
+        assert "For more information" not in data["detail"]
+        assert "Client error" not in data["detail"]
+    else:
+        assert "For more information check" in data["detail"]
+    if operation == "connection_failed":
+        with session_factory() as db:
+            assert db.get(models.McpServer, server["id"]).health_status == "unhealthy"
+
+
+def test_mcp_non_http_failure_preserves_original_reason(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path, monkeypatch)
+
+    async def fail_call(*_args):
+        raise ValueError("upstream original reason")
+
+    monkeypatch.setattr(mcp_gateway, "_call_upstream", fail_call)
+    response = client.post("/api/v1/mcp/debug/upstream", json={
+        "endpoint": "https://mcp.example.com/mcp", "method": "tools/list",
+    }, headers={"Accept-Language": "en-US"})
+    assert response.status_code == 502
+    assert response.json()["error_code"] == "mcp.debug_failed"
+    assert response.json()["detail"] == "MCP debugging failed: upstream original reason"

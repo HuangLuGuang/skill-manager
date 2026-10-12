@@ -372,6 +372,36 @@ def _runtime_tool_policy_denial(
     return None
 
 
+def _upstream_connection_error(exc: Exception, *, debug: bool = False) -> ApiError:
+    """将 HTTP 客户端固定说明结构化，避免中文界面混入英文提示。"""
+    code = "mcp.debug_failed" if debug else "mcp.connection_failed"
+    zh_prefix = "MCP 调试失败" if debug else "MCP Server 连接失败"
+    en_prefix = "MCP debugging failed" if debug else "MCP Server connection failed"
+    if isinstance(exc, httpx.HTTPStatusError):
+        response = exc.response
+        params = {
+            "status": f"{response.status_code} {response.reason_phrase}",
+            "url": str(exc.request.url),
+            "info_url": (
+                "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/"
+                f"{response.status_code}"
+            ),
+        }
+        return ApiError(
+            502, f"{code}.http_status",
+            (f"{zh_prefix}：HTTP 请求失败 '{{status}}'，地址 '{{url}}'。"
+             "更多信息请参阅：{info_url}").format(**params),
+            (f"{en_prefix}: HTTP request failed '{{status}}' for URL '{{url}}'. "
+             "For more information check: {info_url}").format(**params),
+            params=params,
+        )
+    # 上游原始原因保留原文，仅翻译平台提示。
+    return ApiError(
+        502, code, f"{zh_prefix}: {exc}", f"{en_prefix}: {exc}",
+        params={"reason": str(exc)},
+    )
+
+
 def _parse_upstream_response(response: httpx.Response, request_id=None) -> dict:
     if response.status_code == 202:
         return {}
@@ -606,7 +636,7 @@ async def discover_server(server_id: int, db: Session = Depends(get_db)):
         row.health_status = "unhealthy"
         row.last_checked_at = datetime.utcnow()
         db.commit()
-        raise HTTPException(status_code=502, detail=f"MCP Server 连接失败: {exc}") from exc
+        raise _upstream_connection_error(exc) from exc
 
 
 @admin_router.get("/gateways", response_model=list[schemas.McpGatewayResponse])
@@ -1098,7 +1128,7 @@ async def debug_upstream(body: schemas.McpUpstreamDebugRequest, db: Session = De
     try:
         result = await _call_upstream(transient, body.method, body.params)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"MCP 调试失败: {exc}") from exc
+        raise _upstream_connection_error(exc, debug=True) from exc
     return {
         "endpoint": endpoint,
         "method": body.method,
