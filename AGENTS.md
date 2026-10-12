@@ -121,6 +121,7 @@ make sandbox-runtime-build
 - 新页面提交前必须执行中英文界面检查和 `npm run test:i18n`，确认英文长文案不会造成按钮、表格、弹窗或移动端布局溢出；后端新增错误必须提供稳定 `error_code`。
 - API 封装在 `web/src/api/index.js`。
 - 页面主要在 `web/src/views/`。
+- Skill 列表关键词自动过滤沿用审核队列的 300 毫秒防抖交互，复用服务端分页搜索与第一页重置逻辑；立即查询及离开页面时清理待执行的关键词定时器。
 - 提交 skill 页面支持四种导入方式：ZIP、本地目录、网络下载/GitHub、ClawHub。
 - 对会创建后台记录的按钮必须同时做：
   - loading 状态。
