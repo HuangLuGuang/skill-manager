@@ -111,6 +111,7 @@ make sandbox-runtime-build
 
 ## 前端注意事项
 
+- 策略页风险判定模式的总体说明放在标签旁的悬浮帮助中，按上下文判断项、判为恶意项、AI 复核分组；双语文案使用 `policySettings.modeHelp`，中文严重度沿用“中等”“高”。
 - 前端使用 Vue 3 Composition API、Vite、Ant Design Vue。
 - 管理平台和桌面客户端的所有新增或修改页面必须同时提供简体中文和英文。中文系统名固定为“智能体生命周期管理系统”，英文系统名固定为“Agent Manager”。
 - 新增界面文案必须使用语义化 i18n Key 和语言资源，不得依赖 MutationObserver、DOM 扫描或中文原文匹配；`legacy.*` 哈希键只用于已迁移旧页面，不得手写到新页面。

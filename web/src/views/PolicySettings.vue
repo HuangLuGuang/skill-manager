@@ -65,14 +65,33 @@
                     <a-button html-type="button" :disabled="rulesRecommended || saving || loading || !loaded" @click="useRecommendedRules">{{ t('policySettings.recommendedRules') }}</a-button>
                     <span class="field-hint">{{ t('policySettings.recommendedRulesHint') }}</span>
                   </div>
-                  <a-form-item id="decision-mode" :label="t('policySettings.mode')" :class="{ 'decision-focus': route.query.focus === 'mode' }">
+                  <a-form-item id="decision-mode" :class="{ 'decision-focus': route.query.focus === 'mode' }">
+                    <template #label>
+                      {{ t('policySettings.mode') }}
+                      <!-- 集中说明所有模式，便于选择前比较判定规则。 -->
+                      <a-tooltip :trigger="['hover', 'focus']" :overlay-style="{ maxWidth: 'min(520px, calc(100vw - 32px))' }">
+                        <template #title>
+                          <ol class="mode-help-content">
+                            <li>
+                              <strong>{{ t('policySettings.modeHelp.contextualTitle') }}</strong>
+                              <ul>
+                                <li>{{ t('policySettings.modeHelp.permissive') }}</li>
+                                <li>{{ t('policySettings.modeHelp.balanced') }}</li>
+                                <li>{{ t('policySettings.modeHelp.strict') }}</li>
+                              </ul>
+                            </li>
+                            <li><strong>{{ t('policySettings.modeHelp.maliciousTitle') }}</strong><p>{{ t('policySettings.modeHelp.malicious') }}</p></li>
+                            <li><strong>{{ t('policySettings.modeHelp.aiTitle') }}</strong><p>{{ t('policySettings.modeHelp.ai') }}</p></li>
+                          </ol>
+                        </template>
+                        <button type="button" class="mode-help-button field-help" :aria-label="t('policySettings.modeHelp.label')"><QuestionCircleOutlined /></button>
+                      </a-tooltip>
+                    </template>
                     <a-select v-model:value="formState.judgement_mode" :get-popup-container="trigger => trigger.parentElement" :aria-label="t('policySettings.mode')" :disabled="saving || loading || !hasAccess('policy:update')">
                       <a-select-option v-for="option in modeOptions" :key="option.value" :value="option.value">
                         <a-tag :color="option.color" style="margin-inline-end: 0; white-space: normal">{{ option.label }}</a-tag>
                       </a-select-option>
                     </a-select>
-                    <div class="field-hint">{{ t('policySettings.modeHints.' + formState.judgement_mode) }}</div>
-                    <div class="field-hint">{{ t('policySettings.modeCommon') }}</div>
                   </a-form-item>
                   <table class="policy-table findings-table">
                     <thead><tr><th scope="col">{{ t('policySettings.behavior') }}</th><th scope="col">{{ t('policySettings.classification') }}</th></tr></thead>
@@ -638,6 +657,12 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
 .save-errors, .remote-limits { margin-bottom: 16px; }
 .inline-clear-key { display: flex; align-items: center; gap: 6px; }
 .field-help { color: #8c8c8c; }
+.mode-help-button { margin-inline-start: 6px; padding: 0; border: 0; background: transparent; font: inherit; line-height: 1; cursor: help; }
+.mode-help-button:focus-visible { outline: 2px solid var(--policy-accent); outline-offset: 3px; }
+.mode-help-content { margin: 0; padding-inline-start: 20px; line-height: 1.65; overflow-wrap: anywhere; }
+.mode-help-content > li + li { margin-top: 10px; }
+.mode-help-content ul { padding-inline-start: 18px; margin-top: 4px; }
+.mode-help-content p { margin: 4px 0 0; }
 .save-errors ol { margin: 0; padding-left: 20px; overflow-wrap: anywhere; }
 .policy-page h2 { font-size: 17px; font-weight: 600; line-height: 1.5; margin: 0; }
 .policy-page h3 { font-size: 14px; font-weight: 600; line-height: 1.5; margin: 0; }
