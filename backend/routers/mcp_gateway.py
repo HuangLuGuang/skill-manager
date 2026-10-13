@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from .. import auth, models, schemas
 from ..api_errors import ApiError
 from ..config import settings
+from ..mcp_validation import field_issue, fields_error
 from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
 from ..runtime_trace_schemas import RuntimeTraceInternalEvent
 from ..security_audit import append_security_audit
@@ -126,19 +127,23 @@ def _json(value: str | None, default):
 
 def _validate_endpoint(endpoint: str) -> str:
     value = endpoint.strip()
-    parsed = urlsplit(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
-        raise HTTPException(status_code=400, detail="MCP Endpoint 必须是有效的 HTTP/HTTPS 地址")
+    try:
+        parsed = urlsplit(value)
+        parsed.port
+    except ValueError as exc:
+        raise fields_error([field_issue("endpoint", "url")], 400) from exc
+    if any(char.isspace() for char in value) or parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        raise fields_error([field_issue("endpoint", "url")], 400)
     if parsed.scheme == "http" and not settings.MCP_ALLOW_HTTP:
-        raise HTTPException(status_code=400, detail="MCP Endpoint 必须使用 HTTPS；开发环境可显式启用 MCP_ALLOW_HTTP")
+        raise fields_error([field_issue("endpoint", "https")], 400)
     if parsed.hostname.lower() == "localhost":
-        raise HTTPException(status_code=400, detail="MCP Endpoint 不允许 localhost")
+        raise fields_error([field_issue("endpoint", "address")], 400)
     try:
         ip = ipaddress.ip_address(parsed.hostname)
     except ValueError:
         return value
     if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
-        raise HTTPException(status_code=400, detail="MCP Endpoint 不允许环回、链路本地或组播地址")
+        raise fields_error([field_issue("endpoint", "address")], 400)
     return value
 
 
@@ -372,6 +377,36 @@ def _runtime_tool_policy_denial(
     return None
 
 
+def _upstream_connection_error(exc: Exception, *, debug: bool = False) -> ApiError:
+    """将 HTTP 客户端固定说明结构化，避免中文界面混入英文提示。"""
+    code = "mcp.debug_failed" if debug else "mcp.connection_failed"
+    zh_prefix = "MCP 调试失败" if debug else "MCP Server 连接失败"
+    en_prefix = "MCP debugging failed" if debug else "MCP Server connection failed"
+    if isinstance(exc, httpx.HTTPStatusError):
+        response = exc.response
+        params = {
+            "status": f"{response.status_code} {response.reason_phrase}",
+            "url": str(exc.request.url),
+            "info_url": (
+                "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/"
+                f"{response.status_code}"
+            ),
+        }
+        return ApiError(
+            502, f"{code}.http_status",
+            (f"{zh_prefix}：HTTP 请求失败 '{{status}}'，地址 '{{url}}'。"
+             "更多信息请参阅：{info_url}").format(**params),
+            (f"{en_prefix}: HTTP request failed '{{status}}' for URL '{{url}}'. "
+             "For more information check: {info_url}").format(**params),
+            params=params,
+        )
+    # 上游原始原因保留原文，仅翻译平台提示。
+    return ApiError(
+        502, code, f"{zh_prefix}: {exc}", f"{en_prefix}: {exc}",
+        params={"reason": str(exc)},
+    )
+
+
 def _parse_upstream_response(response: httpx.Response, request_id=None) -> dict:
     if response.status_code == 202:
         return {}
@@ -484,6 +519,12 @@ async def _call_upstream(server: models.McpServer, method: str, params: dict) ->
     return result
 
 
+@admin_router.get("/servers/options")
+async def server_options() -> dict[str, bool]:
+    """提供当前地址协议要求，供表单说明与即时校验使用。"""
+    return {"allow_http": settings.MCP_ALLOW_HTTP}
+
+
 @admin_router.get("/servers", response_model=list[schemas.McpServerResponse])
 async def list_servers(db: Session = Depends(get_db)):
     return [_server_response(db, row) for row in db.query(models.McpServer).order_by(models.McpServer.id.desc()).all()]
@@ -496,7 +537,7 @@ async def create_server(
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
     if db.query(models.McpServer).filter(models.McpServer.slug == body.slug).first():
-        raise HTTPException(status_code=400, detail="MCP Server 标识已存在")
+        raise fields_error([field_issue("slug", "duplicate")], 400)
     row = models.McpServer(
         slug=body.slug,
         name=body.name.strip(),
@@ -524,7 +565,7 @@ async def update_server(server_id: int, body: schemas.McpServerUpdate, db: Sessi
         raise HTTPException(status_code=404, detail="MCP Server 不存在")
     data = body.model_dump(exclude_unset=True)
     if "slug" in data and data["slug"] != row.slug:
-        raise HTTPException(status_code=400, detail="MCP Server 标识创建后不可修改")
+        raise fields_error([field_issue("slug", "immutable")], 400)
     data.pop("slug", None)
     if "endpoint" in data:
         data["endpoint"] = _validate_endpoint(data["endpoint"])
@@ -606,7 +647,7 @@ async def discover_server(server_id: int, db: Session = Depends(get_db)):
         row.health_status = "unhealthy"
         row.last_checked_at = datetime.utcnow()
         db.commit()
-        raise HTTPException(status_code=502, detail=f"MCP Server 连接失败: {exc}") from exc
+        raise _upstream_connection_error(exc) from exc
 
 
 @admin_router.get("/gateways", response_model=list[schemas.McpGatewayResponse])
@@ -1098,7 +1139,7 @@ async def debug_upstream(body: schemas.McpUpstreamDebugRequest, db: Session = De
     try:
         result = await _call_upstream(transient, body.method, body.params)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"MCP 调试失败: {exc}") from exc
+        raise _upstream_connection_error(exc, debug=True) from exc
     return {
         "endpoint": endpoint,
         "method": body.method,

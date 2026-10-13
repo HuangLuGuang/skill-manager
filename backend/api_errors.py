@@ -127,12 +127,33 @@ async def validation_error_handler(
     exc: RequestValidationError,
 ) -> JSONResponse:
     locale = request_locale(request)
+    errors = exc.errors()
+    # MCP 表单只返回安全的字段规则，避免校验异常携带鉴权明文。
+    if re.search(r"/v1/mcp/(servers(?:/[^/]+)?|debug/upstream)$", request.url.path):
+        from .mcp_validation import FIELDS, field_issue, fields_error
+
+        issues = []
+        for error in errors:
+            field = error["loc"][-1]
+            if field not in FIELDS:
+                break
+            if error["type"] == "mcp_field":
+                issues.append(error["ctx"])
+            elif error["type"] == "missing":
+                issues.append(field_issue(field, "required"))
+            else:
+                break
+        else:
+            if issues:
+                return await api_error_handler(request, fields_error(issues))
+        # 混合错误仍只返回位置与类型，原始input及ctx可能携带鉴权明文。
+        errors = [{"loc": error["loc"], "type": error["type"]} for error in errors]
     return JSONResponse(
         status_code=422,
         content={
             "detail": "Invalid request parameters" if locale == "en-US" else "请求参数无效",
             "error_code": "request.validation_failed",
-            "error_params": {"errors": jsonable_encoder(exc.errors())},
+            "error_params": {"errors": jsonable_encoder(errors)},
         },
     )
 

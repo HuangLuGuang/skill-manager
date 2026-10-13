@@ -1,3 +1,4 @@
+import { mcpServerFormMessages } from './mcpServerForm.js'
 import { systemSelectionMessages } from './system-selection.js'
 import { runtimeGovernanceMessages } from './runtime-governance.js'
 import { collectionStatusMessages } from './collection-status.js'
@@ -60,6 +61,7 @@ export const i18n = createI18n({
       branding: {"title": "品牌与系统名称", "nameZh": "系统名称（中文）", "nameEn": "系统名称（英文）", "company": "公司名称", "save": "保存名称", "upload": "上传 Logo", "restore": "恢复默认 Logo", "hint": "名称保存后立即生效。Logo 支持 PNG、JPEG、GIF、WebP，最大 5 MB。", "required": "请输入系统名称", "loadFailed": "品牌配置加载失败，请刷新页面重试", "failed": "保存失败，请重试", "saved": "品牌配置已更新", "tooLarge": "图片大小不能超过 5 MB"},
       scanTaskActions: scanTaskActionsMessages['zh-CN'],
       mcpScan: mcpScanMessages['zh-CN'],
+      mcpServerForm: mcpServerFormMessages['zh-CN'],
       skillUpload: {
         sandboxRuntime: { remote: '远程服务', docker: '本地 Docker' },
         scanState: { PENDING: '本次检测排队或执行中。', COMPLETED: '本次检测已完成。', REUSED: '已复用相同检测配置的结果。', FAILED: '本次检测失败。', CANCELLED: '本次检测已取消。', UNKNOWN: '无法关联本次检测记录。' },
@@ -1148,6 +1150,7 @@ export const i18n = createI18n({
       branding: {"title": "Branding and system names", "nameZh": "System name (Chinese)", "nameEn": "System name (English)", "company": "Company name", "save": "Save names", "upload": "Upload logo", "restore": "Restore default logo", "hint": "Names take effect immediately after saving. Logo: PNG, JPEG, GIF, or WebP, up to 5 MB.", "required": "Enter a system name", "loadFailed": "Unable to load branding. Refresh the page to retry.", "failed": "Unable to save. Please retry.", "saved": "Branding updated", "tooLarge": "The image must not exceed 5 MB"},
       scanTaskActions: scanTaskActionsMessages['en-US'],
       mcpScan: mcpScanMessages['en-US'],
+      mcpServerForm: mcpServerFormMessages['en-US'],
       skillUpload: {
         sandboxRuntime: { remote: 'Remote service', docker: 'Local docker' },
         scanState: { PENDING: 'This scan is queued or running.', COMPLETED: 'This scan has completed.', REUSED: 'Reused results with the same scan configuration.', FAILED: 'This scan failed.', CANCELLED: 'This scan was cancelled.', UNKNOWN: 'The scan record for this submission could not be identified.' },

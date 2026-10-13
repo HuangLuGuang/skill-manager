@@ -1,5 +1,17 @@
+import { formatMcpFieldError } from './mcpServerForm.js'
 import { scanScheduleMessages } from './scanSchedule.js'
 const errorMessages = {
+  'mcp.connection_failed': { 'zh-CN': 'MCP Server 连接失败: {reason}', 'en-US': 'MCP Server connection failed: {reason}' },
+  'mcp.connection_failed.http_status': {
+    'zh-CN': "MCP Server 连接失败：HTTP 请求失败 '{status}'，地址 '{url}'。更多信息请参阅：{info_url}",
+    'en-US': "MCP Server connection failed: HTTP request failed '{status}' for URL '{url}'. For more information check: {info_url}",
+  },
+  'mcp.debug_failed': { 'zh-CN': 'MCP 调试失败: {reason}', 'en-US': 'MCP debugging failed: {reason}' },
+  'mcp.debug_failed.http_status': {
+    'zh-CN': "MCP 调试失败：HTTP 请求失败 '{status}'，地址 '{url}'。更多信息请参阅：{info_url}",
+    'en-US': "MCP debugging failed: HTTP request failed '{status}' for URL '{url}'. For more information check: {info_url}",
+  },
+
   'server.internal_error': { 'zh-CN': '服务器内部错误', 'en-US': 'Internal server error' },
   'request.validation_failed': { 'zh-CN': '请求参数无效', 'en-US': 'Invalid request parameters' },
   'http.500': { 'zh-CN': '服务器内部错误', 'en-US': 'Internal server error' },
@@ -320,6 +332,9 @@ const interpolate = (value, params = {}, locale = 'zh-CN') =>
 
 export const localizeApiError = (detail, locale) => {
   if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return detail
+  if (detail.code === 'mcp.server.invalid_fields' && Array.isArray(detail.params?.errors)) {
+    return detail.params.errors.map(issue => formatMcpFieldError(issue, locale)).join('; ')
+  }
   const code = detail.code
   const params = detail.params || {}
   const localMessage = errorMessages[code]?.[locale]

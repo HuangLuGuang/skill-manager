@@ -242,9 +242,11 @@ const allColumns = computed(() => [
 const columns = computed(() => allColumns.value.filter(column => visibleColumns.value.includes(column.key)))
 
 let refreshTimer
+let keywordTimer
 let fetchSequence = 0
 let disposed = false
 const fetchSkills = async ({ background = false } = {}) => {
+  clearTimeout(keywordTimer)
   clearTimeout(refreshTimer)
   const sequence = ++fetchSequence
   if (!background) loading.value = true
@@ -297,14 +299,11 @@ const handleKeywordSearch = () => {
   fetchSkills()
 }
 
-const handleKeywordInputChange = (event) => {
-  const nextValue = event?.target?.value ?? ''
-  if (String(nextValue).trim()) return
-  pagination.value = {
-    ...pagination.value,
-    current: 1,
-  }
-  fetchSkills()
+const handleKeywordInputChange = () => {
+  // 与审核队列一致：合并连续输入，停止输入后自动查询。
+  clearTimeout(keywordTimer)
+  clearTimeout(refreshTimer)
+  keywordTimer = setTimeout(handleKeywordSearch, 300)
 }
 
 const handleTableChange = (pager, _filters, sorter) => {
@@ -517,6 +516,7 @@ const riskDisplay = (value) => {
 onMounted(fetchSkills)
 onBeforeUnmount(() => {
   disposed = true
+  clearTimeout(keywordTimer)
   clearTimeout(refreshTimer)
 })
 

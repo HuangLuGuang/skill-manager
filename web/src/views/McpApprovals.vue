@@ -381,7 +381,8 @@ onUnmounted(() => {
 .filters { display: flex; width: 100%; }
 .search-input { width: 300px; }
 .filter-control { width: 180px; }
-.date-filter { width: 330px; }
+/* 为两个包含秒数的完整日期时间预留空间，筛选栏不足时整项换行。 */
+.date-filter { width: 420px; max-width: 100%; }
 .primary-text { color: rgba(0, 0, 0, 0.88); font-weight: 500; }
 .secondary-text { color: rgba(0, 0, 0, 0.45); font-size: 12px; margin-top: 2px; }
 .detail-section { margin-top: 20px; }
@@ -391,6 +392,11 @@ onUnmounted(() => {
 .drawer-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; padding-top: 16px; border-top: 1px solid #f0f0f0; }
 .modal-alert { margin-bottom: 16px; }
 @media (max-width: 768px) {
+  .filters :deep(.ant-space-item) { width: 100%; }
   .search-input, .filter-control, .date-filter { width: 100%; }
+}
+@media (max-width: 480px) {
+  .date-filter { flex-wrap: wrap; }
+  .date-filter :deep(.ant-picker-input) { flex: 1 0 100%; }
 }
 </style>

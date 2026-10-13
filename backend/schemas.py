@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
 
 
 class UserBase(BaseModel):
@@ -567,7 +567,16 @@ class AccessTokenListResponse(BaseModel):
     items: list[AccessTokenResponse]
 
 
-class McpServerCreate(BaseModel):
+class McpServerFields(BaseModel):
+    @field_validator("*", mode="before")
+    @classmethod
+    def validate_server_field(cls, value: Any, info: ValidationInfo) -> Any:
+        from .mcp_validation import validate_field
+
+        return validate_field(info.field_name, value)
+
+
+class McpServerCreate(McpServerFields):
     slug: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,127}$")
     name: str
     description: Optional[str] = None
@@ -579,7 +588,7 @@ class McpServerCreate(BaseModel):
     max_response_kb: int = Field(default=1024, ge=1, le=10240)
 
 
-class McpServerUpdate(BaseModel):
+class McpServerUpdate(McpServerFields):
     slug: Optional[str] = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,127}$")
     name: Optional[str] = None
     description: Optional[str] = None
@@ -693,6 +702,16 @@ class McpCallAuditResponse(BaseModel):
 
 
 class McpUpstreamDebugRequest(BaseModel):
+    @field_validator("endpoint", "authorization_header", "authorization_value", "timeout_seconds", mode="before")
+    @classmethod
+    def validate_debug_field(cls, value: Any, info: ValidationInfo) -> Any:
+        from .mcp_validation import validate_field
+
+        # 可选连接字段为null时沿用已保存配置。
+        if value is None and info.field_name in {"endpoint", "authorization_header", "authorization_value"}:
+            return value
+        return validate_field(info.field_name, value)
+
     server_id: Optional[int] = None
     endpoint: Optional[str] = None
     authorization_header: Optional[str] = None

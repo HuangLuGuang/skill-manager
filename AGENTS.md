@@ -111,6 +111,7 @@ make sandbox-runtime-build
 
 ## 前端注意事项
 
+- 策略页风险判定模式的总体说明放在标签旁的悬浮帮助中，按上下文判断项、判为恶意项、AI 复核分组；双语文案使用 `policySettings.modeHelp`，中文严重度沿用“中等”“高”。
 - 前端使用 Vue 3 Composition API、Vite、Ant Design Vue。
 - 管理平台和桌面客户端的所有新增或修改页面必须同时提供简体中文和英文。中文系统名固定为“智能体生命周期管理系统”，英文系统名固定为“Agent Manager”。
 - 新增界面文案必须使用语义化 i18n Key 和语言资源，不得依赖 MutationObserver、DOM 扫描或中文原文匹配；`legacy.*` 哈希键只用于已迁移旧页面，不得手写到新页面。
@@ -120,6 +121,7 @@ make sandbox-runtime-build
 - 新页面提交前必须执行中英文界面检查和 `npm run test:i18n`，确认英文长文案不会造成按钮、表格、弹窗或移动端布局溢出；后端新增错误必须提供稳定 `error_code`。
 - API 封装在 `web/src/api/index.js`。
 - 页面主要在 `web/src/views/`。
+- Skill 列表关键词自动过滤沿用审核队列的 300 毫秒防抖交互，复用服务端分页搜索与第一页重置逻辑；立即查询及离开页面时清理待执行的关键词定时器。
 - 提交 skill 页面支持四种导入方式：ZIP、本地目录、网络下载/GitHub、ClawHub。
 - 对会创建后台记录的按钮必须同时做：
   - loading 状态。
@@ -221,3 +223,11 @@ make sandbox-runtime-build
 - Skill 审批备注和拒绝原因上限为 1000 个 Unicode 字符（包含空格及换行），审核队列和详情入口共用前端校验，保留超长草稿并显示双语字段错误和悬浮说明；后端审批/拒绝接口写入前校验并返回稳定错误码，不修改既有记录。
 
 - 审核文本长度统计与校验共用 Unicode 计数，输入框下方实时展示当前数量和上限；超长时显示红色错误及具体超出数量，两个审批入口保持一致。
+
+- MCP 连接发现与保存前测试共用 `_upstream_connection_error`，HTTP 错误字段通过稳定编码和 `web/src/i18n/errors.js` 展示双语固定说明；状态码、URL 和上游原始原因保持原文。
+
+- MCP 服务字段校验复用 `backend/mcp_validation.py` 和 `web/src/utils/mcpServerForm.js`；字段错误使用 `mcp.server.invalid_fields` 与安全的 `errors` 参数，前端语义资源为 `mcpServerForm`。现有长度与数值上限保持；鉴权值4096字符、描述2000字符。编辑先按原始草稿识别并校验变更字段，通过后再转换请求数值；鉴权留空保留原值；MCP混合校验错误仅返回位置和类型，不返回原始输入；非法草稿保留，数值沿用原有数字输入框及上下箭头，步长为1；状态无新增悬浮说明。
+
+- MCP 服务表单的Endpoint说明和协议校验读取 `/api/v1/mcp/servers/options` 的 `allow_http`；首次用户输入后即时校验字段，刚打开的表单不显示空字段错误。协议配置未读取完成时展示读取中说明。
+
+- MCP 审批日期范围筛选需完整显示开始和结束日期时间（含秒）；宽屏预留足够宽度，筛选栏不足时整项换行，窄屏允许输入分行。
