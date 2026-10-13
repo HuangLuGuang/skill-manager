@@ -62,6 +62,12 @@ export const i18n = createI18n({
       scanTaskActions: scanTaskActionsMessages['zh-CN'],
       mcpScan: mcpScanMessages['zh-CN'],
       mcpServerForm: mcpServerFormMessages['zh-CN'],
+      mcpDebug: {
+        gatewayCredential: 'MCP 网关凭证',
+        gatewayCredentialHelp: '填写凭证中心生成的 Token，不含中文、空格或换行；无需添加 Bearer 前缀。',
+        gatewayCredentialRequired: '请填写 MCP 网关凭证。',
+        gatewayCredentialInvalid: 'MCP 网关凭证格式无效：仅允许英文字符、数字和半角符号，不含空格或换行。请填写凭证中心生成的 Token。',
+      },
       skillUpload: {
         sandboxRuntime: { remote: '远程服务', docker: '本地 Docker' },
         scanState: { PENDING: '本次检测排队或执行中。', COMPLETED: '本次检测已完成。', REUSED: '已复用相同检测配置的结果。', FAILED: '本次检测失败。', CANCELLED: '本次检测已取消。', UNKNOWN: '无法关联本次检测记录。' },
@@ -1156,6 +1162,12 @@ export const i18n = createI18n({
       scanTaskActions: scanTaskActionsMessages['en-US'],
       mcpScan: mcpScanMessages['en-US'],
       mcpServerForm: mcpServerFormMessages['en-US'],
+      mcpDebug: {
+        gatewayCredential: 'MCP gateway credential',
+        gatewayCredentialHelp: 'Enter a token from the credential center, without non-ASCII characters, spaces or line breaks. Do not add the Bearer prefix.',
+        gatewayCredentialRequired: 'Enter an MCP gateway credential.',
+        gatewayCredentialInvalid: 'Invalid MCP gateway credential: use printable ASCII characters without spaces or line breaks. Enter a token from the credential center.',
+      },
       skillUpload: {
         sandboxRuntime: { remote: 'Remote service', docker: 'Local docker' },
         scanState: { PENDING: 'This scan is queued or running.', COMPLETED: 'This scan has completed.', REUSED: 'Reused results with the same scan configuration.', FAILED: 'This scan failed.', CANCELLED: 'This scan was cancelled.', UNKNOWN: 'The scan record for this submission could not be identified.' },
