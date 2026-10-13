@@ -262,6 +262,7 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 - 连接发现与保存前测试的 HTTP 错误使用稳定 `mcp.connection_failed.http_status` / `mcp.debug_failed.http_status` 编码，后端提供双语消息，前端通过 `web/src/i18n/errors.js` 按界面语言展示固定说明（中文为“更多信息请参阅”）；状态码、URL 和上游原始原因保持原文，无需数据库迁移。遇到 405 时检查 Endpoint 是否为支持 POST 的 MCP 地址。
 - `能力治理 / MCP 网关` 把多个 Server 的部分 Tool 组合为 `/mcp/{gateway_slug}`。
 - `能力治理 / MCP 调用审批` 接收真实高风险调用产生的待办；管理员查看脱敏参数后批准或拒绝该 Token 对指定网关、Tool 和 Schema 的限时调用权限，查看原始参数会写入安全审计。
+- 审批列表的日期范围筛选完整显示开始和结束日期时间（含秒）；筛选栏空间不足时换行，窄屏分行展示时间输入，保持原有时间格式和筛选规则。
 - `能力治理 / MCP 调试` 可以在保存前使用临时 Endpoint 直连服务，也可以使用真实网关凭证执行 Tool 发现和调用，并展示原始 JSON 请求历史。
 - 调用方使用 `MCP 网关凭证`，凭证限制可访问网关、IP、请求大小和并发数，不要求绑定 `ManagedAgent`。
 - 上游连接默认强制 HTTPS，并在每次调用前校验 DNS 解析结果和出站白名单；Tool 还可以配置速率、并发、响应大小和限时审批。

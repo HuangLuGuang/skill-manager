@@ -229,3 +229,5 @@ make sandbox-runtime-build
 - MCP 服务字段校验复用 `backend/mcp_validation.py` 和 `web/src/utils/mcpServerForm.js`；字段错误使用 `mcp.server.invalid_fields` 与安全的 `errors` 参数，前端语义资源为 `mcpServerForm`。现有长度与数值上限保持；鉴权值4096字符、描述2000字符。编辑先按原始草稿识别并校验变更字段，通过后再转换请求数值；鉴权留空保留原值；MCP混合校验错误仅返回位置和类型，不返回原始输入；非法草稿保留，数值沿用原有数字输入框及上下箭头，步长为1；状态无新增悬浮说明。
 
 - MCP 服务表单的Endpoint说明和协议校验读取 `/api/v1/mcp/servers/options` 的 `allow_http`；首次用户输入后即时校验字段，刚打开的表单不显示空字段错误。协议配置未读取完成时展示读取中说明。
+
+- MCP 审批日期范围筛选需完整显示开始和结束日期时间（含秒）；宽屏预留足够宽度，筛选栏不足时整项换行，窄屏允许输入分行。
