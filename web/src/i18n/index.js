@@ -638,6 +638,7 @@ export const i18n = createI18n({
           destructive: '破坏性',
         },
         environment: '网关环境',
+        environmentHelp: '沙箱：隔离实验、可重置数据。\n测试：功能测试、联调。\n预生产：上线前验收。\n生产：真实业务；禁止完整主动，执行生产 Tool 禁用清单。\n前三种环境的调用限制相同；环境不自动隔离或切换服务、数据、凭证。',
         environments: {
           sandbox: '沙箱',
           test: '测试',
@@ -645,6 +646,7 @@ export const i18n = createI18n({
           production: '生产',
         },
         executionMode: '执行模式',
+        executionModeHelp: '被动：禁止调用 Tool。\n只读：仅允许标记为只读的 Tool。\n安全主动：按策略调用，允许生产环境。\n完整主动：调用限制与安全主动基本相同，生产环境禁止。\n所有模式均受权限、审批和限流约束。',
         executionModes: {
           passive: '被动',
           read_only: '只读',
@@ -1730,6 +1732,7 @@ export const i18n = createI18n({
           destructive: 'Destructive',
         },
         environment: 'Gateway environment',
+        environmentHelp: 'Sandbox: Isolated experiments, resettable data.\nTest: Functional and integration testing.\nStaging: Pre-release acceptance.\nProduction: Live business; active full is forbidden and the production Tool denylist applies.\nThe first three have the same call restrictions. This setting does not create isolation or switch services, data or credentials.',
         environments: {
           sandbox: 'Sandbox',
           test: 'Test',
@@ -1737,6 +1740,7 @@ export const i18n = createI18n({
           production: 'Production',
         },
         executionMode: 'Execution mode',
+        executionModeHelp: 'Passive: Tool calls blocked.\nRead only: Only Tools classified as read.\nActive safe: Calls follow policies; allowed in production.\nActive full: Largely the same call restrictions as active safe; forbidden in production.\nAll modes follow permissions, approvals and rate limits.',
         executionModes: {
           passive: 'Passive',
           read_only: 'Read only',

@@ -179,8 +179,14 @@
           </a-select>
         </a-form-item>
         <a-row :gutter="16">
-          <a-col :xs="24" :md="12"><a-form-item :label="$t('mcpSecurity.environment')" required><a-select v-model:value="gatewayForm.environment" @change="handleGatewayEnvironmentChange"><a-select-option v-for="value in ['sandbox', 'test', 'staging', 'production']" :key="value" :value="value">{{ $t(`mcpSecurity.environments.${value}`) }}</a-select-option></a-select></a-form-item></a-col>
-          <a-col :xs="24" :md="12"><a-form-item :label="$t('mcpSecurity.executionMode')" required><a-select v-model:value="gatewayForm.execution_mode"><a-select-option v-for="value in ['passive', 'read_only', 'active_safe', 'active_full']" :key="value" :value="value" :disabled="gatewayForm.environment === 'production' && value === 'active_full'">{{ $t(`mcpSecurity.executionModes.${value}`) }}</a-select-option></a-select></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item required>
+            <template #label><span>{{ $t('mcpSecurity.environment') }}</span><a-tooltip><template #title><div style="white-space: pre-line">{{ $t('mcpSecurity.environmentHelp') }}</div></template><QuestionCircleOutlined tabindex="0" :aria-label="$t('mcpSecurity.environmentHelp')" style="margin-left: 6px" /></a-tooltip></template>
+            <a-select v-model:value="gatewayForm.environment" @change="handleGatewayEnvironmentChange"><a-select-option v-for="value in ['sandbox', 'test', 'staging', 'production']" :key="value" :value="value">{{ $t(`mcpSecurity.environments.${value}`) }}</a-select-option></a-select>
+          </a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item required>
+            <template #label><span>{{ $t('mcpSecurity.executionMode') }}</span><a-tooltip><template #title><div style="white-space: pre-line">{{ $t('mcpSecurity.executionModeHelp') }}</div></template><QuestionCircleOutlined tabindex="0" :aria-label="$t('mcpSecurity.executionModeHelp')" style="margin-left: 6px" /></a-tooltip></template>
+            <a-select v-model:value="gatewayForm.execution_mode"><a-select-option v-for="value in ['passive', 'read_only', 'active_safe', 'active_full']" :key="value" :value="value" :disabled="gatewayForm.environment === 'production' && value === 'active_full'">{{ $t(`mcpSecurity.executionModes.${value}`) }}</a-select-option></a-select>
+          </a-form-item></a-col>
         </a-row>
         <a-alert class="policy-alert" type="info" show-icon :message="$t('mcpSecurity.executionBoundaryHelp')" />
         <a-form-item v-if="gatewayForm.environment === 'production'" :label="$t('mcpSecurity.productionDenylist')" :extra="$t('mcpSecurity.productionDenylistHelp')">
