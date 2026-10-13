@@ -1,10 +1,20 @@
 # Agent Manager Project Guide
 
+macOS TeleAgent 代理支持后台自动安全升级：候选程序先自检，等待在途模型/工具审核请求完成，再保留监听端口并原 PID 切换；持续忙碌时延后升级。主守护服务内的 Hook 接收器和独立代理均不随桌面退出。设置页按实际进程显示版本、摘要、健康与待升级状态；本地健康不等同于供应商连通。普通事件在发送完成后间隔至少 300 毫秒，单轮预算在等待期间耗尽则保留记录到下一轮。实现边界和实机证据见[客户端后台可靠性说明](agent-manager-client.md#后台可靠性与更新--background-reliability-and-updates)。
+
+**English:** The macOS TeleAgent proxy preflights staged upgrades, waits for in-flight model/review requests, and switches with its listener and PID preserved. Persistent traffic postpones activation. Both the daemon's Hook receiver and the independent proxy survive desktop exit. Settings displays observed process identity, readiness and pending upgrades; local readiness does not prove vendor connectivity. Ordinary events wait at least 300 ms after delivery completion; records waiting past the round budget remain queued. See the linked client reliability guide for limits and live evidence.
+
+## 客户端后台可靠性 / Client background reliability
+
+主用户守护服务负责 Hook、日志和治理任务；Skill 文件监听独立恢复，状态展示文件故障不停止 Hook。运行、修改及服务协调采用操作系统锁。自动更新先下载验签，将后台程序保存在独立版本目录，安装桌面期间保持服务运行，后台版本切换检查进程与 Hook 就绪并支持失败回滚。切换前更新命令桥并建立有期限的升级窗口；未连上的工具请求最多等待 8 秒，已接收请求在原有期限内完成，仍按有效策略审核。TeleAgent 模型代理保持独立。本机真实升级期间 20 次连续工具调用及对应 40 条 Hook ACK 已通过；超时边界、首次代理程序加载要求和详细结果见 [客户端后台可靠性与更新](agent-manager-client.md#后台可靠性与更新--background-reliability-and-updates)。
+
+**English:** The user daemon hosts Hooks, logs and governance. File watching recovers independently, telemetry failure does not stop intake, and OS locks govern ownership. Updates verify downloads before preserving versioned workers outside the desktop bundle; installation keeps the worker running, while worker switching verifies readiness and attempts rollback on failure. Before switching, the command bridge is updated and an expiring upgrade window permits failed connections to wait up to eight seconds. Accepted requests drain within existing deadlines and policy still governs decisions. TeleAgent forwarding remains independent. A real local upgrade passed 20 consecutive tool calls and 40 Hook ACKs. See the client guide for timeout boundaries, initial proxy activation and detailed acceptance results.
+
 ## AIDR 产品适配边界 / AIDR product adapters
 
 日志与审核协议由各产品适配器解释；公共链路处理标准事件、签名策略、脱敏、队列和上传。
 后端通过产品身份定义处理会话、工具、模型与 Skill 来源，保留既有产品 ID 和检查点兼容性。
-TeleAgent 支持只读 SQLite 采集和原生审核 HTTP 桥；桌面“启用日志与审核”配置接入并申请平台策略。启用或移除接入后须完全重启 TeleAgent，运行期间保持客户端开启。适配器保留原服务地址并支持恢复，公共工具策略负责审核决定。
+TeleAgent 支持只读 SQLite 采集和原生审核 HTTP 桥；桌面“启用日志与审核”配置接入并申请平台策略。启用或移除接入后须完全重启 TeleAgent；模型代理与主守护服务独立于桌面运行，完全退出客户端界面后仍可访问模型和调用工具。适配器保留原服务地址并支持恢复，公共工具策略负责审核决定。
 桌面桥保留供应商签名路径，通过私有 localhost 主机名校验本地接入。本机 TeleAgent 2.7.0 实际账号已验证原供应商流式响应、日志上报、指定工具拒绝及撤回后执行；移除接入并重启后，直连模型与原生工具恢复。
 TeleAgent 以用户消息 ID 为轮次，助手消息与工具沿同会话的明确父消息关联；历史补传仅发送关联元数据，原始日志与逻辑事件 ID 不变。Hook 按工具调用 ID 及设备、用户、会话、工具身份唯一匹配轮次，无法确认时保留未归属。日志与 Hook 页面采用同一会话编号。
 Hook 数量表示原始事件数；同一次工具调用的执行前后事件合成一张卡片，详情分别保留。TeleAgent 的原生 `worktree` 不作为工作目录；页面从同一次工具调用的可靠日志补充目录并标注来源，缺少证据时保持未知，历史原文不改写。
@@ -13,7 +23,7 @@ Hook 数量表示原始事件数；同一次工具调用的执行前后事件合
 [外部 Agent 集成](external-agent-integration.md#aidr-产品适配器与-teleagent--product-adapters-and-teleagent)。
 
 Product adapters interpret native evidence and decisions; shared services project events, evaluate signed policies and
-deliver durable audit records. TeleAgent adds bounded SQLite collection and a desktop-managed native-review bridge. Enable logs and review in the client, then quit and reopen TeleAgent; removal restores the original address and also requires a restart.
+deliver durable audit records. TeleAgent adds bounded SQLite collection and a desktop-managed native-review bridge. Enable logs and review in the client, then quit and reopen TeleAgent; removal restores the original address and also requires a restart. The proxy and main daemon run independently of the GUI, preserving model access and tool review after the client window or application exits.
 The desktop bridge preserves signed provider paths and authenticates a private localhost hostname. Real-account testing with TeleAgent 2.7.0 confirmed streaming, uploaded logs, tool denial, rule removal and recovery after disconnecting and restarting.
 TeleAgent turns follow native user message IDs and same-session parent references. Metadata-only history repair preserves raw events; exact tool-call identity links Hooks. The five-turn local acceptance produced ten messages, four operations and eight Hooks, repaired 103 historical events without duplication, and preserved 43,503 existing event payloads. Log and Hook views use consistent turn numbers.
 Hook counts include raw events; a card groups the before/after pair of one tool call. TeleAgent working directories come from exact matching tool logs, with explicit provenance, rather than the native project worktree. Missing evidence remains unknown and raw historical records stay unchanged.

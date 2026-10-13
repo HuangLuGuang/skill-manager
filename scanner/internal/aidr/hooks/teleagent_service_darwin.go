@@ -3,12 +3,14 @@ package hooks
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"html"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"skill-manager/scanner/internal/runtimeinfo"
 	"syscall"
 	"time"
 )
@@ -104,9 +106,29 @@ func EnsureTeleAgentProxyService(home, executable string) error {
 		return code("aidr_desktop_action_busy")
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	digest, err := runtimeinfo.Digest(executable)
+	if err != nil {
+		return err
+	}
+	versionDir := filepath.Join(root, "versions", digest)
+	if err = os.MkdirAll(versionDir, 0700); err != nil {
+		return err
+	}
+	candidate := filepath.Join(versionDir, "agent-manager-client")
+	if err = stageTeleAgentProxy(executable, candidate); err != nil {
+		return err
+	}
+	info, err := checkProxyCandidate(home, candidate)
+	if err != nil || info.SHA256 != digest {
+		return code("aidr_teleagent_candidate_invalid")
+	}
 	binary := filepath.Join(root, "agent-manager-client")
-	if err = stageTeleAgentProxy(executable, binary); err != nil {
+	if err = stageTeleAgentProxy(candidate, binary); err != nil {
 		return code("aidr_teleagent_service_failed")
+	}
+	desired, _ := json.Marshal(proxyCandidate{Binary: candidate, SHA256: digest})
+	if err = teleAgentAtomic(filepath.Join(root, "desired.json"), desired); err != nil {
+		return err
 	}
 	path, body := teleAgentServiceDefinition(home, binary)
 	if err = teleAgentAtomic(path, body); err != nil {

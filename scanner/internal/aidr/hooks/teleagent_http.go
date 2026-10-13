@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"log"
 	"net"
@@ -25,6 +26,7 @@ type TeleAgentHTTP struct {
 	Active   func() (bool, error)
 	// Desktop uses a private localhost hostname so the vendor's signed request
 	// path survives forwarding unchanged. Command integrations retain URL prefixes.
+	Status       func() TeleAgentRuntimeStatus
 	PreservePath bool
 }
 
@@ -91,6 +93,12 @@ func NewTeleAgentHTTP(options TeleAgentHTTP) (http.Handler, error) {
 			_, _ = io.WriteString(w, "aidr_teleagent_bridge_ready")
 			return
 		}
+		if r.Method == http.MethodGet && route == "/_agent_manager/status" && options.Status != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			_ = json.NewEncoder(w).Encode(options.Status())
+			return
+		}
 		active := true
 		if (route == "/security/instruction/review" || route == "/api/v1/security/instruction/review") && options.Active != nil {
 			var err error
@@ -140,11 +148,25 @@ func NewTeleAgentHTTP(options TeleAgentHTTP) (http.Handler, error) {
 			reply("deny", "aidr_hook_receiver_unavailable")
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
-		defer cancel()
-		response, err := options.Exchange(ctx, options.Socket, IPCRequest{Version: 1, Method: "SubmitEvent", EventID: id, Agent: "teleagent", Hook: hook, Raw: raw})
+		// Match command Hooks: do not abandon a connected review before the
+		// receiver's two-second processing deadline. Upgrade dial waits remain
+		// separately bounded and never replay an ambiguous submitted event.
+		reviewContext := r.Context()
+		if hook == "BeforeMCPExecute" || hook == "AfterMCPExecute" {
+			// Preserve the existing MCP adapter budget, including during an
+			// upgrade: its native review contract is shorter than tool review.
+			var cancel context.CancelFunc
+			reviewContext, cancel = context.WithTimeout(reviewContext, time.Second)
+			defer cancel()
+		}
+		response, err := exchangeForHost(reviewContext, options.Socket, IPCRequest{Version: 1, Method: "SubmitEvent", EventID: id, Agent: "teleagent", Hook: hook, Raw: raw}, 4*time.Second, options.Exchange)
 		if err != nil {
-			reply("deny", "aidr_hook_receiver_unavailable")
+			reason := "aidr_hook_receiver_unavailable"
+			switch err.Error() {
+			case "aidr_hook_peer_rejected", "aidr_hook_transport_failed", "aidr_hook_protocol_invalid":
+				reason = err.Error()
+			}
+			reply("deny", reason)
 			return
 		}
 		if response.Decision != nil {

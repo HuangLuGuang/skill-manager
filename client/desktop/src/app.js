@@ -67,6 +67,36 @@ let lastClientUpdateSignal = ''
 let clientUpdateReminderTimer = null
 let clientUpdateSignalRetryTimer = null
 let clientBuildVersion = 'dev'
+let backgroundRuntimeStatus = null
+let backgroundRuntimeBusy = false
+const renderBackgroundRuntime = () => {
+  const target = document.querySelector('#settings-runtime-detail')
+  if (!target) return
+  const status = backgroundRuntimeStatus
+  const describe = (label, service) => {
+    const info = service?.runtime
+    const health = ['healthy', 'unavailable', 'not_configured'].includes(service?.health) ? service.health : 'unknown'
+    let line = `${t(label)}: ${t(`ui.background.health.${health}`)}`
+    if (info) line += ` · ${info.version} · PID ${info.pid} · SHA ${info.sha256?.slice(0, 12) || t('ui.background.health.unknown')}`
+    else if (health !== 'not_configured') line += ` · ${t('ui.background.versionUnknown')}`
+    if (service?.upgrade && service.upgrade !== 'unknown') {
+      const state = ['current', 'waiting_idle', 'draining', 'switching', 'failed', 'legacy'].includes(service.upgrade) ? service.upgrade : 'unknown'
+      line += ` · ${t(`ui.background.upgrade.${state}`)}`
+      if (service.desired_sha256 && service.desired_sha256 !== info?.sha256) line += ` (${service.desired_sha256.slice(0, 12)})`
+      if (Number.isInteger(service.active_requests)) line += ` · ${t('ui.background.activeRequests').replace('{count}', service.active_requests)}`
+    }
+    return line
+  }
+  target.textContent = [describe('ui.background.daemon', status), describe('ui.background.proxy', status?.proxy), t('ui.background.healthScope')].join('\n')
+}
+const refreshBackgroundRuntime = async () => {
+  if (backgroundRuntimeBusy) return
+  backgroundRuntimeBusy = true
+  try { backgroundRuntimeStatus = JSON.parse(await run('service-status')) }
+  catch { backgroundRuntimeStatus = null }
+  finally { backgroundRuntimeBusy = false; renderBackgroundRuntime() }
+}
+
 const selectedPendingIDs = new Set()
 const notificationDeliveryAttempts = new Set()
 const operationProgress = new Map()
@@ -107,6 +137,7 @@ const saveClientSettings = patch => {
 const syncSettingsControls = () => {
   if (!$('#settings-language')) return
   renderSavedConnections()
+  renderBackgroundRuntime()
   $('#settings-language').value = window.clientI18n?.getLocale?.() || 'zh-CN'
   $('#settings-default-panel').value = clientSettings.defaultPanel
   $('#settings-system-notifications').checked = clientSettings.systemNotifications
@@ -1556,6 +1587,7 @@ const reconcileTrackedSkillActions = tasks => {
 }
 
 async function refreshConnection() {
+  void refreshBackgroundRuntime()
   const generation = ++connectionRefreshGeneration
   try {
     const nextConnection = await invoke('get_connection_status')
@@ -2886,7 +2918,13 @@ $('#confirm-client-update').addEventListener('click', async event => {
     }
   } catch (error) {
     $('#update-dialog').close()
-    showMessageDialog(t('ui.10lkv9z'), String(error))
+    let message = String(error)
+    try {
+      const failure = JSON.parse(message)
+      const key = `ui.clientUpdate.error.${failure.error_code}`
+      if (t(key) !== key) message = [t(key), failure.detail, failure.recovery_detail].filter(Boolean).join('\n')
+    } catch { /* Older updater errors remain readable. */ }
+    showMessageDialog(t('ui.10lkv9z'), message)
     log(error)
   } finally {
     clientUpdateInstalling = false
@@ -3843,6 +3881,7 @@ document.addEventListener('visibilitychange', () => {
   }
 })
 window.addEventListener('agent-manager-client-locale-change', async () => {
+  syncSettingsControls()
   void syncBackgroundMenu()
   const activePanel = document.querySelector('.panel.active')?.id || 'connect'
   if (activePanel === 'records') void loadRecordHistory()
@@ -3865,3 +3904,7 @@ window.addEventListener('agent-manager-client-locale-change', async () => {
   }
   syncSettingsControls()
 })
+
+setInterval(() => {
+  if (!document.hidden && activePanelName() === 'settings') void refreshBackgroundRuntime()
+}, 5000)

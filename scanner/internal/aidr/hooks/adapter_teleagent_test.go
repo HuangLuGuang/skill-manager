@@ -86,8 +86,8 @@ func TestTeleAgentHTTPDecisionAndFailure(t *testing.T) {
 			if json.Unmarshal(w.Body.Bytes(), &response) != nil || response.Data.Result != tc.result || w.Code != 200 {
 				t.Fatal(w.Code, w.Body.String())
 			}
-			if time.Since(start) > 2*time.Second {
-				t.Fatal("response exceeded native MCP review deadline")
+			if time.Since(start) > 4500*time.Millisecond {
+				t.Fatal("response exceeded ordinary tool review budget")
 			}
 			if strings.Contains(w.Body.String(), "private failure") {
 				t.Fatal("error detail leaked")
@@ -119,5 +119,32 @@ func TestRegisteredHookAdaptersCoverCatalog(t *testing.T) {
 		if !ok || a.Decode == nil || a.WriteDecision == nil {
 			t.Fatalf("missing %s", agent)
 		}
+	}
+}
+
+func TestTeleAgentMCPRetainsShortBudgetDuringUpgrade(t *testing.T) {
+	socket := upgradeSocket(t)
+	finish, err := BeginReceiverUpgrade(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer finish()
+	calls := 0
+	h, err := NewTeleAgentHTTP(TeleAgentHTTP{Socket: socket, Secret: strings.Repeat("a", 64), Exchange: func(ctx context.Context, _ string, _ IPCRequest) (IPCResponse, error) {
+		calls++
+		<-ctx.Done()
+		return IPCResponse{}, ctx.Err()
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := strings.Replace(teleReview, `"caller_type":"tool"`, `"caller_type":"mcp"`, 1)
+	r := httptest.NewRequest(http.MethodPost, "http://localhost/"+strings.Repeat("a", 64)+"/security/instruction/review", strings.NewReader(payload))
+	r.RemoteAddr = "127.0.0.1:12345"
+	w := httptest.NewRecorder()
+	started := time.Now()
+	h.ServeHTTP(w, r)
+	if time.Since(started) > 2*time.Second || calls != 1 || !strings.Contains(w.Body.String(), `"result":2`) {
+		t.Fatalf("MCP timeout changed or replayed: %d %s", calls, w.Body.String())
 	}
 }

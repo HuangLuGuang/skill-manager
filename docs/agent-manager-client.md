@@ -1,5 +1,75 @@
 # Agent Manager Client 使用说明
 
+## 后台可靠性与更新 / Background reliability and updates
+
+- Hook 接收器继续运行在主用户守护服务内。Skill 目录监听独立启动，初始化、刷新或运行时错误记录为 `sync:watcher:error`，每 30 秒重试并触发补偿扫描；心跳、任务同步和 Hook 不依赖监听成功。监听降级期间事件驱动检测可能延迟，周期巡检继续运行。
+- `receiver-status.json` 写入失败只影响状态展示，输出 `aidr_desktop_status_failed`，恢复后输出 `aidr_desktop_status_recovered`；监督器通过实际 IPC 核对接收器健康。身份绑定、策略和审计存储失败仍执行既有安全处理。
+- 主服务运行锁、治理修改锁和服务协调锁使用操作系统锁，进程退出后释放，锁文件保留。不要通过时间戳或删除锁文件解除占用。兼容旧 PID 锁时，旧进程仍存活则等待退出，不靠超时抢锁。
+- 自动更新先下载并验证签名，再调用 `stage-update` 将后台程序保存到 `~/.agent-manager/service/versions/<sha256>/`。初次从应用包迁移需要一次后台重启；后续桌面安装期间既有服务继续运行。新后台切换后，检查进程持锁、健康记录新鲜，以及已启用 Hook 的本地 IPC。候选启动失败时尝试恢复校验通过的原程序，并核对恢复结果。保留版本用于恢复，不随应用目录替换删除。
+- 安装失败后通过保留的后台程序检查/恢复服务，仅在确认就绪后显示服务可用。`prepare-update` 仍为暂停主服务的维护命令，连接切换继续使用；自动更新改用 `stage-update`。后台版本切换前先更新命令桥，再写入私有、30 秒失效的升级标记；切换或恢复结束即清除。新命令桥和 TeleAgent 代理仅在这个窗口内对尚未建立连接的请求等待重连，单次最多 8 秒，也受宿主取消/超时限制。已接收请求按原有两秒连接期限完成审核后退出。策略拒绝、身份/协议错误和已发送但结果不明的请求不重放；等待超时仍报错，审核规则保持生效。
+- TeleAgent 模型代理保持独立 LaunchAgent，主服务准备、切换、回滚均不停止它。代理配置异常单独报告，不阻止主服务恢复。模型转发独立于 Hook，工具审核仍需要有效接收器决策。
+
+**English:** Skill watching starts independently of the user daemon's Hook, heartbeat and task loops. Initialization, refresh and runtime failures are recorded under `sync:watcher:error` and retried every 30 seconds with compensating scans. Periodic patrol continues. Telemetry write failures report stable failure/recovery codes without stopping intake; actual IPC verifies health. Identity, policy and audit-storage enforcement remain unchanged. Run, mutation and reconciliation locks use OS locks released at process exit; their persistent files must not be deleted or treated as leases. Live legacy PID owners remain exclusive.
+
+Updates download and verify signatures before `stage-update` preserves versioned workers outside the application bundle. Initial migration and worker version switching require brief restarts; desktop installation itself leaves the worker running. Before switching, reconciliation installs the command bridge and writes a private upgrade marker that expires after 30 seconds and is removed after switching or recovery. Updated command bridges and the TeleAgent proxy retry failed connections only during this window, for at most eight seconds per request and within the host's cancellation/deadline. Accepted requests drain under their existing two-second connection deadlines. Policy denials, peer/protocol failures and ambiguous sent requests are not replayed; exhausted waits still fail. Readiness requires a live lock, fresh health and local IPC for enabled Hooks. Failed activation attempts verified rollback. Failed desktop installation checks/restarts the preserved worker and reports actual recovery status. `prepare-update` remains the explicit stop command used by connection maintenance. The independent TeleAgent proxy continues forwarding during these operations; tool review still requires a valid Hook decision.
+
+### TeleAgent 代理自动升级与实际版本 / Proxy upgrades and running identity
+
+macOS 代理安装将新程序保存到 `~/.agent-manager/aidr/teleagent-proxy/versions/<sha256>/`，执行候选程序的配置自检并核对摘要，成功后发布目标版本。正在运行的代理自行观察目标变化；模型转发或工具审核尚未结束时显示“等待请求结束后升级”，继续服务。空闲时停止接收并排空已有连接，复制监听描述符保留原端口和系统连接队列，再通过 `exec` 加载新程序，PID 保持不变。空闲检查后若又进入长请求，排空等待最多 100 毫秒即恢复接收，旧请求继续完成，稍后再尝试。候选检查或 `exec` 失败保留当前服务；持续忙碌会延迟升级，不强制结束请求。正常常驻进程仍为主守护服务和 TeleAgent 代理两个。TeleAgent 普通工具审核使用 4 秒等待预算，与命令 Hook 对齐，不再先于接收器的 2 秒处理期限放弃；明确升级窗口内连接失败最多等待 8 秒。已发送请求不重放，具体身份/传输/协议错误保留为稳定错误码。MCP 审核保留原有 1 秒预算，升级等待也不能超过该预算；较长主服务切换窗口可能导致 MCP 审核失败，不能将本次终端工具成功扩大为 MCP 无中断保证。
+
+不支持该协议的旧代理需要一次空闲激活，本机已在没有已建立 TCP 连接且 TeleAgent 任务完成时执行。自动切换覆盖加载此协议后的升级；操作系统崩溃、强制杀进程及供应商故障不属于无中断保证。发布包的来源和签名校验仍由客户端更新流程负责，代理摘要检查用于确认目标程序一致。
+
+“设置 → 后台运行”分别显示主守护服务 / Hook 与 TeleAgent 代理的实际版本、PID、启动时计算的 SHA-256 摘要、健康状态、目标摘要与升级状态。界面打开时每 5 秒刷新本地健康，业务清单仍使用事件通知。主服务健康要求新鲜健康记录、存活进程及有效运行锁；启用 Hook 时健康记录只在 IPC 验证通过后更新。代理健康来自经过认证的本地 HTTP 状态接口；旧版本只确认就绪，不猜测其运行版本。“健康”不代表供应商模型一定可达，仍以真实模型请求验证。CLI 可运行 `agent-manager-client service-status`。
+
+**English:** On macOS, installation stages an immutable digest-addressed proxy binary, runs candidate configuration preflight and verifies its digest before publishing the desired version. The running proxy waits for model forwarding and tool review to finish. It drains connections while retaining a duplicate listening descriptor and kernel backlog, then uses `exec` to load the candidate with the same PID and port. If a long request races the idle check, acceptance resumes after at most 100 ms; the existing request continues and the upgrade waits for another idle opportunity. Failed preflight or `exec` retains the current service. Continuous traffic can postpone activation. The normal persistent process count remains two. Ordinary TeleAgent tool reviews use the same four-second caller budget as command Hooks, while receiver connections retain their two-second processing deadline. Upgrade dial waits remain bounded to eight seconds. Submitted requests are not replayed; peer, transport and protocol errors retain their specific stable codes. MCP retains its one-second budget, including upgrade waits. A longer worker outage can fail MCP review; bash continuity does not establish MCP continuity. Legacy proxies need one initial idle activation; OS crashes, forced termination and vendor failures are outside this continuity contract. Package signature verification remains part of the desktop updater.
+
+Settings → Background Operation shows each service's actual version, PID, startup-captured SHA-256, readiness, desired digest and upgrade state. Local health refreshes every five seconds while this page is visible; business state remains event-driven. Worker readiness uses a fresh health marker, a live process and an OS-held lock, with enabled Hook IPC checked before publishing health. Authenticated local HTTP establishes proxy readiness. Legacy readiness does not establish its running version; local health does not establish vendor availability. Use `agent-manager-client service-status` for JSON diagnostics.
+
+### 当前修复验收 / Current acceptance (2026-10-13)
+
+本机开发客户端通过 Cmd+Q 完全退出后，TeleAgent 2.7.0 会话 `ses_ecc25e41dffeOYfrgviydELPSt` 在 14:01:34–14:02:02 CST 完成真实 `NewApi/chat-flash` 请求和 10 次独立串行 `bash` 调用，全部退出码 0。模型请求开始后发布新代理；14:01:35.814–14:01:43.283 的采样显示“等待空闲”，14:01:46.900 加载新程序。代理 PID 始终为 80155，摘要从 `f0e69186fbbe` 切换到 `5de4c4539eb5`，没有手工重启代理。主守护同时由 PID 92617 切换到 95502，第 3 次工具调用跨越切换，用时 2.273 秒后成功。11 条原生助手消息均完成且无模型错误，最后一条 `finish=stop`。20 条执行前/后 Hook 按原生调用 ID 唯一匹配，并已逐条确认本地 ACK；平台记录范围 26385–26406（夹有其他事件）。最终两服务均健康、目标版本已生效、无在途请求，桌面进程不存在，工具策略未修改。
+
+验收过程中另一次调用曾在 1 秒处提前放弃，而平台已记录接收器的允许决策；据此修正代理审核等待预算为 4 秒，并补充延迟 1.2 秒的允许/拒绝回归，确保不重放。修复后两个独立现场会话各完成 10 次调用。上述成功会话用于最终升级证据，不把之前失败计入成功。
+
+隔离真实进程测试还覆盖完整流式响应、同 PID/端口切换、并发新连接及损坏候选拒绝：73 次并发探测成功，观察到的最大延迟约 149 毫秒，此数字仅描述该次本机夹具，不是时延 SLA。可通过 `python3 scanner/scripts/test-teleagent-upgrade.py <旧构建> <新构建>` 使用两份不同的 macOS CLI 构建复现。Go 主客户端完整包通过，节流及延迟回执场景连续 5 次通过，单轮等待预算耗尽回归通过；Hook/CLI 回归、排空/超时 race 检查与 Windows/Linux 交叉构建通过。桌面 i18n 29 项通过，开发应用构建通过；设置页的实际版本/健康信息已在中英文正常窗口检查。
+
+**English:** With the development GUI fully exited using Cmd+Q, real TeleAgent 2.7.0 session `ses_ecc25e41dffeOYfrgviydELPSt` completed model requests and ten separate sequential bash calls between 14:01:34 and 14:02:02 CST. A candidate was published after inference began; samples recorded waiting for idle before activation. Proxy PID 80155 and its port were retained while the loaded digest changed from `f0e69186fbbe` to `5de4c4539eb5`. The daemon changed from PID 92617 to 95502; call three crossed that switch and succeeded in 2.273 seconds. All tool exits were zero, eleven native assistant messages completed without model errors, and the final message finished with `stop`. Twenty before/after Hooks matched exact native call IDs and local ACKs; platform IDs span 26385–26406 with unrelated events between them. Both services ended healthy and current, without a desktop process or policy changes.
+
+An earlier live review exposed premature one-second cancellation despite a recorded allow decision. The four-second caller budget and delayed allow/deny regression address it; two subsequent independent live sessions each completed ten calls. An isolated real-exec fixture also retained a complete stream, PID and port, served 73 concurrent probes and rejected an invalid candidate; its approximately 149 ms maximum observed latency is not an SLA. Managed-client package, repeated pacing, round-expiry, Hook/CLI, targeted race and cross-build checks passed. Desktop i18n passed 29 checks and the development app built; running identity/readiness was inspected in both languages at the normal window size.
+
+最终本机运行构建为 `dev / 9b548f181279`：主守护 PID 4169、代理 PID 80155，均健康且目标已生效。14:07 CST 在桌面继续退出时执行最终构建复核，真实模型返回后工具调用 `call_7936a98a3a344d949da51274` 输出 `AM_FINAL_20261013_1407`、退出码 0；平台 26452/26453 两条 Hook 均已 ACK。此构建保留 MCP 原有短预算，MCP 升级连续性尚未实测。最终开发应用包已重建。
+
+**English:** The final local build is `dev / 9b548f181279`, with healthy daemon PID 4169 and current proxy PID 80155. At 14:07 CST, with the GUI still exited, a real model/tool smoke check completed call `call_7936a98a3a344d949da51274` with the expected marker and exit zero; platform Hooks 26452/26453 were acknowledged. This build retains the original short MCP budget; live MCP upgrade continuity remains unverified. The development app bundle was rebuilt.
+
+新增界面人工 Todo / Remaining manual UI checks:
+
+- [ ] 最小 900px 窗口：中英文长版本号、等待升级与失败状态换行。Minimum-width layouts with long versions and pending/failed states.
+- [ ] 正式签名安装包、重新登录系统及其他操作系统现场验收；本机开发构建与交叉编译不替代这些验收。Signed packages, login recovery and other OS hosts remain separate acceptance work.
+
+### 升级期间真实验收 / Live upgrade acceptance
+
+2026-10-13 12:59 CST，本机在桌面客户端保持退出的情况下执行真实 `binary_changed` 升级：主守护 PID 82748 → 6332，代理 PID 4477 保持不变。升级协调耗时 4.903 秒，20 ms 间隔连接采样观察到约 3.6 秒不可连接窗口。TeleAgent 2.7.0 会话 `ses_ecc5efd16ffeuv80Wn4CGqiUQL` 连续串行完成 20 次独立 `bash` 调用，退出码均为 0；第 3 次调用 `call_b5c4e29124904b0cb5885f52` 跨越该窗口，用时 2.613 秒，等待后成功。真实 `NewApi/chat-flash` 模型调用和最终回复正常完成。对应 40 条 Hook 已逐条匹配调用 ID 与本地 ACK，无重复；平台记录范围 26108–26153（夹有其他 Agent 事件）。审核策略未修改，升级标记已清理。
+
+后续节流修复已改为按实际发送完成时间控制，并将单轮等待预算耗尽留到下一轮；完整主客户端包复跑通过，节流间隔与延迟回执场景连续 5 次通过。验收覆盖本机开发构建的升级窗口；不代表所有宿主的超时设置或其他系统已实测。超过等待预算、异常崩溃和审批中的单次授权跨接收器重启仍按现有失败/授权规则处理。
+
+**English:** At 12:59 CST on 2026-10-13, an actual `binary_changed` upgrade ran with the desktop exited. The daemon changed from PID 82748 to 6332; proxy PID 4477 remained unchanged. Reconciliation took 4.903 seconds; connection samples every 20 ms observed approximately 3.6 seconds without a listener. TeleAgent 2.7.0 completed 20 separate sequential native `bash` calls with exit code 0. Call 3 crossed the outage and succeeded after waiting, taking 2.613 seconds overall. Real `NewApi/chat-flash` requests and the final reply completed. All 40 before/after Hooks matched native call identities and local ACKs without duplicates; platform IDs span 26108–26153 with unrelated events between them. Policy was unchanged and the upgrade marker was removed.
+
+Subsequent pacing changes use actual delivery completion and defer unsent records when the round expires. The complete managed-client package passed, with five consecutive passes for pacing and delayed-receipt cases. This is local development-build evidence, not acceptance for every host timeout or other operating systems. Exhausted waits, crashes and pending single-use approvals across receiver restarts retain their failure/authorization semantics.
+
+界面验收 Todo / Manual UI acceptance:
+
+- [ ] 中英文更新弹窗：下载/验签失败、安装失败但后台可用、恢复无法确认三类提示与窄窗口长文本。Verify bilingual error states and narrow layouts.
+- [ ] 正式安装包：首次后台目录迁移、升级成功、安装中断和失败恢复，同时核对 Hook 工具结果及 TeleAgent 流式响应。Verify packaged migration, interrupted installation and recovery against actual tool results and streams.
+- [ ] Windows/Linux 实机验证服务安装、锁恢复与升级；交叉编译不替代系统服务验收。Verify lifecycle behavior on Windows/Linux separately from cross-compilation.
+
+自动化验证（2026-10-13，macOS）：三个 Go 包完整回归、关键恢复路径 race 检查通过；隔离主进程强制退出后，新进程在既有重试策略内恢复 Hook IPC 并接收工具事件；独立测试 LaunchAgent 强制退出后恢复到就绪。TeleAgent 独立 LaunchAgent 使用模拟上游完成跨启动器退出及服务协调的流式响应验证。后台启动失败回滚及回滚失败使用隔离服务管理器夹具验证。Rust 测试 27 通过、3 项既有忽略；桌面 i18n 29 通过；Windows/Linux 交叉编译通过。
+
+**English:** Automated validation on 2026-10-13 passed all three affected Go packages, targeted race checks, isolated worker crash/restart with Hook IPC intake, and real macOS LaunchAgent readiness recovery. A separate TeleAgent LaunchAgent preserved mocked upstream streams across launcher exit and reconciliation. Service-manager fixtures covered failed activation, verified rollback and failed recovery. Rust: 27 passed, 3 existing ignored; desktop i18n: 29 passed; Windows/Linux cross-builds passed.
+
+本机应用与真实验收（2026-10-13，12:44–12:48 CST）：新版开发侧车已通过 `reconcile-service` 应用到日常 LaunchAgent，注册路径与构建产物 SHA-256 一致。迁移时曾有一次命令被 `aidr_hook_receiver_unavailable` 拦截，Hook 就绪后重试成功，证实后台切换存在短暂窗口。随后对开发客户端桌面进程发送 SIGTERM，确认桌面及开发启动器均已退出，主守护进程和 TeleAgent 代理 PID 保持不变。TeleAgent 2.7.0 的真实 `NewApi/chat-flash` 请求返回验收标记；同一会话 `ses_ecc6b5de0ffe73irhCie4WOmHd` 的 `bash` 调用 `call_ced93b6e4e20425f847f518c` 写入并读回独立验收文件，原生日志记录完成、退出码 0。对应 `BeforeToolExecute` / `AfterToolExecute` 已按调用 ID 核对平台记录 26012 / 26013 与本地 ACK（序号 25947 / 25948），执行前决策为允许。未改变工具策略。此结果覆盖本机开发客户端完全退出后的真实模型与工具调用；托盘菜单正常退出、正式签名安装包升级和其他系统仍须分别验收。
+
+**English:** Live application and acceptance on 2026-10-13, 12:44–12:48 CST: the rebuilt development sidecar was applied to the everyday LaunchAgent using `reconcile-service`, with matching registered and built SHA-256 values. One command was rejected with `aidr_hook_receiver_unavailable` during migration and succeeded after readiness recovered, confirming the brief worker-switch window. The development GUI was then terminated with SIGTERM; neither the GUI nor its development launcher remained, while daemon and TeleAgent proxy PIDs stayed unchanged. A real TeleAgent 2.7.0 `NewApi/chat-flash` request returned the test marker. A subsequent native `bash` call wrote and read a dedicated acceptance file and completed with exit code 0. Its before/after Hooks matched platform records 26012 / 26013 and local acknowledged sequences 25947 / 25948 by native call ID, with an allow decision before execution. Tool policy was unchanged. This verifies actual model and tool access after full development-GUI termination; tray-menu quit, signed packaged upgrades and other operating systems require separate acceptance.
+
 ## 在线操作指南 / Online operating guides
 
 平台帮助中心的 `/docs/aidr-client` 提供客户端接入、日志目录、Hook 安装/信任、系统目标与权限、停止退出和补传步骤及中英文截图。三通道比较见 `/docs/aidr-overview`，平台操作见 `/docs/aidr-platform`，审计/拦截与审批见 `/docs/aidr-policies`，Skill 异步认证见 `/docs/aidr-skill-audit`，排障与性能验收见 `/docs/aidr-troubleshooting`。
@@ -8,13 +78,13 @@ The online Help Center provides illustrated bilingual procedures at `/docs/aidr-
 
 ## 接入后自动采集与 Hook 状态
 
-未保存运行治理策略时，平台默认启用 Agent 日志和 Hook，关闭系统通道，Hook 使用仅审计模式；目标为本机发现的 Codex / Claude Code，普通插件自动安装和更新。客户端接入平台、取得有效策略后，既有后台服务自动读取日志，桌面原生监督器自动启动 Hook 接收器，无需再次点击“启用自动运行”。客户端启动前应先升级平台。旧协议无法应用新通道/模式时需更新客户端；旧客户端在没有显式策略时保留原有手动接收器控制。
+未保存运行治理策略时，平台默认启用 Agent 日志和 Hook，关闭系统通道，Hook 使用仅审计模式；目标为本机发现的 Codex / Claude Code，普通插件自动安装和更新。客户端接入平台、取得有效策略后，主后台服务自动读取日志并启动同进程 Hook 接收器，无需再次点击“启用自动运行”。客户端启动前应先升级平台。旧协议无法应用新通道/模式时需更新客户端；旧客户端在没有显式策略时保留原有手动接收器控制。
 
-已保存的全局策略、单台覆盖和关闭设置保持不变。单台客户端选择继承后使用当前全局策略；需要自动安装已有单机配置的插件时，在“客户端策略 → 接入与采集”将安装方式设为自动。采集正文、脱敏及截断长度仍由审计策略决定。只安装应用、尚未接入平台，不会得到上传目标。普通插件需要的宿主启用/信任，以及企业受管安装需要的管理员授权，均不能由平台代替。接收器由桌面进程监督，关闭窗口后客户端和接收器继续在后台运行；通过托盘的“打开客户端窗口”或 macOS Dock 可恢复窗口。显式退出应用会回收接收器，再次启动后按策略恢复；后台日志服务独立运行。
+已保存的全局策略、单台覆盖和关闭设置保持不变。单台客户端选择继承后使用当前全局策略；需要自动安装已有单机配置的插件时，在“客户端策略 → 接入与采集”将安装方式设为自动。采集正文、脱敏及截断长度仍由审计策略决定。只安装应用、尚未接入平台，不会得到上传目标。普通插件需要的宿主启用/信任，以及企业受管安装需要的管理员授权，均不能由平台代替。接收器由主后台服务监督，与日志采集在同一守护进程内运行；关闭窗口或完全退出桌面客户端后仍继续工作。通过托盘的“打开客户端窗口”或 macOS Dock 可恢复窗口。
 
 “客户端详情 → 插件接入”和“行为审计 → 采集状态”按 Agent 直接展示：插件未安装/已安装/未发现 Agent、宿主未启用/已启用、授权待审阅/已授权/受管信任/管理员授权取消或失败/未知、本地接收器状态、最近 15 分钟 Hook 事件到达时间。状态来自不同证据：无事件不等于未授权，接收器运行不等于宿主已经加载插件。后台每 5 分钟读取本地配置，观察有效期为 8 分钟，本地观察的宿主信任保持未知；原生授权在安装、升级、策略应用所需校验和手动诊断时核验。同时要求客户端报告未过期，接收器使用独立的 30 秒观察窗口。未发现一个目标 Agent 不再阻止检查另一个。
 
-**English:** With no saved runtime override, the platform enables Agent logs and Hooks in audit mode, leaves system collection off and automatically installs/updates ordinary plugins for discovered Codex and Claude Code hosts. After enrollment and policy delivery, the existing daemon collects logs and the desktop supervisor starts the Hook receiver automatically. Existing global/device policies and explicit disabling are preserved; content capture, redaction and truncation continue to follow audit policy. Native host trust and managed-installation administrator authorization still require the appropriate user action. The Hook receiver is owned by the desktop process and stops when that application exits; it resumes under policy on the next launch. The log daemon is independent. Older protocols require a client upgrade for the new channel/mode target; their existing manual receiver controls remain available when no explicit policy owns them.
+**English:** With no saved runtime override, the platform enables Agent logs and Hooks in audit mode, leaves system collection off and automatically installs/updates ordinary plugins for discovered Codex and Claude Code hosts. After enrollment and policy delivery, the main daemon collects logs and starts its in-process Hook receiver automatically. Existing global/device policies and explicit disabling are preserved; content capture, redaction and truncation continue to follow audit policy. Native host trust and managed-installation administrator authorization still require the appropriate user action. The daemon and its Hook receiver continue running when the desktop exits. Older protocols require a client upgrade for the new channel/mode target; their existing manual receiver controls remain available when no explicit policy owns them.
 
 The platform shows installation, enablement, native authorization, receiver state and recent event arrival separately. An absent event does not establish lack of authorization, and a running receiver does not prove native Hook loading. Local configuration observations run every five minutes, expire after eight minutes and report unknown host trust. Native checks run during installation, upgrades, required policy application checks and manual diagnostics. Client and receiver freshness are checked independently. Missing hosts do not prevent checking other targets.
 
@@ -346,7 +416,7 @@ TeleAgent 模型代理由独立 macOS 用户级 LaunchAgent 运行。关闭、�
 
 **English:** On October 13, 2026, the development build served Hook IPC from main-daemon PID `91099`, with no separate `aidr-hook-serve` child. After SIGTERM terminated the desktop, ten health checks passed with unchanged receiver PID and instance. TeleAgent's native tool details showed the actual `printf` command and `HOOK_BACKGROUND_OK` output while the GUI was absent. Shared Hook sequence advanced from `25502` to `25524`, ACK progressed and pending uploads returned to zero; this shared evidence is not attributed entirely to that one TeleAgent call. Reopening the development client preserved the receiver instance. Native tray Quit, bilingual menu layout and signed release packages remain manual checks.
 
-验证范围：5 项 Go 后台接收器回归（含 race 检查）、客户端命令与 Hook 包测试、23 项 Rust 测试（另 3 项条件测试跳过）、桌面/平台 i18n 检查与平台构建通过。主守护服务测试中原有 `TestOrdinaryPacingFairnessAndRoundBound` 出现发送时间间隔断言失败；排除该项后其余测试通过，未修改该节流实现或断言。
+验证范围：5 项 Go 后台接收器回归（含 race 检查）、客户端命令与 Hook 包测试、23 项 Rust 测试（另 3 项条件测试跳过）、桌面/平台 i18n 检查与平台构建通过。发送节流与单轮等待预算问题已在后续修复，现有间隔断言保持不变，最新完整回归结果见本文开头。
 
 **Validation:** Five managed-receiver Go regressions including race checks, client-command/Hook package tests, 23 Rust tests (three conditional tests skipped), desktop/platform i18n checks and the platform build passed. The existing `TestOrdinaryPacingFairnessAndRoundBound` failed its send-interval assertion in broader daemon testing; the remaining daemon tests passed when that case was excluded. Its pacing implementation and assertion were not modified.
 
@@ -1070,7 +1140,7 @@ macOS 系统防护中的终止入口使用服务端返回的 `can_terminate` / `
 
 每个身份最多保留一条可聚合待发记录和一条已封存投递记录。发送前持久化 `delivery_id` 和不可变载荷，上传期间新增观察写入另一条待发记录。平台在同一事务保存事件与 `(client_id, delivery_id)` 回执；相同身份和载荷重试返回相同记录，不重新累加。同一投递身份携带不同内容返回稳定错误码 `client.events_delivery_conflict`。客户端收到匹配投递身份、有效事件编号及 `durable=true` 后才删除该条封存记录；只有 HTTP 200 不会清理队列。服务端回执保留用于后续重放识别，当前没有自动过期策略，会占用持续增长的磁盘空间。
 
-所有普通事件发送入口共用节奏：相邻预约发送时间至少 **300 毫秒**（约 3.33 次/秒），突发 **1**；一轮最多 **20 条、6 秒**，逐条读取，新增载荷上限为 **256 KiB 加传输元数据**。SQLite 持久化发送节奏、退避及 30 秒发送者租约，同状态目录的多个新版进程不会竞争发送同一条记录。发送超时上限 10 秒，并受单轮期限约束；网络、超时或 HTTP 错误后按 2、4、8、16、32、60 秒退避，结合 `Retry-After`，上限 60 秒。确认成功后清除退避。等待退避、租约或没有可发送记录不会冒充网络恢复或成功投递。
+所有普通事件发送入口共用节奏：每次发送取得回执或失败结束后至少等待 **300 毫秒**再开始下一次（最高约 3.33 次/秒，慢响应会进一步降速），突发 **1**。同服务器发送从请求到回执使用跨进程文件锁串行化，网络等待不持有 SQLite 事务，调度延迟不补发突发流量；一轮最多 **20 条、6 秒**，逐条读取，新增载荷上限为 **256 KiB 加传输元数据**。SQLite 持久化发送节奏、退避及 30 秒发送者租约，同状态目录的多个新版进程不会竞争发送同一条记录。发送超时上限 10 秒，并受单轮期限约束；单轮 6 秒预算在节流等待期间耗尽时，未发送记录保留到下一轮，不记录网络故障或增加退避；网络、超时或 HTTP 错误后按 2、4、8、16、32、60 秒退避，结合 `Retry-After`，上限 60 秒。确认成功后清除退避。等待退避、租约或没有可发送记录不会冒充网络恢复或成功投递。
 
 守护进程独立的普通事件工作器每秒尝试补传；旧记录与最近 30 秒内的新记录按轮次交替 FIFO 处理。负载低于发送能力时，新独立事件通常在下次工作轮次或前台的两条发送预算内发送。持续超过发送能力的独立事实仍可能积压；不会为了容量丢弃它们。持续观察的聚合边界只限制每个身份，不限制历史上不同内容、策略或独立事实的总数。
 

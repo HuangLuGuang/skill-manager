@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"skill-manager/scanner/internal/runtimeinfo"
 	"slices"
 	"strings"
 	"time"
@@ -285,6 +286,9 @@ func runTeleAgentDesktop(ctx context.Context, home, socket, connection string) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	var server *http.Server
+	var listener net.Listener
+	runtimeState := &proxyRuntime{upgrade: "current"}
+	runtimeinfo.Current()
 	var address, upstream string
 	defer func() {
 		if server != nil {
@@ -295,7 +299,7 @@ func runTeleAgentDesktop(ctx context.Context, home, socket, connection string) {
 		s, e := readTeleAgentState(home)
 		if e == nil && server == nil {
 			u, _ := url.Parse(s.Upstream)
-			handler, err := NewTeleAgentHTTP(TeleAgentHTTP{Socket: socket, Secret: s.Secret, Upstream: u, PreservePath: true,
+			handler, err := NewTeleAgentHTTP(TeleAgentHTTP{Socket: socket, Secret: s.Secret, Upstream: u, PreservePath: true, Status: runtimeState.status,
 				Active: func() (bool, error) {
 					current, err := readTeleAgentState(home)
 					if err != nil {
@@ -318,9 +322,10 @@ func runTeleAgentDesktop(ctx context.Context, home, socket, connection string) {
 					return c.Active && slices.Contains(c.Agents, "teleagent"), nil
 				}})
 			if err == nil {
-				l, err := net.Listen("tcp", s.Address)
+				l, err := proxyListener(s.Address)
 				if err == nil {
-					server = &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second}
+					listener = l
+					server = &http.Server{Handler: runtimeState.track(handler), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second}
 					address, upstream = s.Address, s.Upstream
 					go server.Serve(l)
 				}
@@ -329,13 +334,65 @@ func runTeleAgentDesktop(ctx context.Context, home, socket, connection string) {
 		// Upstream can change only while disconnected and subsequently re-enrolled.
 		// Restart this product listener without affecting the shared receiver.
 		if server != nil && (e != nil || s.Address != address || s.Upstream != upstream) {
-			server.Close()
+			old := server
+			go old.Shutdown(context.Background())
 			server = nil
+		}
+		if server != nil {
+			candidate := readProxyCandidate(home)
+			running := runtimeinfo.Current()
+			if candidate.SHA256 != "" && candidate.SHA256 != running.SHA256 {
+				runtimeState.set("waiting_idle", candidate.SHA256)
+				if runtimeState.active.Load() == 0 {
+					digest, err := runtimeinfo.Digest(candidate.Binary)
+					if err != nil || digest != candidate.SHA256 {
+						runtimeState.set("failed", candidate.SHA256)
+					} else if info, err := checkProxyCandidate(home, candidate.Binary); err != nil || info.SHA256 != digest {
+						runtimeState.set("failed", candidate.SHA256)
+					} else {
+						runtimeState.set("draining", candidate.SHA256)
+						next, drained, err := drainProxy(server, listener)
+						if err == nil {
+							handler := server.Handler
+							listener = next
+							if drained {
+								runtimeState.set("switching", candidate.SHA256)
+								err = execProxyCandidate(home, candidate, next)
+								runtimeState.set("failed", candidate.SHA256)
+							}
+							// An accepted request may have raced the idle check.
+							// Resume accepts after at most 100 ms; its old handler
+							// is allowed to finish without a forced deadline.
+							server = &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second}
+							go server.Serve(listener)
+						}
+					}
+				}
+			} else {
+				runtimeState.set("current", candidate.SHA256)
+			}
 		}
 		select {
 		case <-ctx.Done():
+			if server != nil {
+				_ = server.Shutdown(context.Background())
+				server = nil
+			}
 			return
 		case <-ticker.C:
 		}
 	}
+}
+
+func CheckTeleAgentProxy(home string) error {
+	s, err := readTeleAgentState(home)
+	if err != nil {
+		return err
+	}
+	u, err := url.Parse(s.Upstream)
+	if err != nil {
+		return err
+	}
+	_, err = NewTeleAgentHTTP(TeleAgentHTTP{Socket: filepath.Join(home, ".agent-manager/aidr/hook.sock"), Secret: s.Secret, Upstream: u, PreservePath: true})
+	return err
 }

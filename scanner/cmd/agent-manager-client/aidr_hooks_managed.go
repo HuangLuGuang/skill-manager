@@ -103,6 +103,30 @@ func (s *hookSupervision) failure(code string, retry managedclient.ReceiverRetry
 
 type managedHookContextKey struct{}
 
+func automaticHookReady(ctx context.Context, home string) bool {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		return true
+	}
+	prefs, err := loadDesktopPreferences(home)
+	if err != nil {
+		return false
+	}
+	if !prefs.Enabled {
+		return true
+	}
+	plan, err := automaticHookPlan(ctx, home)
+	if err != nil {
+		return false
+	}
+	if !plan.required {
+		return true
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	probe, err := hooks.Exchange(probeCtx, plan.paths.Socket, hooks.IPCRequest{Version: 1, Method: "GetHealth"})
+	return err == nil && probe.Receiver != nil && probe.Receiver.PID == os.Getpid() && probe.State != nil && probe.State.Device == plan.paths.Device && probe.State.ReceiverInstance != ""
+}
+
 func runAutomaticHooks(ctx context.Context, home string) {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		return
@@ -145,6 +169,11 @@ func manageAutomaticHooks(ctx context.Context, home string, interval time.Durati
 			return true
 		}
 		if writeDesktopJSON(filepath.Join(current.paths.Root, "receiver-supervisor.json"), state) != nil {
+			if done != nil {
+				// Keep an already running receiver; new launch attempts still require
+				// durable retry state before starting another worker.
+				return false
+			}
 			stop()
 			state.Code, state.Suspended = "aidr_desktop_retry_state_unwritable", true
 			return false
@@ -258,6 +287,12 @@ func manageAutomaticHooks(ctx context.Context, home string, interval time.Durati
 					readErr := readDesktopJSON(plan.paths.Status, &telemetry)
 					stamp, parseErr := time.Parse(time.RFC3339Nano, telemetry.Updated)
 					fresh := readErr == nil && parseErr == nil && !stamp.Before(started) && now.Sub(stamp) >= 0 && now.Sub(stamp) < 15*time.Second && telemetry.State.Device == plan.paths.Device && telemetry.State.ReceiverInstance != ""
+					if !fresh {
+						probeCtx, stopProbe := context.WithTimeout(ctx, time.Second)
+						probe, probeErr := hooks.Exchange(probeCtx, plan.paths.Socket, hooks.IPCRequest{Version: 1, Method: "GetHealth"})
+						stopProbe()
+						fresh = probeErr == nil && probe.Receiver != nil && probe.Receiver.PID == os.Getpid() && probe.State != nil && probe.State.Device == plan.paths.Device && probe.State.ReceiverInstance != ""
+					}
 					if fresh {
 						state.Code = "aidr_desktop_running"
 						resumeUntil = time.Time{}

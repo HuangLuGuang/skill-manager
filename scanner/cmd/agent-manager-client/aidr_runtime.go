@@ -24,6 +24,31 @@ func init() {
 	managedclient.AIDRRuntimeInspect = inspectAIDRTarget
 	managedclient.AIDRLogRunner = runAutomaticLogs
 	managedclient.AIDRHookRunner = runAutomaticHooks
+	managedclient.AIDRHookReady = automaticHookReady
+	managedclient.AIDRPrepareServiceUpgrade = prepareHookUpgrade
+}
+
+func prepareHookUpgrade(home string) (func(), error) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		return func() {}, nil
+	}
+	prefs, err := loadDesktopPreferences(home)
+	if err != nil {
+		return nil, err
+	}
+	if !prefs.Enabled {
+		return func() {}, nil
+	}
+	// Install the new command bridge while the old receiver can still review
+	// calls; callers starting during the switch can then wait for the new worker.
+	if err = aidrDesktopContext(context.Background(), []string{"--home", home, "--action", "prepare"}, io.Discard); err != nil {
+		return nil, err
+	}
+	_, paths, err := desktopBinding(home)
+	if err != nil {
+		return nil, err
+	}
+	return hooks.BeginReceiverUpgrade(paths.Socket)
 }
 
 func inspectAIDRTarget(ctx context.Context, home string, policy managedclient.Policy) error {

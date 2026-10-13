@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"sync/atomic"
@@ -98,6 +99,109 @@ func TestManagedHookReceiverSharesProcessAndSurvivesObserverExit(t *testing.T) {
 	}
 	if _, err = os.Lstat(paths.Socket); !os.IsNotExist(err) {
 		t.Fatal("owned socket not cleaned up")
+	}
+}
+
+func TestManagedHookSurvivesTelemetryWriteFailureAndRecovers(t *testing.T) {
+	home, paths := managedHookTestHome(t)
+	if err := os.MkdirAll(paths.Status, 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		manageAutomaticHooks(ctx, home, 20*time.Millisecond, func(ctx context.Context) error {
+			return aidrHookServeContext(context.WithValue(ctx, managedHookContextKey{}, true), []string{"--managed-home", home}, io.Discard)
+		})
+	}()
+	t.Cleanup(func() { cancel(); <-done })
+	var first hooks.IPCResponse
+	waitHookTest(t, func() bool {
+		var err error
+		first, err = hooks.Exchange(ctx, paths.Socket, hooks.IPCRequest{Version: 1, Method: "GetHealth"})
+		return err == nil
+	})
+	// Cross the supervisor's 15-second stale-telemetry threshold with real IPC.
+	deadline := time.Now().Add(17 * time.Second)
+	for time.Now().Before(deadline) {
+		probe, err := hooks.Exchange(ctx, paths.Socket, hooks.IPCRequest{Version: 1, Method: "GetHealth"})
+		if err != nil || probe.State.ReceiverInstance != first.State.ReceiverInstance {
+			t.Fatal("telemetry failure restarted receiver", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	id, _ := hooks.NewEventID()
+	reply, err := hooks.Exchange(ctx, paths.Socket, hooks.IPCRequest{Version: 1, Method: "SubmitEvent", EventID: id, Agent: "claude", Hook: "PreToolUse", Raw: []byte(`{"hook_event_name":"PreToolUse","session_id":"telemetry-test","tool_name":"Read","tool_input":{"file_path":"/tmp/fictional"}}`)})
+	if err != nil || reply.Accepted != 1 {
+		t.Fatalf("tool intake failed: %+v %v", reply, err)
+	}
+	if err := os.Remove(paths.Status); err != nil {
+		t.Fatal(err)
+	}
+	waitHookTest(t, func() bool { info, err := os.Stat(paths.Status); return err == nil && info.Mode().IsRegular() })
+	if !automaticHookReady(ctx, home) {
+		t.Fatal("healthy receiver not upgrade-ready")
+	}
+}
+
+func TestUnconfiguredHookDoesNotBlockWorkerReadiness(t *testing.T) {
+	if !automaticHookReady(context.Background(), t.TempDir()) {
+		t.Fatal("disabled Hook blocked worker readiness")
+	}
+}
+
+func TestDaemonProcessRecoversHookAfterCrash(t *testing.T) {
+	binary := os.Getenv("AGENT_MANAGER_CLIENT_LIFECYCLE_BINARY")
+	if binary == "" {
+		t.Skip("requires a built client for isolated process lifecycle validation")
+	}
+	home, paths := managedHookTestHome(t)
+	prefs, err := loadDesktopPreferences(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefs.RuntimePolicy.Target.Retry.Mode = "fixed"
+	prefs.RuntimePolicy.Target.Retry.Retries = 2
+	if err = writeDesktopJSON(filepath.Join(paths.Root, "preferences.json"), prefs); err != nil {
+		t.Fatal(err)
+	}
+	start := func() *exec.Cmd {
+		cmd := exec.Command(binary, "run", "--home", home)
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+		return cmd
+	}
+	probe := func(pid int) hooks.IPCResponse {
+		var result hooks.IPCResponse
+		waitHookTest(t, func() bool {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			var err error
+			result, err = hooks.Exchange(ctx, paths.Socket, hooks.IPCRequest{Version: 1, Method: "GetHealth"})
+			return err == nil && result.Receiver != nil && result.Receiver.PID == pid
+		})
+		id, _ := hooks.NewEventID()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		reply, err := hooks.Exchange(ctx, paths.Socket, hooks.IPCRequest{Version: 1, Method: "SubmitEvent", EventID: id, Agent: "claude", Hook: "PreToolUse", Raw: []byte(`{"hook_event_name":"PreToolUse","session_id":"crash-test","tool_name":"Read","tool_input":{"file_path":"/tmp/fictional"}}`)})
+		if err != nil || reply.Accepted != 1 {
+			t.Fatal("tool event rejected after process start", err)
+		}
+		return result
+	}
+	first := start()
+	before := probe(first.Process.Pid)
+	if err = first.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = first.Wait()
+	second := start()
+	after := probe(second.Process.Pid)
+	if before.State.ReceiverInstance == after.State.ReceiverInstance {
+		t.Fatal("receiver identity did not change after process death")
 	}
 }
 

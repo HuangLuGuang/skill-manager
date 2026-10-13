@@ -231,16 +231,7 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 		}
 		req = hooks.IPCRequest{Version: 1, Method: "SubmitEvent", EventID: id, Agent: *agent, Hook: *hook, Raw: raw}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-	defer cancel()
-	var response hooks.IPCResponse
-	var err error
-	for attempt := 0; attempt < 2; attempt++ {
-		response, err = hooks.Exchange(ctx, *socket, req)
-		if err == nil {
-			break
-		}
-	}
+	response, err := hooks.ExchangeForHost(context.Background(), *socket, req, 4*time.Second)
 	if err != nil {
 		failureCode = err.Error()
 		return err
@@ -499,17 +490,27 @@ func aidrHookServeContext(parent context.Context, args []string, out io.Writer) 
 		go func() {
 			ticker := time.NewTicker(5 * time.Second)
 			defer ticker.Stop()
+			statusFailed := false
 			for {
 				st, e := s.Status(ctx)
+				if e != nil && ctx.Err() == nil {
+					// Audit storage is part of the enforcement contract.
+					done <- e
+					return
+				}
 				if e == nil {
 					mu.Lock()
 					telemetry := map[string]any{"state": st, "policy_code": policyCode, "upload_code": uploadCode, "control_code": controlCode, "runtime_code": runtimeCode, "last_report": lastReport, "updated_at": time.Now().UTC().Format(time.RFC3339Nano)}
 					mu.Unlock()
 					e = writeDesktopJSON(*statusFile, telemetry)
 				}
-				if e != nil && ctx.Err() == nil {
-					done <- errors.New("aidr_desktop_status_failed")
-					return
+				if ctx.Err() == nil && (e != nil) != statusFailed {
+					statusFailed = e != nil
+					if statusFailed {
+						fmt.Fprintln(os.Stderr, "aidr_desktop_status_failed")
+					} else {
+						fmt.Fprintln(os.Stderr, "aidr_desktop_status_recovered")
+					}
 				}
 				select {
 				case <-ctx.Done():

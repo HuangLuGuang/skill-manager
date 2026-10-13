@@ -25,6 +25,7 @@ const skillWatchDebounce = 300 * time.Millisecond
 type SkillWatcher struct {
 	watcher    *fsnotify.Watcher
 	changes    chan []string
+	errors     chan error
 	done       chan struct{}
 	watched    map[string]bool
 	roots      map[string]bool
@@ -40,6 +41,7 @@ func NewSkillWatcher() (*SkillWatcher, error) {
 	result := &SkillWatcher{
 		watcher:    watcher,
 		changes:    make(chan []string, 1),
+		errors:     make(chan error, 1),
 		done:       make(chan struct{}),
 		watched:    map[string]bool{},
 		roots:      map[string]bool{},
@@ -50,6 +52,7 @@ func NewSkillWatcher() (*SkillWatcher, error) {
 }
 
 func (watcher *SkillWatcher) Changes() <-chan []string { return watcher.changes }
+func (watcher *SkillWatcher) Errors() <-chan error     { return watcher.errors }
 
 func (watcher *SkillWatcher) SuppressRoots(paths []string, duration time.Duration) {
 	watcher.mu.Lock()
@@ -181,6 +184,8 @@ func (watcher *SkillWatcher) add(path string) error {
 }
 
 func (watcher *SkillWatcher) run() {
+	defer close(watcher.changes)
+	defer close(watcher.errors)
 	var timer *time.Timer
 	var timerC <-chan time.Time
 	pending := map[string]bool{}
@@ -204,7 +209,12 @@ func (watcher *SkillWatcher) run() {
 			pending[filepath.Clean(event.Name)] = true
 			if event.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(event.Name); err == nil && info.IsDir() && !ignoredWatchPath(event.Name) {
-					_ = watcher.addTree(event.Name)
+					if err := watcher.addTree(event.Name); err != nil {
+						select {
+						case watcher.errors <- err:
+						default:
+						}
+					}
 				}
 			}
 			if timer == nil {
@@ -219,12 +229,12 @@ func (watcher *SkillWatcher) run() {
 				timer.Reset(skillWatchDebounce)
 			}
 			timerC = timer.C
-		case _, ok := <-watcher.watcher.Errors:
+		case err, ok := <-watcher.watcher.Errors:
 			if !ok {
 				return
 			}
 			select {
-			case watcher.changes <- nil:
+			case watcher.errors <- err:
 			default:
 			}
 		case <-timerC:

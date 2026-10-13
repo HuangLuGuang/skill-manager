@@ -1,5 +1,9 @@
 # External Agent Integration
 
+macOS TeleAgent 代理支持后台自动安全升级：候选程序先自检，等待在途模型/工具审核请求完成，再保留监听端口并原 PID 切换；持续忙碌时延后升级。主守护服务内的 Hook 接收器和独立代理均不随桌面退出。设置页按实际进程显示版本、摘要、健康与待升级状态；本地健康不等同于供应商连通。普通事件在发送完成后间隔至少 300 毫秒，单轮预算在等待期间耗尽则保留记录到下一轮。实现边界和实机证据见[客户端后台可靠性说明](agent-manager-client.md#后台可靠性与更新--background-reliability-and-updates)。
+
+**English:** The macOS TeleAgent proxy preflights staged upgrades, waits for in-flight model/review requests, and switches with its listener and PID preserved. Persistent traffic postpones activation. Both the daemon's Hook receiver and the independent proxy survive desktop exit. Settings displays observed process identity, readiness and pending upgrades; local readiness does not prove vendor connectivity. Ordinary events wait at least 300 ms after delivery completion; records waiting past the round budget remain queued. See the linked client reliability guide for limits and live evidence.
+
 ## AIDR 产品适配器与 TeleAgent / Product adapters and TeleAgent
 
 AIDR 的日志与审核入口按产品注册。Go 日志适配器位于
@@ -82,6 +86,14 @@ TeleAgent 启动时追加 `/api/v1`，因此桥同时识别带此前缀的原生
 
 Hook 接收器运行在主后台服务进程内，与日志采集共享进程。关闭窗口、完全退出或重启桌面应用时，模型代理和 Hook 审核均持续运行。工具仍按有效策略审核；后台服务本身不可用时，模型可访问不代表工具已获授权。
 
+后台目录监听和展示状态写入故障与 Hook 隔离。自动更新先下载验签，将后台程序保存在应用目录外，再安装桌面；后台自身切换验证进程及 Hook 就绪，失败时尝试恢复原版本。升级协调先更新命令桥，再建立 30 秒失效、完成即清除的私有升级标记；新版桥和代理在窗口内最多等待 8 秒连接恢复，已接收请求按原期限完成审核。有效拒绝和结果不明的已发送请求不重放，宿主取消/超时仍生效。TeleAgent 模型代理不参与主服务重启。首次部署须在空闲时加载新版常驻代理；本机已完成加载及真实升级期间 20 次工具调用、40 条 Hook ACK 验收。详情见[客户端可靠性说明](agent-manager-client.md#后台可靠性与更新--background-reliability-and-updates)。
+
+**English:** Watcher and telemetry-file failures are isolated from Hook intake. Updates verify downloads and preserve the worker outside the application bundle before desktop installation. Reconciliation updates the command bridge and publishes a private upgrade marker expiring after 30 seconds and removed on completion. Updated bridges and proxies wait up to eight seconds for failed connections during that window; accepted requests finish within existing deadlines. Explicit denials and ambiguous sent requests are not replayed, and host cancellation/timeouts remain effective. Worker switching checks readiness and attempts rollback; the proxy is not restarted. Initial deployment requires loading the updated persistent proxy while idle. This was completed locally, followed by 20 successful native tool calls and 40 acknowledged Hooks across a real upgrade.
+
+2026-10-13 本机已应用新版日常守护服务，并在开发客户端进程完全退出后，用 TeleAgent 2.7.0 验证真实模型响应和一次 `bash` 文件写入/读取（退出码 0）；对应执行前后 Hook 与平台记录及本地 ACK 一致。退出方式为 SIGTERM，未改变审核策略。迁移重启时观察到一次接收器不可用拦截；正式安装包升级与菜单退出需另验。证据与边界见[客户端验收记录](agent-manager-client.md#后台可靠性与更新--background-reliability-and-updates)。
+
+**English:** On 2026-10-13 the updated everyday daemon was applied locally. After terminating the development GUI with SIGTERM, TeleAgent 2.7.0 returned a real model response and completed a native `bash` file write/read with exit code 0; both Hooks matched platform records and local ACKs. Review policy was unchanged. Migration briefly rejected one command while the receiver restarted; packaged upgrades and menu-driven quit remain separate checks. See the client acceptance record for evidence and boundaries.
+
 **English:** The main background service hosts the Hook receiver alongside log collection. Closing, quitting or restarting the desktop keeps model forwarding and Hook review running. Tool decisions still follow effective policy; model availability alone does not grant tool authorization when the background service is unavailable.
 
 **English:** The TeleAgent proxy is a separate per-user macOS LaunchAgent with a private executable copy. Closing, quitting, restarting or updating the desktop client does not stop model forwarding or active streams. Reconciliation stages updated code atomically for the proxy's next start without restarting the current process. launchd starts it at login and recovers process exits. Initial migration requires restarting the old receiver once to release its listener. Model forwarding survives receiver loss; enabled tool review still requires a valid receiver decision. Proxy health does not prove upstream model success or event delivery.
@@ -118,12 +130,13 @@ CLI 不会自动改写 TeleAgent 配置。此方式的 `baseURL` 必须进入后
 
 接收器处于 `audit` 时采集并放行；`intercept` 时执行公共策略，`allow/deny` 分别编码为原生 `result=1/2`。
 平台审批能力声明为 false，`ask` 不能作为已接通的审批流程；现有公共控制逻辑对此返回拒绝。
-桥在运行且收到合法请求时，对接收器异常、缺失决策及约 1 秒内部超时返回拒绝。
+桥在运行且收到合法请求时，对接收器异常、缺失决策及超时返回拒绝。代理普通工具审核等待预算为 4 秒，与命令 Hook 对齐；接收器连接处理期限仍为 2 秒，宿主取消继续生效；明确的主服务升级窗口内，连接失败最多等待 8 秒恢复，仍需取得接收器决定，宿主自身超时可能更短。
+MCP 审核继续使用原有 1 秒预算，包含升级等待，不能套用普通工具的 4/8 秒预算；本轮真实升级验收覆盖终端工具，MCP 在较长切换窗口可能失败，需要单独验收。
 桥进程不可达、宿主 HTTP 请求失败或宿主绕开此配置时，TeleAgent 仍可能放行，因此这不是强制防绕过的系统隔离。
 上线顺序为先更新平台能力/事件校验，再更新客户端并配置 TeleAgent。
 
 2026-10-12 本机 2.7.0 原生后台的隔离测试通过：新 HTTP 适配器 → 真实 IPC 接收器 → 签名公共策略，
-允许时写入测试文件，拒绝时未写入；在 HTTP 适配器到接收器之间注入异常和超时时未执行，超时案例约 1.1 秒返回。
+允许时写入测试文件，拒绝时未写入；在 HTTP 适配器到接收器之间注入异常和超时时未执行，旧版超时案例约 1.1 秒返回；当前等待期限以本节的 4 秒代理预算和 2 秒接收器期限为准。
 同一测试数据库采集到 4 个会话的 8 条工具事件并通过后端契约校验。
 同日补充本地平台端到端验收：连接运行中的管理 API 与管理台，以独立客户端
 `teleagent-e2e-20261012` 注册设备凭据，通过平台接口发布规则、下载平台签名策略，

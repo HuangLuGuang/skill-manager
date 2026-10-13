@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"skill-manager/scanner/internal/aidr/hooks"
+	"skill-manager/scanner/internal/runtimeinfo"
 )
 
 func aidrTeleAgentService(args []string, out io.Writer) error {
@@ -43,6 +44,13 @@ func aidrTeleAgentService(args []string, out io.Writer) error {
 			return err
 		}
 		return json.NewEncoder(out).Encode(map[string]string{"code": "aidr_teleagent_service_registered"})
+	case "status":
+		return json.NewEncoder(out).Encode(hooks.TeleAgentProxyStatus(context.Background(), *home))
+	case "check":
+		if err := hooks.CheckTeleAgentProxy(*home); err != nil {
+			return err
+		}
+		return json.NewEncoder(out).Encode(runtimeinfo.Current())
 	case "run":
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()

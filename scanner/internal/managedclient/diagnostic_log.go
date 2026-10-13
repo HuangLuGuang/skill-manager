@@ -400,7 +400,7 @@ func addMutationLockDiagnostic(path string, fields map[string]any) {
 	if err != nil || len(body) > 64 {
 		return
 	}
-	if pid, err := strconv.Atoi(strings.TrimSpace(string(body))); err == nil && pid > 0 {
+	if pid, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(string(body)), "v2 ")); err == nil && pid > 0 {
 		fields["lock_owner_pid"] = pid
 	}
 }
