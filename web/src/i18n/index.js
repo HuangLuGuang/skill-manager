@@ -46,6 +46,13 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      helpDeployment: {
+        httpTraffic: 'HTTP / SSE → HTTP_PORT（默认 80）',
+        volumeLink: 'Backend / 扫描服务 → 持久化数据',
+        scanServices: '扫描 Worker 与内部扫描服务',
+        workerRole: '从 Backend 领取任务，通过私有网络调用内部扫描服务',
+        aigRole: '执行扫描任务，任务数据保存在 aig_scan_jobs；端口不映射到宿主机',
+      },
       systemSelection: systemSelectionMessages['zh-CN'],
       collectionStatus: collectionStatusMessages['zh-CN'],
       pluginWorkbench: pluginWorkbenchMessages['zh-CN'],
@@ -1135,6 +1142,13 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      helpDeployment: {
+        httpTraffic: 'HTTP / SSE → HTTP_PORT (default 80)',
+        volumeLink: 'Backend / scan service → persistent data',
+        scanServices: 'Scan Worker and internal scan service',
+        workerRole: 'Claims tasks from Backend and calls the internal scan service over a private network',
+        aigRole: 'Executes scans and stores jobs in aig_scan_jobs; no host port mapping',
+      },
       systemSelection: systemSelectionMessages['en-US'],
       collectionStatus: collectionStatusMessages['en-US'],
       pluginWorkbench: pluginWorkbenchMessages['en-US'],

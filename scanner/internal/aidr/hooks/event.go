@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
 	"slices"
 	"strings"
 	"unicode"
@@ -55,25 +54,6 @@ type Event struct {
 	ProcessRelation string               `json:"process_relation"`
 }
 
-type input struct {
-	Event            string          `json:"hook_event_name"`
-	Session          string          `json:"session_id"`
-	Turn             string          `json:"turn_id"`
-	Prompt           string          `json:"prompt_id"`
-	RequestSet       string          `json:"request_set_id"`
-	ParentRequestSet string          `json:"parent_request_set_id"`
-	PromptText       string          `json:"prompt"`
-	Call             string          `json:"tool_use_id"`
-	Subagent         string          `json:"agent_id"`
-	Tool             string          `json:"tool_name"`
-	Cwd              string          `json:"cwd"`
-	Model            json.RawMessage `json:"model"`
-	Input            json.RawMessage `json:"tool_input"`
-	Response         json.RawMessage `json:"tool_response"`
-	Error            string          `json:"error"`
-	Interrupted      bool            `json:"is_interrupt"`
-}
-
 func code(s string) error { return errors.New(s) }
 func validID(s string, required bool) bool {
 	if (required && s == "") || len(s) > 256 {
@@ -112,40 +92,18 @@ func Normalize(agent, hook string, raw []byte, policy agentlog.AuditPolicy, key 
 	if !ok {
 		return e, code("aidr_hook_event_unsupported")
 	}
-	var in input
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	if err := decoder.Decode(&in); err != nil {
-		return e, code("aidr_hook_record_invalid")
+	a, ok := hookAdapters[agent]
+	if !ok {
+		return e, code("aidr_hook_event_unsupported")
 	}
-	var extra any
-	if decoder.Decode(&extra) != io.EOF || in.Event != hook {
-		return e, code("aidr_hook_record_invalid")
-	}
-	if agent == "cursor" {
-		if err := cursorInput(raw, &in); err != nil {
-			return e, err
-		}
-	}
-	if !validID(in.Session, true) || !validID(in.Turn, false) || !validID(in.Prompt, false) || !validID(in.Call, false) || !validID(in.Subagent, false) || !validID(in.Tool, false) {
-		return e, code("aidr_hook_identity_invalid")
+	in, err := a.Decode(hook, raw)
+	if err != nil {
+		return e, err
 	}
 	turn := in.Turn
-	// Keep the host namespace: Claude prompt IDs are not Codex turn IDs.
-	if (agent == "claude" || agent == "qoder-hooks") && in.Prompt != "" {
-		turn = in.Prompt
-	}
-	if agent == "qoder-hooks" {
-		if !validID(in.RequestSet, false) || !validID(in.ParentRequestSet, false) {
-			return e, code("aidr_hook_identity_invalid")
-		}
-		if in.RequestSet != "" {
-			turn = in.RequestSet
-		} else if hook == "Stop" && in.ParentRequestSet != "" {
-			turn = in.ParentRequestSet
-		}
-	}
+
 	e = Event{Schema: 1, Agent: agent, Hook: hook, Kind: kind, Session: in.Session, Turn: turn, Call: in.Call, Subagent: in.Subagent, Policy: policy, ProcessRelation: "unknown", EvidenceDigest: digest(key, "hook-evidence/1", raw)}
-	e.Context = projectHostContext(agent, raw, in, policy)
+	e.Context = projectHostContext(in, policy)
 	if policy.Capture != nil {
 		e.Schema = 2
 		if policy.Lifecycle != nil {
@@ -161,7 +119,11 @@ func Normalize(agent, hook string, raw []byte, policy agentlog.AuditPolicy, key 
 			return Event{}, code("aidr_hook_tool_missing")
 		}
 		e.Tool = in.Tool
-		e.SkillUse = agentlog.ProjectSkillUse(agent, in.Tool, in.Cwd, in.Input, &policy)
+		evidenceInput := in.Input
+		if len(in.ProjectionInput) > 0 {
+			evidenceInput = in.ProjectionInput
+		}
+		e.SkillUse = agentlog.ProjectSkillUse(agent, in.Tool, in.Cwd, evidenceInput, &policy)
 		if len(in.Input) != 0 {
 			// Canonicalize object key ordering with json.Number precision before
 			// binding an approval to exact arguments. Never shell-normalize them.
@@ -183,6 +145,9 @@ func Normalize(agent, hook string, raw []byte, policy agentlog.AuditPolicy, key 
 		}
 		toolKind, outcome := "tool_call", "unknown"
 		content := in.Input
+		if len(in.ProjectionInput) > 0 {
+			content = in.ProjectionInput
+		}
 		if kind == "tool.post" || kind == "tool.failure" {
 			toolKind, content = "tool_result", in.Response
 			// Arrival of PostToolUse alone is not evidence of success.
@@ -192,8 +157,8 @@ func Normalize(agent, hook string, raw []byte, policy agentlog.AuditPolicy, key 
 			}
 		}
 		var err error
-		if agent == "workbuddy" && kind == "tool.post" {
-			e.Behavior, err = agentlog.ProjectWorkBuddyToolEvidence(in.Tool, toolKind, in.Cwd, content, outcome, policy)
+		if a.ProjectResult != nil && kind == "tool.post" {
+			e.Behavior, err = a.ProjectResult(in.Tool, toolKind, in.Cwd, content, outcome, policy)
 		} else {
 			e.Behavior, err = agentlog.ProjectToolEvidence(in.Tool, toolKind, in.Cwd, content, nil, outcome, policy)
 		}

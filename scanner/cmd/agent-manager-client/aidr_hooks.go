@@ -295,6 +295,13 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 }
 
 func aidrHookServe(args []string, out io.Writer) (resultErr error) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return aidrHookServeContext(ctx, args, out)
+}
+
+// The managed daemon calls the receiver directly, sharing its process lifetime.
+func aidrHookServeContext(parent context.Context, args []string, out io.Writer) (resultErr error) {
 	fs := flag.NewFlagSet("aidr-hook-serve", flag.ContinueOnError)
 	state := fs.String("state-dir", "", "dedicated private hook state directory")
 	socket := fs.String("socket", os.Getenv("AIDR_HOOK_SOCKET"), "private receiver Unix socket")
@@ -406,11 +413,25 @@ func aidrHookServe(args []string, out io.Writer) (resultErr error) {
 			return err
 		}
 	}
+	if parent.Value(managedHookContextKey{}) == true {
+		if err = recoverManagedHookSocket(*socket); err != nil {
+			return err
+		}
+	}
 	r, err := hooks.Listen(*socket, s)
 	if err != nil {
 		return err
 	}
 	defer r.Close()
+	if parent.Value(managedHookContextKey{}) == true {
+		identity, e := r.SocketIdentity()
+		if e != nil {
+			return e
+		}
+		if e = writeDesktopJSON(*socket+".owner.json", identity); e != nil {
+			return e
+		}
+	}
 	if *managedHome != "" {
 		identity, e := r.SocketIdentity()
 		if e != nil {
@@ -422,9 +443,7 @@ func aidrHookServe(args []string, out io.Writer) (resultErr error) {
 			return errors.New("aidr_desktop_parent_unavailable")
 		}
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	if *parentStdin {
 		go func() { _, _ = io.Copy(io.Discard, io.LimitReader(os.Stdin, 1)); cancel() }()
@@ -439,7 +458,7 @@ func aidrHookServe(args []string, out io.Writer) (resultErr error) {
 	lastReport := ""
 	runtimeCode := "aidr_hook_runtime_not_reported"
 	pluginCode := "aidr_plugin_not_checked"
-	done := make(chan error, 4)
+	done := make(chan error, 6)
 	go func() { done <- r.Serve(ctx) }()
 	go func() {
 		done <- c.RunHooks(ctx, s, func(p, u, control string) {

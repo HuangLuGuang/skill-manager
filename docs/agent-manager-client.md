@@ -10,7 +10,7 @@ The online Help Center provides illustrated bilingual procedures at `/docs/aidr-
 
 未保存运行治理策略时，平台默认启用 Agent 日志和 Hook，关闭系统通道，Hook 使用仅审计模式；目标为本机发现的 Codex / Claude Code，普通插件自动安装和更新。客户端接入平台、取得有效策略后，既有后台服务自动读取日志，桌面原生监督器自动启动 Hook 接收器，无需再次点击“启用自动运行”。客户端启动前应先升级平台。旧协议无法应用新通道/模式时需更新客户端；旧客户端在没有显式策略时保留原有手动接收器控制。
 
-已保存的全局策略、单台覆盖和关闭设置保持不变。单台客户端选择继承后使用当前全局策略；需要自动安装已有单机配置的插件时，在“客户端策略 → 接入与采集”将安装方式设为自动。采集正文、脱敏及截断长度仍由审计策略决定。只安装应用、尚未接入平台，不会得到上传目标。普通插件需要的宿主启用/信任，以及企业受管安装需要的管理员授权，均不能由平台代替。接收器由桌面进程监督，退出桌面应用会回收它；再次启动桌面后按策略恢复，后台日志服务独立运行。
+已保存的全局策略、单台覆盖和关闭设置保持不变。单台客户端选择继承后使用当前全局策略；需要自动安装已有单机配置的插件时，在“客户端策略 → 接入与采集”将安装方式设为自动。采集正文、脱敏及截断长度仍由审计策略决定。只安装应用、尚未接入平台，不会得到上传目标。普通插件需要的宿主启用/信任，以及企业受管安装需要的管理员授权，均不能由平台代替。接收器由桌面进程监督，关闭窗口后客户端和接收器继续在后台运行；通过托盘的“打开客户端窗口”或 macOS Dock 可恢复窗口。显式退出应用会回收接收器，再次启动后按策略恢复；后台日志服务独立运行。
 
 “客户端详情 → 插件接入”和“行为审计 → 采集状态”按 Agent 直接展示：插件未安装/已安装/未发现 Agent、宿主未启用/已启用、授权待审阅/已授权/受管信任/管理员授权取消或失败/未知、本地接收器状态、最近 15 分钟 Hook 事件到达时间。状态来自不同证据：无事件不等于未授权，接收器运行不等于宿主已经加载插件。后台每 5 分钟读取本地配置，观察有效期为 8 分钟，本地观察的宿主信任保持未知；原生授权在安装、升级、策略应用所需校验和手动诊断时核验。同时要求客户端报告未过期，接收器使用独立的 30 秒观察窗口。未发现一个目标 Agent 不再阻止检查另一个。
 
@@ -315,7 +315,7 @@ Prompt当前明确适配 `UserPromptSubmit.prompt`；文件正文适配Write/Edi
 
 协议2客户端通过既有心跳及每5分钟一次的有界宿主检查触发 `aidr_plugin_action` 协调任务；设备、策略、随包版本和实际宿主变化参与幂等标识，时间刷新和健康计数不生成新任务。原子领取、持久回执与手动动作共享通道和文件锁。执行前重新认证核对当前策略，旧目标不能覆盖新目标。平台目标、策略收到/检查/应用时间、宿主信任和事件ACK独立显示。普通模式已有后台安装/更新差异协调；macOS受管模式新增原生系统授权入口和固定动作安装组件，部署Codex requirements.toml或Claude managed-settings.json，原子合并并保留有界恢复依据。受保护的版本回执和二进制摘要证明安装版本；Codex原生hooks/list另外核实受管加载与信任。系统级安装、取消/批准及原生受管加载尚未实机验收，不能称受管接入通过。
 
-原生监督器持久保存平台/设备绑定的启动次数、最近故障、暂停原因及下一次重试时间；初次启动与重试分开计数，退避封顶并加入抖动。重开应用不重置故障耗尽，健康正常退出允许下一次初始启动。单实例锁覆盖停止和退避期间；切页和后台不依赖展示计时器。授权取消、失败或中断结果绑定策略版本持久记录，不自动重复弹窗；中断安装需检查真实文件及恢复依据。宿主检查时间变化不重启健康接收器。隔离默认策略已通过真实后台自动安装全新Claude配置（未点接入）；Codex0.159新会话及暂停补传测试共新增12条真实Hook全部ACK，Claude新会话因模型HTTP502只收到3条生命周期事件，工具操作未验。此前记录ID及摘要保留，该阶段54条本地/平台集合相等、待发0；后续真实中英文已按精确会话核对事件、详情及来源正文。三种重试及准备锁竞争已有本任务自有进程实测，双语保存失败/重试和409冲突已验；低权限正文页面已通过中英文实测；成功文件正文后续已由真实Codex/Claude新任务及持久查询补验；新增正文网页与专用macOS受管授权仍需分项验收。详见主仓库 experiments/aidr-agentlog/ACCEPTANCE.md，不等同目标完成。
+主后台服务持久保存平台/设备绑定的启动次数、最近故障、暂停原因及下一次重试时间；初次启动与重试分开计数，退避封顶。重开桌面不重置故障耗尽，主服务健康正常退出后允许下一次初始启动。单实例锁覆盖停止和退避期间；切页和后台不依赖展示计时器。授权取消、失败或中断结果绑定策略版本持久记录，不自动重复弹窗；中断安装需检查真实文件及恢复依据。宿主检查时间变化不重启健康接收器。隔离默认策略已通过真实后台自动安装全新Claude配置（未点接入）；Codex0.159新会话及暂停补传测试共新增12条真实Hook全部ACK，Claude新会话因模型HTTP502只收到3条生命周期事件，工具操作未验。此前记录ID及摘要保留，该阶段54条本地/平台集合相等、待发0；后续真实中英文已按精确会话核对事件、详情及来源正文。三种重试及准备锁竞争已有本任务自有进程实测，双语保存失败/重试和409冲突已验；低权限正文页面已通过中英文实测；成功文件正文后续已由真实Codex/Claude新任务及持久查询补验；新增正文网页与专用macOS受管授权仍需分项验收。详见主仓库 experiments/aidr-agentlog/ACCEPTANCE.md，不等同目标完成。
 
 设备“暂停上报”只拒绝新事件批次，继续允许绑定正确且权限有效的凭证获取审计策略、报告状态和获取控制快照。本地日志/Hook继续按容量限制持久化。上传返回稳定码 `aidr_upload_reporting_paused`，按1/2/4/8/16/32/60秒封顶退避；实际轮询周期可能延后下一次尝试。认证或权限失败停止上传并保留待发数据，需修正配置。冻结批次在暂停、策略刷新及新增采集期间保持原字节，恢复后严格匹配ACK。状态报告成功不代表事件送达：桌面和平台分别展示最后状态报告、上传原因/下次尝试及最后事件ACK。ACK时间在客户端匹配成功后持久保存；旧客户端未报告时保持未知。
 
@@ -332,17 +332,34 @@ macOS 客户端完成现有设备认证、管理员确认设备凭证具有 `aid
 
 普通插件安装器当前验证目标是 Claude Code 2.1.220，以及 Codex 0.158.0-alpha.2.1、0.159.0、0.159.2。0.159.0 已核实原生首装/重复安装、用户审阅后的12项持久信任、新独立会话8条真实 Hook、本地/平台精确 ACK 及中英文详情，覆盖6种审计事件。0.159.2 已验原生接口、含空格路径首装/重复安装、既有信任读取及自动任务，真实工具因401未完成。企业受管 Codex 接口仍限定0.159.0，系统加载另待专用环境核验。未知版本返回 `aidr_plugin_version_unverified`。普通 Codex 信任由用户在原生 `/hooks` 审阅，客户端不代写信任记录；只读信任查询只是当前查询范围的快照。Claude 原生确认若出现，也需用户处理。
 
-本地接收器、插件安装/启用/信任、平台报告 ACK 和事件上传错误分别展示。启用偏好持久保存；切页、最小化、后台运行继续采集。本产品现有关闭窗口行为会结束应用，因此关闭窗口和正常退出均停止自有接收器，保留队列；重新打开按偏好恢复。更新重启也先回收接收器。接收器按平台配置执行不重试、固定次数或持续重试；默认首次启动后最多重试两次。持续模式使用有界退避和抖动，配置/绑定冲突暂停并保留原因；自检后可显式重试。平台断网不停止本地 IPC，积压按原冻结批次及严格 ACK 恢复。
+本地接收器、插件安装/启用/信任、平台报告 ACK 和事件上传错误分别展示。Hook 接收器与日志采集运行在 `agent-manager-client run` 主后台服务内，共用一个进程。桌面只读取健康状态和提交操作请求；切页、关闭窗口、完全退出或重启桌面均不停止工具审核和事件上传。托盘“退出应用”仅退出界面。接入 TeleAgent 时另有独立模型代理，总计 2 个常驻后台进程；按需系统采集器另计。接收器遵循平台重试策略，保留暂停原因、重试额度、队列及 ACK。主后台服务本身重启会短暂重建接收器，不等同于界面重启。
+
+**English:** The Hook receiver and log collector run inside the main `agent-manager-client run` background process. The desktop reads health and submits actions. Navigation, window closure, app quit and desktop restart leave tool review and event upload running. With the separate TeleAgent model proxy, there are two persistent background processes, plus any optional system collector. Receiver retries, suspension reasons, queues and ACKs remain durable. Restarting the background service itself briefly recreates the receiver; restarting the GUI does not.
+
+TeleAgent 模型代理由独立 macOS 用户级 LaunchAgent 运行。关闭、退出、重启或更新客户端均保留代理及现有流式响应；登录时自动运行，崩溃后由 launchd 恢复。工具审核继续通过 Hook 接收器完成，接收器退出后模型转发仍可用，但工具审核不能据此视为通过。首次迁移需要释放旧接收器持有的端口；安装与程序更新说明见 [外部 Agent 接入](external-agent-integration.md)。
+
+**English:** TeleAgent model forwarding uses an independent per-user macOS LaunchAgent. Window closure, app quit, desktop restart and client updates preserve the proxy and active streams. It starts at login and launchd recovers crashes. Hook review still needs the receiver; model availability does not imply tool authorization. Initial migration releases the old receiver's listener before the independent service takes ownership.
+
+人工验收 Todo（简体中文 / English）：关闭窗口、托盘退出和重开客户端前后核对接收器 PID 与主后台服务 PID 一致，实例标识不变；退出期间执行允许的 Agent 工具操作，核对事件及 ACK；检查托盘菜单、运行治理说明、重试入口、窄窗口布局。Manual UI checks: close, tray quit and reopen; confirm receiver PID equals the daemon PID and instance identity is unchanged. Run an allowed tool while the GUI is absent and inspect its event/ACK. Check tray labels, governance help, retry controls and narrow layouts in both languages.
+
+2026-10-13 本机开发构建验证：Hook IPC 对端与主服务 PID 同为 `91099`，独立 `aidr-hook-serve` 子进程已移除。向桌面进程发送 SIGTERM 后确认桌面进程不存在，连续 10 次健康检查成功，接收器 PID 和实例标识保持不变。桌面退出期间，TeleAgent 的“模型连通性验收”会话执行 `printf 'HOOK_BACKGROUND_OK\n'`，原生工具详情显示该命令及输出 `HOOK_BACKGROUND_OK`。共享 Hook 序号由 `25502` 推进至 `25524`，ACK 时间推进且待发为 0；这是共享通道回执证据，不将所有新增 Hook 归因于该单次 TeleAgent 操作。恢复开发客户端后仍为同一接收器实例，主服务与代理共 2 个后台进程。此次覆盖真实进程退出及重新启动；托盘原生 Quit、双语菜单布局和正式签名发行包继续按上述 Todo 验收。
+
+**English:** On October 13, 2026, the development build served Hook IPC from main-daemon PID `91099`, with no separate `aidr-hook-serve` child. After SIGTERM terminated the desktop, ten health checks passed with unchanged receiver PID and instance. TeleAgent's native tool details showed the actual `printf` command and `HOOK_BACKGROUND_OK` output while the GUI was absent. Shared Hook sequence advanced from `25502` to `25524`, ACK progressed and pending uploads returned to zero; this shared evidence is not attributed entirely to that one TeleAgent call. Reopening the development client preserved the receiver instance. Native tray Quit, bilingual menu layout and signed release packages remain manual checks.
+
+验证范围：5 项 Go 后台接收器回归（含 race 检查）、客户端命令与 Hook 包测试、23 项 Rust 测试（另 3 项条件测试跳过）、桌面/平台 i18n 检查与平台构建通过。主守护服务测试中原有 `TestOrdinaryPacingFairnessAndRoundBound` 出现发送时间间隔断言失败；排除该项后其余测试通过，未修改该节流实现或断言。
+
+**Validation:** Five managed-receiver Go regressions including race checks, client-command/Hook package tests, 23 Rust tests (three conditional tests skipped), desktop/platform i18n checks and the platform build passed. The existing `TestOrdinaryPacingFairnessAndRoundBound` failed its send-interval assertion in broader daemon testing; the remaining daemon tests passed when that case was excluded. Its pacing implementation and assertion were not modified.
+
 
 设备凭证仍来自既有私有配置，不进入插件、接收器参数或 renderer。连接文件只含 socket；运行程序缓存位于用户 `~/.agent-manager/aidr/runtime/`，正式安装不依赖源码目录或临时路径。队列按平台与稳定设备身份分目录保存，凭证轮换沿用同一队列；平台切换保留旧目录，不把积压投给新平台。socket 或队列锁冲突不会被删除、接管或当成健康。旧手动插件连接显示迁移提示：先用旧绑定恢复传输、排空并保存其状态，由原进程管理者停止旧接收器，再按宿主原生流程移除旧 AIDR 插件，由平台当前接入目标协调安装；其他插件与设置保留。旧队列没有被转换、清空或自动拷贝。
 
-默认接入为仅审计。已有工具控制需要原来已核实的 P-256 公钥；受管私有偏好的 `public_key` 指向该公钥时沿用现有控制与审批契约，不能从未验证远程响应自动取信。当前桌面入口尚无公钥配置交互，手动控制实例不能被自动迁移为已验证控制实例。不会安装 launchd、修改开机启动或启动 ES 阻断。
+默认接入为仅审计。已有工具控制需要原来已核实的 P-256 公钥；受管私有偏好的 `public_key` 指向该公钥时沿用现有控制与审批契约，不能从未验证远程响应自动取信。当前桌面入口尚无公钥配置交互，手动控制实例不能被自动迁移为已验证控制实例。后台生命周期复用既有主服务注册；ES 阻断仍由独立系统采集配置控制。
 
-启动时，接收器通过自有父子管道回执 socket 的 device/inode，早于网络报告；仅此精确实例可在子进程退出后回收。macOS 原生 Quit 的最终 Exit 路径与窗口关闭均执行幂等回收。没有当前有效健康报告时，平台传输与上传诊断显示未知。使用不同于系统用户目录的 `AGENT_MANAGER_CLIENT_HOME` 验收配置时，不自动校准全局基础后台服务；正常客户目录继续既有基础服务流程。
+主后台服务持有用户级监督锁，接收器在内部任务中运行并响应服务退出信号。桌面退出不关闭 socket。服务崩溃后仅在监督锁和队列写锁已获取、记录的 socket device/inode 一致且连接明确拒绝时回收自身遗留 socket，未知端点保留并报告冲突。没有有效实时健康证据时，上传状态保持未知。独立测试 Home 不自动修改真实用户后台服务注册。
 
 真实 macOS `.app` 验收已覆盖 Claude 按钮首次/重复安装、自检、启停、重试、切页、最小化、关闭和菜单退出/重开。四个独立 Claude 会话共26条 Hook 均已本地 ACK，平台精确 ID 集合一致，包括6条断网补传；中文/英文网页核对命令、session/call、明确错误与未知结果。当前客户流程设备另新增 Codex 0.159.0 的8条真实 Hook，22条记录全部ACK、待发0，包更新后保留原队列与信任。原生 CLI 的退出0/7与没有明确结果依据的 Hook 分别记录，不能靠命令或时间强行关联。十分钟低负载后台及独立设备205条合成协议事件的真实双语分页已验；合成事件不计入原生Agent验收。正式签名升级、其他平台及长期/高负载仍待验。完整报告见 `experiments/aidr-agentlog/ACCEPTANCE.md`。
 
-**English:** After device authentication, the client applies the platform's automatic installation target without a per-device Connect click; administrator-only installation uses explicit platform tasks. The client installs native plugins and supervises its bundled receiver without bridge environment variables, customer-managed terminals or copied device tokens. Ordinary plugins require native user review. Managed access uses host-recognized system configuration and a scoped native authorization action; actual system loading remains separately unverified. Start a new host session after configuration changes. Collection survives navigation, minimization and background execution; closing the window or quitting stops the owned receiver and preserves its queue. Crash recovery follows the platform retry policy: no retries, fixed retries (two after initial launch by default), or continuous bounded backoff with jitter. Offline data retains immutable batches and strict ACKs. Private queues remain bound to platform/device; manual installations require explicit migration and are not adopted. Default access is audit-only; existing tool control still requires an independently verified pinned public key. Codex 0.159.0 is an installation target after native installation, persistent trust, eight real hooks and bilingual browser acceptance. This covers six audit event types; missing Hook result evidence and OS process attribution remain unknown.
+**English:** After device authentication, the client applies the platform's automatic installation target without a per-device Connect click; administrator-only installation uses explicit platform tasks. The client installs native plugins and runs its receiver inside the main background service without bridge environment variables, customer-managed terminals or copied device tokens. Ordinary plugins require native user review. Managed access uses host-recognized system configuration and a scoped native authorization action; actual system loading remains separately unverified. Start a new host session after configuration changes. Collection survives navigation, minimization and background execution; closing the window or quitting the desktop leaves the background receiver running. Crash recovery follows the platform retry policy: no retries, fixed retries (two after initial launch by default), or continuous bounded backoff. Offline data retains immutable batches and strict ACKs. Private queues remain bound to platform/device; manual installations require explicit migration and are not adopted. Default access is audit-only; existing tool control still requires an independently verified pinned public key. Codex 0.159.0 is an installation target after native installation, persistent trust, eight real hooks and bilingual browser acceptance. This covers six audit event types; missing Hook result evidence and OS process attribution remain unknown.
 
 当前自动回归、安装包后台联动、Claude 真会话、离线补传、平台任务、中英文界面与窗口生命周期证据，以及未验版本和正式分发范围，见 [已有验收记录](../experiments/aidr-agentlog/ACCEPTANCE.md)。插件协议与开发 CLI 见 [插件使用说明](../client/aidr-plugins/README.md)。
 
@@ -1186,9 +1203,9 @@ Call evidence remains separate from result evidence. Details prioritize event, t
 
 Hook 接收器的固定重试次数针对一轮连续故障：只有连续收到有效健康报告满 60 秒，才恢复下一轮的重试额度；单次启动、短暂运行或恢复调度不重置额度。失败立即循环的进程仍会按策略暂停，需修正原因后点击“重试接收器”。新版本保留原有暂停记录，不通过升级删除重试状态或队列。诊断区保留最近失败及时间；系统强制终止、终止信号和正常结束分别显示，不能仅凭 SIGKILL 判断是谁终止了进程。
 
-同一用户同时打开多个桌面窗口（例如开发进程和 `.app`）时，只有持有管理锁的实例启动 Hook 接收器。其他窗口显示“由另一客户端管理”，通过现有私有 socket 核对进程身份、程序、设备和队列绑定后展示可连接状态、待发数量及最近 ACK；未核实或不可连接时保持待核对状态。等待管理锁不计入接收器故障次数，也不改写原实例的恢复记录。原实例退出并清理自己的 socket 后，等待窗口自动获取管理权并沿用原队列。未知 socket 和非本窗口拥有的进程不会因重试而被删除或终止。
+同一用户的多个桌面窗口均观察主后台服务中的同一个 Hook 接收器；窗口之间不争夺接收器管理权。桌面退出不改变后台 PID、队列或接收器实例。旧版本迁移时，主服务等待旧桌面释放监督锁，随后继续使用原队列；外部身份或绑定不符的 socket 保持冲突，不自动接管。
 
-**Multiple windows:** Only the desktop holding the supervisor lock starts the Hook receiver. Other windows display the independently verified live receiver, queue count and last ACK. Waiting for that lock neither consumes retries nor overwrites its owner's recovery record. After the owner exits and cleans up its socket, a waiting window resumes management using the same queue. Unverified peers remain unconfirmed; transport health is not inferred from a reachable receiver.
+**Multiple windows:** Every desktop observes the same receiver in the main background service. Closing or quitting a window does not change the receiver PID, instance or queue. During migration, the daemon waits for the old desktop supervisor to release its lock, then resumes the existing queue. Unknown or mismatched external endpoints remain conflicts.
 
 平台客户端概览展示最近 5 条任务（包括成功任务），列出具体动作、目标产品、创建时间、策略版本和结果。展开“执行信息”查看通道目标、结束时间和错误码；这些是该次任务的信息，当前采集状态仍以各通道的健康报告为准。“已被新任务替代”表示旧任务已失效；历史失败不因后续成功而被改写。
 
@@ -1196,9 +1213,7 @@ Hook 接收器的固定重试次数针对一轮连续故障：只有连续收到
 
 人工验收：固定重试策略下验证连续失败耗尽额度、手动重试、稳定运行一分钟后恢复额度；检查系统信号退出原因。平台中英文核对成功/失败任务、长产品名称、窄屏换行和执行信息展开，不把历史任务失败当作当前采集失败。
 
-多窗口 UI 验收：同时打开开发客户端和 `.app`，确认第二个窗口不提示重试暂停、只存在一个 Hook 接收器，且可查看真实待发数量及 ACK；退出原窗口后确认剩余窗口自动恢复管理、原队列和历史保留。中英文分别核对这些状态。外部 socket 无法核实身份或绑定时，不能显示已验证运行。
-
-2026-10-07 本机验证：开发进程与新版 `.app` 同时运行时，中英文均显示另一客户端管理下的可连接状态；随后向已核实的重复开发桌面发送 SIGTERM，新版窗口无需手动重试即启动自己的接收器。队列流 ID 保持一致，序号从 11669 继续递增，平台确认收到切换后的 11670–11674，桌面待发恢复为 0。这次实机覆盖进程退出后的恢复；正常应用退出及连续故障、预算保留、队列清理由 Rust 接收器测试覆盖，不代表所有宿主安装或审批流程重新验收。15 项 Rust 接收器测试、29 项桌面 i18n 检查、Tauri 开发包构建通过。截图在 `outputs/desktop-governance-design-20261007/receiver-shared-zh.png`、`receiver-shared-en.png`、`receiver-recovered-zh.png`。系统采集独立进程及用户策略保持不变。
+多窗口 UI 验收：同时打开两个新版桌面，确认两者显示同一后台 PID、实例和 ACK；退出任一或全部桌面后接收器继续工作。中英文检查状态及重试文案。
 
 ### 多产品日志与 Hook 接入
 

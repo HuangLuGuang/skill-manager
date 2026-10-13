@@ -1,4 +1,5 @@
 """Bounded Skill metadata projected by an entry-specific host adapter."""
+from . import aidr_adapters
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -50,11 +51,11 @@ class SkillUse(BaseModel):
         if kind not in {'tool_call', 'tool_result', 'tool.pre', 'tool.post', 'tool.failure', 'permission.request', 'permission.denied'}:
             raise ValueError('skill_event_source_invalid')
         if self.behavior == 'invocation':
-            products = {'claude':('Skill','tool_input.skill'), 'workbuddy':('Skill','tool_input.skill'), 'qoder-cli':('Skill','tool_input.skill'), 'opencode':('skill','tool_input.name')}
+
             if self.basis.startswith('result.'):
-                if kind != 'tool_result' or {'workbuddy':'result.base_directory','opencode':'result.metadata'}.get(agent) != self.basis:
+                if kind != 'tool_result' or aidr_adapters.get(agent).skill_result != self.basis:
                     raise ValueError('skill_result_source_invalid')
-            elif products.get(agent) != (tool, self.basis):
+            elif aidr_adapters.get(agent).skill_input != (tool, self.basis):
                 raise ValueError('skill_invocation_source_invalid')
         if redact:
             from .aidr_redaction import redact_values

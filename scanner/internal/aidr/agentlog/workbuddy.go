@@ -74,7 +74,7 @@ func normalizeWorkBuddy(raw []byte, c *Cursor) ([]draft, error) {
 			content, _ = json.Marshal(block.Text)
 		}
 		completeTool(c, r.CallID, turn)
-		return []draft{{Turn: turn, Call: r.CallID, Kind: "tool_result", ResultTool: r.Name, Content: content, ResultMeta: r.ProviderData.ToolResult.RawResponse, WorkBuddyResult: true, Outcome: "unknown", Time: at}}, nil
+		return []draft{{Turn: turn, Call: r.CallID, Kind: "tool_result", ResultTool: r.Name, Content: content, ResultMeta: r.ProviderData.ToolResult.RawResponse, ResultProjection: projectWorkBuddyResult, Outcome: "unknown", Time: at}}, nil
 	}
 	return nil, nil
 }

@@ -358,6 +358,16 @@
                 </div>
               </div>
 
+              <div class="topology-zone topology-control topology-scan">
+                <div class="topology-zone-label"><span>AIG-CONTROL</span><strong>{{ t('helpDeployment.scanServices') }}</strong></div>
+                <div class="topology-service">
+                  <strong>agent-security-worker</strong><span>{{ t('helpDeployment.workerRole') }}</span>
+                </div>
+                <div class="topology-service">
+                  <strong>aig-scan-service</strong><span>{{ t('helpDeployment.aigRole') }}</span>
+                </div>
+              </div>
+
               <div class="topology-note"><InfoCircleOutlined />{{ dockerLabels.boundaryNote }}</div>
             </div>
 
@@ -727,7 +737,7 @@ const dockerLabels = computed(() => ({
   console: text('管理台浏览器', 'Admin browser'),
   agents: text('Agent / Client / Scanner', 'Agent / Client / Scanner'),
   callers: text('模型应用 / MCP Client', 'Model apps / MCP Client'),
-  httpTraffic: text('HTTP / SSE 请求统一进入 80 端口', 'HTTP / SSE traffic enters through port 80'),
+  httpTraffic: t('helpDeployment.httpTraffic'),
   publicIngress: text('统一入口', 'Unified ingress'),
   nginxRole: text('页面、管理 API、模型网关和 MCP 数据面分流', 'Routes console, management API, model gateway, and MCP data plane'),
   routeTraffic: text('按路径转发', 'Route by path'),
@@ -741,10 +751,10 @@ const dockerLabels = computed(() => ({
   sandboxRole: text('受限环境执行动态检测', 'Runs dynamic checks in a restricted environment'),
   dataPlane: text('持久化数据', 'Persistent data'),
   sandboxLink: text('Backend → 动态检测请求', 'Backend → dynamic scan'),
-  volumeLink: text('Backend → 读写持久化数据', 'Backend → persistent reads and writes'),
+  volumeLink: t('helpDeployment.volumeLink'),
   boundaryNote: text('Sandbox 服务同时接入独立的 sandbox-control 网络，8194 只映射到主机回环地址；实际被检测代码仍在 nsjail 的独立网络命名空间中运行，默认无网络。', 'The Sandbox service also joins the separate sandbox-control network, and port 8194 is bound only to host loopback. Analyzed code still runs in an isolated nsjail network namespace with networking disabled by default.'),
 }))
-const dockerVolumes = ['backend_data', 'backend_uploads', 'backend_sqlite', 'agent_manager_registry']
+const dockerVolumes = ['backend_data', 'backend_uploads', 'backend_sqlite', 'agent_manager_registry', 'aig_scan_jobs']
 
 const collectSearchText = value => {
   if (typeof value === 'string' || typeof value === 'number') return String(value)
@@ -1167,6 +1177,7 @@ onBeforeUnmount(() => {
 .topology-split { display: grid; height: 43px; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 9px; color: #75889b; font-size: 10px; }
 .topology-split i { height: 1px; background: #9aadc0; }
 .topology-control { display: grid; grid-template-columns: 0.72fr 1.28fr; gap: 12px; border-color: #aebfd2; background: #edf3f9; }
+.topology-scan { margin-top: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow-wrap: anywhere; }
 .topology-service { display: flex; min-height: 92px; flex-direction: column; justify-content: center; gap: 5px; padding: 15px; background: #fff; border: 1px solid #cbd7e2; border-radius: 8px; box-shadow: 0 6px 16px rgba(39, 67, 94, 0.06); }
 .topology-service small { color: #74879a; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; }
 .topology-service strong { color: #22394e; font-size: 16px; }

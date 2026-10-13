@@ -14,7 +14,7 @@ type HostContext struct {
 	Truncated      bool     `json:"truncated"`
 }
 
-func projectHostContext(agent string, raw []byte, in input, policy agentlog.AuditPolicy) *HostContext {
+func projectHostContext(in input, policy agentlog.AuditPolicy) *HostContext {
 	c := &HostContext{}
 	project := func(value string, limit int) string {
 		text, redacted, truncated := agentlog.ProjectMetadataText(value, limit, policy)
@@ -24,26 +24,17 @@ func projectHostContext(agent string, raw []byte, in input, policy agentlog.Audi
 	}
 	var model string
 	_ = json.Unmarshal(in.Model, &model)
-	if agent == "cursor" {
-		var fields map[string]json.RawMessage
-		_ = json.Unmarshal(raw, &fields)
-		var id string
-		if json.Unmarshal(fields["model_id"], &id) == nil && id != "" {
-			model = id
-		}
-		var roots []string
-		if json.Unmarshal(fields["workspace_roots"], &roots) == nil {
-			if len(roots) > 8 {
-				roots = roots[:8]
-				c.Truncated = true
-			}
-			for _, root := range roots {
-				if value := project(root, 512); value != "" {
-					c.WorkspaceRoots = append(c.WorkspaceRoots, value)
-				}
-			}
+	roots := in.WorkspaceRoots
+	if len(roots) > 8 {
+		roots = roots[:8]
+		c.Truncated = true
+	}
+	for _, root := range roots {
+		if value := project(root, 512); value != "" {
+			c.WorkspaceRoots = append(c.WorkspaceRoots, value)
 		}
 	}
+
 	c.Model, c.Cwd = project(model, 256), project(in.Cwd, 512)
 	if c.Model == "" && c.Cwd == "" && len(c.WorkspaceRoots) == 0 {
 		return nil

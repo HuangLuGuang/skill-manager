@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"skill-manager/scanner/internal/aidr/hooks"
 	"skill-manager/scanner/internal/managedclient"
 	"skill-manager/scanner/internal/runtimeobservation"
 )
@@ -36,6 +37,12 @@ func main() {
 }
 
 func run(args []string) (runErr error) {
+	if len(args) > 0 && args[0] == "aidr-teleagent-service" {
+		return aidrTeleAgentService(args[1:], os.Stdout)
+	}
+	if len(args) > 0 && args[0] == "aidr-teleagent-serve" {
+		return aidrTeleAgentServe(args[1:], os.Stdout)
+	}
 	if len(args) > 0 && args[0] == "aidr-managed-install" {
 		return aidrManagedInstall(args[1:], os.Stdout)
 	}
@@ -73,7 +80,7 @@ func run(args []string) (runErr error) {
 		return readAgentLog(args[1:], os.Stdout)
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|connections|switch-connection|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|discard-quarantine|available-skills|skill-preview|skill-versions|install-skill|install-skills|quarantine|queue-quarantine|apply-skill-action|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service|runtime-watch|agent-log-read|agent-log-collect|agent-log-state|aidr-sync> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|connections|switch-connection|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|discard-quarantine|available-skills|skill-preview|skill-versions|install-skill|install-skills|quarantine|queue-quarantine|apply-skill-action|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service|runtime-watch|agent-log-read|agent-log-collect|agent-log-state|aidr-sync|aidr-teleagent-serve> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -318,6 +325,9 @@ func run(args []string) (runErr error) {
 	if args[0] == "reconcile-service" {
 		executable, err := os.Executable()
 		if err != nil {
+			return err
+		}
+		if err = hooks.EnsureTeleAgentProxyService(*home, executable); err != nil {
 			return err
 		}
 		result, err := managedclient.ReconcileService(*home, executable, *forceServiceRestart)

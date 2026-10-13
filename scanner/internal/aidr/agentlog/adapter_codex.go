@@ -1,0 +1,287 @@
+package agentlog
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+func parseCodex(raw []byte, c *Cursor) ([]draft, error) {
+	var r logRecord
+	if json.Unmarshal(raw, &r) != nil || r.Type == "" {
+		return nil, errors.New("aidr_log_invalid_json")
+	}
+	var drafts []draft
+	at, _ := time.Parse(time.RFC3339Nano, r.Timestamp)
+	var v item
+	switch r.Type {
+	case "session_meta", "turn_context", "event_msg", "response_item":
+		if json.Unmarshal(r.Payload, &v) != nil {
+			return nil, errors.New("aidr_log_schema_unsupported")
+		}
+	case "token_usage_record", "inter_agent_communication_metadata", "world_state", "compacted":
+		return nil, nil
+	default:
+		return nil, errors.New("aidr_log_schema_unsupported")
+	}
+	switch r.Type {
+	case "session_meta":
+		if v.SessionID == "" {
+			v.SessionID = v.ID
+		}
+		if token(v.SessionID) == "" || len(v.Version) > 80 || token(v.Version) == "" {
+			return nil, errors.New("aidr_log_schema_unsupported")
+		}
+		if c.Session != v.SessionID {
+			c.Turn = ""
+			c.CallTurns = nil
+		}
+		c.Session = v.SessionID
+		c.AgentVersion = v.Version
+	case "turn_context":
+		if v.TurnID != "" && token(v.TurnID) == "" {
+			return nil, errors.New("aidr_log_schema_unsupported")
+		}
+		c.Turn = v.TurnID
+	case "event_msg":
+		switch v.Type {
+		case "task_started":
+			c.Turn = token(v.TurnID)
+		case "task_complete", "turn_aborted":
+			c.Turn = ""
+		case "item_completed", "token_count", "thread_settings_applied", "user_message", "agent_message", "agent_reasoning", "thread_goal_updated":
+		default:
+			return nil, errors.New("aidr_log_schema_unsupported")
+		}
+	case "response_item":
+		switch v.Type {
+		case "function_call", "custom_tool_call":
+			content := v.Arguments
+			if v.Type == "custom_tool_call" {
+				content = v.Input
+			}
+			rememberTool(c, v.CallID, c.Turn, v.Name, content)
+			drafts = append(drafts, draft{Turn: c.Turn, Call: v.CallID, Kind: "tool_call", Tool: v.Name, Outcome: "unknown", Content: content, Time: at})
+		case "function_call_output", "custom_tool_call_output":
+			turn, resultTool := completeTool(c, v.CallID, token(v.TurnID))
+			drafts = append(drafts, draft{Turn: turn, Call: v.CallID, ResultTool: resultTool, Kind: "tool_result", Outcome: "unknown", Content: v.Output, Time: at})
+		case "message":
+			phase := "unspecified"
+			if v.Phase == "final_answer" {
+				phase = "final"
+			} else if v.Phase == "commentary" {
+				phase = "commentary"
+			}
+			if d, ok := messageDraft(v.Role, phase, v.ID, c.Turn, v.Content, at); ok {
+				drafts = append(drafts, d)
+			}
+		case "reasoning", "agent_message":
+		default:
+			return nil, errors.New("aidr_log_schema_unsupported")
+		}
+	}
+	return validateDrafts(drafts)
+}
+
+func contextNeutralEnvelope(d *json.Decoder, response bool) bool {
+	tok, err := d.Token()
+	if err != nil || tok != json.Delim('{') {
+		return false
+	}
+	var kind string
+	for d.More() {
+		key, err := d.Token()
+		if err != nil {
+			return false
+		}
+		if key == "type" {
+			if d.Decode(&kind) != nil {
+				return false
+			}
+			if response {
+				switch kind {
+				case "function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output", "message", "agent_message", "reasoning":
+					return true
+				default:
+					return false
+				}
+			}
+			if kind != "response_item" {
+				return kind == "compacted" || kind == "world_state" || kind == "token_usage_record" || kind == "inter_agent_communication_metadata"
+			}
+			continue
+		}
+		if key == "payload" && kind == "response_item" {
+			return contextNeutralEnvelope(d, true)
+		}
+		var value json.RawMessage
+		if d.Decode(&value) != nil {
+			return false
+		}
+	}
+	return false
+}
+
+func quarantineCodex(raw []byte) (bool, bool) {
+	var record map[string]json.RawMessage
+	if json.Unmarshal(raw, &record) != nil || record == nil {
+		return false, false
+	}
+	var kind string
+	if json.Unmarshal(record["type"], &kind) != nil || kind == "" {
+		return false, false
+	}
+	switch kind {
+	case "session_meta", "turn_context", "token_usage_record", "inter_agent_communication_metadata", "world_state", "compacted":
+		return false, false
+	case "event_msg", "response_item":
+		var payload map[string]json.RawMessage
+		if json.Unmarshal(record["payload"], &payload) != nil || payload == nil {
+			return false, false
+		}
+		var subtype string
+		if json.Unmarshal(payload["type"], &subtype) != nil || subtype == "" {
+			return false, false
+		}
+		if kind == "response_item" {
+			switch subtype {
+			case "function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output", "reasoning", "message", "agent_message":
+				return false, false
+			}
+			return true, true
+		}
+		switch subtype {
+		case "task_started", "item_completed", "token_count", "thread_settings_applied", "task_complete", "turn_aborted", "user_message", "agent_message", "agent_reasoning", "thread_goal_updated":
+			return false, false
+		}
+		// Unknown optional metadata cannot carry identity, tool arguments or outputs.
+		// Inspect nested objects as well as the envelope to detect future shapes.
+		var value any
+		if json.Unmarshal(raw, &value) != nil {
+			return false, false
+		}
+		return true, identityFields(value)
+	default:
+		return true, true
+	}
+}
+
+// Recover metadata on upgrade without replaying events or moving the durable
+// cursor. The header and recent native turn must match persisted identities.
+func restoreModelProvider(f *os.File, c *Cursor) {
+	if c.ModelHeaderRead || c.Offset == 0 || c.Session == "" {
+		return
+	}
+	c.ModelHeaderRead = true
+	line, err := bufio.NewReaderSize(io.NewSectionReader(f, 0, 256<<10), 256<<10).ReadBytes('\n')
+	if err != nil {
+		return
+	}
+	var header struct {
+		Type    string `json:"type"`
+		Payload struct {
+			ID        string `json:"id"`
+			SessionID string `json:"session_id"`
+			Provider  string `json:"model_provider"`
+		} `json:"payload"`
+	}
+	if json.Unmarshal(line, &header) != nil || header.Type != "session_meta" {
+		return
+	}
+	id := header.Payload.SessionID
+	if id == "" {
+		id = header.Payload.ID
+	}
+	if id == c.Session {
+		c.ModelProvider = modelValue(header.Payload.Provider)
+		if c.Turn != "" && c.ModelContext == nil {
+			start := max(int64(0), c.Offset-(1<<20))
+			raw, err := io.ReadAll(io.NewSectionReader(f, start, c.Offset-start))
+			if err != nil {
+				return
+			}
+			lines := bytes.Split(raw, []byte{'\n'})
+			if start > 0 {
+				lines = lines[1:]
+			}
+			for _, line := range lines {
+				var record struct {
+					Type    string `json:"type"`
+					Payload struct {
+						Turn string `json:"turn_id"`
+					} `json:"payload"`
+				}
+				if json.Unmarshal(line, &record) == nil && record.Type == "turn_context" && record.Payload.Turn == c.Turn {
+					codexModel(line, c, nil)
+				}
+			}
+		}
+	}
+}
+
+func codexModel(raw []byte, c *Cursor, drafts []draft) {
+	var r modelRecord
+	if json.Unmarshal(raw, &r) != nil {
+		if r.Type == "turn_context" || r.Type == "session_meta" {
+			c.ModelContext, c.ModelTurn = nil, ""
+			if r.Type == "session_meta" {
+				c.ModelProvider = ""
+			}
+		}
+		return
+	}
+	if c.Session == "" {
+		return
+	}
+	switch r.Type {
+	case "session_meta":
+		c.ModelHeaderRead = true
+		c.ModelProvider = modelValue(r.Payload.Provider)
+		c.ModelContext, c.ModelTurn = nil, ""
+	case "turn_context":
+		c.ModelTurn = token(r.Payload.TurnID)
+		c.ModelContext = &ModelContext{Model: modelValue(r.Payload.Model), Provider: c.ModelProvider, ReasoningEffort: modelValue(r.Payload.Effort), ReasoningSummary: modelValue(r.Payload.Summary), Source: "codex.turn_context"}
+	case "event_msg":
+		if r.Payload.Type == "task_complete" || r.Payload.Type == "turn_aborted" || (r.Payload.Type == "task_started" && c.ModelTurn != token(r.Payload.TurnID)) {
+			c.ModelContext, c.ModelTurn = nil, ""
+		}
+	}
+	for i := range drafts {
+		if drafts[i].Turn != "" && drafts[i].Turn == c.ModelTurn {
+			drafts[i].ModelContext = c.ModelContext
+		}
+	}
+}
+
+func codexLogAdapter() logAdapter {
+	a := lineAdapter(parseCodex)
+	a.Model, a.ModelSource, a.DraftTurn = codexModel, "codex.turn_context", true
+	a.Restore = restoreModelProvider
+	a.PreservesContext = func(raw []byte) bool { return contextNeutralEnvelope(json.NewDecoder(bytes.NewReader(raw)), false) }
+	a.Quarantine = quarantineCodex
+	a.Repair = func(c Cursor) bool {
+		if c.ContextRepairVersion >= contextRepairVersion || c.Offset == 0 || c.Session != "" {
+			return false
+		}
+		for _, gap := range c.Gaps {
+			if gap == "aidr_log_record_too_large" {
+				return true
+			}
+		}
+		return false
+	}
+	a.Roots = func(home string) []string {
+		base := os.Getenv("CODEX_HOME")
+		if base == "" {
+			base = filepath.Join(home, ".codex")
+		}
+		return []string{filepath.Join(base, "sessions")}
+	}
+
+	return a
+}

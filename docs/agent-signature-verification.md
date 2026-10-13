@@ -1,5 +1,13 @@
 # Agent Skill Signature Verification
 
+AIDR 的产品适配器负责识别各宿主的 Skill 调用与文件访问字段；后端的来源校验使用
+`backend/aidr_adapters/` 中的产品定义。验签、内容摘要和 Agent 授权仍由公共治理链路处理。
+TeleAgent 的结构化日志与审核接入、证据范围见
+[外部 Agent 集成](external-agent-integration.md#aidr-产品适配器与-teleagent--product-adapters-and-teleagent)。
+
+Product adapters identify host-specific Skill evidence; signature verification, content digests and Agent authorization
+remain shared governance services. See the integration guide for TeleAgent's evidence and enforcement boundaries.
+
 ## Overview
 
 ### 异步使用审计与加载前验签

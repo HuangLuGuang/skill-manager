@@ -16,7 +16,7 @@
         <p v-if="allActions.length > 1" class="muted">{{ t('aidr.sessions.moreActions', { count: allActions.length - 1 }) }}</p>
         <p v-if="exitCode != null && exitCode !== 0 && !showLogExitCode" class="exit-code">{{ item.operation ? t('aidr.commandExitCode', { code: exitCode }) : `${t('aidr.exitCode')}: ${exitCode}` }}</p>
         <p v-if="item.operation?.log_elapsed_ms != null" class="muted">{{ t('aidr.sessions.elapsed') }}: {{ item.operation.log_elapsed_ms }} ms</p>
-        <p v-if="records.length > 1" class="muted">{{ t('aidr.sessions.paired', { count: records.length }) }}</p>
+        <p v-if="records.length > 1" class="muted">{{ pairedStages ? t('aidr.sessions.pairedStages') : t('aidr.sessions.paired', { count: records.length }) }}</p>
         <p v-if="resultOnly" class="muted">{{ t('aidr.sessions.resultOnly') }}</p>
         <details v-if="!item.message" @toggle="expanded = $event.target.open">
           <summary>{{ t('aidr.sessions.details') }}</summary>
@@ -32,7 +32,7 @@
               <p class="muted">{{ t('aidr.sessions.received') }}: {{ timestamp(record.record.received_at) }}</p>
               <template v-if="record.record.event.context">
                 <p v-if="record.record.event.context.model">{{ t('aidr.sessions.model') }}: <code>{{ record.record.event.context.model }}</code></p>
-                <p v-if="record.record.event.context.cwd">{{ t('aidr.sessions.cwd') }}: <code>{{ record.record.event.context.cwd }}</code></p>
+                <p v-if="record.record.event.context.cwd">{{ t(record.record.event.context.cwd_source === 'agent_log' ? 'aidr.sessions.cwdFromLog' : 'aidr.sessions.cwd') }}: <code>{{ record.record.event.context.cwd }}</code></p>
                 <p v-for="root in record.record.event.context.workspace_roots || []" :key="root">{{ t('aidr.sessions.workspace_roots') }}: <code>{{ root }}</code></p>
                 <p v-if="record.record.event.context.redacted || record.record.event.context.truncated" class="muted">{{ t('aidr.sessions.hostContextProcessed') }}</p>
               </template>
@@ -63,6 +63,7 @@ const props = defineProps({ contentMode: { type: String, default: 'source' }, it
 const { t, locale } = useI18n()
 const expanded = ref(false)
 const records = computed(() => props.item.records || [])
+const pairedStages = computed(() => records.value.length === 2 && records.value.filter(r => r.record.event.kind === 'tool.pre').length === 1 && records.value.filter(r => ['tool.post', 'tool.failure'].includes(r.record.event.kind)).length === 1)
 const promptRecords = computed(() => records.value.filter(record => record.record.event.kind === 'turn.submit'))
 const event = computed(() => props.item.message || props.item.operation?.call || props.item.operation?.result || records.value.find(r => r.record.event.kind === 'tool.pre')?.record.event || records.value[0]?.record.event || {})
 const result = computed(() => props.item.operation?.result || records.value.find(r => ['tool.post', 'tool.failure'].includes(r.record.event.kind))?.record.event)

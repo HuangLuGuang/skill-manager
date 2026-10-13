@@ -17,6 +17,7 @@ from .. import auth, models, aidr_policy
 from ..aidr_products import BY_ID, LogAgentID
 from .. import aidr_hook_queries
 from .. import aidr_sessions
+from ..aidr_turns import present as present_log
 from .. import aidr_overview
 from .. import aidr_hooks
 from .. import aidr_hook_runtime
@@ -429,6 +430,8 @@ def save_batch(db, device, stream_id, batch_id, raw):
                     from ..aidr_skill_usage import merge as merge_skill_use
                     merge_skill_use(db, "log", existing)
             else:
+                from ..aidr_turns import apply as apply_turn_links
+                apply_turn_links(db, device.client_id, value)
                 content_hash = digest(payload)
                 db.execute(insert(models.AidrCoverageRecord).values(client_id=device.client_id, stream_id=stream_id, record_id=record.record_id, payload_json=payload, content_hash=content_hash).on_conflict_do_nothing(index_elements=["client_id", "stream_id", "record_id"]))
                 existing = db.query(models.AidrCoverageRecord).filter_by(client_id=device.client_id, stream_id=stream_id, record_id=record.record_id).one()
@@ -501,7 +504,7 @@ def events(client_id: str, after: int = Query(0, ge=0, le=2**63-1), limit: int =
     if not device:
         return {"items": [], "next_after": str(after), "has_more": False}
     rows = db.query(models.AidrEvent).filter(models.AidrEvent.client_id == client_id, models.AidrEvent.expired_at.is_(None), models.AidrEvent.id > after).order_by(models.AidrEvent.id).limit(limit + 1).all()
-    return {"items": [{"id": str(row.id), "server_received_at": row.received_at, "event": metadata_view(json.loads(row.payload_json))} for row in rows[:limit]], "next_after": str(rows[min(len(rows), limit) - 1].id) if rows else str(after), "has_more": len(rows) > limit}
+    return {"items": [{"id": str(row.id), "server_received_at": row.received_at, "event": metadata_view(present_log(db, row))} for row in rows[:limit]], "next_after": str(rows[min(len(rows), limit) - 1].id) if rows else str(after), "has_more": len(rows) > limit}
 
 
 @router.get("/sources")

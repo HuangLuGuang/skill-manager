@@ -111,3 +111,6 @@ var AIDRRuntimeInspect func(context.Context, string, Policy) error
 // Runs inside the existing user worker, with the same cancellation lifetime.
 // The callback supplies its durable policy cache; pages never drive intake.
 var AIDRLogRunner func(context.Context, string, func() Policy)
+
+// Runs the shared Hook receiver inside the user daemon, independent of the UI.
+var AIDRHookRunner func(context.Context, string)

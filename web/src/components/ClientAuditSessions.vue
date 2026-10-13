@@ -36,7 +36,7 @@
           </header>
           <div class="timeline-toolbar">
             <div class="source-tabs" role="group" :aria-label="t('aidr.sessions.activity')">
-              <button v-for="value in ['tools', 'hooks']" :key="value" type="button" :aria-pressed="!showSkills && source === value" @click="showSkills = false; source = value">{{ t('aidr.sessions.' + (value === 'tools' ? 'logsTab' : 'hooksTab')) }} <span>{{ sourceCount(countContext(value), value) }}</span></button>
+              <button v-for="value in ['tools', 'hooks']" :key="value" type="button" :title="t('aidr.sessions.' + (value === 'tools' ? 'logHelp' : 'hookHelp'))" :aria-pressed="!showSkills && source === value" @click="showSkills = false; source = value">{{ t('aidr.sessions.' + (value === 'tools' ? 'logsTab' : 'hooksTab')) }} <span>{{ sourceCount(countContext(value), value) }}</span></button>
               <button type="button" :aria-pressed="showSkills" @click="showSkills = true">{{ t('aidr.skillUse.title') }}</button>
             </div>
             <div v-if="!showSkills" class="content-mode" role="group" :aria-label="t('aidr.sessions.contentDisplay')"><button v-for="mode in ['rendered', 'source']" :key="mode" type="button" :aria-pressed="contentMode === mode" @click="contentMode = mode">{{ t('aidr.sessions.' + mode) }}</button></div>
@@ -45,7 +45,7 @@
         </div>
         <AidrSkillUses v-if="showSkills" :client-id="clientId" :agent="selected.agent" :session-id="selected.session_id" />
         <div v-else class="turn-reading">
-          <AidrTurnNavigator :items="sourceTurns" :active="turnKey" :can-read="canRead" :loading="turnsLoading" :error="turnsError" :has-more="turns.has_more" @select="turnKey = $event" @more="loadTurns(turnsFailedAppend || !turnsError)" />
+          <AidrTurnNavigator :items="sourceTurns" :all-items="turns.items" :active="turnKey" :can-read="canRead" :loading="turnsLoading" :error="turnsError" :has-more="turns.has_more" @select="turnKey = $event" @more="loadTurns(turnsFailedAppend || !turnsError)" />
           <div ref="timelinePane" class="timeline-records" tabindex="0" role="region" :aria-label="t('aidr.sessions.timeline')">
             <a-alert v-if="timelineError" type="error" :message="t('aidr.sessions.readFailed')" show-icon><template #action><a-button type="link" :disabled="timelineLoading" @click="loadTimeline(failedAppend)">{{ t('aidr.sessions.retry') }}</a-button></template></a-alert>
             <p v-if="(timelineLoading || turnsLoading) && !timeline.items.length" role="status" class="muted">{{ t('aidr.sessions.loading') }}</p>
@@ -112,10 +112,11 @@ function hookFields(turn) {
   const context = turn?.hook_context || { model: turn?.hook_models || [] }
   return ['model', 'cwd', 'workspace_roots'].flatMap(key => {
     const native = context[key] || []
-    const session = key !== 'model' && !native.length && turns.value.host_context?.[key]
+    const latest = turns.value.host_context?.[key]
+    const session = key !== 'model' && !native.length && latest?.source !== 'agent_log' && latest
     const reports = session ? [session] : native
     if (!reports.length) return []
-    const label = t('aidr.sessions.' + key)
+    const label = t(key === 'cwd' && reports.every(report => report.source === 'agent_log') ? 'aidr.sessions.cwdFromLog' : 'aidr.sessions.' + key)
     return [{ key, label: session ? t('aidr.sessions.sessionContextLabel', { field: label }) : label,
       value: [...new Set(reports.flatMap(report => [].concat(report.value)).map(value => key === 'model' ? modelValue(value) : value))].join(' / '),
       title: reports.map(report => `${timestamp(report.at)} · ${report.hook_event} #${report.id}`).join('\n') }]
@@ -139,7 +140,7 @@ const turnsReady = computed(() => resolvedTurnContext.value === turnContext.valu
 const sourceTurns = computed(() => turns.value.items.filter(turn => sourceCount(turn, source.value)))
 const activeTurn = computed(() => turns.value.items.find(item => item.key === turnKey.value))
 const countContext = value => activeTurn.value && sourceCount(activeTurn.value, value) ? activeTurn.value : selected.value
-const turnLabel = turn => turn.key === 'unassigned' ? t('aidr.sessions.unassignedTurn') : sourceTurns.value.some(item => item.key === turn.key) ? t('aidr.sessions.round', { n: sourceTurns.value.filter(item => item.key !== 'unassigned').findIndex(item => item.key === turn.key) + 1 }) : t('aidr.sessions.turnId', { id: turn.key.slice(5, 13) })
+const turnLabel = turn => turn.key === 'unassigned' ? t('aidr.sessions.unassignedTurn') : turns.value.items.some(item => item.key === turn.key) ? t('aidr.sessions.round', { n: turns.value.items.filter(item => item.key !== 'unassigned').findIndex(item => item.key === turn.key) + 1 }) : t('aidr.sessions.turnId', { id: turn.key.slice(5, 13) })
 const questionText = turn => !canRead.value ? t('aidr.sessions.questionRestricted') : turn?.question?.display_text || t('aidr.sessions.questionMissing')
 const timelineGroups = computed(() => {
   const groups = []

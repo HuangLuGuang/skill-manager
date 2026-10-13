@@ -1,4 +1,5 @@
 """Deterministic per-device operation view over immutable Agent log evidence."""
+from . import aidr_adapters
 import base64
 import hashlib
 import json
@@ -21,7 +22,7 @@ def stamp(value):
 
 def operation_key(client_id, event):
     parts=[client_id,event['agent'],event['source_id'],event['session_id'],event['turn_id'],event['native_call_id']]
-    if not event['session_id'] or (event['agent']=='codex' and not event['turn_id']):
+    if not event['session_id'] or (aidr_adapters.get(event['agent']).turn_required and not event['turn_id']):
         parts.append(event['logical_event_id'])
     return hashlib.sha256(dump(parts).encode()).hexdigest()
 

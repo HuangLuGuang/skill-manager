@@ -24,44 +24,11 @@ type SkillUse struct {
 	ContentReason string `json:"content_reason,omitempty"`
 }
 
-// WorkBuddy's native Skill result starts with this host-generated source field.
-// Other products require their own result adapter; arbitrary text is not a path.
 func ProjectSkillResult(agent, tool string, raw, meta json.RawMessage, policy *AuditPolicy) *SkillUse {
-	if agent == "opencode" && tool == "skill" {
-		obj := rawObject(meta)
-		directory, name := rawString(obj["dir"]), rawString(obj["name"])
-		if !filepath.IsAbs(directory) || name == "" {
-			return nil
-		}
-		b := &Behavior{Version: 3, Policy: policy}
-		path := safeText(filepath.ToSlash(filepath.Join(directory, "SKILL.md")), 1024, b)
-		name = safeText(name, 256, b)
-		if b.Redacted || b.Truncated {
-			return nil
-		}
-		return &SkillUse{Behavior: "invocation", Name: name, Path: path, Basis: "result.metadata", Phase: "host_loaded"}
+	if f := logAdapters[agent].SkillResult; f != nil {
+		return f(tool, raw, meta, policy)
 	}
-	if agent != "workbuddy" || tool != "Skill" {
-		return nil
-	}
-	text := rawString(raw)
-	if text == "" {
-		text = rawString(rawObject(raw)["text"])
-	}
-	const prefix = "Base directory for this skill: "
-	if !strings.HasPrefix(text, prefix) {
-		return nil
-	}
-	directory := strings.TrimSuffix(strings.SplitN(strings.TrimPrefix(text, prefix), "\n", 2)[0], "\r")
-	if !filepath.IsAbs(directory) || len(directory) > 1000 {
-		return nil
-	}
-	b := &Behavior{Version: 3, Policy: policy}
-	path := safeText(filepath.ToSlash(filepath.Join(directory, "SKILL.md")), 1024, b)
-	if b.Redacted || b.Truncated {
-		return nil
-	}
-	return &SkillUse{Behavior: "invocation", Path: path, Basis: "result.base_directory", Phase: "host_loaded"}
+	return nil
 }
 
 // ObserveSkillContent runs on the asynchronous log reader, never on a Hook's
@@ -76,15 +43,8 @@ var skillCat = regexp.MustCompile("^(?:/bin/)?cat\\s+(?:--\\s+)?(?:\"([^\"$`\\\\
 func ProjectSkillUse(agent, tool, cwd string, input json.RawMessage, policy *AuditPolicy) *SkillUse {
 	obj := rawObject(input)
 	field := ""
-	switch agent {
-	case "claude", "workbuddy", "qoder-cli":
-		if tool == "Skill" {
-			field = "skill"
-		}
-	case "opencode":
-		if tool == "skill" {
-			field = "name"
-		}
+	if f := logAdapters[agent].SkillField; f != nil {
+		field = f(tool)
 	}
 	b := &Behavior{Version: 3, Policy: policy}
 	if field != "" {

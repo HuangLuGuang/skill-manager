@@ -1,4 +1,5 @@
 """Incremental metadata-only overview projections; raw evidence remains authoritative."""
+from . import aidr_adapters
 import asyncio
 import hashlib
 import json
@@ -74,7 +75,7 @@ class OverviewWatermark(Base):
 
 
 def product_id(agent):
-    return 'qoder' if agent in ('qoder-cli', 'qoder-hooks', 'qoder-ide', 'qoder-work') else agent
+    return aidr_adapters.get(agent).family or agent
 
 
 def digest(parts):
@@ -119,7 +120,7 @@ def project(source, row):
     session = e.get('session_id', '')
     user = raw.get('user_scope')
     call = e.get('native_call_id', '')
-    reliable = bool(session and call and user is not None and (agent != 'codex' or e.get('turn_id')))
+    reliable = bool(session and call and user is not None and (not aidr_adapters.get(agent).turn_required or e.get('turn_id')))
     if source == 'hooks':
         reliable = reliable and bool(e.get('tool'))
         identity = [row.client_id, source, row.stream_id, user, agent, session, e.get('turn_id', ''),
@@ -376,7 +377,7 @@ def detail_entry(db, client_id, source, record_id):
     raw = json.loads(row.payload_json)
     if source == 'hooks':
         result = related(db, client_id, row)
-        return dict(key=str(row.id), at=raw.get('received_at'), records=result['items'] or [present_hook(row)])
+        return dict(key=str(row.id), at=raw.get('received_at'), records=result['items'] or [present_hook(row, db)])
     key = operation_key(client_id, raw)
     op = db.query(AidrOperation).filter_by(client_id=client_id, operation_key=key, expired_at=None).first()
     return dict(key=str(row.id), at=raw.get('observed_at'), operation=metadata_view(present(op))) if op else None

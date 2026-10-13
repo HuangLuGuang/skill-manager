@@ -461,12 +461,12 @@ func projectBehaviorPolicy(d draft, version int, policy *AuditPolicy) *Behavior 
 			b.Uncertainty = append(b.Uncertainty, reason)
 		}
 	}
-	if d.WorkBuddyResult && d.Kind == "tool_result" {
+	if d.ResultProjection != nil && d.Kind == "tool_result" {
 		tool := d.Tool
 		if tool == "" {
 			tool = d.ResultTool
 		}
-		projectWorkBuddyResult(b, tool, d.ResultMeta)
+		d.ResultProjection(b, tool, d.ResultMeta)
 	}
 	return b
 }

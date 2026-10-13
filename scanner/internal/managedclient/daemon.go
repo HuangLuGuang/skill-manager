@@ -200,6 +200,14 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var workers sync.WaitGroup
+	defer func() { cancel(); workers.Wait() }()
+	if AIDRHookRunner != nil {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			AIDRHookRunner(ctx, home)
+		}()
+	}
 	if AIDRLogRunner != nil {
 		workers.Add(1)
 		go func() {
@@ -468,8 +476,6 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		return err
 	}
 	_, _ = store.db.Exec(`UPDATE client_tasks SET status='pending' WHERE status='running'`)
-	defer workers.Wait()
-	defer cancel()
 	for {
 		var changedPaths []string
 		select {

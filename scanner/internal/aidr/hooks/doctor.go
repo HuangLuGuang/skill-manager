@@ -175,8 +175,8 @@ func ParsePluginStatus(agent string, raw []byte) (PluginStatus, error) {
 	return s, nil
 }
 
-func InspectPlugin(ctx context.Context, agent, binary, configHome, socket string) (PluginStatus, error) {
-	status := PluginStatus{Agent: agent, HookTrust: "unknown", VersionStatus: "unverified", SourceCode: "aidr_plugin_source_unreadable", SourceKind: "unknown", FilesCode: "aidr_plugin_files_unknown", ReceiverCode: "aidr_hook_receiver_not_checked", ReportedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+func inspectNativePlugin(ctx context.Context, agent, binary, configHome, socket string) (PluginStatus, error) {
+	status := pluginStatus(agent)
 	if (agent != "codex" && agent != "claude") || !filepath.IsAbs(binary) || (configHome != "" && !filepath.IsAbs(configHome)) {
 		return status, code("aidr_plugin_config_invalid")
 	}
@@ -266,7 +266,7 @@ func PluginBridgeMatches(status PluginStatus, connection string) bool {
 // InstallPlugin delegates installation to the native host. A local marketplace
 // must contain the expected package and keep its source within that directory.
 // Native hook trust is deliberately not changed by this command.
-func InstallPlugin(ctx context.Context, agent, binary, configHome, marketplace string) (PluginStatus, error) {
+func installNativePlugin(ctx context.Context, agent, binary, configHome, marketplace string) (PluginStatus, error) {
 	status, err := InspectPlugin(ctx, agent, binary, configHome, "")
 	if err != nil {
 		return status, err

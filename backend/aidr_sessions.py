@@ -1,4 +1,5 @@
 """Read-only session navigation and source-specific audit timelines."""
+from . import aidr_adapters
 import base64
 import hashlib
 import json
@@ -10,17 +11,17 @@ from .aidr_content import metadata_view, record_contents
 from .aidr_hook_queries import present as present_hook
 from .aidr_models import AidrHookEvent, AidrOperation, AidrEvent
 from .aidr_operations import present as present_operation
+from .aidr_turns import event_turn_sql, present as present_log
+from .aidr_hook_context import cwd_expression, MAX_ID
 
 
 def _log_agent(agent):
     # Qoder's shared Hook and CLI-format transcript retain their source IDs.
-    return 'qoder-cli' if agent == 'qoder-hooks' else agent
+    return aidr_adapters.get(agent).log_entry or agent
 
 
 def _session_agent_sql(expression, requested):
-    if requested == 'qoder-cli':
-        return expression
-    return f"CASE WHEN {expression}='qoder-cli' THEN 'qoder-hooks' ELSE {expression} END"
+    return aidr_adapters.session_entry_sql(expression, requested)
 
 
 def _scope(client_id, **filters):
@@ -80,7 +81,7 @@ def sessions(db, client_id, *, cursor='', limit=20, keyword='', agent='', includ
     log_hit = """CASE WHEN kind = 'user_message'
               THEN EXISTS (SELECT 1 FROM json_each(payload_json, '$.message.contents') c
                 WHERE instr(lower(json_extract(c.value, '$.text')), :keyword) > 0) ELSE 0 END""" if search_questions else '0'
-    agent_filter = "agent IN ('qoder-cli','qoder-hooks','qoder-ide','qoder-work')" if agent == 'qoder' else "(:agent = '' OR agent = :agent)"
+    agent_filter = aidr_adapters.family_filter_sql(agent)
     log_entry = _session_agent_sql('agent', agent)
     rows = db.execute(text(f"""
         WITH evidence AS (
@@ -192,15 +193,14 @@ def turn_expression(source):
     # their exact call identity against retained logs; never use wall-clock order.
     native = "json_extract(aidr_hook_events.payload_json, '$.event.turn_id')"
     return f"""coalesce(nullif({native}, ''), CASE WHEN
-      json_extract(aidr_hook_events.payload_json, '$.event.agent') IN ('qoder-hooks','workbuddy')
+      json_extract(aidr_hook_events.payload_json, '$.event.agent') IN ({aidr_adapters.sql_ids('resolve_hook_turn')})
       AND coalesce(json_extract(aidr_hook_events.payload_json, '$.event.native_call_id'),'')!=''
       AND coalesce(json_extract(aidr_hook_events.payload_json, '$.event.native_agent_id'),'')=''
       THEN (SELECT CASE WHEN count(DISTINCT json_extract(link.payload_json,'$.call.turn_id'))=1
                   THEN min(json_extract(link.payload_json,'$.call.turn_id')) END
         FROM aidr_operations link
         WHERE link.client_id=aidr_hook_events.client_id
-          AND link.agent=CASE json_extract(aidr_hook_events.payload_json,'$.event.agent')
-            WHEN 'qoder-hooks' THEN 'qoder-cli' ELSE 'workbuddy' END
+          AND link.agent={aidr_adapters.log_entry_sql("json_extract(aidr_hook_events.payload_json,'$.event.agent')")}
           AND link.session_id=json_extract(aidr_hook_events.payload_json,'$.event.session_id')
           AND json_extract(link.payload_json,'$.call.native_call_id')=json_extract(aidr_hook_events.payload_json,'$.event.native_call_id')
           AND coalesce(json_extract(aidr_hook_events.payload_json,'$.user_scope'),'')!=''
@@ -214,7 +214,7 @@ def turn_expression(source):
 def turn_key_expression(source):
     turn = turn_expression(source)
     # A prompt without a native turn ID remains selectable; it cannot own neighboring events.
-    missing = "'unassigned'" if source == 'logs' else "CASE WHEN json_extract(payload_json, '$.event.kind') = 'turn.submit' AND json_extract(payload_json, '$.event.agent') != 'workbuddy' THEN 'prompt:' || aidr_hook_events.id ELSE 'unassigned' END"
+    missing = "'unassigned'" if source == 'logs' else f"CASE WHEN json_extract(payload_json, '$.event.kind') = 'turn.submit' AND json_extract(payload_json, '$.event.agent') NOT IN ({aidr_adapters.sql_ids('unassigned_prompt')}) THEN 'prompt:' || aidr_hook_events.id ELSE 'unassigned' END"
     return f"CASE WHEN {turn} != '' THEN 'turn:' || {turn} ELSE {missing} END"
 
 
@@ -242,7 +242,7 @@ def turns(db, client_id, *, agent, session_id, orphan_id=0, cursor='', limit=100
           AND json_extract(payload_json, '$.event.agent')=:agent
           AND json_extract(payload_json, '$.event.session_id')=:session_id AND :session_id != ''
         UNION ALL
-        SELECT CASE WHEN coalesce(json_extract(payload_json, '$.turn_id'),'') != '' THEN 'turn:' || json_extract(payload_json, '$.turn_id') ELSE 'unassigned' END,
+        SELECT CASE WHEN {event_turn_sql()} != '' THEN 'turn:' || {event_turn_sql()} ELSE 'unassigned' END,
           0, 0, 1, CASE WHEN kind='user_message' THEN -id END, julianday(json_extract(payload_json, '$.observed_at'))
         FROM aidr_events WHERE client_id=:client_id AND agent=:log_agent AND expired_at IS NULL AND id<=:message_max
           AND kind IN ('user_message','assistant_message') AND json_extract(payload_json, '$.session_id')=:session_id AND :session_id != ''
@@ -266,7 +266,7 @@ def turns(db, client_id, *, agent, session_id, orphan_id=0, cursor='', limit=100
         for item in items:
             item['question'] = prompts.get(item['prompt_id'], {})
     result = _finish(items, rows, limit, paging)
-    result['host_context'] = session_host_context(db, client_id, agent, session_id, paging['ceilings'][1])
+    result['host_context'] = session_host_context(db, client_id, agent, session_id, paging['ceilings'][1], paging['ceilings'][0])
     result['log_context'] = log_context['latest']
     return result
 
@@ -281,9 +281,9 @@ def session_log_models(db, client_id, agent, session_id, ceiling, keys):
     scope = """FROM aidr_events WHERE client_id=:client AND agent=:agent
         AND json_extract(payload_json, '$.session_id')=:session AND expired_at IS NULL AND id<=:ceiling
         AND json_type(payload_json, '$.model_context')='object'"""
-    fields = """id, json_extract(payload_json, '$.observed_at') AS at,
+    fields = f"""id, json_extract(payload_json, '$.observed_at') AS at,
         json_extract(payload_json, '$.model_context') AS context,
-        'turn:' || json_extract(payload_json, '$.turn_id') AS key"""
+        'turn:' || {event_turn_sql()} AS key"""
     row = db.execute(text(f"SELECT {fields} {scope} ORDER BY id DESC LIMIT 1"), params).mappings().first()
     def report(row):
         return {**json.loads(row['context']), 'id': str(row['id']), 'at': row['at']}
@@ -305,19 +305,23 @@ def turn_hook_models(db, client_id, agent, session_id, ceiling, keys, log_ceilin
 
 
 def turn_hook_contexts(db, client_id, agent, session_id, ceiling, keys, log_ceiling=None):
-    """Explicit main-agent metadata for the requested turns, without carry-forward."""
+    """Turn-local Hook metadata and product-declared linked directory evidence."""
     keys = [key for key in keys if key != 'unassigned']
     if not session_id or not keys:
         return {}
+    linked_cwd = aidr_adapters.get(agent).hook_cwd_from_logs
+    context_index = 'ix_aidr_hook_session_turns' if linked_cwd else 'ix_aidr_hook_session_context'
+    context_filter = '' if linked_cwd else "AND json_type(payload_json, '$.event.context')='object'"
     rows = db.execute(text(f"""WITH reports AS (
         SELECT {turn_key_expression('hooks')} AS key, aidr_hook_events.id AS id,
           field.key AS field, field.value AS value, field.type AS value_type,
           json_extract(payload_json, '$.received_at') AS at,
           json_extract(payload_json, '$.event.hook_event') AS hook_event
-        FROM aidr_hook_events INDEXED BY ix_aidr_hook_session_context,
-          json_each(payload_json, '$.event.context') AS field
+        FROM aidr_hook_events INDEXED BY {context_index},
+          json_each(json_object('model',json_extract(payload_json,'$.event.context.model'),
+            'cwd',{cwd_expression()},'workspace_roots',json_extract(payload_json,'$.event.context.workspace_roots'))) AS field
         WHERE client_id=:client AND expired_at IS NULL AND aidr_hook_events.id<=:ceiling
-          AND json_type(payload_json, '$.event.context')='object'
+          {context_filter}
           AND json_extract(payload_json, '$.event.agent')=:agent
           AND json_extract(payload_json, '$.event.session_id')=:session
           AND coalesce(json_extract(payload_json, '$.event.native_agent_id'),'')=''
@@ -329,40 +333,49 @@ def turn_hook_contexts(db, client_id, agent, session_id, ceiling, keys, log_ceil
         FROM reports WHERE key IN (SELECT value FROM json_each(:keys))
     ) SELECT key,field,id,value,value_type,at,hook_event FROM ranked WHERE position=1 ORDER BY id
     """), dict(client=client_id, agent=agent, session=session_id, ceiling=ceiling, keys=json.dumps(keys),
+        cwd_log_max=log_ceiling if log_ceiling is not None else MAX_ID,
         log_link_max=log_ceiling if log_ceiling is not None else db.query(func.max(AidrOperation.id)).filter(AidrOperation.client_id==client_id).scalar() or 0)).mappings().all()
     result = {}
     for row in rows:
         report = {k: str(v) if k == 'id' else v for k, v in row.items() if k not in ('key', 'field', 'value_type')}
         if row['value_type'] == 'array':
             report['value'] = json.loads(row['value'])
+        if row['field'] == 'cwd' and aidr_adapters.get(agent).hook_cwd_from_logs:
+            report['source'] = 'agent_log'
         result.setdefault(row['key'], {}).setdefault(row['field'], []).append(report)
     return result
 
 
-def session_host_context(db, client_id, agent, session_id, ceiling):
-    """Latest explicit main-session Hook report per field, within the page snapshot."""
+def session_host_context(db, client_id, agent, session_id, ceiling, log_ceiling=MAX_ID):
+    """Latest scoped context report per field, within the page snapshot."""
     if not session_id:
         return {}
+    linked_cwd = aidr_adapters.get(agent).hook_cwd_from_logs
+    context_index = 'ix_aidr_hook_session_turns' if linked_cwd else 'ix_aidr_hook_session_context'
+    context_filter = '' if linked_cwd else "AND json_type(payload_json, '$.event.context')='object'"
     result = {}
     for field in ('model', 'cwd', 'workspace_roots'):
         path = '$.event.context.' + field
-        row = db.execute(text(f"""SELECT id, json_extract(payload_json, '{path}') AS value,
+        value = cwd_expression() if field == 'cwd' else f"json_extract(payload_json, '{path}')"
+        row = db.execute(text(f"""SELECT id, {value} AS value,
             json_extract(payload_json, '$.received_at') AS at,
             json_extract(payload_json, '$.event.hook_event') AS hook_event,
             json_extract(payload_json, '$.event.context.redacted') AS redacted,
             json_extract(payload_json, '$.event.context.truncated') AS truncated
-            FROM aidr_hook_events INDEXED BY ix_aidr_hook_session_context
+            FROM aidr_hook_events INDEXED BY {context_index}
             WHERE client_id=:client AND expired_at IS NULL AND id<=:ceiling
-              AND json_type(payload_json, '$.event.context')='object'
+              {context_filter}
               AND json_extract(payload_json, '$.event.agent')=:agent
               AND json_extract(payload_json, '$.event.session_id')=:session
               AND coalesce(json_extract(payload_json, '$.event.native_agent_id'),'')=''
               AND json_extract(payload_json, '$.event.kind') NOT LIKE 'subagent.%'
-              AND coalesce(json_extract(payload_json, '{path}'),'') NOT IN ('','[]')
-            ORDER BY id DESC LIMIT 1"""), {'client':client_id, 'agent':agent, 'session':session_id, 'ceiling':ceiling}).mappings().first()
+              AND coalesce({value},'') NOT IN ('','[]')
+            ORDER BY id DESC LIMIT 1"""), {'client':client_id, 'agent':agent, 'session':session_id, 'ceiling':ceiling, 'cwd_log_max':log_ceiling}).mappings().first()
         if row:
             result[field] = {**dict(row), 'id':str(row['id']),
                 'value':json.loads(row['value']) if field == 'workspace_roots' else row['value']}
+            if field == 'cwd' and aidr_adapters.get(agent).hook_cwd_from_logs:
+                result[field]['source'] = 'agent_log'
     return result
 
 
@@ -399,7 +412,7 @@ def timeline(db, client_id, *, source, agent, session_id, orphan_id=0, cursor=''
           FROM aidr_events WHERE client_id=:client_id AND expired_at IS NULL AND id<=:message_max
             AND agent=:agent AND json_extract(payload_json, '$.session_id')=:session_id AND :session_id != ''
             AND kind IN ('user_message','assistant_message')
-            AND (:turn_key='' OR (CASE WHEN coalesce(json_extract(payload_json, '$.turn_id'),'') != '' THEN 'turn:' || json_extract(payload_json, '$.turn_id') ELSE 'unassigned' END)=:turn_key)
+            AND (:turn_key='' OR (CASE WHEN {event_turn_sql()} != '' THEN 'turn:' || {event_turn_sql()} ELSE 'unassigned' END)=:turn_key)
             AND (:keyword='' OR instr(kind,:keyword)>0 OR instr(json_extract(payload_json, '$.message.phase'),:keyword)>0)
         )"""
     else:
@@ -412,7 +425,7 @@ def timeline(db, client_id, *, source, agent, session_id, orphan_id=0, cursor=''
               AND coalesce(json_extract(payload_json, '$.user_scope'), '') != ''
               AND coalesce(json_extract(payload_json, '$.event.native_call_id'), '') != ''
               AND coalesce(json_extract(payload_json, '$.event.tool'), '') != ''
-              AND (:agent != 'codex' OR coalesce(json_extract(payload_json, '$.event.turn_id'), '') != '')
+              AND (:agent NOT IN ({aidr_adapters.sql_ids('turn_required')}) OR coalesce(json_extract(payload_json, '$.event.turn_id'), '') != '')
             THEN json_array(stream_id, json_extract(payload_json, '$.user_scope'),
               json_extract(payload_json, '$.event.native_call_id'), json_extract(payload_json, '$.event.tool'),
               coalesce(json_extract(payload_json, '$.event.turn_id'), ''),
@@ -452,7 +465,7 @@ def timeline(db, client_id, *, source, agent, session_id, orphan_id=0, cursor=''
         if row['item_ids'].startswith('message:'):
             record = messages.get(int(row['item_ids'].split(':')[1]))
             if record:
-                event = metadata_view(json.loads(record.payload_json))
+                event = metadata_view(present_log(db, record))
                 items.append({'key':row['key'], 'at':row['at'], 'message':event,
                     'turn_key':'turn:'+event['turn_id'] if event.get('turn_id') else 'unassigned'})
             continue
@@ -466,7 +479,7 @@ def timeline(db, client_id, *, source, agent, session_id, orphan_id=0, cursor=''
             item['turn_key'] = 'turn:' + event['turn_id'] if event.get('turn_id') else 'unassigned'
         else:
             selected.sort(key=lambda r: (json.loads(r.payload_json)['received_at'], r.id))
-            item['records'] = [present_hook(record) for record in selected]
+            item['records'] = [present_hook(record, db, paging['ceilings'][0]) for record in selected]
             event = item['records'][0]['record']['event']
             item['turn_key'] = row['resolved_turn_key']
         items.append(item)

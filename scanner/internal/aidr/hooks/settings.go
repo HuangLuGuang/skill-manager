@@ -11,35 +11,23 @@ import (
 	"time"
 )
 
-func SettingsAdapter(agent string) bool {
-	p, _ := products.Get(agent)
-	return p.Hooks == "cursor-settings" || p.Hooks == "qoder-settings" || p.Hooks == "workbuddy-settings" || p.Hooks == "qoderwork-settings"
-}
+func SettingsAdapter(agent string) bool { return hookAdapters[agent].Settings != nil }
 func settingsPath(agent, home string) (string, error) {
 	product, _ := products.Get(agent)
-	if !SettingsAdapter(agent) || !products.SupportedHookOS(product) || !filepath.IsAbs(home) {
+	format := hookAdapters[agent].Settings
+	if format == nil || !products.SupportedHookOS(product) || !filepath.IsAbs(home) {
 		return "", code("aidr_plugin_host_unsupported")
 	}
-	if agent == "qoder-work" {
-		return filepath.Join(home, ".qoderwork", "settings.json"), nil
-	}
-	if agent == "qoder-hooks" {
-		return filepath.Join(home, ".qoder", "settings.json"), nil
-	}
-	if agent == "workbuddy" {
-		return filepath.Join(home, ".workbuddy", "settings.json"), nil
-	}
-	return filepath.Join(home, ".cursor", "hooks.json"), nil
+	return filepath.Join(home, filepath.FromSlash(format.Path)), nil
 }
 func shellArg(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 func settingsEntries(agent, binary, connection string) map[string]map[string]any {
 	p, _ := products.Get(agent)
 	out := map[string]map[string]any{}
 	for event := range p.HookEvents {
-		out[event] = map[string]any{"command": shellArg(binary) + " aidr-hook --agent " + shellArg(agent) + " --event " + shellArg(event) + " --connection-file " + shellArg(connection), "timeout": 10}
-		if p.Hooks != "cursor-settings" {
+		out[event] = map[string]any{"command": shellArg(binary) + " aidr-hook --agent " + shellArg(agent) + " --event " + shellArg(event) + " --connection-file " + shellArg(connection), "timeout": hookAdapters[agent].Settings.Timeout}
+		if hookAdapters[agent].Settings.Nested {
 			out[event]["type"] = "command"
-			out[event]["timeout"] = 60
 		}
 	}
 	return out
@@ -96,7 +84,7 @@ func MergeSettingsHooks(agent, home, binary, connection string, remove bool) (Pl
 		return InspectSettingsHooks(agent, home, binary, connection)
 	}
 	var version int
-	if raw, ok := doc["version"]; agent == "cursor" && ok && (json.Unmarshal(raw, &version) != nil || version != 1) {
+	if raw, ok := doc["version"]; hookAdapters[agent].Settings.Version != 0 && ok && (json.Unmarshal(raw, &version) != nil || version != hookAdapters[agent].Settings.Version) {
 		return PluginStatus{}, code("aidr_plugin_interface_unavailable")
 	}
 	var groups map[string][]map[string]any
@@ -114,7 +102,7 @@ func MergeSettingsHooks(agent, home, binary, connection string, remove bool) (Pl
 	for event, entry := range settingsEntries(agent, binary, connection) {
 		kept := []map[string]any{}
 		for _, existing := range groups[event] {
-			if agent != "cursor" {
+			if hookAdapters[agent].Settings.Nested {
 				children, ok := existing["hooks"].([]any)
 				if !ok {
 					return PluginStatus{}, code("aidr_plugin_config_invalid")
@@ -148,7 +136,7 @@ func MergeSettingsHooks(agent, home, binary, connection string, remove bool) (Pl
 			}
 		}
 		if !remove {
-			if agent != "cursor" {
+			if hookAdapters[agent].Settings.Nested {
 				kept = append(kept, map[string]any{"hooks": []any{entry}})
 			} else {
 				kept = append(kept, entry)
@@ -163,8 +151,8 @@ func MergeSettingsHooks(agent, home, binary, connection string, remove bool) (Pl
 	if remove && !changed {
 		return InspectSettingsHooks(agent, home, binary, connection)
 	}
-	if agent == "cursor" {
-		doc["version"] = json.RawMessage("1")
+	if hookAdapters[agent].Settings.Version != 0 {
+		doc["version"], _ = json.Marshal(hookAdapters[agent].Settings.Version)
 	}
 	doc["hooks"], _ = json.Marshal(groups)
 	after, _ := json.MarshalIndent(doc, "", "  ")
@@ -218,7 +206,7 @@ func InspectSettingsHooks(agent, home, binary, connection string) (PluginStatus,
 	for event, entry := range settingsEntries(agent, binary, connection) {
 		count := 0
 		for _, existing := range groups[event] {
-			if agent != "cursor" {
+			if hookAdapters[agent].Settings.Nested {
 				children, _ := existing["hooks"].([]any)
 				for _, child := range children {
 					h, _ := child.(map[string]any)

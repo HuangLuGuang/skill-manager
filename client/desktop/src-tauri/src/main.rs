@@ -32,6 +32,7 @@ const BUILD_VERSION: &str = match option_env!("AGENT_MANAGER_RELEASE_VERSION") {
 };
 const UI_STATE_SIGNAL_NAME: &str = "ui-state-revision.json";
 mod aidr_manager;
+mod background;
 mod system_collector;
 mod runtime_watch;
 #[cfg(target_os = "windows")]
@@ -1046,6 +1047,7 @@ fn client_binary() -> Result<PathBuf, String> {
 
 fn main() {
     tauri::Builder::default()
+        .manage(background::BackgroundMenu::default())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             if let Err(error) = notify_rust::set_application(&app.config().identifier) {
@@ -1060,15 +1062,7 @@ fn main() {
                 window.on_window_event(move |event| {
                     if let WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
-                        if runtime_watch::begin_shutdown() {
-                            let window = closing_window.clone();
-                            thread::spawn(move || {
-                                aidr_manager::shutdown();
-                                if runtime_watch::shutdown().is_ok() {
-                                    let _ = window.destroy();
-                                }
-                            });
-                        }
+                        background::close_to_background(&closing_window);
                     }
                 });
             }
@@ -1081,6 +1075,7 @@ fn main() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
+            background::sync_background_menu,
             execute_client,
             aidr_receiver_status,
             aidr_collection_status,
@@ -1108,6 +1103,10 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("failed to build Agent Manager Client desktop")
         .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                background::show_main_window(app);
+            }
             // Native macOS Quit can go directly through applicationWillTerminate
             // to Exit, without ExitRequested. Cleanup is idempotent and must
             // finish before that native callback returns.

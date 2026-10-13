@@ -23,6 +23,7 @@ func init() {
 	managedclient.AIDRRuntimeSnapshot = aidrRuntimeSnapshot
 	managedclient.AIDRRuntimeInspect = inspectAIDRTarget
 	managedclient.AIDRLogRunner = runAutomaticLogs
+	managedclient.AIDRHookRunner = runAutomaticHooks
 }
 
 func inspectAIDRTarget(ctx context.Context, home string, policy managedclient.Policy) error {
@@ -402,7 +403,7 @@ func reconcileAIDRPolicy(ctx context.Context, home string, task managedclient.Ta
 			if json.Unmarshal(observed.Bytes(), &state) != nil {
 				return finish("aidr_desktop_status_invalid", false)
 			}
-			if state.Plugin.VersionStatus != "interface_compatible" && !(hooks.SettingsAdapter(agent) && state.Plugin.VersionStatus == "adapter_available") {
+			if state.Plugin.VersionStatus != "interface_compatible" && !((hooks.SettingsAdapter(agent) || hooks.DesktopAdapter(agent)) && state.Plugin.VersionStatus == "adapter_available") {
 				return finish("aidr_plugin_interface_unavailable", false)
 			}
 			if target.AccessMode == "managed" {

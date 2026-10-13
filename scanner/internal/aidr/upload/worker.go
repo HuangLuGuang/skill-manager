@@ -196,7 +196,7 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 							return err
 						}
 						if crawler != nil {
-							readOffset := checkpoint.Cursor.Offset
+							readOffset := agentlog.ReadOffset(src, checkpoint.Cursor)
 							if checkpoint.Cursor.ContextRepair != nil {
 								readOffset = checkpoint.Cursor.ContextRepair.Offset
 							}

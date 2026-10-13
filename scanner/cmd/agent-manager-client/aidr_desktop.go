@@ -228,7 +228,7 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 		return errors.New("aidr_desktop_platform_unsupported")
 	}
 	var release func()
-	if *action != "diagnose" && *action != "status" && *action != "channels-status" && *action != "system-check" && *action != "inspect" {
+	if *action != "receiver-status" && *action != "diagnose" && *action != "status" && *action != "channels-status" && *action != "system-check" && *action != "inspect" {
 		var err error
 		parent, release, err = managedclient.AIDRMutationLock(parent, *home)
 		if err != nil {
@@ -247,7 +247,7 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 	if *action == "enroll" {
 		return enrollDesktopHook(parent, args, *home, *agent, prefs, cfg, paths, out)
 	}
-	if *action != "diagnose" && *action != "status" && *action != "channels-status" && *action != "system-check" && *action != "inspect" && *action != "prepare" && *action != "authorize-plan" && *action != "apply-managed" && *action != "managed-removed" && *action != "authorization-result" && *action != "retry-logs" {
+	if *action != "retry" && *action != "receiver-status" && *action != "diagnose" && *action != "status" && *action != "channels-status" && *action != "system-check" && *action != "inspect" && *action != "prepare" && *action != "authorize-plan" && *action != "apply-managed" && *action != "managed-removed" && *action != "authorization-result" && *action != "retry-logs" {
 		if prefs.ManagedTask > 0 && *managedTask == 0 {
 			if prefs.ManagedServer != cfg.Server || prefs.ManagedDevice != paths.Device {
 				return errors.New("aidr_desktop_managed_binding_changed")
@@ -267,6 +267,13 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 		return errors.New("aidr_desktop_managed_binding_changed")
 	}
 	switch *action {
+	case "receiver-status":
+		return json.NewEncoder(out).Encode(hookReceiverSnapshot(parent, *home))
+	case "retry":
+		if e := requestHookRetry(paths); e != nil {
+			return e
+		}
+		return json.NewEncoder(out).Encode(map[string]any{"code": "aidr_desktop_starting"})
 	case "diagnose":
 		binary, _ := os.Executable()
 		return json.NewEncoder(out).Encode(hooks.DiagnoseReceiver(parent, paths.Socket, paths.State, cfg.Server, paths.Device, binary))
@@ -325,20 +332,35 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 	default:
 		return errors.New("aidr_desktop_action_invalid")
 	}
-	if hooks.SettingsAdapter(*agent) {
+	if hooks.SettingsAdapter(*agent) || hooks.DesktopAdapter(*agent) {
 		if prefs.AccessMode == "managed" || (prefs.RuntimePolicy != nil && prefs.RuntimePolicy.Target.AccessMode == "managed") {
 			return errors.New("aidr_plugin_host_unsupported")
 		}
 		var status hooks.PluginStatus
 		if *action == "inspect" {
-			status, e = hooks.InspectSettingsHooks(*agent, *home, paths.Binary, paths.Connection)
+			if hooks.DesktopAdapter(*agent) {
+				status, e = hooks.InspectDesktopIntegration(*agent, *home)
+			} else {
+				status, e = hooks.InspectSettingsHooks(*agent, *home, paths.Binary, paths.Connection)
+			}
 		} else {
 			if *action != "disconnect" {
 				if e = installDesktopBinary(paths.Binary); e != nil {
 					return e
 				}
 			}
-			status, e = hooks.MergeSettingsHooks(*agent, *home, paths.Binary, paths.Connection, *action == "disconnect")
+			if hooks.DesktopAdapter(*agent) {
+				status, e = hooks.ConfigureDesktopIntegration(*agent, *home, *action == "disconnect")
+				if e == nil {
+					var executable string
+					executable, e = os.Executable()
+					if e == nil {
+						e = hooks.EnsureTeleAgentProxyService(*home, executable)
+					}
+				}
+			} else {
+				status, e = hooks.MergeSettingsHooks(*agent, *home, paths.Binary, paths.Connection, *action == "disconnect")
+			}
 			if e == nil && *action == "disconnect" {
 				clearDesktopHookEnrollment(&prefs, cfg, paths, *agent)
 			}

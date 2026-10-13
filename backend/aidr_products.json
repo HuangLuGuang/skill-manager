@@ -428,5 +428,49 @@
       "result_source": "unverified",
       "new_call_e2e": "unverified"
     }
+  },
+  {
+    "id": "teleagent",
+    "name": "TeleAgent",
+    "entry": "desktop-native",
+    "os": [
+      "darwin"
+    ],
+    "logs": "teleagent-sqlite",
+    "roots": [
+      ".local/share/TeleAgent/users"
+    ],
+    "hooks": "native-review-http",
+    "block": true,
+    "approval": false,
+    "managed": false,
+    "evidence": "local-isolated-test",
+    "docs": [],
+    "hook_events": {
+      "BeforeToolExecute": "tool.pre",
+      "AfterToolExecute": "tool.post",
+      "BeforeMCPExecute": "tool.pre",
+      "AfterMCPExecute": "tool.post"
+    },
+    "sample_versions": [
+      "2.7.0"
+    ],
+    "log_os": [
+      "darwin"
+    ],
+    "hook_os": [
+      "darwin"
+    ],
+    "skill_usage": {
+      "invocation": false,
+      "file_access": true,
+      "result_source": "unverified",
+      "new_call_e2e": "unverified"
+    },
+    "hook_setup": {
+      "host_authorization": false,
+      "host_enablement": false
+    },
+    "enrollment_log_source": "teleagent"
   }
 ]

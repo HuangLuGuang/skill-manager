@@ -90,6 +90,12 @@ class AidrEvent(Base):
     expired_at = Column(DateTime, nullable=True)
 
 
+class AidrEventTurn(Base):
+    __tablename__ = 'aidr_event_turns'
+    event_id = Column(Integer, ForeignKey('aidr_events.id', ondelete='CASCADE'), primary_key=True)
+    turn_id = Column(String(256), nullable=False)
+
+
 class AidrSource(Base):
     __tablename__ = "aidr_sources"
     __table_args__ = (UniqueConstraint("client_id", "stream_id", "source_id", name="uq_aidr_source"),)

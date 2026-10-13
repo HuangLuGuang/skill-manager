@@ -5,6 +5,13 @@ const tf = window.clientI18n?.tf || ((strings, ...values) =>
 const runtimeText = window.clientI18n?.translateRuntime || (value => String(value ?? ''))
 const connectionErrorText = window.clientI18n?.connectionErrorText || runtimeText
 const isEnglish = () => window.clientI18n?.getLocale?.() === 'en-US'
+const syncBackgroundMenu = () => invoke('sync_background_menu', {
+  labels: {
+    title: t('ui.background.trayTitle'),
+    open: t('ui.background.openWindow'),
+    quit: t('ui.background.quitApp'),
+  },
+}).catch(error => log(t('ui.background.menuFailed').replace('{error}', error)))
 const formatList = values => new Intl.ListFormat(window.clientI18n?.getLocale?.() || 'zh-CN').format(values.filter(Boolean))
 const skillCount = count => isEnglish()
   ? `${count} Skill${Number(count) === 1 ? '' : 's'}`
@@ -3826,6 +3833,7 @@ if (window.__TAURI__.event?.listen) {
     .catch(error => log(t('ui.localEvents.listen_failed').replace('{error}', error)))
 }
 
+void syncBackgroundMenu()
 initializeClient()
 setInterval(checkClientUpdateAutomatically, CLIENT_UPDATE_CHECK_INTERVAL_MS)
 document.addEventListener('visibilitychange', () => {
@@ -3835,6 +3843,7 @@ document.addEventListener('visibilitychange', () => {
   }
 })
 window.addEventListener('agent-manager-client-locale-change', async () => {
+  void syncBackgroundMenu()
   const activePanel = document.querySelector('.panel.active')?.id || 'connect'
   if (activePanel === 'records') void loadRecordHistory()
   $('#panel-title').textContent = panelTitle(activePanel)

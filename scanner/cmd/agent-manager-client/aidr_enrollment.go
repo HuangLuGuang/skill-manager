@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"skill-manager/scanner/internal/aidr/catalog"
 	"skill-manager/scanner/internal/managedclient"
@@ -48,6 +49,10 @@ func enrollDesktopHook(ctx context.Context, args []string, home, agent string, p
 	if !p.Target.Valid() || !p.Target.CollectHooks() || p.Target.AccessMode != "ordinary" || prefs.AccessMode == "managed" || (!*p.Target.AllowUserEnrollment && !slices.Contains(p.Target.Hosts, agent)) {
 		return errors.New("aidr_enrollment_policy_blocked")
 	}
+	product, _ := catalog.Get(agent)
+	if product.EnrollmentLogSource != "" && (!p.Target.CollectLogs() || (!*p.Target.AllowUserEnrollment && !slices.Contains(p.Target.LogSources, product.EnrollmentLogSource))) {
+		return errors.New("aidr_enrollment_logs_blocked")
+	}
 	// Use the same installer and mutation lock as platform tasks. No local
 	// scope change is made until the server delivers the effective policy.
 	installArgs := append([]string{}, args...)
@@ -80,5 +85,19 @@ func enrollDesktopHook(ctx context.Context, args []string, home, agent string, p
 		return err
 	}
 	response["code"] = "aidr_enrollment_pending"
+	response["enrollment_sync_code"] = submitDesktopHookEnrollment(ctx, home, cfg, paths)
 	return json.NewEncoder(out).Encode(response)
+}
+
+// Persist enrollment first, then notify the platform through its authenticated
+// heartbeat contract. Only the normal platform task may apply collection scope.
+func submitDesktopHookEnrollment(ctx context.Context, home string, cfg managedclient.Config, paths desktopPaths) string {
+	request, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_, err := managedclient.NewAPI(cfg.Server, cfg.Token, 3*time.Second).Heartbeat(request,
+		managedclient.Inventory{ClientID: paths.Device, ClientVersion: managedclient.Version}, home)
+	if err != nil {
+		return "aidr_enrollment_sync_retrying"
+	}
+	return "aidr_enrollment_submitted"
 }

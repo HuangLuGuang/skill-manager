@@ -54,7 +54,7 @@ func normalizeQoder(raw []byte, c *Cursor) ([]draft, error) {
 		var drafts []draft
 		var err error
 		if r.Type != "attachment" {
-			drafts, err = normalizeLegacyTurn("claude", raw, c, turn)
+			drafts, err = parseTranscriptBlocks(raw, c, turn)
 			if err != nil {
 				return nil, err
 			}

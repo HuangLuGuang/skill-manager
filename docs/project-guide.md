@@ -1,5 +1,31 @@
 # Agent Manager Project Guide
 
+## AIDR 产品适配边界 / AIDR product adapters
+
+日志与审核协议由各产品适配器解释；公共链路处理标准事件、签名策略、脱敏、队列和上传。
+后端通过产品身份定义处理会话、工具、模型与 Skill 来源，保留既有产品 ID 和检查点兼容性。
+TeleAgent 支持只读 SQLite 采集和原生审核 HTTP 桥；桌面“启用日志与审核”配置接入并申请平台策略。启用或移除接入后须完全重启 TeleAgent，运行期间保持客户端开启。适配器保留原服务地址并支持恢复，公共工具策略负责审核决定。
+桌面桥保留供应商签名路径，通过私有 localhost 主机名校验本地接入。本机 TeleAgent 2.7.0 实际账号已验证原供应商流式响应、日志上报、指定工具拒绝及撤回后执行；移除接入并重启后，直连模型与原生工具恢复。
+TeleAgent 以用户消息 ID 为轮次，助手消息与工具沿同会话的明确父消息关联；历史补传仅发送关联元数据，原始日志与逻辑事件 ID 不变。Hook 按工具调用 ID 及设备、用户、会话、工具身份唯一匹配轮次，无法确认时保留未归属。日志与 Hook 页面采用同一会话编号。
+Hook 数量表示原始事件数；同一次工具调用的执行前后事件合成一张卡片，详情分别保留。TeleAgent 的原生 `worktree` 不作为工作目录；页面从同一次工具调用的可靠日志补充目录并标注来源，缺少证据时保持未知，历史原文不改写。
+2026-10-12 本机实际账号完成 5 轮验收（10 条消息、4 次工具操作、8 条 Hook），验证平台拒绝及撤回后恢复执行；103 条历史日志已补归属且无逻辑事件重复。原有 43,503 条各产品事件原文哈希保持一致。生产部署仍需独立验收。
+接入命令、原生超时放行边界、测试范围和 UI 人工验收见
+[外部 Agent 集成](external-agent-integration.md#aidr-产品适配器与-teleagent--product-adapters-and-teleagent)。
+
+Product adapters interpret native evidence and decisions; shared services project events, evaluate signed policies and
+deliver durable audit records. TeleAgent adds bounded SQLite collection and a desktop-managed native-review bridge. Enable logs and review in the client, then quit and reopen TeleAgent; removal restores the original address and also requires a restart.
+The desktop bridge preserves signed provider paths and authenticates a private localhost hostname. Real-account testing with TeleAgent 2.7.0 confirmed streaming, uploaded logs, tool denial, rule removal and recovery after disconnecting and restarting.
+TeleAgent turns follow native user message IDs and same-session parent references. Metadata-only history repair preserves raw events; exact tool-call identity links Hooks. The five-turn local acceptance produced ten messages, four operations and eight Hooks, repaired 103 historical events without duplication, and preserved 43,503 existing event payloads. Log and Hook views use consistent turn numbers.
+Hook counts include raw events; a card groups the before/after pair of one tool call. TeleAgent working directories come from exact matching tool logs, with explicit provenance, rather than the native project worktree. Missing evidence remains unknown and raw historical records stay unchanged.
+Host-side fail-open behavior and deployment acceptance remain separate from local adapter tests.
+
+### 客户端启用反馈 / Desktop enrollment feedback
+
+普通模式下一键启用先保存本机申请，再立即通过设备认证心跳提交；单次提交最多等待 3 秒，失败后保留申请并随正常心跳重试。有效采集范围仍由平台任务下发后应用。页面在等待期间自动刷新策略状态，TeleAgent 启用后还会在 30 秒内复查本地审核桥是否启动。
+共享接收器的历史采集问题在产品列表上方折叠展示，标明来源产品、时间、原因和影响；技术编码收在详情中，当前操作错误单独显示。历史缺失记录不会因接收器恢复而自动补齐，也不能据此判断当前所选产品故障。
+
+Ordinary-mode enrollment persists the local request and immediately submits an authenticated device heartbeat with a three-second timeout. Failed submissions retry through regular heartbeats; platform tasks still apply the effective collection scope. The UI refreshes pending policy state and rechecks the TeleAgent bridge during its first 30 seconds after enrollment. Shared historical collection issues appear separately above the product list, with their source, time, cause and impact; current action errors remain separate.
+
 ## 插件后台巡检 / Background plugin inspection
 
 接收器和策略协调器的周期巡检读取本地插件配置、安装记录及产品文件，不启动 Codex / Claude。安装、升级、策略应用所需校验和手动诊断保留原生查询。本地配置启用、宿主授权、Hook 事件到达与日志采集进度分别核验；配置不可读保持未知。更新 Go 组件并重启客户端后生效，既有源码暂存副本不会自动删除。实现边界及双语人工验收清单见 [客户端说明](agent-manager-client.md#agent-小版本兼容与接入检查)。
@@ -449,6 +475,12 @@ flowchart TB
 ---
 
 ### 审批与采集配置
+
+Hook 接收器与日志采集、策略同步合并运行在主后台服务中；关闭窗口、完全退出或重启桌面客户端均不停止工具审核和事件上传。TeleAgent 模型代理继续作为独立后台进程运行，接入 TeleAgent 时共 2 个常驻后台进程（不含桌面界面和按需系统采集器）。通过托盘或 macOS Dock 恢复窗口；后台服务实际重启时仍需重新建立接收器，队列和策略保留。操作边界与中英文验收清单见 [客户端使用说明](agent-manager-client.md)。
+
+**English:** The main background service runs Hook reception, log collection and policy synchronization in one process. Closing, quitting or restarting the desktop leaves tool review and event upload running. With the independent TeleAgent proxy enabled, there are two persistent background processes, excluding the GUI and optional system collector. Restarting the background service itself recreates the receiver while retaining its queue and policy.
+
+TeleAgent 模型转发使用独立 macOS 用户级代理服务，关闭、退出、重启或更新客户端时持续运行。模型代理和 Hook 审核接收器分别检查健康：接收器停止时模型转发继续，工具审核仍须有效决策。安装、迁移及程序更新方式见 [TeleAgent 接入](external-agent-integration.md#aidr-产品适配器与-teleagent--product-adapters-and-teleagent)。
 
 客户端默认策略和单机覆盖分别配置 Hook、系统防护的“仅审计 / 拦截”模式，支持恢复继承。新配置默认仅审计；存量未选择模式的策略保留原行为，旧客户端需升级后才能确认新模式。Agent 日志保持采集设置。平台目标与客户端实际模式分别显示，保存成功不代表已应用。
 
@@ -2099,6 +2131,12 @@ Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privac
 ### 12.11 帮助文档、导出与文档助手
 
 帮助文档使用独立根路由 `/docs`，不是嵌入管理台内容区。文档配置使用独立的 `/docs-settings` 页面，入口位于“系统管理 -> 文档设置”，不与系统总览混排。
+
+中英文“Docker 部署”与“Docker 运维”按交付安装包说明现场操作：准备生产 `.env` 后执行
+`./start.sh`，可用 `--port` 保存 HTTP 端口；后续在原安装目录执行
+`./upgrade.sh <安装包>`。帮助页同步说明六个默认服务、五个持久化卷、旧安装目录的
+`--install-dir` 用法，以及部署文件备份与业务数据备份的边界。完整现场步骤见
+[离线部署现场实施指南](offline-deployment.md)。
 
 文档设置页提供两类导出：
 
