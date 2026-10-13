@@ -6,7 +6,7 @@ import secrets
 import socket
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
 import httpx
@@ -880,8 +880,13 @@ async def list_approval_requests(
     if token_id is not None:
         query = query.filter(models.McpToolApproval.token_id == token_id)
     if created_from:
+        # 查询边界统一为数据库使用的UTC无时区时间，正确处理带偏移的输入。
+        if created_from.tzinfo:
+            created_from = created_from.astimezone(timezone.utc).replace(tzinfo=None)
         query = query.filter(models.McpToolApproval.created_at >= created_from)
     if created_to:
+        if created_to.tzinfo:
+            created_to = created_to.astimezone(timezone.utc).replace(tzinfo=None)
         query = query.filter(models.McpToolApproval.created_at <= created_to)
     if q and q.strip():
         pattern = f"%{q.strip()}%"
