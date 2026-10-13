@@ -110,16 +110,16 @@
 
     </a-card>
 
-    <a-modal v-model:open="serverVisible" :title="editingServerId ? $t('legacy.irabzr') : $t('legacy.1enmtj9')" width="760px" :confirm-loading="submitting" @ok="saveServer">
+    <a-modal v-model:open="serverVisible" :title="editingServerId ? $t('legacy.irabzr') : $t('legacy.1enmtj9')" width="760px" :confirm-loading="submitting" :ok-button-props="{ disabled: submitting || serverTesting }" @ok="saveServer">
       <a-form layout="vertical" :model="serverForm">
         <a-row :gutter="16">
-          <a-col :span="12"><a-form-item :label="$t('legacy.hzx914')" required><a-input v-model:value="serverForm.name" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item :label="$t('legacy.10w0qab')" required><a-input v-model:value="serverForm.slug" :disabled="Boolean(editingServerId)" :placeholder="$t('legacy.a0rp53')" /></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item :validate-status="serverError('name') ? 'error' : undefined" :help="serverError('name')" required><template #label><span>{{ $t('mcpServerForm.fields.name') }}</span><a-tooltip :title="$t('mcpServerForm.help.name')"><QuestionCircleOutlined tabindex="0" :aria-label="$t('mcpServerForm.help.name')" style="margin-left: 6px" /></a-tooltip></template><a-input v-model:value="serverForm.name" @update:value="touchServerField('name')" /></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item :validate-status="serverError('slug') ? 'error' : undefined" :help="serverError('slug')" required><template #label><span>{{ $t('mcpServerForm.fields.slug') }}</span><a-tooltip :title="$t('mcpServerForm.help.slug')"><QuestionCircleOutlined tabindex="0" :aria-label="$t('mcpServerForm.help.slug')" style="margin-left: 6px" /></a-tooltip></template><a-input v-model:value="serverForm.slug" @update:value="touchServerField('slug')" :disabled="Boolean(editingServerId)" :placeholder="$t('legacy.a0rp53')" /></a-form-item></a-col>
         </a-row>
-        <a-form-item label="Streamable HTTP Endpoint" required>
-          <a-input v-model:value="serverForm.endpoint" placeholder="https://mcp.example.com/mcp" />
+        <a-form-item :validate-status="serverError('endpoint') ? 'error' : undefined" :help="serverError('endpoint')" required><template #label><span>{{ $t('mcpServerForm.fields.endpoint') }}</span><a-tooltip :title="endpointHelp"><QuestionCircleOutlined tabindex="0" :aria-label="endpointHelp" style="margin-left: 6px" /></a-tooltip></template>
+          <a-input v-model:value="serverForm.endpoint" @update:value="touchServerField('endpoint')" placeholder="https://mcp.example.com/mcp" />
           <a-space wrap style="margin-top: 8px">
-            <a-button :loading="serverTesting" @click="testServerForm">{{ $t("legacy.17pa11i") }}</a-button>
+            <a-button :loading="serverTesting" :disabled="serverTesting || submitting" @click="testServerForm">{{ $t("legacy.17pa11i") }}</a-button>
             <template v-if="serverTestTools">
               <a-tag color="green">{{ $t("legacy.13x3opo") }} {{ serverTestTools.length }} {{ $t("legacy.18nntpt") }}</a-tag>
               <a-tag v-for="name in serverTestTools.slice(0, 8)" :key="name">{{ name }}</a-tag>
@@ -128,15 +128,15 @@
           </a-space>
         </a-form-item>
         <a-row :gutter="16">
-          <a-col :span="12"><a-form-item :label="$t('legacy.17s488l')"><a-input v-model:value="serverForm.authorization_header" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item :label="editingServerId ? $t('legacy.d6ubyh') : $t('legacy.1iwkwic')"><a-input-password v-model:value="serverForm.authorization_value" :placeholder="$t('legacy.1479ky1')" /></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item :validate-status="serverError('authorization_header') ? 'error' : undefined" :help="serverError('authorization_header')" required><template #label><span>{{ $t('mcpServerForm.fields.authorization_header') }}</span><a-tooltip :title="$t('mcpServerForm.help.authorization_header')"><QuestionCircleOutlined tabindex="0" :aria-label="$t('mcpServerForm.help.authorization_header')" style="margin-left: 6px" /></a-tooltip></template><a-input v-model:value="serverForm.authorization_header" @update:value="touchServerField('authorization_header')" /></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item :validate-status="serverError('authorization_value') ? 'error' : undefined" :help="serverError('authorization_value')"><template #label><span>{{ editingServerId ? $t('mcpServerForm.editValue') : $t('mcpServerForm.fields.authorization_value') }}</span><a-tooltip :title="$t('mcpServerForm.help.authorization_value')"><QuestionCircleOutlined tabindex="0" :aria-label="$t('mcpServerForm.help.authorization_value')" style="margin-left: 6px" /></a-tooltip></template><a-input-password v-model:value="serverForm.authorization_value" @update:value="touchServerField('authorization_value')" :placeholder="$t('legacy.1479ky1')" /></a-form-item></a-col>
         </a-row>
         <a-row :gutter="16">
-          <a-col :span="12"><a-form-item :label="$t('legacy.1ccx4t4')"><a-select v-model:value="serverForm.status"><a-select-option value="draft">{{ $t("legacy.oc54qp") }}</a-select-option><a-select-option value="active">{{ $t("legacy.5pm2ma") }}</a-select-option><a-select-option value="disabled">{{ $t("legacy.6q9o5l") }}</a-select-option></a-select></a-form-item></a-col>
-          <a-col :span="12"><a-form-item :label="$t('legacy.tabbi8')"><a-input-number v-model:value="serverForm.timeout_seconds" :min="1" :max="300" style="width: 100%" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item :label="$t('mcpSecurity.maximumResponseKb')"><a-input-number v-model:value="serverForm.max_response_kb" :min="1" :max="10240" style="width: 100%" /></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item :validate-status="serverError('status') ? 'error' : undefined" :help="serverError('status')"><template #label><span>{{ $t('mcpServerForm.fields.status') }}</span></template><a-select v-model:value="serverForm.status" @update:value="touchServerField('status')"><a-select-option value="draft">{{ $t("legacy.oc54qp") }}</a-select-option><a-select-option value="active">{{ $t("legacy.5pm2ma") }}</a-select-option><a-select-option value="disabled">{{ $t("legacy.6q9o5l") }}</a-select-option></a-select></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item :validate-status="serverError('timeout_seconds') ? 'error' : undefined" :help="serverError('timeout_seconds')" required><template #label><span>{{ $t('mcpServerForm.fields.timeout_seconds') }}</span><a-tooltip :title="$t('mcpServerForm.help.timeout_seconds')"><QuestionCircleOutlined tabindex="0" :aria-label="$t('mcpServerForm.help.timeout_seconds')" style="margin-left: 6px" /></a-tooltip></template><a-input-number :value="serverForm.timeout_seconds" :min="1" :max="300" :step="1" :formatter="() => String(serverForm.timeout_seconds ?? '')" @input="setServerNumber('timeout_seconds', $event)" @step="(_, info) => stepServerNumber('timeout_seconds', info.type === 'up' ? 1 : -1)" style="width: 100%" /></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item :validate-status="serverError('max_response_kb') ? 'error' : undefined" :help="serverError('max_response_kb')" required><template #label><span>{{ $t('mcpServerForm.fields.max_response_kb') }}</span><a-tooltip :title="$t('mcpServerForm.help.max_response_kb')"><QuestionCircleOutlined tabindex="0" :aria-label="$t('mcpServerForm.help.max_response_kb')" style="margin-left: 6px" /></a-tooltip></template><a-input-number :value="serverForm.max_response_kb" :min="1" :max="10240" :step="1" :formatter="() => String(serverForm.max_response_kb ?? '')" @input="setServerNumber('max_response_kb', $event)" @step="(_, info) => stepServerNumber('max_response_kb', info.type === 'up' ? 1 : -1)" style="width: 100%" /></a-form-item></a-col>
         </a-row>
-        <a-form-item :label="$t('legacy.1kxyax6')"><a-textarea v-model:value="serverForm.description" :rows="3" /></a-form-item>
+        <a-form-item :validate-status="serverError('description') ? 'error' : undefined" :help="serverError('description')"><template #label><span>{{ $t('mcpServerForm.fields.description') }}</span><a-tooltip :title="$t('mcpServerForm.help.description')"><QuestionCircleOutlined tabindex="0" :aria-label="$t('mcpServerForm.help.description')" style="margin-left: 6px" /></a-tooltip></template><a-textarea v-model:value="serverForm.description" @update:value="touchServerField('description')" :rows="3" /></a-form-item>
       </a-form>
     </a-modal>
 
@@ -203,6 +203,10 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
+import { QuestionCircleOutlined } from '@ant-design/icons-vue'
+import { mcpServerErrors, serverFields, testFields, serverPayload } from '../utils/mcpServerForm'
+import { formatMcpFieldError } from '../i18n/mcpServerForm'
+import { stepInteger } from '../utils/advancedConfig'
 
 import {
   createMcpGateway,
@@ -214,6 +218,7 @@ import {
   listMcpAudit,
   listMcpGateways,
   listMcpServers,
+  getMcpServerOptions,
   updateMcpGateway,
   updateMcpServer,
   updateMcpToolPolicy,
@@ -223,7 +228,7 @@ import { copyText, promptManualCopy } from '../utils/clipboard'
 import { formatDateTime } from '../utils/format'
 
 const route = useRoute()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const { text } = useLocaleText()
 const activePage = computed(() => route.meta.mcpTab || 'servers')
 const pageTitle = computed(() => ({ servers: phrase('legacy.lnloo7'), gateways: phrase('legacy.1gcagoh'), audit: phrase('legacy.2pfrfc') }[activePage.value]))
@@ -247,6 +252,43 @@ const editingServerId = ref(null)
 const editingGatewayId = ref(null)
 const origin = window.location.origin
 const serverForm = reactive({ slug: '', name: '', description: '', endpoint: '', authorization_header: 'Authorization', authorization_value: '', status: 'draft', timeout_seconds: 30, max_response_kb: 1024 })
+const initialServerValues = ref({})
+const checkedServerFields = ref([])
+const serverAllowHttp = ref(null)
+const endpointHelp = computed(() => serverAllowHttp.value === null
+  ? t('mcpServerForm.help.endpointLoading')
+  : t('mcpServerForm.help.endpoint', { protocols: serverAllowHttp.value ? 'HTTP/HTTPS' : 'HTTPS' }))
+// 首次用户输入才启用即时错误，初始化回填不触发必填提示。
+const touchServerField = field => {
+  if (!checkedServerFields.value.includes(field)) checkedServerFields.value.push(field)
+}
+const remoteServerErrors = ref({})
+const remoteServerValues = ref({})
+const serverIssues = computed(() => mcpServerErrors(serverForm, { allowHttp: serverAllowHttp.value }))
+const serverError = field => {
+  const issue = checkedServerFields.value.includes(field) && serverIssues.value[field]
+    || (remoteServerValues.value[field] === serverForm[field] && remoteServerErrors.value[field])
+  return issue ? formatMcpFieldError(issue, locale.value) : ''
+}
+const validateServerForm = fields => {
+  checkedServerFields.value = [...new Set([...checkedServerFields.value, ...fields])]
+  return !fields.some(field => serverIssues.value[field])
+}
+const captureServerErrors = error => {
+  const issues = error.response?.data?.error_code === 'mcp.server.invalid_fields'
+    ? error.response.data.error_params?.errors || [] : []
+  remoteServerErrors.value = Object.fromEntries(issues.map(issue => [issue.field, issue]))
+  remoteServerValues.value = { ...serverForm }
+}
+// 保留原数字框箭头样式；formatter显示原始草稿，避免失焦时自动夹取。
+const setServerNumber = (field, value) => {
+  serverForm[field] = value
+  touchServerField(field)
+}
+const stepServerNumber = (field, delta) => {
+  touchServerField(field)
+  serverForm[field] = stepInteger(serverForm[field], delta, 1, field === 'timeout_seconds' ? 300 : 10240)
+}
 const gatewayForm = reactive({ slug: '', name: '', description: '', environment: 'test', execution_mode: 'active_safe', production_tool_denylist: [], status: 'active', tools: [] })
 const toolPolicyForm = reactive({ id: null, access_mode: 'unknown', risk_level: 'low', rate_limit_per_minute: 60, max_concurrent: 5, requires_approval: false })
 
@@ -299,7 +341,10 @@ const fetchAll = async () => {
   if (loading.value) return
   loading.value = true
   try {
-    const [serverRows, gatewayRows, audits] = await Promise.all([listMcpServers(), listMcpGateways(), listMcpAudit({ limit: 200 })])
+    const [serverRows, gatewayRows, audits, options] = await Promise.all([
+      listMcpServers(), listMcpGateways(), listMcpAudit({ limit: 200 }), getMcpServerOptions(),
+    ])
+    serverAllowHttp.value = options.allow_http
     servers.value = serverRows || []
     gateways.value = gatewayRows || []
     auditRows.value = audits || []
@@ -317,13 +362,17 @@ const openServer = record => {
     authorization_header: record?.authorization_header || 'Authorization', authorization_value: '', status: record?.status || 'draft', timeout_seconds: record?.timeout_seconds || 30,
     max_response_kb: record?.max_response_kb || 1024,
   })
+  initialServerValues.value = { ...serverForm }
   serverTestTools.value = null
+  checkedServerFields.value = []
+  remoteServerErrors.value = {}
+  remoteServerValues.value = {}
   serverVisible.value = true
 }
 
 const testServerForm = async () => {
-  if (serverTesting.value) return
-  if (!serverForm.endpoint.trim()) return message.warning(phrase('legacy.1jvoy6r'))
+  if (serverTesting.value || submitting.value) return
+  if (!validateServerForm(testFields)) return
   serverTesting.value = true
   serverTestTools.value = null
   try {
@@ -332,7 +381,7 @@ const testServerForm = async () => {
       endpoint: serverForm.endpoint.trim(),
       authorization_header: serverForm.authorization_header || 'Authorization',
       authorization_value: serverForm.authorization_value || undefined,
-      timeout_seconds: serverForm.timeout_seconds,
+      timeout_seconds: Number(serverForm.timeout_seconds),
       method: 'tools/list',
       params: {},
     }
@@ -341,6 +390,7 @@ const testServerForm = async () => {
     serverTestTools.value = (result.response?.result?.tools || []).map(tool => tool.name)
     message.success(phrase('legacy.1e1auoj'))
   } catch (error) {
+    captureServerErrors(error)
     message.error(error.response?.data?.detail || error.message || phrase('legacy.6c3q70'))
   } finally {
     serverTesting.value = false
@@ -348,11 +398,15 @@ const testServerForm = async () => {
 }
 
 const saveServer = async () => {
-  if (submitting.value) return
-  if (!serverForm.name.trim() || !serverForm.slug.trim() || !serverForm.endpoint.trim()) return message.warning(phrase('legacy.g0i7ay'))
+  if (submitting.value || serverTesting.value) return
+  // 先按原始草稿校验变更字段，避免数值转换掩盖非法输入。
+  const fields = editingServerId.value
+    ? serverFields.filter(field => serverForm[field] !== initialServerValues.value[field]) : serverFields
+  if (!validateServerForm(fields)) return
+  const current = serverPayload(serverForm)
   submitting.value = true
   try {
-    const payload = { ...serverForm, name: serverForm.name.trim(), slug: serverForm.slug.trim(), endpoint: serverForm.endpoint.trim() }
+    const payload = Object.fromEntries(fields.map(field => [field, current[field]]))
     if (editingServerId.value && !payload.authorization_value) delete payload.authorization_value
     if (editingServerId.value) await updateMcpServer(editingServerId.value, payload)
     else await createMcpServer(payload)
@@ -360,6 +414,7 @@ const saveServer = async () => {
     await fetchAll()
     message.success(phrase('legacy.wf80o5'))
   } catch (error) {
+    captureServerErrors(error)
     message.error(error.response?.data?.detail || phrase('legacy.1q9u8le'))
   } finally {
     submitting.value = false
@@ -456,6 +511,7 @@ const saveGateway = async () => {
     await fetchAll()
     message.success(phrase('legacy.1tvic29'))
   } catch (error) {
+    captureServerErrors(error)
     message.error(error.response?.data?.detail || phrase('legacy.1q9u8le'))
   } finally {
     submitting.value = false

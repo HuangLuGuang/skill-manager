@@ -203,6 +203,7 @@ export const updateAccessToken = (tokenId, data) => api.put(`/v1/access/tokens/$
 export const revokeAccessToken = (tokenId) => api.post(`/v1/access/tokens/${tokenId}/revoke`)
 export const deleteAccessToken = (tokenId) => api.delete(`/v1/access/tokens/${tokenId}`)
 export const listMcpServers = () => api.get('/v1/mcp/servers')
+export const getMcpServerOptions = () => api.get('/v1/mcp/servers/options')
 export const createMcpServer = (data) => api.post('/v1/mcp/servers', data)
 export const updateMcpServer = (serverId, data) => api.put(`/v1/mcp/servers/${serverId}`, data)
 export const deleteMcpServer = (serverId) => api.delete(`/v1/mcp/servers/${serverId}`)

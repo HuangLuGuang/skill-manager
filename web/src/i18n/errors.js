@@ -1,3 +1,4 @@
+import { formatMcpFieldError } from './mcpServerForm.js'
 import { scanScheduleMessages } from './scanSchedule.js'
 const errorMessages = {
   'mcp.connection_failed': { 'zh-CN': 'MCP Server 连接失败: {reason}', 'en-US': 'MCP Server connection failed: {reason}' },
@@ -331,6 +332,9 @@ const interpolate = (value, params = {}, locale = 'zh-CN') =>
 
 export const localizeApiError = (detail, locale) => {
   if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return detail
+  if (detail.code === 'mcp.server.invalid_fields' && Array.isArray(detail.params?.errors)) {
+    return detail.params.errors.map(issue => formatMcpFieldError(issue, locale)).join('; ')
+  }
   const code = detail.code
   const params = detail.params || {}
   const localMessage = errorMessages[code]?.[locale]

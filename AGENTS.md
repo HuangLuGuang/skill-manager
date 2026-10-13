@@ -225,3 +225,7 @@ make sandbox-runtime-build
 - 审核文本长度统计与校验共用 Unicode 计数，输入框下方实时展示当前数量和上限；超长时显示红色错误及具体超出数量，两个审批入口保持一致。
 
 - MCP 连接发现与保存前测试共用 `_upstream_connection_error`，HTTP 错误字段通过稳定编码和 `web/src/i18n/errors.js` 展示双语固定说明；状态码、URL 和上游原始原因保持原文。
+
+- MCP 服务字段校验复用 `backend/mcp_validation.py` 和 `web/src/utils/mcpServerForm.js`；字段错误使用 `mcp.server.invalid_fields` 与安全的 `errors` 参数，前端语义资源为 `mcpServerForm`。现有长度与数值上限保持；鉴权值4096字符、描述2000字符。编辑先按原始草稿识别并校验变更字段，通过后再转换请求数值；鉴权留空保留原值；MCP混合校验错误仅返回位置和类型，不返回原始输入；非法草稿保留，数值沿用原有数字输入框及上下箭头，步长为1；状态无新增悬浮说明。
+
+- MCP 服务表单的Endpoint说明和协议校验读取 `/api/v1/mcp/servers/options` 的 `allow_http`；首次用户输入后即时校验字段，刚打开的表单不显示空字段错误。协议配置未读取完成时展示读取中说明。

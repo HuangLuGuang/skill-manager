@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from .. import auth, models, schemas
 from ..api_errors import ApiError
 from ..config import settings
+from ..mcp_validation import field_issue, fields_error
 from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
 from ..runtime_trace_schemas import RuntimeTraceInternalEvent
 from ..security_audit import append_security_audit
@@ -126,19 +127,23 @@ def _json(value: str | None, default):
 
 def _validate_endpoint(endpoint: str) -> str:
     value = endpoint.strip()
-    parsed = urlsplit(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
-        raise HTTPException(status_code=400, detail="MCP Endpoint 必须是有效的 HTTP/HTTPS 地址")
+    try:
+        parsed = urlsplit(value)
+        parsed.port
+    except ValueError as exc:
+        raise fields_error([field_issue("endpoint", "url")], 400) from exc
+    if any(char.isspace() for char in value) or parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        raise fields_error([field_issue("endpoint", "url")], 400)
     if parsed.scheme == "http" and not settings.MCP_ALLOW_HTTP:
-        raise HTTPException(status_code=400, detail="MCP Endpoint 必须使用 HTTPS；开发环境可显式启用 MCP_ALLOW_HTTP")
+        raise fields_error([field_issue("endpoint", "https")], 400)
     if parsed.hostname.lower() == "localhost":
-        raise HTTPException(status_code=400, detail="MCP Endpoint 不允许 localhost")
+        raise fields_error([field_issue("endpoint", "address")], 400)
     try:
         ip = ipaddress.ip_address(parsed.hostname)
     except ValueError:
         return value
     if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
-        raise HTTPException(status_code=400, detail="MCP Endpoint 不允许环回、链路本地或组播地址")
+        raise fields_error([field_issue("endpoint", "address")], 400)
     return value
 
 
@@ -514,6 +519,12 @@ async def _call_upstream(server: models.McpServer, method: str, params: dict) ->
     return result
 
 
+@admin_router.get("/servers/options")
+async def server_options() -> dict[str, bool]:
+    """提供当前地址协议要求，供表单说明与即时校验使用。"""
+    return {"allow_http": settings.MCP_ALLOW_HTTP}
+
+
 @admin_router.get("/servers", response_model=list[schemas.McpServerResponse])
 async def list_servers(db: Session = Depends(get_db)):
     return [_server_response(db, row) for row in db.query(models.McpServer).order_by(models.McpServer.id.desc()).all()]
@@ -526,7 +537,7 @@ async def create_server(
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
     if db.query(models.McpServer).filter(models.McpServer.slug == body.slug).first():
-        raise HTTPException(status_code=400, detail="MCP Server 标识已存在")
+        raise fields_error([field_issue("slug", "duplicate")], 400)
     row = models.McpServer(
         slug=body.slug,
         name=body.name.strip(),
@@ -554,7 +565,7 @@ async def update_server(server_id: int, body: schemas.McpServerUpdate, db: Sessi
         raise HTTPException(status_code=404, detail="MCP Server 不存在")
     data = body.model_dump(exclude_unset=True)
     if "slug" in data and data["slug"] != row.slug:
-        raise HTTPException(status_code=400, detail="MCP Server 标识创建后不可修改")
+        raise fields_error([field_issue("slug", "immutable")], 400)
     data.pop("slug", None)
     if "endpoint" in data:
         data["endpoint"] = _validate_endpoint(data["endpoint"])

@@ -4,12 +4,13 @@ import json
 import httpx
 import pytest
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend import auth, models
-from backend.api_errors import ApiError, api_error_handler
+from backend.api_errors import ApiError, api_error_handler, validation_error_handler
 from backend.routers import access_tokens, mcp_gateway
 from backend.sqlite_db import Base, get_db
 
@@ -123,6 +124,7 @@ def _client(tmp_path, monkeypatch):
 
     app = FastAPI()
     app.add_exception_handler(ApiError, api_error_handler)
+    app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(
         id=1, username="admin", hashed_password="x", role="super_admin"
@@ -715,3 +717,147 @@ def test_mcp_non_http_failure_preserves_original_reason(tmp_path, monkeypatch):
     assert response.status_code == 502
     assert response.json()["error_code"] == "mcp.debug_failed"
     assert response.json()["detail"] == "MCP debugging failed: upstream original reason"
+
+
+@pytest.mark.parametrize("locale", ["zh-CN", "en-US"])
+def test_mcp_server_field_errors_are_specific_and_safe(tmp_path, monkeypatch, locale):
+    client, _ = _client(tmp_path, monkeypatch)
+    base = {"slug": "valid", "name": "Valid", "endpoint": "https://mcp.example.com/mcp"}
+    server_id = client.post("/api/v1/mcp/servers", json=base).json()["id"]
+    base["slug"] = "candidate"
+    cases = [
+        ("name", "  ", "required"), ("name", "😀" * 129, "length"),
+        ("slug", "test -github", "slug"), ("slug", "A", "slug"),
+        ("slug", "a" * 129, "length"),
+        ("endpoint", "https://mcp.example.com/" + "a" * 1024, "length"),
+        ("endpoint", "not-url", "url"), ("endpoint", "https://example.com:bad", "url"),
+        ("endpoint", "https://example.com/a b", "url"),
+        ("authorization_header", "a" * 129, "length"),
+        ("authorization_header", "Bad Header", "header"),
+        ("authorization_header", " ", "required"),
+        ("authorization_value", "secret" * 700, "length"),
+        ("authorization_value", "secret\nvalue", "value"),
+        ("description", "😀" * 2001, "length"),
+        ("status", "bad", "status"),
+        ("timeout_seconds", 0, "integer"), ("timeout_seconds", 301, "integer"),
+        ("timeout_seconds", 1.5, "integer"), ("timeout_seconds", None, "required"),
+        ("max_response_kb", 10241, "integer"), ("max_response_kb", True, "integer"),
+        ("max_response_kb", "9" * 5000, "integer"),
+    ]
+    for field, value, reason in cases:
+        for update in (False, True):
+            if update and field == "slug":
+                continue
+            path = f"/api/v1/mcp/servers/{server_id}" if update else "/api/v1/mcp/servers"
+            payload = {field: value} if update else {**base, field: value}
+            response = (client.put if update else client.post)(
+                path, json=payload, headers={"Accept-Language": locale},
+            )
+            assert response.status_code in {400, 422}, (field, response.text)
+            data = response.json()
+            assert data["error_code"] == "mcp.server.invalid_fields"
+            assert data["error_params"]["errors"][0]["field"] == field
+            assert data["error_params"]["errors"][0]["reason"] == reason
+            assert "请求参数无效" not in data["detail"]
+            if field == "authorization_value":
+                assert "secret" not in response.text
+
+
+def test_mcp_limits_boundaries_and_partial_update_compatibility(tmp_path, monkeypatch):
+    from backend.schemas import McpServerCreate
+
+    body = McpServerCreate(
+        name="  " + "😀" * 128 + "  ", slug="a" * 128,
+        endpoint="https://mcp.example.com/" + "a" * (1024 - len("https://mcp.example.com/")),
+        authorization_header="a" * 128, authorization_value="a" * 4096,
+        description="😀" * 2000, timeout_seconds=300, max_response_kb=10240,
+    )
+    assert len(body.name) == 128
+    assert len(body.endpoint) == 1024
+    assert McpServerCreate(name="n", slug="s", endpoint="https://example.com",
+                           timeout_seconds=1, max_response_kb=1).timeout_seconds == 1
+    client, sessions = _client(tmp_path, monkeypatch)
+    created = client.post("/api/v1/mcp/servers", json={
+        "name": "Name", "slug": "unique", "endpoint": "https://mcp.example.com/mcp",
+        "authorization_value": "Bearer private-secret",
+    }).json()
+    with sessions() as db:
+        record = db.get(models.McpServer, created["id"])
+        secret = record.authorization_value
+        record.description = "x" * 2500
+        db.commit()
+    updated = client.put(f"/api/v1/mcp/servers/{created['id']}", json={"status": "disabled"})
+    assert updated.status_code == 200
+    with sessions() as db:
+        record = db.get(models.McpServer, created["id"])
+        assert record.authorization_value == secret
+        assert len(record.description) == 2500
+    duplicate = client.post("/api/v1/mcp/servers", json={
+        "name": "Other", "slug": "unique", "endpoint": "https://mcp.example.com/mcp",
+    }).json()
+    assert duplicate["error_params"]["errors"][0]["reason"] == "duplicate"
+    invalid = client.post("/api/v1/mcp/servers", json={"name": "", "slug": ""}).json()
+    assert {item["field"] for item in invalid["error_params"]["errors"]} == {"name", "slug", "endpoint"}
+
+
+def test_mcp_preview_field_validation_and_other_api_errors_unchanged(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path, monkeypatch)
+    response = client.post("/api/v1/mcp/debug/upstream", json={
+        "endpoint": "https://mcp.example.com/mcp", "method": "tools/list",
+        "authorization_value": "private-secret\r\nheader",
+    })
+    assert response.status_code == 422
+    assert "private-secret" not in response.text
+    assert response.json()["error_params"]["errors"][0]["field"] == "authorization_value"
+    assert client.post("/api/v1/mcp/gateways", json={}).json()["error_code"] == "request.validation_failed"
+
+
+@pytest.mark.parametrize("locale", ["zh-CN", "en-US"])
+@pytest.mark.parametrize("invalid_field", [{"method": "invalid-method"}, {"server_id": "invalid-id"}])
+@pytest.mark.parametrize("secret", ["private-secret\ninvalid", "private-secret" * 400])
+def test_mcp_mixed_validation_errors_do_not_echo_credentials(
+    tmp_path, monkeypatch, locale, invalid_field, secret,
+):
+    client, _ = _client(tmp_path, monkeypatch)
+    response = client.post("/api/v1/mcp/debug/upstream", json={
+        "endpoint": "https://mcp.example.com/mcp", "method": "tools/list",
+        "authorization_value": secret, **invalid_field,
+    }, headers={"Accept-Language": locale})
+    assert response.status_code == 422
+    data = response.json()
+    assert data["error_code"] == "request.validation_failed"
+    errors = data["error_params"]["errors"]
+    assert {error["loc"][-1] for error in errors} == {"authorization_value", *invalid_field}
+    assert all(set(error) == {"loc", "type"} for error in errors)
+    assert "private-secret" not in response.text
+
+
+def test_mcp_debug_optional_null_fields_keep_saved_configuration(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path, monkeypatch)
+    record = client.post("/api/v1/mcp/servers", json={
+        "slug": "optional", "name": "Optional", "endpoint": "https://mcp.example.com/mcp",
+    }).json()
+    response = client.post("/api/v1/mcp/debug/upstream", json={
+        "server_id": record["id"], "endpoint": None, "authorization_header": None,
+        "authorization_value": None, "method": "tools/list",
+    })
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize("allow_http", [False, True])
+def test_mcp_server_options_match_endpoint_protocol_policy(tmp_path, monkeypatch, allow_http):
+    client, _ = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(mcp_gateway.settings, "MCP_ALLOW_HTTP", allow_http)
+    options = client.get("/api/v1/mcp/servers/options")
+    assert options.status_code == 200
+    assert options.json() == {"allow_http": allow_http}
+    response = client.post("/api/v1/mcp/servers", json={
+        "name": "Protocol", "slug": "protocol", "endpoint": "http://mcp.example.com/mcp",
+    })
+    if allow_http:
+        assert response.status_code == 200
+    else:
+        assert response.status_code == 400
+        assert response.json()["error_params"]["errors"][0] == {
+            "field": "endpoint", "reason": "https",
+        }

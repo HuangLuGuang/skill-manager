@@ -256,6 +256,9 @@ LLM 模型网关负责保护发送给外部模型供应商的数据：
 MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟网关发布选定 Tool：
 
 - 管理台在 `能力治理 / MCP 服务` 中登记 Endpoint，连接后保存 `tools/list` Schema 快照。
+- MCP 服务表单通过受管理面权限保护的 `GET /api/v1/mcp/servers/options` 读取当前 `allow_http`。Endpoint悬浮说明及即时协议校验按该值展示HTTPS或HTTP/HTTPS要求，与后端 `MCP_ALLOW_HTTP` 一致；配置加载时显示读取中提示。
+- MCP 服务表单按字段展示中英文错误及悬浮要求（状态不增加说明）。名称、唯一标识及鉴权 Header 最多128字符，Endpoint 最多1024字符，鉴权值最多4096字符，描述最多2000个Unicode字符（含空格和换行）；超时1–300秒，最大响应1–10240 KB，默认值保持30秒及1024 KB。鉴权值须为可打印ASCII字符；Bearer格式为 `Bearer + 空格 + Token`。名称、标识、Endpoint和Header名称保存时去除首尾空白。
+- 字段校验由 `backend/mcp_validation.py`、MCP请求schema及前端 `web/src/utils/mcpServerForm.js` 完成；稳定错误码 `mcp.server.invalid_fields` 的 `error_params.errors` 仅包含字段、原因编码及限制参数，鉴权值不进入错误响应。新增、编辑与保存前测试使用相应规则；测试仅检查实际参与请求的字段。首次输入某字段后即实时展示该字段错误，修正后即时清除；新打开的空表单不提前显示必填错误。数值使用原有数字输入框及上下箭头样式，步长为1。超长与非法数值草稿保留并显示错误，可修正后重试。编辑按原始草稿识别变更字段并校验，通过后再转换请求数值，鉴权值留空保留原值；混合校验错误使用通用错误码，仅返回错误位置和类型，不包含原始输入。未修改的历史字段保持兼容，不修改历史数据，无需数据库迁移。
 - 连接发现与保存前测试的 HTTP 错误使用稳定 `mcp.connection_failed.http_status` / `mcp.debug_failed.http_status` 编码，后端提供双语消息，前端通过 `web/src/i18n/errors.js` 按界面语言展示固定说明（中文为“更多信息请参阅”）；状态码、URL 和上游原始原因保持原文，无需数据库迁移。遇到 405 时检查 Endpoint 是否为支持 POST 的 MCP 地址。
 - `能力治理 / MCP 网关` 把多个 Server 的部分 Tool 组合为 `/mcp/{gateway_slug}`。
 - `能力治理 / MCP 调用审批` 接收真实高风险调用产生的待办；管理员查看脱敏参数后批准或拒绝该 Token 对指定网关、Tool 和 Schema 的限时调用权限，查看原始参数会写入安全审计。
