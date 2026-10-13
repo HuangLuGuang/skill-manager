@@ -140,6 +140,10 @@ def create_skill_zip(skill_dir: str | Path, output_dir: str | Path, ignores: set
 
     ignored = ignores or DEFAULT_IGNORES
     manifest = fingerprint_skill_dir(root, ignores=ignored)
+    name = read_skill_name(root)
+    if not name:
+        raise VerifierError(ui_text("SKILL.md 缺少 name 字段", "SKILL.md is missing name metadata"))
+    manifest["name"] = name
     zip_path = Path(output_dir) / f"{root.name}-{uuid.uuid4().hex}.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for item in manifest["files"]:
@@ -304,7 +308,7 @@ def command_submit(args: argparse.Namespace) -> int:
             "use_skillspector": str(bool(args.deep_scan)).lower(),
             "use_llm": str(bool(args.llm)).lower(),
             "use_sandbox": str(bool(args.sandbox)).lower(),
-            "no_cache": str(bool(args.no_cache)).lower(),
+            "force_rescan": str(bool(args.no_cache)).lower(),
             "scanner_version": "agent-manager-skill-verifier",
         }
         if args.host_id:

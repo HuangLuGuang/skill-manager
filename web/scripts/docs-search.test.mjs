@@ -226,7 +226,12 @@ test('external model and runtime guides expose the implemented custom-Agent path
     assert.ok(external.includes('model_base_url'))
     assert.ok(external.includes('client-external-models'))
     assert.match(runtime, locale === 'zh-CN' ? /推荐用于.*自研 Agent/ : /Recommended for custom Agents/)
-    assert.doesNotMatch(runtime, /Codex|WorkBuddy|Claude Code/)
+    const verifier = docsContent[locale].articles['runtime-integration'].sections.find(section => section.id === 'skill-verifier')
+    assert.equal(verifier.link.path, '/runtime?scenario=verifier')
+    assert.match(JSON.stringify(verifier), /runtime:verify-signature/)
+    assert.match(JSON.stringify(verifier), /runtime:can-load/)
+    assert.match(JSON.stringify(verifier), /AGENT_MANAGER_AGENT_RUNTIME_TOKEN/)
+    assert.match(JSON.stringify(verifier), /AGENT_MANAGER_SCANNER_TOKEN/)
     assert.doesNotMatch(scenario, /Dify 不走本地 SKILL\.md 客户端流程|Dify does not use the local SKILL\.md Client path/)
   }
 })

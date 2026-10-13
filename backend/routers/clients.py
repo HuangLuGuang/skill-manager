@@ -247,6 +247,7 @@ def _agent_gateway_names(db: Session, agent: models.ManagedAgent) -> list[str]:
     if not token or not any(scope.startswith("mcp:") for scope in _load(token.scopes_json, [])):
         return []
     allowed = {str(item) for item in _load(token.allowed_mcp_gateways_json, [])}
+    allowed.intersection_update(_load(agent.allowed_mcp_gateways_json, []))
     return [
         row.slug
         for row in db.query(models.McpGateway)

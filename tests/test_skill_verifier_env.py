@@ -2,6 +2,8 @@ import argparse
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 def _load_verifier():
     path = (
@@ -38,6 +40,16 @@ def test_verifier_sends_requested_language(monkeypatch):
     request = verifier._json_request("GET", "http://agent-manager/api", "amat_test", None)
 
     assert request.get_header("Accept-language") == "en-US"
+
+
+@pytest.mark.parametrize("language,expected", [("zh-CN", "SKILL.md 缺少 name 字段"), ("en-US", "SKILL.md is missing name metadata")])
+def test_submit_rejects_missing_name_before_upload(tmp_path, monkeypatch, language, expected):
+    verifier = _load_verifier()
+    (tmp_path / "SKILL.md").write_text("---\ndescription: No name\n---\n", encoding="utf-8")
+    monkeypatch.setenv("AGENT_MANAGER_VERIFIER_LANG", language)
+    with pytest.raises(verifier.VerifierError, match=expected):
+        verifier.create_skill_zip(tmp_path, tmp_path)
+    assert not list(tmp_path.glob("*.zip"))
 
 
 def test_verifier_command_verify_checks_signature_then_can_load(tmp_path, monkeypatch, capsys):

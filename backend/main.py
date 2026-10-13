@@ -623,6 +623,9 @@ def ensure_sqlite_schema() -> None:
         if client_skill_columns and "source_version" not in client_skill_columns:
             conn.exec_driver_sql("ALTER TABLE client_skill_installs ADD COLUMN source_version VARCHAR(128)")
 
+    from .agent_mcp import migrate_agent_mcp_scope
+    migrate_agent_mcp_scope(engine)
+
     # Headroom 压缩字段 migration
     from backend.migrate_compression import migrate as migrate_compression
     migrate_compression()

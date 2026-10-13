@@ -14,6 +14,33 @@ guide('aidr-overview', ['AIDR 与三种采集方式', 'AIDR and the three collec
   ['比较 Agent 日志、插件 Hook 与系统采集，理解前提、优势、成本和证据边界。', 'Compare Agent logs, plugin Hooks and system collection: prerequisites, strengths, costs and evidence boundaries.'], [
   ['purpose', { title: '先明确要回答的问题', paragraphs: ['AIDR 将客户端运行证据、平台会话审计、工具规则与审批、系统防护及 Skill 使用认证放在同一治理流程中。先确定要观察会话、核对宿主工具调用，还是观察进程和文件行为，再选择采集通道。'], bullets: ['Agent 日志、Hook 和系统事件是互补的数据源，不是三份等价的完整日志。', '平台批准、客户端已安装、宿主已信任、接收器运行、观察到事件和平台 ACK 是不同状态。', 'Skill 扫描、目录巡检、模型网关审计和 AIDR 各有范围；在其中一处看到成功不能替代其他链路的验收。'] },
     { title: 'Start with the question you need to answer', paragraphs: ['AIDR brings endpoint evidence, session audit, tool rules and approvals, system protection and Skill-use certification into one operating workflow. Choose channels according to whether you need conversation context, host tool callbacks or process and file behavior.'], bullets: ['Agent logs, Hooks and system events are complementary sources, not equivalent complete logs.', 'Approval, installation, host trust, receiver health, observed events and platform ACK are distinct states.', 'Skill scanning, inventory inspection, model gateway audit and AIDR have different scopes. Success in one does not validate the others.'] }],
+  ['architecture', {
+    title: 'AIDR 详细架构：采集、上报与执行前决策',
+    paragraphs: ['运行端的三种采集通道通过客户端连接平台。证据上报与控制决策是两条不同路径：日志和事件进入审计链路；受支持的 Hook 和原生组件在执行点应用有效策略。'],
+    diagram: 'aidr',
+    bullets: [
+      '运行端：Agent 原生日志经产品适配器增量读取；宿主 Hook 将回调交给本地接收器；当前 macOS ES 采集进程与文件事件，网络连接快照独立采集。各通道分别要求来源可读、宿主授权或系统权限。',
+      '客户端：按内容与脱敏策略处理证据，持久化来源身份、摘要、覆盖缺口和待发批次；通过设备凭证上报，失败重试，核对平台持久化 ACK 后处理已确认队列。策略生效状态与上传状态分别报告。',
+      '平台：校验设备、来源和批次，去重持久化并返回 ACK；以可靠身份关联会话、轮次、工具调用与系统行为，提供审计查询、Skill 使用认证和告警。无法确认的关联保留未知或未归属。',
+      '控制返回：平台下发采集与脱敏策略、工具规则、审批授权和系统策略；客户端应用后，由支持的宿主或原生组件执行。需人工审批的工具调用向平台提交请求并同步决定，等待、重试和超时行为以宿主适配及生效策略为准。',
+      '执行前路径：宿主前置回调 → 本地规则与有效审批授权 → 允许或拒绝 → 宿主执行。系统拦截使用原生组件支持的授权点，独立于日志上传。',
+    ],
+    callout: { type: 'note', title: '按执行点验收控制效果', body: '平台 ACK 只确认批次已接收。日志采集与 Skill 使用认证本身不阻断加载或执行；需要阻断时，分别验收对应 Hook / 系统拦截或加载前 Verifier。' },
+    link: link('aidr-client', '继续：客户端接入与通道验收'),
+  }, {
+    title: 'Detailed AIDR architecture: collection, upload and pre-execution decisions',
+    paragraphs: ['Three runtime collection channels connect to the platform through the client. Evidence upload and control decisions follow separate paths: logs and events feed audit, while supported Hooks and native components apply effective policy at enforcement points.'],
+    diagram: 'aidr',
+    bullets: [
+      'Runtime: product adapters read native Agent logs incrementally; host Hooks send callbacks to a local receiver; current macOS ES collects process and file events, with separate network connection snapshots. Channels require readable sources, host authorization or OS permissions independently.',
+      'Client: apply content and redaction policies, persist source identities, digests, coverage gaps and pending batches; upload with device credentials, retry failures and process acknowledged queues after validating the platform durable ACK. Report policy application separately from upload status.',
+      'Platform: validate devices, sources and batches, deduplicate and persist before returning ACK. Correlate sessions, turns, tool calls and system behavior by reliable identities; provide audit queries, Skill-use certification and alerts. Uncertain correlations remain unknown or unassigned.',
+      'Control return: distribute collection/redaction policies, tool rules, approval grants and system policies to the client for application through supported hosts or native components. Calls requiring human approval submit requests and synchronize decisions; waiting, retries and timeouts depend on the adapter and effective policy.',
+      'Pre-execution path: host pre-execution callback → local rules and valid approval grant → allow or deny → host enforcement. System interception uses supported native authorization points independently of log upload.',
+    ],
+    callout: { type: 'note', title: 'Validate control at its enforcement point', body: 'Platform ACK confirms batch receipt only. Log collection and Skill-use certification do not themselves block loading or execution. Validate the relevant Hook / system interception or pre-load Verifier separately when blocking is required.' },
+    link: link('aidr-client', 'Next: client setup and channel acceptance'),
+  }],
   ['comparison', { title: '三种方式对比', table: { columns: ['维度', 'Agent 原生日志', '插件 Hook', '系统事件采集'], rows: [
     ['采集位置', '读取宿主写入的本地会话文件', '宿主在支持的事件点调用 Hook，交给本地接收器', '原生系统采集器观察被选定 Agent 及其后代'],
     ['主要内容', '用户输入、模型回复、工具调用/结果、模型元数据；取决于格式和采集范围', '会话、提交、工具前后、失败等宿主回调；取决于产品', 'macOS 进程 fork/exec/exit，以及文件创建、修改、重命名、删除通知；拦截模式增加文件打开授权；网络为独立连接快照'],

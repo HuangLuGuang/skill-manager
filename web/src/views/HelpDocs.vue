@@ -91,6 +91,8 @@
             <h2><a :href="`#${section.id}`" @click.prevent="scrollToSection(section.id)">{{ section.title }}</a></h2>
 
             <p v-for="paragraph in section.paragraphs || []" :key="paragraph">{{ paragraph }}</p>
+            <DocsAidrArchitecture v-if="section.diagram === 'aidr'" />
+            <DocsIntegrationFlow v-if="section.diagram === 'integration-choice'" :decision="section.decision" :title="section.title" />
 
             <ul v-if="section.bullets?.length" class="doc-list">
               <li v-for="bullet in section.bullets" :key="bullet">{{ bullet }}</li>
@@ -286,6 +288,12 @@
                     <p>{{ architectureLabels.mcpFlow }}</p>
                     <div class="architecture-domain-output">{{ architectureLabels.mcpOutput }}</div>
                   </div>
+                  <div class="architecture-domain aidr-domain">
+                    <div class="architecture-domain-head"><SafetyCertificateOutlined /><span><small>AIDR</small><strong>{{ t('docsArchitecture.overviewTitle') }}</strong></span></div>
+                    <p>{{ t('docsArchitecture.overviewFlow') }}</p>
+                    <div class="architecture-domain-output">{{ t('docsArchitecture.overviewOutput') }}</div>
+                    <RouterLink to="/docs/aidr-overview#architecture">{{ t('docsArchitecture.overviewLink') }}</RouterLink>
+                  </div>
                 </div>
               </div>
 
@@ -386,7 +394,7 @@
               </div>
             </div>
 
-            <div v-if="section.table" class="doc-table-wrap">
+            <div v-if="section.table && section.diagram !== 'integration-choice'" class="doc-table-wrap">
               <table class="doc-table">
                 <thead><tr><th v-for="column in section.table.columns" :key="column">{{ column }}</th></tr></thead>
                 <tbody>
@@ -527,6 +535,8 @@ import {
 import { getDocsAssistantConfig, updateMyLocale } from '../api'
 import { useBranding } from '../branding'
 import DocsAssistantPanel from '../components/DocsAssistantPanel.vue'
+import DocsAidrArchitecture from '../components/DocsAidrArchitecture.vue'
+import DocsIntegrationFlow from '../components/DocsIntegrationFlow.vue'
 import { docsArticleOrder, docsContent } from '../docs/content'
 import { setLocale } from '../i18n'
 import { useLocaleText } from '../i18n/useLocaleText'
@@ -687,7 +697,7 @@ const architectureLabels = computed(() => ({
   agents: text('Agent / 客户端', 'Agents / Clients'),
   modelApps: text('模型应用', 'Model applications'),
   mcpClients: text('MCP Client', 'MCP Clients'),
-  secureTraffic: text('管理 API · 模型 API · MCP 数据面', 'Management API · Model API · MCP data plane'),
+  secureTraffic: t('docsArchitecture.ingress'),
   unifiedEntry: text('统一入口', 'Unified entry'),
   ingressRoles: [
     text('认证与访问入口', 'Authentication and access'),
@@ -705,7 +715,7 @@ const architectureLabels = computed(() => ({
   orchestration: text('任务编排', 'Task orchestration'),
   orchestrationDetail: text('扫描队列、客户端任务和高风险审批', 'Scan queue, Client tasks, and high-risk approvals'),
   policyEnforcement: text('下发策略 · 校验身份 · 记录请求上下文', 'Distribute policy · verify identity · record request context'),
-  runtimePlane: text('四条运行数据面', 'Four runtime data planes'),
+  runtimePlane: t('docsArchitecture.runtimeTitle'),
   runtimeSummary: text('不同流量独立执行控制，共享统一身份、策略和审计', 'Independent enforcement with shared identity, policy, and audit'),
   skillDomain: text('Skill 准入治理', 'Skill admission'),
   skillFlow: text('提交 → 规则 / 深度扫描 → 可选 Sandbox / LLM → 策略判定', 'Submit → rules / deep scan → optional Sandbox / LLM → policy decision'),
@@ -725,7 +735,7 @@ const architectureLabels = computed(() => ({
   registry: text('Registry 与版本', 'Registry and versions'),
   registryDetail: text('内容指纹、状态、签名、报告与策略上下文', 'Digests, states, signatures, reports, and policy context'),
   traces: text('任务、事件与 Trace', 'Tasks, events, and traces'),
-  tracesDetail: text('客户端任务、模型链路、MCP 调用和用量', 'Client tasks, model pipeline, MCP calls, and usage'),
+  tracesDetail: t('docsArchitecture.evidence'),
   audit: text('签名安全审计', 'Signed security audit'),
   auditDetail: text('哈希链、Ed25519 签名和可选 JSONL 导出', 'Hash chain, Ed25519 signatures, and optional JSONL export'),
   dependencies: text('隔离与外部运行依赖', 'Isolation and external runtime dependencies'),
@@ -839,6 +849,7 @@ watch(currentSlug, async slug => {
   }
   await nextTick()
   articleScroller.value?.scrollTo({ top: 0 })
+  if (route.hash) document.getElementById(route.hash.slice(1))?.scrollIntoView({ block: 'start' })
   document.title = `${article.value.title} · ${t('app.name')}`
 }, { immediate: true })
 
@@ -1137,6 +1148,9 @@ onBeforeUnmount(() => {
 .architecture-domain.client-domain { border-left-color: var(--arch-green); }
 .architecture-domain.model-domain { border-left-color: var(--arch-cyan); }
 .architecture-domain.mcp-domain { border-left-color: var(--arch-amber); }
+.architecture-domain.aidr-domain { grid-column: 1 / -1; min-height: 0; border-left-color: #7c88b9; }
+.aidr-domain .architecture-domain-head > .anticon { background: #7c88b9; }
+.aidr-domain > a { align-self: flex-start; margin-top: 12px; font-size: 12px; line-height: 1.6; }
 .architecture-domain-head { display: flex; min-width: 0; align-items: center; gap: 11px; }
 .architecture-domain-head > .anticon { display: grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; color: #fff; background: var(--arch-blue); border-radius: 8px; font-size: 16px; }
 .client-domain .architecture-domain-head > .anticon { background: var(--arch-green); }

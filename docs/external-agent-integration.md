@@ -1,5 +1,16 @@
 # External Agent Integration
 
+平台创建的 Agent 可在创建或编辑时配置“允许访问的 MCP 网关”。运行凭证只能选择该范围的子集；接入指引按能力生成步骤，并提供每个 MCP 网关的地址及鉴权模板。使用支持 Streamable HTTP 的运行环境读取工具列表，再按需调用并到智能体详情检查实际记录。移除网关会限制后续请求，新增网关须单独为凭证授权。完整说明见 [MCP 工具访问](agent-governance.md#mcp-工具访问--mcp-tool-access)。
+
+**English:** Platform-created Agents can configure allowed MCP gateways during registration or editing. Runtime credentials may grant only a subset. The guide generates capability-specific steps with gateway URLs and authentication templates. Use a Streamable HTTP runtime to list tools, call appropriate tools as needed and inspect records in Agent details. Removing a gateway limits subsequent requests; additions require a separate credential grant. See [MCP tool access](agent-governance.md#mcp-工具访问--mcp-tool-access).
+
+### 页面入口与下一步 / Onboarding entry and next action
+
+“智能体管理”中的“平台创建”登记外部 Agent 的治理身份；“客户端发现”来自客户端自动上报。登记后通过“保存并查看接入指引”进入当前 Agent 的步骤页，也可从列表或详情重新打开。接入页按自研 Agent、本机 Agent、模型应用和 MCP 应用选择路线，能力可组合；凭证中心继承 Agent 和建议权限，保存一次性明文后返回继续配置。详见[登记与接入](agent-governance.md#登记与接入--registration-and-integration)。
+
+**English:** Platform-created records register governance identities for external Agents; Client-discovered records come from automatic inventory. Save an Agent to open its integration guide, or reopen it from the list or details. Choose custom Agent, local Agent, model app or MCP app, then combine capabilities. Credential Center retains the identity and suggested scopes; save the one-time secret and return to configure the runtime. See [registration and integration](agent-governance.md#登记与接入--registration-and-integration).
+
+
 macOS TeleAgent 代理支持后台自动安全升级：候选程序先自检，等待在途模型/工具审核请求完成，再保留监听端口并原 PID 切换；持续忙碌时延后升级。主守护服务内的 Hook 接收器和独立代理均不随桌面退出。设置页按实际进程显示版本、摘要、健康与待升级状态；本地健康不等同于供应商连通。普通事件在发送完成后间隔至少 300 毫秒，单轮预算在等待期间耗尽则保留记录到下一轮。实现边界和实机证据见[客户端后台可靠性说明](agent-manager-client.md#后台可靠性与更新--background-reliability-and-updates)。
 
 **English:** The macOS TeleAgent proxy preflights staged upgrades, waits for in-flight model/review requests, and switches with its listener and PID preserved. Persistent traffic postpones activation. Both the daemon's Hook receiver and the independent proxy survive desktop exit. Settings displays observed process identity, readiness and pending upgrades; local readiness does not prove vendor connectivity. Ordinary events wait at least 300 ms after delivery completion; records waiting past the round budget remain queued. See the linked client reliability guide for limits and live evidence.
@@ -309,6 +320,7 @@ flowchart LR
 
 - `智能体管理`
 - `接入与运行`
+- `Agent Skill Verifier 接入`
 - `下载 Skill Verifier`
 
 后端下载接口：
@@ -323,6 +335,30 @@ GET /api/v1/scanner/skill-verifier/download
 - `runtime:can-load`
 
 如果运行时还会在每次 Tool 调用前执行权限检查，再增加 `runtime:check-tool`。`submit` 和 `status` 使用独立的 Scanner 接入凭证，不应与 Agent 运行凭证混用。
+
+`submit` 上传的 manifest 包含从 `SKILL.md` 读取的名称及文件指纹，服务端重新计算并验证内容。`submit --no-cache` 对当前 Scanner 凭证有权访问的同内容版本发起重新检测；`status --skill-id` 查看扫描状态。完整本地 HTTP 验收命令、证据和宿主执行边界见 [Verifier README](../demo/agent-manager-skill-verifier/README.md#http-全链路回归--http-end-to-end-regression)。
+
+**English:** `submit` includes the name read from `SKILL.md` and a file fingerprint, which the server recomputes and validates. `submit --no-cache` requests a new scan of the same content version accessible to the Scanner credential; `status --skill-id` reports scan status. See the [Verifier README](../demo/agent-manager-skill-verifier/README.md#http-全链路回归--http-end-to-end-regression) for the local HTTP acceptance command, evidence and host enforcement boundaries.
+
+接入步骤：
+
+1. 选择运行身份；客户端已发现的 Agent 复用现有身份，其他运行端可登记新身份。启用身份，绑定已批准的 Skill，并在本地准备同一版本。
+2. 从指引创建绑定当前 Agent 的运行凭证，默认仅建议以上两项权限。保存一次性明文后返回指引。
+3. 下载 ZIP，在实际运行机器准备 Python 3，安装到宿主实际使用的 Skill 目录。页面提供 Codex、Claude Code 默认目录及自定义目录；命令模板使用 Bash / zsh。Windows 手动解压并配置同名环境变量。
+4. 配置 `AGENT_MANAGER_VERIFIER_BASE_URL`、`AGENT_MANAGER_AGENT_RUNTIME_TOKEN`、`AGENT_ID` 和 `AGENT_MANAGER_VERIFIER_LANG`。跨机器将 localhost 换成可达地址；终端 export 不会传给已经启动的桌面应用，须在宿主启动环境配置并重启。
+5. `verify --path` 指向包含 SKILL.md 的单个 Skill。仅退出码 0 可继续，其他情况停止加载；按 Agent ID、时间与 Skill 核对运行审计，并确认实际 Agent 会话每次使用前调用了脚本。
+
+安装、复制配置、凭证关联或一次终端验证均不能证明后续强制执行。Verifier 依赖 Agent 遵循指令；强制拦截应接入 Loader / Hook / SDK。`verify` 不自动执行工具权限检查，也不需要 Scanner 凭证、模型或 MCP 绑定。
+
+宿主验收时，应保留真实会话的工具调用与结果。使用带引号的 Verifier 脚本绝对路径，独立执行验证，依据该工具调用的 Python 退出码继续或停止；不要附加 `echo` 等会覆盖退出码的命令。连续多次使用与失败后停止须分别核对，Claude Code 整个会话退出码为 0 也可能表示已正常报告拒绝。可复用的六场景实际宿主验收见 [Verifier README](../demo/agent-manager-skill-verifier/README.md#真实-claude-code-宿主验收--real-claude-code-acceptance)。
+
+**English:** Retain real host tool calls and results. Use a quoted absolute Verifier script path, verify in a separate call, and use that call's Python exit status. Do not append commands such as echo that replace the exit status. Check repeated use and stopping after failure separately; Claude Code's overall exit code 0 can mean it correctly reported refusal. See the [six-case real host acceptance](../demo/agent-manager-skill-verifier/README.md#真实-claude-code-宿主验收--real-claude-code-acceptance).
+
+Codex 宿主通过 `exec_command` 校验时显式设置 `login: false`，保持本次启动环境中的平台地址和凭证；登录 Shell 的执行路径可能改变环境。检查 Skill 发现、重复使用前重新校验，以及篡改、缺少凭证和吊销后停止读取/执行，见 [Codex 实际验收](../demo/agent-manager-skill-verifier/README.md#真实-codex-宿主验收--real-codex-acceptance)。模型拒绝过旧 CLI 时先更换兼容版本，不应记作平台校验结果。
+
+**English:** Set `login: false` explicitly for Codex `exec_command` verification to retain the current launch environment's URL and credential; login-shell execution may change the environment. See [real Codex acceptance](../demo/agent-manager-skill-verifier/README.md#真实-codex-宿主验收--real-codex-acceptance) for discovery, fresh verification before repeated use, and stopping after tampering, missing credentials or revocation. A model rejecting an outdated CLI is not a platform verification result.
+
+**English:** Choose **Integration & Runtime → Agent Skill Verifier**, reuse a discovered identity or register one, enable it and authorize an approved Skill. Create an Agent-bound credential with only the two verification scopes, save its one-time secret and return. Install the ZIP on the runtime machine using Python 3 and the host's real Skill directory; the guide provides Bash / zsh templates, with manual extraction and launch-environment configuration on Windows. Configure the four variables listed above in the actual Agent environment, using a reachable service address and matching Agent ID. Run `verify --path` for one Skill directory containing SKILL.md, require exit code 0, and match audit records by Agent, time and Skill. Confirm the real Agent invokes it on each use. Installation or a terminal check does not establish mandatory enforcement; use a Loader / Hook / SDK for that. `verify` needs no Scanner credential, model or MCP binding, and does not call `check-tool`.
 
 ## Unified Runtime Trace
 

@@ -1,9 +1,12 @@
+import { integrationChoiceSections } from './integration-choice.js'
+
 const zh = {
   'scenario-selection': {
     eyebrow: '开始使用',
     title: '按产品和运行方式选择接入方案',
     summary: '先判断治理对象在哪里运行、能否安装客户端、是否能修改运行时，再选择客户端托管、Runtime API、Dify API 或 Scanner。',
     sections: [
+      integrationChoiceSections['zh-CN'],
       {
         id: 'decision-table',
         title: '不同产品使用不同方案',
@@ -189,6 +192,7 @@ const en = {
     title: 'Choose an integration by product and runtime',
     summary: 'Identify where the governed product runs, whether a Client can be installed, and whether its runtime can be changed before choosing Client management, Runtime APIs, Dify APIs, or Scanner.',
     sections: [
+      integrationChoiceSections['en-US'],
       {
         id: 'decision-table', title: 'Use a different path for each product',
         paragraphs: ['Creating an Agent establishes a platform identity and authorization record. It does not start or take over the actual product. The product shape and controllable execution points determine the integration.'],

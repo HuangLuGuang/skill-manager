@@ -227,7 +227,7 @@ class DocsPdfSection(BaseModel):
     paragraphs: list[str] = Field(default_factory=list, max_length=30)
     bullets: list[str] = Field(default_factory=list, max_length=30)
     flow: list[DocsPdfLabelValue] = Field(default_factory=list, max_length=12)
-    diagram: Optional[str] = Field(default=None, pattern="^(architecture|governance|skill-scan-logic|docker)$")
+    diagram: Optional[str] = Field(default=None, pattern="^(architecture|aidr|integration-choice|governance|skill-scan-logic|docker)$")
     steps: list[DocsPdfStep] = Field(default_factory=list, max_length=20)
     table: Optional[DocsPdfTable] = None
     code: Optional[str] = Field(default=None, max_length=12000)
@@ -368,6 +368,7 @@ class ManagedAgentCreate(BaseModel):
     external_gateway_id: Optional[int] = None
     skill_names: list[str] = []
     prompt_names: list[str] = []
+    allowed_mcp_gateways: list[str] = Field(default_factory=list)
 
 
 class ManagedAgentUpdate(BaseModel):
@@ -383,6 +384,7 @@ class ManagedAgentUpdate(BaseModel):
     external_gateway_id: Optional[int] = None
     skill_names: Optional[list[str]] = None
     prompt_names: Optional[list[str]] = None
+    allowed_mcp_gateways: list[str] = Field(default_factory=list)
 
 
 class ManagedAgentResponse(BaseModel):
@@ -402,6 +404,7 @@ class ManagedAgentResponse(BaseModel):
     origin_type: str = "platform"
     skill_names: list[str] = []
     prompt_names: list[str] = []
+    allowed_mcp_gateways: list[str] = Field(default_factory=list)
     runtime_token_id: Optional[int] = None
     runtime_token_name: Optional[str] = None
     created_by: Optional[str] = None
@@ -462,6 +465,7 @@ class AgentAssetResponse(BaseModel):
     skill_names: list[str] = Field(default_factory=list)
     discovered_skill_count: int = 0
     prompt_names: list[str] = Field(default_factory=list)
+    allowed_mcp_gateways: list[str] = Field(default_factory=list)
     runtime_token_id: Optional[int] = None
     runtime_token_name: Optional[str] = None
     created_by: Optional[str] = None

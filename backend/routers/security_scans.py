@@ -876,6 +876,15 @@ def _evaluation_models_query(db: Session):
     ).filter(models.ModelEndpoint.enabled.is_(True), models.ModelProvider.enabled.is_(True))
 
 
+def validate_evaluation_model(db: Session, model_name: str | None) -> None:
+    if not model_name:
+        raise ApiError(422, "agent_security.evaluation_model_required",
+                       "请选择网关评估模型", "Select a gateway evaluator model")
+    if not _evaluation_models_query(db).filter(models.ModelEndpoint.name == model_name).first():
+        raise ApiError(422, "agent_security.evaluation_model_invalid",
+                       "所选评估模型或其供应商未启用", "The evaluator model or its provider is unavailable")
+
+
 @router.get("/redteam-options")
 async def get_redteam_options(
     db: Session = Depends(get_db),
@@ -1964,12 +1973,7 @@ def _validate_scan_task_request(
             "The scanning engine is not configured or available",
         )
     if body.scan_kind in {"agent_risk_scan", "llm_redteam_scan"} or (body.scan_kind == "mcp_risk_scan" and body.mcp_mode != "metadata"):
-        if not body.evaluation_model:
-            raise ApiError(422, "agent_security.evaluation_model_required",
-                           "请选择网关评估模型", "Select a gateway evaluator model")
-        if not _evaluation_models_query(db).filter(models.ModelEndpoint.name == body.evaluation_model).first():
-            raise ApiError(422, "agent_security.evaluation_model_invalid",
-                           "所选评估模型或其供应商未启用", "The evaluator model or its provider is unavailable")
+        validate_evaluation_model(db, body.evaluation_model)
     if body.scan_kind == "mcp_risk_scan":
         if target.target_type not in {MCP_GATEWAY_TARGET_TYPE, "mcp_source"}:
             raise ApiError(409, "agent_security.mcp_scan_target_required", "请选择已登记的 MCP 目标", "Select a registered MCP target")

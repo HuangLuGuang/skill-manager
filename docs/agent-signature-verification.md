@@ -18,7 +18,25 @@ remain shared governance services. See the integration guide for TeleAgent's evi
 
 **English:** Load-time verification and asynchronous usage audit occur at different times. Background log collection computes or reuses a local SHA-256 digest; the platform verifies the signed approved digest and current approval, revocation and authorization. Hook execution does not hash the directory. Reused digests retain the original observation time. Metadata caching is not tamper-proof attestation or proof of successful loading. Reliable pre-load interception and content binding are required for invocation-time guarantees.
 
+### 从平台指引开始 / Start from the platform guide
+
+在智能体列表或详情打开“接入指引”，选择 Skill 加载与工具检查能力，在凭证中心确认 `runtime:verify-signature`、`runtime:can-load` 和所需工具检查权限。返回指引后，在真实加载路径接入下列接口；验签记录证明一次校验的结果，实际代码加载仍须由运行端控制。关联凭证记录本身不代表凭证仍有效。
+
+**English:** Open the Agent integration guide from its list or detail entry, select Skill checks, and confirm signature, load and required tool scopes in Credential Center. Return to the guide and integrate the endpoints below in the actual Loader. Verification records prove check results; the runtime must enforce loading decisions. A linked credential record does not establish current validity.
+
 ### 主动验签集成
+
+支持本地 Skill 指令的运行端可在“接入与运行 → Agent Skill Verifier”使用分步指引：选择身份、创建两项最小权限的运行凭证、下载并配置、执行 `verify --path`、按 Agent ID 核对运行审计。已由客户端发现的 Agent 复用现有身份。安装包与一次终端验证不保证后续 Agent 自动执行，必须在实际会话核对调用；强制拦截需要 Loader / Hook / SDK。
+
+**English:** For runtimes supporting local Skill instructions, use Integration & Runtime → Agent Skill Verifier: select an identity, create a runtime credential with the two minimal verification scopes, install and configure, run `verify --path`, then match audit records by Agent ID. Reuse Client-discovered identities. Installation and a terminal check do not ensure future Agent invocation; verify the real session. Mandatory enforcement requires a Loader / Hook / SDK.
+
+实际 Codex 验收须在同一会话连续使用，确认每次都有新的独立 Verifier 命令，并在本地内容篡改、缺少运行凭证、凭证吊销后停止读取和执行目标。`exec_command` 显式设置 `login: false`，避免登录 Shell 执行路径替换本次启动环境；使用工具实际退出码和平台审计核对。可复跑命令见 [Verifier 宿主验收](../demo/agent-manager-skill-verifier/README.md#真实-codex-宿主验收--real-codex-acceptance)。
+
+**English:** For real Codex acceptance, repeat use in the same session and require a fresh standalone Verifier call each time. Confirm that tampering, missing runtime credentials and revocation stop target reads and execution. Set `login: false` explicitly in `exec_command` to preserve the current launch environment, then correlate actual command exit codes with platform audit. See the [reproducible host acceptance](../demo/agent-manager-skill-verifier/README.md#真实-codex-宿主验收--real-codex-acceptance).
+
+同一个 Agent 还需要调用 MCP 时，先在智能体中选择允许的 MCP 网关，再为运行凭证增加所需的 `mcp:*` 权限和网关子集，按照接入指引配置 `/mcp/{gateway_slug}`。Skill 验签与 MCP 工具授权分别在各自入口执行，MCP 工具调用成功不代表 Skill 已通过内容验签。
+
+**English:** To use MCP with the same Agent, configure its allowed gateways, grant the runtime credential the required `mcp:*` scopes and a gateway subset, then configure `/mcp/{gateway_slug}` using the integration guide. Skill signature checks and MCP authorization run at their respective boundaries; a successful MCP call does not prove Skill content verification.
 
 对于外部 Agent 来说，只传 `skill_name` 调 `can-load` 只能完成“注册状态检查”，不能证明 Agent 本地这份 skill 内容还是审批通过时的那一份。
 
@@ -38,7 +56,8 @@ remain shared governance services. See the integration guide for TeleAgent's evi
 
 - `runtime:verify-signature`
 - `runtime:can-load`
-- `runtime:check-tool`
+
+运行端另行接入工具调用权限检查时，再添加 `runtime:check-tool`；Verifier 的 `verify` 不调用该接口。
 
 token 鉴权的 `can-load` 不接受 `skill_path`，避免外部 token 探测服务端本地文件。外部 Agent 应先提交本地计算的 `local_signature` 做验签，再调用 name-only `can-load`。
 

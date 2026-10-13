@@ -1,6 +1,7 @@
 import { securityGuides } from './security-guides.js'
 import { integrationGuides } from './integration-guides.js'
 import { aidrGuides, aidrGuideOrder } from './aidr-guides.js'
+import { agentIntegrationChoices, agentRegistrationGuides } from './agent-registration-guide.js'
 
 const zh = {
   groups: [
@@ -17,10 +18,10 @@ const zh = {
       { subgroup: 'MCP 治理', slug: 'mcp-governance', title: 'MCP 治理', summary: '服务、网关、审批与调用审计' },
     ] },
     { title: '智能体管理', items: [
-      { slug: 'agent-management', title: '智能体管理', summary: 'Agent 档案、能力绑定与凭证选择' },
+      { slug: 'agent-management', title: '创建与管理智能体', summary: '判断何时需要创建、按场景选接入方式，再填写表单' },
       { slug: 'client-management', title: '客户端管理', summary: '本地 Agent 发现、Skill 下发与持续巡检' },
       { slug: 'credential-management', title: '统一凭证中心', summary: '按调用主体签发最小权限凭证' },
-      { slug: 'runtime-integration', title: '接入与运行', summary: '自研 Agent 的加载、Tool 与运行轨迹接入' },
+      { slug: 'runtime-integration', title: '接入与运行', summary: '登记与发现的区别、场景选择和创建后的接入步骤' },
       { slug: 'hook-integration', title: 'Hook 接入', summary: 'Claude Code、Codex 与 OpenClaw 事件拦截配置' },
       { slug: 'agent-security-runtime', title: 'AI 安全与调用轨迹', summary: 'Agent、MCP、大模型与 AI 基础设施测评、Worker、证据解释与统一轨迹' },
       { slug: 'audit-trail', title: '审计追踪', summary: '查询 Skill、Agent、客户端与 Tool 事件' },
@@ -71,9 +72,10 @@ const zh = {
         {
           id: 'system-architecture',
           title: '系统总体架构',
-          paragraphs: ['平台通过统一入口连接管理人员、Scanner、Agent 与客户端、模型应用和 MCP Client。治理控制面集中管理策略、身份、授权与审计；各运行数据面分别执行 Skill 准入、本地能力治理、模型隐私处理和 MCP Tool 调用控制。'],
-          bullets: ['Skill 检测在规则、深度扫描、可选 Sandbox 与 LLM 证据完成后，由策略决定准入状态。', '客户端最终管理本地 Skill；Agent 在加载前通过 Verifier 或 Hook 核对内容签名和授权。', '内置模型流量依次经过凭证与模型范围、Prompt 防护、PII 伪匿名化和可选压缩；外部网关流量由 Agent 或客户端直连客户网关，平台管理连接和身份映射。', 'MCP 调用只访问网关发布的 Tool；高风险 Tool 在执行前进入限时审批。', 'Registry、报告、任务、Trace 和安全审计形成贯穿各能力域的证据链。'],
+          paragraphs: ['平台通过统一入口连接管理人员、Scanner、Agent 与客户端、模型应用和 MCP Client。治理控制面集中管理策略、身份、授权与审计；运行能力包括 Skill 准入、本地能力治理、模型隐私处理、MCP Tool 调用控制，以及 AIDR 运行审计与防护。'],
+          bullets: ['Skill 检测在规则、深度扫描、可选 Sandbox 与 LLM 证据完成后，由策略决定准入状态。', '客户端最终管理本地 Skill；Agent 在加载前通过 Verifier 或 Hook 核对内容签名和授权。', '内置模型流量依次经过凭证与模型范围、Prompt 防护、PII 伪匿名化和可选压缩；外部网关流量由 Agent 或客户端直连客户网关，平台管理连接和身份映射。', 'MCP 调用只访问网关发布的 Tool；高风险 Tool 在执行前进入限时审批。', 'AIDR 通过客户端采集 Agent 日志、Hook 和系统事件，在平台关联会话与运行证据；策略及审批返回受支持的宿主或系统执行点。具体覆盖取决于产品适配、权限与生效策略。', 'Registry、报告、任务、Trace、AIDR 运行证据和安全审计支撑跨能力域追溯。'],
           diagram: 'architecture',
+          link: { path: '/docs/aidr-overview#architecture', label: '查看 AIDR 详细架构与控制边界' },
           callout: { type: 'note', title: '控制面与执行边界', body: '平台负责准入、授权、路由与证据记录；Agent 仍从本地目录加载 Skill，Sandbox 在隔离环境执行动态检测，上游模型和 MCP Server 保持为外部运行依赖。' },
         },
         {
@@ -1271,91 +1273,136 @@ const zh = {
         },
       ],
     },
-    'agent-management': {
-      eyebrow: '功能指南',
-      title: '智能体管理',
-      summary: '按来源查看智能体：平台创建侧重模型、Skill 与接入配置，客户端发现侧重本机实例和实际运行状态。',
-      sections: [
-        {
-          id: 'source-specific-details',
-          title: '先看清 Agent 来源',
-          paragraphs: ['智能体列表同时展示平台创建的档案和客户端扫描发现的本地 Agent。客户端发现本机 Agent 后会自动登记稳定身份，不需要再次关联或纳管。'],
-          steps: [
-            { title: '按来源筛选', body: '使用“平台创建”和“客户端发现”查看不同资产。平台创建用于自研 Agent、Dify 等服务端接入；客户端发现用于本机工具。' },
-            { title: '查看平台创建详情', body: '核对平台 Agent ID、已分配 Skill、默认模型、网关来源、运行凭证以及接入状态；平台创建的智能体不要求关联客户端实例。' },
-            { title: '查看客户端发现详情', body: '核对本机 Agent ID、所属客户端、安装与 Skill 目录、已发现 Skill、实机模型配置、具体外部网关名称和扫描时间。' },
-            { title: '由客户端执行本机治理', body: '模型配置、Skill 安装、隔离、恢复和巡检任务都下发给所属客户端执行。' },
-          ],
-          callout: { type: 'note', title: '自动登记稳定身份', body: '平台为每个客户端发现的本机 Agent 自动保存稳定身份，用于策略、凭证和审计；资产事实持续以所属客户端上报为准。' },
-          image: { name: 'agent-assets-list', alt: '按平台创建和客户端发现统一查看智能体资产', caption: '当前页面示例：列表按来源区分资产；客户端发现项直接显示负责人所在部门和本机运行状态。' },
-          link: { path: '/agents', label: '打开智能体资产列表' },
-        },
-        {
-          id: 'platform-created-detail',
-          title: '平台创建详情：查看已配置能力',
-          paragraphs: ['平台创建的智能体用于自研 Agent、Dify 等服务端接入。详情聚焦状态、已分配 Skill、默认模型、模型来源、Agent 运行凭证和责任归属。'],
-          image: { name: 'agent-platform-detail', alt: '平台创建智能体详情', caption: '平台创建详情以平台配置为准，可继续编辑模型、Skill、责任归属和运行凭证。' },
-        },
-        {
-          id: 'client-discovered-detail',
-          title: '客户端发现详情：查看本机事实',
-          paragraphs: ['客户端发现的智能体由客户端自动登记，详情只读展示本机 Agent 标识、类型与版本、所属客户端、安装目录、Skill 目录、实际模型配置、具体外部网关名称和发现证据。相关治理操作在客户端管理中执行。'],
-          image: { name: 'agent-client-detail', alt: '客户端发现智能体详情', caption: '客户端发现详情为只读资产视图，以客户端上报为准；治理操作在客户端管理中执行。' },
-        },
-        {
-          id: 'agent-record',
-          title: '先登记 Agent，再创建凭证',
-          steps: [
-            { title: '创建 Agent', body: '设置稳定且唯一的 Agent ID、名称、所属部门、负责人和启用状态。运行环境中的 Agent ID 必须与这里一致。' },
-            { title: '绑定能力', body: '选择默认模型和允许使用的已批准或已部署 Skill。下拉项会显示具体 Skill 标识；保存后运行校验按该 Agent 的绑定范围判断。' },
-            { title: '创建运行凭证', body: '在统一凭证中心选择“给 Agent 使用”，绑定目标 Agent，再按需选择运行治理、模型和 MCP 能力。' },
-            { title: '交给运行环境', body: '只把一次性显示的凭证明文交给对应 Agent，不能使用管理员登录 Token。' },
-          ],
-          link: { path: '/agents', label: '打开智能体列表' },
-        },
-        {
-          id: 'status-and-binding',
-          title: '状态、绑定和凭证分别控制什么',
-          table: { columns: ['控制项', '作用', '常见误区'], rows: [
-            ['Agent 状态', 'active 才应承接正式运行；disabled 或 draft 不代表已删除', '禁用状态不能用删除或凭证吊销来推断'],
-            ['Skill 绑定', '定义该 Agent 被允许加载的 Skill 范围', 'Skill 已批准不等于所有 Agent 都可加载'],
-            ['Agent 运行凭证', '从凭证中建立可信 Agent 身份并授予运行权限', '请求 metadata.agent_id 不能替代凭证绑定'],
-            ['默认模型', '为 Agent 档案提供默认模型选择', '仍需要凭证具备 model:chat 且模型可用'],
-          ] },
-          link: { path: '/docs/credential-management', label: '阅读统一凭证中心' },
-        },
-        {
-          id: 'credential-types',
-          title: '按调用主体选择凭证',
-          table: {
-            columns: ['凭证', '用途'],
-            rows: [
-              ['Agent 运行凭证', '验签、加载许可和 Tool 调用检查'],
-              ['Scanner 接入凭证', '客户侧提交和读取自己的扫描结果'],
-              ['Client 接入凭证', '桌面客户端注册、心跳、任务和事件上报'],
-              ['大模型凭证', '应用通过模型网关调用大模型'],
-              ['MCP 网关凭证', 'MCP Client访问授权网关和Tool'],
-            ],
-          },
-          callout: { type: 'warning', title: '凭证明文只展示一次', body: '丢失后不能再次查看原文，应吊销并重新创建。不要在截图、文档或代码仓库中保存真实凭证。' },
-        },
-        {
-          id: 'next-runtime',
-          title: '下一步：按产品形态接入',
-          paragraphs: ['自研 Agent 推荐直接在 Loader、Tool Dispatcher 和生命周期代码中接入 Runtime API。无法修改运行时的现成产品使用 Agent Manager Client 或该产品已支持的配置方式。'],
-          link: { path: '/docs/runtime-integration', label: '阅读自研 Agent 运行校验接入' },
-        },
-      ],
-    },
+    'agent-management': agentRegistrationGuides['zh-CN'],
     'runtime-integration': {
       eyebrow: '功能指南',
-      title: 'Agent 运行校验接入（自研 Agent）',
-      summary: '推荐用于能够修改源码和真实执行链路的自研 Agent，在 Skill 加载、Tool 调用和运行轨迹中直接接入治理接口。',
+      title: '智能体登记与运行接入',
+      summary: '区分平台登记和客户端发现，按场景选择接入方式，再完成凭证、运行端配置及调用验证。',
       sections: [
+        ...agentIntegrationChoices['zh-CN'],
+        {
+          id: 'registration-start', title: '从创建智能体继续',
+          paragraphs: ['上表确认需要手动登记时，按创建指南填写表单；已有身份直接复用。保存后，在“接入与运行”选择本次用途和当前 Agent，再创建运行凭证并配置实际运行端。普通应用使用对应网关凭证；客户端和 Scanner 按各自指引继续。'],
+          link: { path: '/docs/agent-management', label: '查看创建步骤、字段说明和填写示例' },
+        },
+        {
+          id: 'skill-verifier', title: 'Agent Skill Verifier：从身份到首次验证',
+          paragraphs: ['适用于支持本地 Skill 指令和脚本执行的 Agent。Verifier 依赖 Agent 执行脚本；需要强制拦截时，将校验接入真实 Loader、Hook 或 SDK。模型和 MCP 分别配置。'],
+          steps: [
+            { title: '选择已有身份或登记身份', body: '在接入与运行选择 Agent Skill Verifier。客户端已经发现的 Agent 复用现有身份；其他运行端可登记平台身份。启用身份，将扫描批准的 Skill 授权给它，并在本地准备同一批准版本。' },
+            { title: '创建运行凭证', body: '指引带入当前 Agent，仅建议 runtime:verify-signature 与 runtime:can-load。明文只展示一次，保存后返回指引。已有凭证需核对状态、有效期和绑定身份。' },
+            { title: '安装与配置', body: '下载 ZIP，在 Agent 所在机器安装到实际 Skill 目录。选择 Codex、Claude Code 或自定义目录，按页面 Bash / zsh 模板执行；Windows 手动解压并配置同名环境变量。准备 Python 3，将 AGENT_MANAGER_VERIFIER_BASE_URL、AGENT_MANAGER_AGENT_RUNTIME_TOKEN、AGENT_ID 和 AGENT_MANAGER_VERIFIER_LANG 配置到实际 Agent 启动环境。跨机器使用可达的服务地址。终端 export 不会自动传给已经启动的桌面应用。' },
+            { title: '配置宿主执行方式', body: '从宿主发现的 Verifier 目录解析脚本绝对路径，并为路径加引号。校验必须是独立工具调用，直接读取 Python 退出码，不在命令后追加 echo 等会覆盖退出码的命令。Codex 的 exec_command 显式设置 login: false，使用本次启动环境；确认环境过滤规则允许运行凭证传入，网络策略允许访问平台。凭证缺失时停止，不从旧会话补回，也不输出凭证明文。' },
+            { title: '首次验证并核对审计', body: 'verify --path 指向包含 SKILL.md 的单个 Skill 目录。确认退出码 0，并在运行审计按当前 Agent ID 核对本次验签和加载结果；非零退出码停止加载。再在真实 Agent 会话确认每次使用前确实执行校验。' },
+          ],
+          callout: { type: 'note', title: '提交扫描是可选的独立操作', body: '已有批准版本直接 verify。需要上传时可使用平台提交页或 Scanner；Verifier submit / status 分别需要 scanner:submit / scanner:read-own-results，通过独立的 AGENT_MANAGER_SCANNER_TOKEN 配置。verify 无需 Scanner 凭证，也不自动执行 check-tool。' },
+          link: { path: '/runtime?scenario=verifier', label: '打开 Verifier 接入指引' },
+        },
+        {
+          id: 'verifier-host-acceptance', title: 'Verifier 实际宿主验收',
+          paragraphs: ['使用测试 Agent、绑定的运行凭证和已批准的测试 Skill，在同一宿主会话中依次执行下列场景。首次明确每次使用前先验证的规则，后续再次请求使用目标 Skill，检查是否产生新的 Verifier 调用。Codex 可通过明确的会话 ID 恢复历史；测试缺少凭证时，须从移除变量后的新启动环境恢复，外部终端修改变量不会自动改变已启动进程。', '确认宿主实际发现并读取了安装后的 Verifier 指令。Codex 支持项目级 .agents/skills/；也可按实际宿主配置选择安装目录。若模型服务拒绝过旧的 CLI，先使用兼容版本，模型请求失败不属于平台校验结果。'],
+          table: {
+            columns: ['场景', '预期行为', '平台审计'],
+            rows: [
+              ['首次使用', '新校验退出码为 0 后，才读取目标并执行业务。', '验签成功、加载许可。'],
+              ['重复使用', '必须重新校验，成功后再执行；不复用上次成功结果。', '新增本轮验签与加载许可。'],
+              ['本地内容篡改', '校验非零退出，不再读取或执行目标。', '内容篡改拒绝。'],
+              ['恢复批准版本', '再次校验成功后恢复业务执行。', '新增验签成功、加载许可。'],
+              ['缺少运行凭证', '配置检查失败，停止本次使用。', '可能在请求前停止，无 Skill 审计。'],
+              ['凭证吊销', '重新校验时被鉴权拒绝，停止本次使用。', '可能在鉴权层停止，无 Skill 审计。'],
+            ],
+          },
+          callout: { type: 'note', title: '以工具结果和实际行为判断', body: '保留脱敏工具调用、Verifier 退出码、业务执行记录，并按 Agent ID、时间和 Skill 核对审计。宿主正常报告拒绝时，Codex / Claude Code 整体退出码仍可能为 0。失败轮次应无后续目标读取或执行；Verifier 自身读取文件计算摘要不属于继续加载。有限场景通过只证明当前版本、模型、规则和配置下的行为，强制保障仍须接入 Loader / Hook / SDK。' },
+        },
+        {
+          "id": "registration-and-discovery",
+          "title": "先区分记录来源与运行端",
+          "paragraphs": [
+            "平台创建为外部 Agent 程序登记治理身份，并配置模型访问与 Skill 授权。任务由实际 Agent 程序执行。客户端发现来自 Agent Manager Client 自动登记与清单上报，本机 Agent 继续在原产品中运行。",
+            "模型、Skill、MCP 和轨迹是可组合的接入能力，记录来源不决定只能使用其中一种。"
+          ],
+          "link": {
+            "path": "/agents",
+            "label": "打开智能体管理"
+          }
+        },
+        {
+          "id": "scenario-routing",
+          "title": "按使用场景选择接入方式",
+          "table": {
+            "columns": [
+              "场景",
+              "接入方式",
+              "运行端操作"
+            ],
+            "rows": [
+              [
+                "自研 Agent / 框架",
+                "绑定 Agent 的运行凭证 + Runtime API / SDK",
+                "在真实 Loader、工具执行位置接入检查，按需增加模型 / MCP / 轨迹"
+              ],
+              [
+                "电脑上已有 Agent",
+                "Agent Manager Client",
+                "连接、自动发现、清单上报，配置支持的模型 / Skill / Hook / 日志"
+              ],
+              [
+                "应用接入模型网关",
+                "Agent 运行凭证含 model:chat；普通应用用模型调用凭证",
+                "配置网关地址、凭证、模型和兼容协议"
+              ],
+              ["支持本地 Skill 指令的 Agent", "Agent Skill Verifier + Agent 运行凭证", "安装到宿主 Skill 目录，配置环境，执行 verify 并核对运行审计；依赖 Agent 实际调用"],
+              [
+                "应用接入 MCP 网关",
+                "Agent 运行凭证含 MCP 权限；普通应用用 MCP 网关凭证",
+                "限制允许的虚拟网关，在运行端配置连接地址"
+              ]
+            ]
+          },
+          "link": {
+            "path": "/runtime",
+            "label": "选择接入场景"
+          }
+        },
+        {
+          "id": "after-registration",
+          "title": "登记后按所选能力完成接入",
+          "steps": [
+            {
+              "title": "保存并打开当前 Agent 指引",
+              "body": "在智能体管理登记基本信息、模型访问、Skill 授权和可选的 MCP 网关。保存后进入接入指引，列表与详情也可重新打开。可用操作取决于账号权限。"
+            },
+            {
+              "title": "创建运行凭证",
+              "body": "选择本次需要的能力，进入统一凭证中心确认绑定 Agent、权限和资源范围。明文只展示一次，保存后返回接入指引。"
+            },
+            {
+              "title": "配置模型与 Skill 加载",
+              "body": "内置模型配置平台网关地址、凭证、模型名和兼容协议。外部模型先从 GET /api/v1/runtime/external-model/credential 领取配置，再使用返回的 model_base_url、model、api_key 直连外部网关。Skill 在运行端安装，并在加载前验签和检查授权。"
+            },
+            {
+              "title": "发起真实调用并核对记录",
+              "body": "分别检查内置模型 Pipeline Trace、外部网关审计、Skill 运行审计、MCP 审计和启用后由 SDK 上报的调用轨迹。Skill 审计的 Agent ID 搜索是关键词检索，需核对每条记录的实际身份。"
+            }
+          ],
+          "callout": {
+            "type": "note",
+            "title": "配置状态与调用证据分别核对",
+            "body": "关联凭证只证明记录存在，须检查有效期、状态和权限。复制模板、保存配置或发现 Agent 都不能证明运行调用成功。"
+          }
+        },
+        {
+          id: 'agent-mcp-access', title: '为智能体配置 MCP 工具访问',
+          paragraphs: ['在智能体创建或编辑页多选已启用的 MCP 网关，通过“查看工具”核对当前发布的工具、来源服务和审批要求。去配置网关的链接在新标签页打开，原表单草稿保留。', '运行凭证只能授权该 Agent 允许网关的子集。选择 MCP 能力后，接入指引提供独立的“连接 MCP 工具”步骤：配置每个网关地址、Streamable HTTP 和 Authorization 请求头，在运行端读取工具列表，再按需试用工具。'],
+          code: 'URL: https://agent-manager.example.com/mcp/<gateway_slug>\nTransport: Streamable HTTP\nAuthorization: Bearer <AGENT_RUNTIME_TOKEN>',
+          bullets: ['高风险工具审批支持 Agent 运行凭证和普通 MCP 网关凭证。审批和实际调用都会检查 Agent 当前允许的网关范围。'],
+          callout: { type: 'note', title: '授权与证据', body: '新增 Agent 网关不会扩大旧凭证权限；移除网关或停用 Agent 会限制后续请求。详情分别展示配置、有效凭证权限覆盖和最近工具调用。新记录保存调用时身份；历史未记录身份的调用保留在全局审计中。升级只从有效运行凭证回填一次 Agent 范围，后续启动不会恢复已移除的授权。' },
+          link: { path: '/agents', label: '配置智能体 MCP' },
+        },
         {
           id: 'integration-choice',
           title: '先确认是否适合直接接入',
-          paragraphs: ['本方案的前提是开发团队能够控制 Agent 的 Skill Loader、Tool Dispatcher 和运行生命周期。这样平台校验才能放在真实执行点，而不是依赖人工操作。'],
+          paragraphs: ['直接接入 Runtime API 推荐用于能够控制 Skill Loader、Tool Dispatcher 和运行生命周期的自研 Agent。将平台校验放在真实执行点，校验通过后再加载或执行。'],
           table: {
             columns: ['运行形态', '建议方案', '原因'],
             rows: [
@@ -1364,7 +1411,7 @@ const zh = {
               ['无法修改运行时代码的现成产品', '使用 Agent Manager Client 或产品已支持的配置方式', '直接接入无法保证校验发生在真实执行路径'],
             ],
           },
-          callout: { type: 'note', title: '推荐对象是自研 Agent', body: '如果不能控制真实 Loader 和 Tool 调度器，不建议按本页方式改造。客户端负责本地发现、配置下发、Skill 安装和持续巡检。' },
+          callout: { type: 'note', title: '推荐对象是自研 Agent', body: '控制真实 Loader 和 Tool 调度器时，可以直接接入 Runtime API。电脑上的现成 Agent 可选择客户端路线，完成本地发现、配置下发、Skill 安装和持续巡检。' },
         },
         {
           id: 'verifier-setup',
@@ -1421,7 +1468,7 @@ const zh = {
             ['平台不可达或凭证失效', '按生产策略阻断或进入明确降级状态', 'Agent 结果、服务日志和平台审计口径一致'],
           ] },
           paragraphs: ['完整验收应同时保留自研 Agent 的调用结果、服务日志、平台运行审计和 Runtime Trace。仅在管理台创建 Agent 或签发凭证，不代表运行校验已经接入。'],
-          link: { path: '/runtime', label: '打开接入与运行审计' },
+          link: { path: '/runtime?tab=records', label: '打开接入与运行审计' },
         },
       ],
     },
@@ -1514,7 +1561,7 @@ const zh = {
             ],
           },
           bullets: ['同时核对Agent界面结果、本地Hook日志和平台运行审计，不能只看其中一个。', '至少演练允许、内容篡改、未授权、平台不可达和未命中事件五种情况。', '先在单一测试项目启用，再推广到用户级或企业模板。'],
-          link: { path: '/runtime', label: '打开接入与运行审计' },
+          link: { path: '/runtime?tab=records', label: '打开接入与运行审计' },
         },
       ],
     },
@@ -1833,6 +1880,7 @@ const zh = {
       title: '统一凭证中心',
       summary: '先回答“谁会使用这张凭证”，再配置它能访问的模型、MCP 网关和接口；原始 scope 与容量限制放在高级设置中。',
       sections: [
+        { id: 'guide-return', title: '从 Agent 接入指引继续', paragraphs: ['从接入指引进入时，页面带入 Agent 身份和本次选择的建议权限；仍需确认允许模型或 MCP 网关。保存一次性明文后点击“返回接入指引”，继续配置运行端。仅创建凭证不会标记接入完成。'] },
         {
           id: 'choose-caller',
           title: '不要先猜凭证类型，先选真实调用者',
@@ -2304,10 +2352,10 @@ const en = {
       { subgroup: 'MCP governance', slug: 'mcp-governance', title: 'MCP governance', summary: 'Servers, gateways, approvals, and audits' },
     ] },
     { title: 'Agent management', items: [
-      { slug: 'agent-management', title: 'Agent management', summary: 'Agent records, capability bindings, and credentials' },
+      { slug: 'agent-management', title: 'Create and manage Agents', summary: 'Decide when to register, choose an integration, then complete the form' },
       { slug: 'client-management', title: 'Client management', summary: 'Local Agent discovery, Skill delivery, and continuous inspection' },
       { slug: 'credential-management', title: 'Credential center', summary: 'Issue least-privilege credentials by caller' },
-      { slug: 'runtime-integration', title: 'Access and runtime', summary: 'Custom Agent loading, Tool checks, and runtime tracing' },
+      { slug: 'runtime-integration', title: 'Access and runtime', summary: 'Registration, discovery, scenario selection and runtime setup' },
       { slug: 'hook-integration', title: 'Hook integration', summary: 'Configure event enforcement for Claude Code, Codex, and OpenClaw' },
       { slug: 'agent-security-runtime', title: 'AI security and runtime traces', summary: 'Agent, MCP, LLM, and AI infrastructure assessments, Worker operations, evidence, and unified traces' },
       { slug: 'audit-trail', title: 'Audit trail', summary: 'Query Skill, Agent, Client, and Tool events' },
@@ -2348,7 +2396,7 @@ const en = {
       ],
       sections: [
         { id: 'what-it-does', title: 'What the platform does', paragraphs: ['Agent Manager is not only a Skill registry. It governs Agent Skills, local capability delivery, model integration relationships and built-in gateway traffic, and externally exposed MCP Tools.'], bullets: ['Scan, decide, review, and sign Skills before use, then revalidate changed content.', 'Give Agents least-privilege bindings and credentials; use Clients to discover, deliver, restore, or quarantine local Skills.', 'The built-in model gateway applies access control, Prompt protection, privacy replacement, optional token compression, and usage analysis. External-gateway mode manages connections, external Agents, and API-key mapping while model traffic bypasses the built-in proxy.', 'Publish selected MCP Tools through gateways with time-bound high-risk approvals and audits.'] },
-        { id: 'system-architecture', title: 'System architecture', paragraphs: ['A unified entry connects administrators, Scanners, Agents and Clients, model applications, and MCP Clients. The governance control plane centralizes policy, identity, authorization, and audit, while separate runtime data planes enforce Skill admission, endpoint governance, model privacy processing, and MCP Tool controls.'], bullets: ['Skill evidence from rules, deep scan, optional Sandbox, and LLM analysis reaches policy before an admission state is decided.', 'The Client governs local Skill content; Verifier or Hooks check digest and authorization before an Agent loads it.', 'Built-in model traffic passes credential and model scope, Prompt protection, PII pseudonymization, and optional compression. External-gateway traffic goes directly from the Agent or Client to the customer gateway while the platform manages connection and identity mapping.', 'MCP callers reach only published Tools; high-risk Tools require time-bound approval before execution.', 'Registry records, reports, tasks, traces, and signed security audit form an evidence chain across every domain.'], diagram: 'architecture', callout: { type: 'note', title: 'Control plane and execution boundaries', body: 'The platform controls admission, authorization, routing, and evidence. Agents still load local Skill directories, Sandbox runs dynamic checks in isolation, and upstream models and MCP Servers remain external runtime dependencies.' } },
+        { id: 'system-architecture', title: 'System architecture', paragraphs: ['A unified entry connects administrators, Scanners, Agents and Clients, model applications, and MCP Clients. The governance control plane centralizes policy, identity, authorization, and audit. Runtime capabilities cover Skill admission, endpoint governance, model privacy processing, MCP Tool controls, and AIDR runtime audit and protection.'], bullets: ['Skill evidence from rules, deep scan, optional Sandbox, and LLM analysis reaches policy before an admission state is decided.', 'The Client governs local Skill content; Verifier or Hooks check digest and authorization before an Agent loads it.', 'Built-in model traffic passes credential and model scope, Prompt protection, PII pseudonymization, and optional compression. External-gateway traffic goes directly from the Agent or Client to the customer gateway while the platform manages connection and identity mapping.', 'MCP callers reach only published Tools; high-risk Tools require time-bound approval before execution.', 'AIDR collects Agent logs, Hooks and system events through clients and correlates sessions and runtime evidence on the platform. Policies and approvals return to supported host or OS enforcement points; coverage depends on adapters, permissions and effective policy.', 'Registry records, reports, tasks, traces, AIDR runtime evidence and security audit support cross-domain investigation.'], diagram: 'architecture', link: { path: '/docs/aidr-overview#architecture', label: 'Explore the detailed AIDR architecture and control boundaries' }, callout: { type: 'note', title: 'Control plane and execution boundaries', body: 'The platform controls admission, authorization, routing, and evidence. Agents still load local Skill directories, Sandbox runs dynamic checks in isolation, and upstream models and MCP Servers remain external runtime dependencies.' } },
         { id: 'capability-map', title: 'Choose a feature by goal', table: { columns: ['Goal', 'Module'], rows: [['Choose an integration by product and runtime', { label: 'Scenario selection', path: '/docs/scenario-selection' }], ['Submit and scan a Skill', { label: 'Skill governance / Submit Skill', path: '/docs/skill-governance' }], ['Batch-import Skills from a host or CI', { label: 'Scanner access', path: '/docs/scanner-access' }], ['Choose scan methods and interpret results', { label: 'Skill scanning capabilities', path: '/docs/scan-capabilities' }], ['Understand how finding classifications affect final risk', { label: 'Finding classification', path: '/docs/risk-classification' }], ['Configure Skill risk and admission rules', { label: 'Skill policy settings', path: '/docs/skill-policy' }], ['Review a suspicious Skill', { label: 'Skill governance / Skill Review', path: '/docs/skill-governance' }], ['Restrict an Agent to specific Skills', { label: 'Agent management / Bindings and credentials', path: '/docs/agent-management' }], ['Issue least-privilege credentials by caller', { label: 'Credential center', path: '/docs/credential-management' }], ['Add signature and Tool checks to an Agent', { label: 'Agent runtime integration', path: '/docs/runtime-integration' }], ['Configure a Claude Code, Codex, or OpenClaw Hook', { label: 'Hook integration', path: '/docs/hook-integration' }], ['Discover local Agents and Skill roots', { label: 'Client management / Agent Discovery', path: '/docs/client-management' }], ['Deliver, restore, or remove Skills on managed hosts', { label: 'Client management / Console operations', path: '/docs/client-management' }], ['Use a customer AI gateway and obtain models for an Agent', { label: 'External AI gateway', path: '/docs/external-ai-gateway' }], ['Protect private model input', { label: 'Model gateway / Privacy policies', path: '/docs/model-gateway' }], ['Compress model context and measure savings', { label: 'Model gateway / Token compression', path: '/docs/model-gateway' }], ['Analyze token usage by user', { label: 'Model gateway / User token analytics', path: '/docs/model-gateway' }], ['Audit anomalous Skills declared in model calls', { label: 'Model gateway / Skill Alerts', path: '/docs/model-gateway' }], ['Publish and audit MCP Tools', { label: 'MCP governance / Servers and gateways', path: '/docs/mcp-governance' }], ['Trace Skill, Agent, Client, and Tool events', { label: 'Audit trail', path: '/docs/audit-trail' }]] } },
       ],
     },
@@ -3094,27 +3142,136 @@ const en = {
         { id: 'audit', title: 'Approvals and call audits', paragraphs: ['The first high-risk call returns an approval request; it has not executed successfully. Approval details show masked arguments by default. Revealing raw arguments creates a security audit event. Approved credentials may call the same Tool and Schema during the validity window.'], bullets: ['A denied or expired approval requires a new request.', 'A Tool Schema change is not covered by old authorization; save the gateway and review the new definition.', 'Approved does not mean upstream execution succeeded. Confirm the outcome in Call Audit.'], link: { path: '/mcp-governance/approvals', label: 'Open Call Approvals' } },
       ],
     },
-    'agent-management': {
-      eyebrow: 'Feature guide', title: 'Agent management', summary: 'View Agents by source: platform-created details focus on models, Skills, and access, while Client-discovered details focus on local instances and actual runtime state.',
-      sections: [
-        { id: 'source-specific-details', title: 'Start with Agent source', paragraphs: ['The Agent list combines platform-created records with local Agents discovered by managed Clients. A discovered local Agent is registered automatically and appears as its own asset.'], steps: [{ title: 'Filter by source', body: 'Use Platform-created for custom runtimes and server-side products such as Dify, and Client-discovered for local tools.' }, { title: 'Review platform-created details', body: 'Review the platform Agent ID, assigned Skills, default model, gateway source, runtime credential, and access state.' }, { title: 'Review Client-discovered details', body: 'Review the local Agent ID, owning Client, install and Skill paths, discovered Skills, live model configuration, the specific external gateway name, and scan time.' }, { title: 'Manage locally through the Client', body: 'Model configuration, Skill installation, quarantine, recovery, and inspection tasks are delivered to the owning Client.' }], callout: { type: 'note', title: 'Stable identity is registered automatically', body: 'The platform stores a stable identity for every Client-discovered Agent for policy, credentials, and audit. Asset facts continue to follow reports from the owning Client.' }, image: { name: 'agent-assets-list', alt: 'Agent assets separated by platform-created and Client-discovered source', caption: 'Current UI with example data: Client-discovered rows show the owner department and actual local state.' }, link: { path: '/agents', label: 'Open Agent assets' } },
-        { id: 'platform-created-detail', title: 'Platform-created details: review configured capabilities', paragraphs: ['Platform-created Agents support custom runtimes and server-side products such as Dify. Their detail view focuses on state, assigned Skills, default model, model source, Agent runtime credential, and ownership.'], image: { name: 'agent-platform-detail', alt: 'Platform-created Agent detail', caption: 'Platform-created details follow platform configuration and can be edited for model, Skills, ownership, and runtime credentials.' } },
-        { id: 'client-discovered-detail', title: 'Client-discovered details: review local facts', paragraphs: ['A discovered Agent is registered automatically by its Client. Its read-only detail view shows the local Agent identity, type and version, owning Client, install and Skill paths, actual model configuration, the specific external gateway name, and discovery evidence. Local governance actions remain under Client management.'], image: { name: 'agent-client-detail', alt: 'Client-discovered Agent detail', caption: 'This read-only asset view follows Client reports; governance actions run from Client management.' } },
-        { id: 'agent-record', title: 'Register the Agent before issuing credentials', steps: [{ title: 'Create an Agent', body: 'Set a stable unique Agent ID, name, department, owner, and state. Runtime Agent ID must match this record.' }, { title: 'Bind capabilities', body: 'Choose the default model and allowed approved or deployed Skills. The list shows the concrete Skill identifier used for the binding.' }, { title: 'Issue a runtime credential', body: 'Create an Agent runtime credential bound to the Agent.' }, { title: 'Configure the runtime', body: 'Give the one-time secret only to that Agent; never use an administrator login token.' }], link: { path: '/agents', label: 'Open Agents' } },
-        { id: 'status-and-binding', title: 'What state, binding, and credential control', table: { columns: ['Control', 'Effect', 'Common mistake'], rows: [['Agent state', 'Only active should carry production use; disabled or draft is not deleted', 'Do not infer state from deletion or credential revocation'], ['Skill binding', 'Defines which Skills this Agent may load', 'An approved Skill is not automatically available to every Agent'], ['Agent runtime credential', 'Establishes trusted Agent identity and runtime scopes', 'Caller metadata.agent_id cannot replace credential binding'], ['Default model', 'Records the Agent default model choice', 'model:chat scope and an enabled model are still required']] }, link: { path: '/docs/credential-management', label: 'Read Credential center' } },
-        { id: 'credential-types', title: 'Choose credentials by caller', table: { columns: ['Credential', 'Purpose'], rows: [['Agent runtime', 'Signature, load, and Tool checks'], ['Scanner access', 'Submit and read owned scan results'], ['Client access', 'Desktop client registration, tasks, and events'], ['LLM Credential', 'Applications call large language models through the model gateway'], ['MCP gateway', 'MCP Client access to allowed gateways and Tools']] }, callout: { type: 'warning', title: 'Secrets are shown once', body: 'If lost, revoke and create a new credential. Never store real secrets in screenshots, docs, or source control.' } },
-        { id: 'next-runtime', title: 'Next: integrate by product shape', paragraphs: ['For a custom Agent, integrate Runtime APIs directly in the Loader, Tool Dispatcher, and lifecycle code. For a packaged product whose runtime cannot be changed, use Agent Manager Client or the product’s supported configuration path.'], link: { path: '/docs/runtime-integration', label: 'Read custom Agent runtime integration' } },
-      ],
-    },
+    'agent-management': agentRegistrationGuides['en-US'],
     'runtime-integration': {
-      eyebrow: 'Feature guide', title: 'Agent runtime integration for custom Agents', summary: 'Recommended for custom Agents whose source and execution path can be changed, with direct governance checks in Skill loading, Tool dispatch, and runtime tracing.',
+      eyebrow: 'Feature guide', title: 'Agent registration and runtime integration', summary: 'Distinguish platform registration from Client discovery, choose an integration, and configure credentials, the runtime and verification.',
       sections: [
+        ...agentIntegrationChoices['en-US'],
+        {
+          id: 'registration-start', title: 'Continue after creating an Agent',
+          paragraphs: ['If the table above calls for manual registration, follow the creation guide; otherwise reuse the existing identity. In Integration & runtime, select the purpose and Agent, issue a runtime credential and configure the runtime. Ordinary apps use the corresponding gateway credentials; Client and Scanner users follow their respective guides.'],
+          link: { path: '/docs/agent-management', label: 'Read creation steps, field guidance and examples' },
+        },
+        {
+          id: 'skill-verifier', title: 'Agent Skill Verifier: from identity to first verification',
+          paragraphs: ['For Agents supporting local Skill instructions and scripts. Verifier depends on the Agent running the script; mandatory enforcement requires a real Loader, Hook or SDK integration. Configure model and MCP access separately.'],
+          steps: [
+            { title: 'Select or register an identity', body: 'Choose Agent Skill Verifier in Integration & Runtime. Reuse an identity already discovered by the Client, or register one for another runtime. Enable it, authorize an approved Skill and prepare the same approved files locally.' },
+            { title: 'Create a runtime credential', body: 'The guide preselects this Agent and suggests only runtime:verify-signature and runtime:can-load. Save the one-time secret, then return to the guide. Check status, expiry and binding before reusing an existing credential.' },
+            { title: 'Install and configure', body: 'Download the ZIP and install into the actual Skill directory on the Agent machine. Choose Codex, Claude Code or a custom directory for Bash / zsh commands; on Windows, extract manually and configure the same variables. Prepare Python 3 and set AGENT_MANAGER_VERIFIER_BASE_URL, AGENT_MANAGER_AGENT_RUNTIME_TOKEN, AGENT_ID and AGENT_MANAGER_VERIFIER_LANG in the actual Agent launch environment. Use a reachable service address across machines. Terminal exports do not propagate to already running desktop apps.' },
+            { title: 'Configure host execution', body: 'Resolve and quote the absolute script path from the Verifier directory discovered by the host. Verify in a separate tool call and inspect the Python exit code directly; do not append echo or other commands that replace it. For Codex exec_command, explicitly set login: false to use the current launch environment. Ensure environment filters pass the runtime credential and network policy allows the platform endpoint. Stop on missing credentials; do not recover them from old sessions or print their values.' },
+            { title: 'Verify and inspect audit', body: 'Point verify --path to one Skill containing SKILL.md. Confirm exit code 0 and match the signature and load decisions in runtime audit by Agent ID. Stop loading on a nonzero exit code. Confirm the real Agent session actually invokes verification before each use.' },
+          ],
+          callout: { type: 'note', title: 'Scanning is a separate optional operation', body: 'Use verify directly for an approved version. Submit through the platform or Scanner when needed. Verifier submit / status require scanner:submit / scanner:read-own-results respectively, using a separate AGENT_MANAGER_SCANNER_TOKEN. verify needs no Scanner credential and does not invoke check-tool.' },
+          link: { path: '/runtime?scenario=verifier', label: 'Open Verifier integration guide' },
+        },
+        {
+          id: 'verifier-host-acceptance', title: 'Verifier host acceptance',
+          paragraphs: ['Use a test Agent, a bound runtime credential and an approved test Skill. Run these cases in the same host session. Establish the verify-before-each-use rule initially, then request the Skill again and check for fresh Verifier calls. Codex can resume history by explicit session ID. For missing-credential testing, resume from a new launch environment with the variable removed; changing variables in another terminal does not alter an already running process.', 'Confirm the host discovers and reads the installed Verifier instructions. Codex supports project-local .agents/skills/; choose the actual configured host directory where appropriate. If the model service rejects an outdated CLI, use a compatible version first. A failed model request is not a platform verification decision.'],
+          table: {
+            columns: ['Case', 'Expected behavior', 'Platform audit'],
+            rows: [
+              ['First use', 'Read the target and run the business action only after a fresh check exits 0.', 'Signature verified and load allowed.'],
+              ['Repeated use', 'Verify again before execution; do not reuse the previous success.', 'New signature and load decisions for this invocation.'],
+              ['Local tampering', 'Nonzero verification exit; no subsequent target read or execution.', 'Tampering detected and rejected.'],
+              ['Restore approved files', 'Verify again successfully before resuming business execution.', 'New signature verified and load allowed events.'],
+              ['Missing runtime credential', 'Configuration check fails; stop this use.', 'May stop before a request, with no Skill audit event.'],
+              ['Revoked credential', 'Fresh verification is denied during authentication; stop this use.', 'May stop at authentication, with no Skill audit event.'],
+            ],
+          },
+          callout: { type: 'note', title: 'Judge tool results and actual behavior', body: 'Retain redacted tool calls, Verifier exit codes and business execution records, and correlate audit by Agent ID, time and Skill. Codex / Claude Code may exit 0 after correctly reporting refusal. Denied turns must not continue reading or executing the target; Verifier reading files to calculate a digest is part of verification. Finite passing cases establish behavior only for the tested version, model, rules and configuration. Mandatory enforcement still requires a Loader / Hook / SDK.' },
+        },
+        {
+          "id": "registration-and-discovery",
+          "title": "Distinguish record sources from runtimes",
+          "paragraphs": [
+            "Platform-created records register governance identities for external Agent programs, with model access and Skill permissions. The actual Agent program executes tasks. Client-discovered records come from automatic Client registration and inventory reports; local Agents continue running in their original products.",
+            "Model, Skill, MCP and trace capabilities can be combined independently of record source."
+          ],
+          "link": {
+            "path": "/agents",
+            "label": "Open Agents"
+          }
+        },
+        {
+          "id": "scenario-routing",
+          "title": "Choose integration by use case",
+          "table": {
+            "columns": [
+              "Scenario",
+              "Integration",
+              "Runtime action"
+            ],
+            "rows": [
+              [
+                "Custom Agent / framework",
+                "Agent-bound runtime credential + Runtime API / SDK",
+                "Add checks at the real Loader and tool execution boundaries; add model, MCP and trace capabilities as needed"
+              ],
+              [
+                "Agent on a computer",
+                "Agent Manager Client",
+                "Connect, discover and report inventory; configure supported models, Skills, Hooks and logs"
+              ],
+              [
+                "Model gateway for an app",
+                "Agent runtime credential with model:chat; model credential for ordinary apps",
+                "Configure endpoint, credential, model and compatible protocol"
+              ],
+              ["Agent supporting local Skill instructions", "Agent Skill Verifier + Agent runtime credential", "Install in the host Skill directory, configure the environment, run verify and inspect audit; depends on actual Agent invocation"],
+              [
+                "MCP gateway for an app",
+                "Agent runtime credential with MCP scopes; MCP credential for ordinary apps",
+                "Restrict allowed virtual gateways and configure the runtime connection URL"
+              ]
+            ]
+          },
+          "link": {
+            "path": "/runtime",
+            "label": "Choose an integration scenario"
+          }
+        },
+        {
+          "id": "after-registration",
+          "title": "Continue from registration to runtime verification",
+          "steps": [
+            {
+              "title": "Save and open the Agent guide",
+              "body": "Register basic information, model access, Skill permissions and optional MCP gateways. Saving opens the guide; reopen it from the list or details. Actions depend on account permissions."
+            },
+            {
+              "title": "Create a runtime credential",
+              "body": "Select capabilities, then confirm Agent binding, scopes and resource limits in Credential Center. Save the one-time secret and return to the guide."
+            },
+            {
+              "title": "Configure models and Skill loading",
+              "body": "For internal models configure the platform gateway, credential, model and compatible protocol. For external models retrieve configuration via GET /api/v1/runtime/external-model/credential, then use the returned model_base_url, model and api_key to call that gateway directly. Install Skill files in the runtime and verify signatures and authorization before loading."
+            },
+            {
+              "title": "Make real calls and inspect records",
+              "body": "Check internal model Pipeline Trace, external gateway audit, Skill runtime audit, MCP audit and SDK traces when enabled. Agent ID in Skill audit is a keyword search; verify each result’s actual identity."
+            }
+          ],
+          "callout": {
+            "type": "note",
+            "title": "Inspect configuration and runtime evidence separately",
+            "body": "A credential link proves a record exists. Check its status, expiry and scopes. Copied templates, saved configuration and Agent discovery do not prove successful runtime calls."
+          }
+        },
+        {
+          id: 'agent-mcp-access', title: 'Configure Agent MCP tool access',
+          paragraphs: ['Select active MCP gateways when registering or editing an Agent. View tools to inspect current published tools, source servers and approval requirements. Gateway configuration opens in a new tab to retain the form draft.', 'Runtime credentials may grant only a subset of the Agent gateways. Selecting MCP adds a Connect MCP tools step: configure each gateway URL, Streamable HTTP and the Authorization header in the runtime, list tools, then try an appropriate tool as needed.'],
+          code: 'URL: https://agent-manager.example.com/mcp/<gateway_slug>\nTransport: Streamable HTTP\nAuthorization: Bearer <AGENT_RUNTIME_TOKEN>',
+          bullets: ['High-risk tool approvals support Agent runtime credentials and ordinary MCP gateway credentials. Approval and execution both check the Agent’s current gateway grants.'],
+          callout: { type: 'note', title: 'Authorization and evidence', body: 'Adding Agent gateways does not widen existing credentials. Removing a gateway or disabling the Agent limits subsequent requests. Details separates configuration, valid credential coverage and recent calls. New records retain identity at call time; historical calls without an identity remain in global audit. Upgrade backfills Agent scopes from valid runtime credentials once; later startups do not restore removed grants.' },
+          link: { path: '/agents', label: 'Configure Agent MCP' },
+        },
         {
           id: 'integration-choice',
           title: 'Confirm that direct integration is appropriate',
           paragraphs: ['This path assumes the development team controls the Agent Skill Loader, Tool Dispatcher, and runtime lifecycle. That is what allows checks to run at the real execution boundary.'],
           table: { columns: ['Runtime shape', 'Recommended path', 'Reason'], rows: [['Custom Agent Runtime or server-side Agent', 'Integrate Runtime APIs or a wrapper SDK', 'Checks can be enforced before load, before Tool execution, and across Turn/Step events'], ['Extensible internal workflow engine', 'Integrate in the owned executor or middleware', 'Stable Agent, Skill, Tool, and correlation IDs can be propagated'], ['Packaged product whose runtime cannot be changed', 'Use Agent Manager Client or the product’s supported configuration path', 'Direct integration cannot guarantee that checks run on the real execution path']] },
-          callout: { type: 'note', title: 'Recommended for custom Agents', body: 'Do not use this page as the primary integration path when the real Loader and Tool dispatcher are outside your control. The Client handles local discovery, configuration delivery, Skill installation, and continuous inspection.' },
+          callout: { type: 'note', title: 'Recommended for custom Agents', body: 'Integrate Runtime APIs directly when you control the Loader and Tool dispatcher. For packaged local Agents, choose the Client route for discovery, configuration delivery, Skill installation and continuous inspection.' },
         },
         {
           id: 'verifier-setup',
@@ -3149,7 +3306,7 @@ const en = {
           id: 'acceptance', title: 'Step 4: complete integration acceptance',
           table: { columns: ['Test case', 'Expected result', 'Evidence'], rows: [['Approved, bound, unchanged Skill', 'Allow load', 'verify-signature and can-load both return allowed=true'], ['Changed local content', 'Block load', 'Signature mismatch and executable code never enters the Loader'], ['Unbound or non-loadable Skill', 'Block load', 'Stable denial reason and platform audit'], ['Unauthorized Tool', 'Block before execution', 'check-tool denies and the Tool causes no side effect'], ['Unreachable platform or invalid credential', 'Block or enter an explicit production fallback state', 'Agent result, service log, and platform audit are consistent']] },
           paragraphs: ['Keep the custom Agent result, service log, platform Runtime Audit, and Runtime Trace as the complete acceptance evidence. Creating an Agent record or issuing a credential does not establish that runtime checks are integrated.'],
-          link: { path: '/runtime', label: 'Open Access & Runtime audit' },
+          link: { path: '/runtime?tab=records', label: 'Open Access & Runtime audit' },
         },
       ],
     },
@@ -3161,7 +3318,7 @@ const en = {
         { id: 'claude-trae', title: 'Connect Claude Code and evaluate TraeCode', paragraphs: ['Use demo/claude-code-api-hook/agent_guard_hook.py for Claude Code. It calls platform APIs with an Agent runtime credential and never needs the server signing private key. For TraeCode, treat this script only as an unvalidated adapter starting point.'], steps: [{ title: 'Install dependencies', body: 'Run this in the skill-manager source directory so the Python used by the Hook can import httpx and dotenv.', code: 'python3 -m pip install -e ".[dev]"' }, { title: 'Inject the runtime identity', body: 'All three values must resolve to the same platform Agent. Use shell or service configuration in production and keep the real token out of the repository.', code: 'export AGENT_MANAGER_BASE_URL="https://agent-manager.example.com"\nexport AGENT_MANAGER_API_TOKEN="amat_xxx"\nexport AGENT_ID="your-agent-id"' }, { title: 'Configure Claude Code PreToolUse', body: 'Claude Code uses project .claude/settings.json or user ~/.claude/settings.json. The script command must use an absolute path.', code: '{\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "",\n      "hooks": [{\n        "type": "command",\n        "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"\n      }]\n    }]\n  }\n}' }, { title: 'Configure an unvalidated TraeCode Hook', body: 'TraeCode uses project .trae/hooks.json or, on macOS/Linux, user ~/.trae-cn/hooks.json. Native configuration requires version: 1. This is a protocol adapter candidate, not a configuration that has passed real-instance acceptance.', code: '{\n  "version": 1,\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "Skill",\n      "hooks": [{\n        "type": "command",\n        "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py",\n        "timeout": 30\n      }]\n    }]\n  }\n}' }, { title: 'Run real acceptance separately', body: 'Exercise an authorized Skill, changed content, revoked authorization, and an unreachable platform in a new target-Agent session. For TraeCode, also confirm the real Skill tool_input shape, environment visibility, and exit-code-2 behavior.', expected: 'Claude Code should produce Agent UI, Hook log, and Runtime Audit evidence. Keep TraeCode marked unvalidated until the same evidence chain is complete.' }], references: [{ label: 'Claude Code: Hooks quickstart', url: 'https://code.claude.com/docs/en/hooks-guide' }, { label: 'Claude Code: Hooks reference', url: 'https://code.claude.com/docs/en/hooks' }, { label: 'Claude Code: Permissions and PreToolUse hooks', url: 'https://code.claude.com/docs/en/permissions' }, { label: 'TRAE: Automate actions with Hooks', url: 'https://docs.trae.cn/ide_automate-actions-with-hooks' }, { label: 'TRAE: Hook configuration reference', url: 'https://docs.trae.cn/ide_hook-configuration-reference' }, { label: 'TRAE CN: Changelog', url: 'https://docs.trae.cn/ide_changelog' }] },
         { id: 'codex', title: 'Connect Codex', steps: [{ title: 'Prepare an environment file outside the repository', body: 'Copy the example, then set the platform URL, Agent runtime credential, and bound Agent ID. Never commit this file.', code: 'mkdir -p ~/.agent-manager\ncp demo/codex-agent-manager-hook/codex-agent-manager-hook.env.example \\\n  ~/.agent-manager/codex-agent-manager-hook.env' }, { title: 'Configure governed roots', body: 'The Hook always checks project and user .agents/skills, ~/.codex/skills, and /etc/codex/skills when present. AGENT_MANAGER_CODEX_SKILLS_DIRS adds plugin or custom roots without disabling defaults.' }, { title: 'Install the Hook configuration', body: 'Copy the example to project .codex/hooks.json or merge it into ~/.codex/hooks.json, then replace the Python script and environment-file paths with absolute paths.', code: 'mkdir -p .codex\ncp demo/codex-agent-manager-hook/hooks.json.example .codex/hooks.json' }, { title: 'Review and validate', body: 'Restart Codex or create a new task, run /hooks in Codex CLI, and trust the Hook. A supported Tool call should return permissionDecision=deny when any governed Skill is unapproved, unbound, or modified; it should pass after correction.' }], callout: { type: 'warning', title: 'Codex coverage boundary', body: 'The current Codex PreToolUse example is fail-closed for calls it can intercept, but it does not cover every Shell, WebSearch, or other Tool path. It does not replace OS sandboxing, plugin trust, or controlled Skill deployment.' }, references: [{ label: 'OpenAI Docs: Codex Hooks', url: 'https://learn.chatgpt.com/docs/hooks' }, { label: 'OpenAI Docs: Codex configuration reference', url: 'https://learn.chatgpt.com/docs/config-file/config-reference' }] },
         { id: 'openclaw', title: 'Connect OpenClaw', steps: [{ title: 'Capture a real payload first', body: 'Install the payload recorder in demo/openclaw-agent-manager-hook, trigger agent:bootstrap, and inspect ~/.openclaw/logs/hook-payloads.jsonl.' }, { title: 'Adapt load verification', body: 'Use the real event to tighten discoverVisibleSkills and resolveSkillNameFromContext, then install the internal Hook as a managed Hook.' }, { title: 'Connect Tool checks', body: 'before_tool_call is not an internal Hook event. Integrate plugin-hooks.ts into the real OpenClaw plugin project and call check-tool. Map session identity to a stable platform Agent ID.' }], callout: { type: 'warning', title: 'Not a turnkey integration yet', body: 'The OpenClaw example is a skeleton. Do not claim enforced Skill-load and Tool-call coverage until it has been adapted and tested against the target OpenClaw event and plugin APIs.' } },
-        { id: 'verify-troubleshoot', title: 'Acceptance tests and troubleshooting', table: { columns: ['Scenario', 'Expected result', 'Check first'], rows: [['Approved, bound, unchanged Skill', 'Allow', 'Agent ID, credential binding, Skill path, and digest'], ['Modified Skill content', 'Block', 'Consistent signature ignore sets; exclude .DS_Store on macOS'], ['Skill not bound or wrong credential', 'Block', 'Agent bindings, credential type, state, and scopes'], ['Platform unreachable or credential expired', 'Declared fail-closed paths block', 'URL, proxy, certificate, timeout, and Hook stderr'], ['No Hook log at all', 'Integration is not proven', 'Session cwd, project/user settings scope, event name, and whether the Tool triggers that Hook']] }, bullets: ['Check the Agent result, local Hook log, and platform Runtime Audit together.', 'Exercise allow, tamper, unauthorized, unreachable, and event-not-triggered cases.', 'Roll out to one test project before user-level or enterprise templates.'], link: { path: '/runtime', label: 'Open Access & Runtime audit' } },
+        { id: 'verify-troubleshoot', title: 'Acceptance tests and troubleshooting', table: { columns: ['Scenario', 'Expected result', 'Check first'], rows: [['Approved, bound, unchanged Skill', 'Allow', 'Agent ID, credential binding, Skill path, and digest'], ['Modified Skill content', 'Block', 'Consistent signature ignore sets; exclude .DS_Store on macOS'], ['Skill not bound or wrong credential', 'Block', 'Agent bindings, credential type, state, and scopes'], ['Platform unreachable or credential expired', 'Declared fail-closed paths block', 'URL, proxy, certificate, timeout, and Hook stderr'], ['No Hook log at all', 'Integration is not proven', 'Session cwd, project/user settings scope, event name, and whether the Tool triggers that Hook']] }, bullets: ['Check the Agent result, local Hook log, and platform Runtime Audit together.', 'Exercise allow, tamper, unauthorized, unreachable, and event-not-triggered cases.', 'Roll out to one test project before user-level or enterprise templates.'], link: { path: '/runtime?tab=records', label: 'Open Access & Runtime audit' } },
       ],
     },
     'client-management': {
@@ -3642,6 +3799,7 @@ en.articles['credential-management'] = {
   title: 'Credential center and access credentials',
   summary: 'Start with who will use the credential, then define models, MCP gateways, and API access. Raw scopes and capacity limits stay in Advanced security settings.',
   sections: [
+    { id: 'guide-return', title: 'Continue from the Agent integration guide', paragraphs: ['When opened from the guide, Credential Center retains the Agent identity and suggested scopes. Confirm allowed models or MCP gateways, save the one-time secret and return to configure the runtime. Creating a credential does not mark integration complete.'] },
     {
       id: 'choose-caller', title: 'Choose the real caller instead of guessing a credential type',
       paragraphs: ['The Credential routes at the top create by calling scenario. The caller is the running program that sends the Bearer credential, not the administrator configuring the system.'],
@@ -4091,15 +4249,6 @@ for (const [locale, content] of [['zh-CN', zh], ['en-US', en]]) {
   const externalArticle = integrations['external-ai-gateway']
   modelGroup.items.splice(modelIndex + 1, 0, {
     slug: 'external-ai-gateway', title: externalArticle.title, summary: externalArticle.summary,
-  })
-
-  content.articles['agent-management'].sections.unshift({
-    id: 'choose-product-path',
-    title: locale === 'zh-CN' ? '先确认实际产品如何运行' : 'Start with the actual product runtime',
-    paragraphs: [locale === 'zh-CN'
-      ? '创建平台 Agent 只建立身份、能力和责任关系。Codex、Claude Code 等本地工具优先由客户端托管；自研 Runtime 直接接运行 API；Dify 通过独立 API 做资产和风险纳管。'
-      : 'Creating a platform Agent establishes identity, capability, and ownership. Prefer the Client for local tools such as Codex and Claude Code, Runtime APIs for custom Agents, and dedicated APIs for Dify asset and risk governance.'],
-    link: { path: '/docs/scenario-selection', label: locale === 'zh-CN' ? '按产品选择接入方案' : 'Choose an integration by product' },
   })
 
   const difyGuide = content.articles['dify-security-access']

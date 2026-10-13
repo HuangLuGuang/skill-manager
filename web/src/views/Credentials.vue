@@ -10,6 +10,9 @@
         </a-page-header>
       </template>
 
+    <a-alert v-if="fromIntegration" class="integration-return" type="info" show-icon :message="$t('agentIntegration.returnAfterCredential')">
+      <template #action><a-button @click="returnToIntegration">{{ $t('agentIntegration.returnGuide') }}</a-button></template>
+    </a-alert>
     <section class="route-map" :aria-label="$t('credentials.routeEyebrow')">
       <div class="route-grid">
         <button v-if="hasAccess('credentials:create')"
@@ -197,6 +200,7 @@
                 <a-form-item :label="$t('credentials.boundAgent')" required>
                   <a-select :get-popup-container="trigger => trigger.parentElement"
                     v-model:value="form.bound_agent_id"
+                    @change="handleAgentChange"
                     show-search
                     allow-clear
                     option-filter-prop="label"
@@ -259,7 +263,15 @@
               </a-col>
               <a-col v-if="supportsMcp" :xs="24" :md="supportsModels ? 12 : 24">
                 <a-form-item :label="$t('credentials.allowedGateways')" required>
-                  <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.allowed_mcp_gateways" mode="multiple" allow-clear :placeholder="$t('credentials.allowedGatewaysPlaceholder')">
+                  <template v-if="form.token_type === 'agent_runtime'">
+                    <p class="field-hint">{{ $t('agentMcp.credentialHint') }}</p>
+                    <a-alert v-if="!boundAgent" type="info" :message="$t('agentMcp.agentRequired')" />
+                    <a-alert v-else-if="!boundAgent.allowed_mcp_gateways?.length" type="info" :message="$t('agentMcp.agentEmpty')" />
+                    <AgentMcpGateways v-else v-model="form.allowed_mcp_gateways" :allowed-gateways="boundAgent.allowed_mcp_gateways" :disabled="creating" />
+                    <a v-if="boundAgent?.origin_type === 'platform' && hasAccess('agents:update') && pageAllowed('/agents')" :href="router.resolve({ path: '/agents', query: { edit: boundAgent.agent_id } }).href" target="_blank" rel="noopener">{{ $t('agentMcp.editAgent') }}</a>
+                    <a-button size="small" :loading="optionsLoading" :disabled="optionsLoading || creating" @click="fetchOptions">{{ $t('agentIntegration.refresh') }}</a-button>
+                  </template>
+                  <a-select v-else :get-popup-container="trigger => trigger.parentElement" v-model:value="form.allowed_mcp_gateways" mode="multiple" allow-clear :placeholder="$t('credentials.allowedGatewaysPlaceholder')">
                     <a-select-option v-for="gateway in mcpGateways" :key="gateway.slug" :value="gateway.slug">
                       {{ gateway.name }}（{{ gateway.slug }}）
                     </a-select-option>
@@ -363,19 +375,25 @@
         <a-input :value="createdToken" readonly class="secret-input" style="width: calc(100% - 112px)" />
         <a-button type="primary" style="width: 112px" @click="copy(createdToken)" :disabled="!createdToken">{{ $t('credentials.copy') }}</a-button>
       </a-input-group>
+      <div v-if="fromIntegration" class="integration-return">
+        <p>{{ $t('agentIntegration.returnAfterCredential') }}</p>
+        <a-button type="primary" @click="returnToIntegration">{{ $t('agentIntegration.returnGuide') }}</a-button>
+      </div>
     </a-modal>
   </div>
 </template>
 
 <script setup>
 import { modelLabel } from '../utils/modelLabels'
-import { can as hasAccess } from '../access'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { can as hasAccess, pageAllowed } from '../access'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import AgentMcpGateways from '../components/AgentMcpGateways.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 
 import { i18n } from '../i18n'
 import { copyText, promptManualCopy } from '../utils/clipboard'
+import { integrationCapabilities, integrationScopes, parseIntegrationCapabilities } from '../utils/agentIntegration'
 import { formatDateTime } from '../utils/format'
 import {
   createAccessToken,
@@ -398,6 +416,20 @@ const selectedScenarioId = ref('agent')
 const advancedSections = ref([])
 const createdVisible = ref(false)
 const createdToken = ref('')
+const fromIntegration = computed(() => route.query.from === 'runtime' && pageAllowed('/runtime'))
+const integrationReturnQuery = () => ({
+  scenario: ['custom', 'model', 'mcp', 'verifier'].includes(route.query.scenario) ? route.query.scenario : 'custom',
+  ...(typeof route.query.agent_id === 'string' ? { agent_id: route.query.agent_id } : {}),
+  ...(typeof route.query.capabilities === 'string' ? { capabilities: parseIntegrationCapabilities(route.query.capabilities).join(',') } : {}),
+  ...(route.query.caller === 'ordinary' ? { caller: 'ordinary' } : {}),
+  step: '0',
+})
+const returnToIntegration = () => {
+  createdVisible.value = false
+  createdToken.value = ''
+  router.push({ path: '/runtime', query: integrationReturnQuery() })
+}
+watch(createdVisible, open => { if (!open) createdToken.value = '' })
 const actionId = ref(null)
 const tokens = ref([])
 const agents = ref([])
@@ -477,7 +509,7 @@ const typeDefaults = {
 const scopeOptionsByType = {
   ...typeDefaults,
   client: [...typeDefaults.client, 'aidr:heartbeat', 'aidr:report-events'],
-  agent_runtime: [...agentScopePresets.governance_model_mcp],
+  agent_runtime: [...agentScopePresets.governance_model_mcp, 'runtime:trace'],
 }
 
 const credentialScenarios = computed(() => [
@@ -516,6 +548,10 @@ const agentPresetOptions = computed(() => [
   { value: 'custom', title: t('credentials.customPreset'), description: t('credentials.customPresetDescription') },
 ])
 const availableScopes = computed(() => scopeOptionsByType[form.token_type] || [])
+const boundAgent = computed(() => agents.value.find(agent => agent.agent_id === form.bound_agent_id))
+const handleAgentChange = () => {
+  form.allowed_mcp_gateways = supportsMcp.value ? [...(boundAgent.value?.allowed_mcp_gateways || [])] : []
+}
 const supportsMcp = computed(() =>
   form.token_type === 'mcp_gateway' || (form.token_type === 'agent_runtime' && form.scopes.some(scope => scope.startsWith('mcp:')))
 )
@@ -625,6 +661,7 @@ const handleScopesChange = () => {
     if (form.token_type !== 'agent_runtime') form.prompt_guard_mode = 'off'
   }
   if (!form.scopes.some(scope => scope.startsWith('mcp:'))) form.allowed_mcp_gateways = []
+  else if (form.token_type === 'agent_runtime' && !form.allowed_mcp_gateways.length) handleAgentChange()
 }
 const handleClientIssuanceChange = () => {
   if (!form.allow_agent_credential_issuance) form.allowed_models = []
@@ -637,7 +674,7 @@ const resetForm = (tokenType, defaults = {}) => {
     bound_agent_id: defaults.bound_agent_id,
     scopes: [...(defaults.scopes || typeDefaults[tokenType] || [])],
     allowed_models: [...(defaults.allowed_models || [])],
-    allowed_mcp_gateways: [],
+    allowed_mcp_gateways: [...(defaults.allowed_mcp_gateways || [])],
     allowed_ips: [],
     max_body_kb: 1024,
     max_concurrent_requests: 5,
@@ -702,20 +739,31 @@ const fetchOptions = async () => {
 }
 const refreshAll = () => Promise.all([fetchTokens(), fetchOptions()])
 const openCreateFromQuery = async () => {
-  if (route.query.create !== 'agent_runtime') return
-  const agentId = String(route.query.agent_id || '')
+  const type = route.query.create
+  if (!['agent_runtime', 'model_gateway', 'mcp_gateway'].includes(type) || !hasAccess('credentials:create')) return
+  const agentId = typeof route.query.agent_id === 'string' ? route.query.agent_id : ''
   const agent = agents.value.find(item => item.agent_id === agentId)
   const usesExternalModel = agent?.default_model_source === 'external_gateway' && agent?.default_model
-  startScenario('agent', {
-    bound_agent_id: agentId || undefined,
-    name: agent ? t('credentials.agentCredentialName', { name: agent.name }) : '',
-    ...(usesExternalModel ? {
-      agent_preset: 'governance_model',
-      scopes: agentScopePresets.governance_model,
-      allowed_models: [agent.default_model],
+  const guided = fromIntegration.value && typeof route.query.capabilities === 'string'
+  const capabilities = parseIntegrationCapabilities(route.query.capabilities)
+  openCreate({
+    token_type: type,
+    ...(type === 'agent_runtime' ? {
+      bound_agent_id: agent?.agent_id,
+      allowed_mcp_gateways: capabilities.includes('mcp') ? [...(agent?.allowed_mcp_gateways || [])] : [],
+      name: agent ? t('credentials.agentCredentialName', { name: agent.name }) : '',
+      ...(guided ? {
+        agent_preset: 'custom',
+        scopes: integrationScopes(capabilities, route.query.scenario),
+        allowed_models: capabilities.includes('model') && agent?.default_model ? [agent.default_model] : [],
+      } : usesExternalModel ? {
+        agent_preset: 'governance_model', scopes: agentScopePresets.governance_model, allowed_models: [agent.default_model],
+      } : {}),
     } : {}),
   })
-  await router.replace({ name: 'credentials', query: {} })
+  if (guided && type === 'agent_runtime') advancedSections.value = ['advanced']
+  const query = { ...route.query }; delete query.create
+  await router.replace({ name: 'credentials', query })
 }
 const handleCreate = async () => {
   if (creating.value) return
@@ -731,6 +779,10 @@ const handleCreate = async () => {
     message.warning(t('credentials.gatewayRequired'))
     return
   }
+  if (supportsMcp.value && form.token_type === 'agent_runtime' && form.allowed_mcp_gateways.some(slug => !boundAgent.value?.allowed_mcp_gateways?.includes(slug))) {
+    message.warning(t('agentMcp.outOfScope'))
+    return
+  }
   form.prompt_guard_llm_review = false
   creating.value = true
   try {
@@ -740,6 +792,20 @@ const handleCreate = async () => {
     createdToken.value = data.token
     createVisible.value = false
     createdVisible.value = true
+    if (fromIntegration.value && ['agent_runtime', 'model_gateway', 'mcp_gateway'].includes(payload.token_type)) {
+      const query = integrationReturnQuery()
+      if (payload.token_type === 'agent_runtime') {
+        query.agent_id = payload.bound_agent_id
+        query.capabilities = Object.keys(integrationCapabilities).filter(key => integrationCapabilities[key].some(scope => payload.scopes.includes(scope))).join(',')
+        delete query.caller
+      } else {
+        query.scenario = payload.token_type === 'model_gateway' ? 'model' : 'mcp'
+        query.caller = 'ordinary'
+        delete query.agent_id
+        delete query.capabilities
+      }
+      await router.replace({ query: { ...query, from: 'runtime' } })
+    }
     await fetchTokens()
   } catch (error) {
     message.error(error.response?.data?.detail || t('credentials.createFailed'))
@@ -787,6 +853,11 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.credential-page :deep(.ant-page-header-heading) { flex-wrap: wrap; gap: 12px; }
+.integration-return { margin: 0 0 18px; }
+.integration-return :deep(.ant-btn) { height: auto; white-space: normal; }
+.one-time-secret ~ .integration-return { margin: 18px 0 0; }
+
 .credential-page {
   --ink: #16324f;
   --muted: #657789;

@@ -34,6 +34,7 @@ def _client() -> TestClient:
         hashed_password="x",
         role="admin",
     )
+    app.dependency_overrides[auth.get_current_active_user] = app.dependency_overrides[auth.get_current_admin_user]
     app.include_router(system.router, prefix="/api")
     app.include_router(
         agent_security.router,
@@ -49,6 +50,13 @@ def test_feature_flags_are_enabled_by_default_without_compose_configuration():
     compose = Path("docker-compose.yaml").read_text(encoding="utf-8")
     assert "AGENT_SECURITY_SCANNING_ENABLED:" not in compose
     assert "RUNTIME_TRACE_ENABLED:" not in compose
+
+
+def test_capabilities_requires_an_authenticated_user():
+    app = FastAPI()
+    app.include_router(system.router, prefix="/api")
+    with TestClient(app) as client:
+        assert client.get("/api/system/capabilities").status_code == 401
 
 
 def test_disabled_features_are_reported_and_baseline_apis_fail_closed(monkeypatch):

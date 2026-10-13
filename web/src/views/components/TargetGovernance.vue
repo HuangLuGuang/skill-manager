@@ -17,7 +17,7 @@
 
     </a-drawer>
     <a-modal v-model:open="sourceOpen" :title="t(editing ? 'assetLifecycle.edit' : 'assetLifecycle.add')" width="min(760px, calc(100vw - 24px))" :footer="null">
-      <a-form layout="vertical" @finish="saveSource">
+      <a-form :model="form" layout="vertical" @finish="saveSource">
         <div class="form-grid">
           <a-form-item :label="t('assetLifecycle.name')" required><a-input v-model:value="form.name" :maxlength="128" /></a-form-item>
           <a-form-item :label="t('assetLifecycle.target')" required><a-select v-model:value="form.template_target_id" :disabled="!!editing" :options="difyTargets" @change="selectTarget" /></a-form-item>
@@ -33,6 +33,7 @@
           <a-form-item v-else :label="t('assetLifecycle.cron')"><a-input v-model:value="form.config.cron" /></a-form-item>
           <a-form-item :label="t('assetLifecycle.enabled')"><a-switch v-model:checked="form.config.enabled" /></a-form-item>
           <a-form-item :label="t('assetLifecycle.autoPolicy')"><a-select v-model:value="form.config.auto_scan_policy_id" allow-clear :options="policyOptions" /></a-form-item>
+          <a-form-item v-if="form.config.auto_scan_policy_id" :label="t('assetLifecycle.evaluationModel')" :extra="t('assetLifecycle.evaluationModelHelp')" required><a-select v-model:value="form.config.evaluation_model" show-search option-filter-prop="label" :options="evaluationModelOptions" /></a-form-item>
           <a-form-item :label="t('assetLifecycle.validity')"><a-input-number v-model:value="form.config.validity_hours" :min="1" :max="8760" /></a-form-item>
         </div>
         <a-space v-if="form.config.auto_scan_policy_id" wrap><a-checkbox v-model:checked="form.config.scan_new_apps">{{ t('scanSchedule.scanNew') }}</a-checkbox><a-checkbox v-model:checked="form.config.scan_changed_apps">{{ t('scanSchedule.scanChanged') }}</a-checkbox></a-space>
@@ -84,7 +85,7 @@
       </a-spin>
     </a-drawer>
     <a-modal v-model:open="reviewOpen" :title="t('assetLifecycle.review')" :footer="null">
-      <a-form layout="vertical" @finish="saveReview"><a-form-item :label="t('assetLifecycle.coverage')"><a-select v-model:value="review.status" :options="reviewOptions" /></a-form-item><a-form-item :label="t('assetLifecycle.comment')" required><a-textarea v-model:value="review.comment" :maxlength="2000" /></a-form-item><a-form-item v-if="review.status === 'resolved'" :label="t('assetLifecycle.closureTask')" required><a-input v-model:value="review.closure_task_id" /></a-form-item><a-button type="primary" html-type="submit" :loading="reviewSaving" :disabled="reviewSaving || !review.comment.trim()">{{ t('assetLifecycle.submitReview') }}</a-button></a-form>
+      <a-form :model="review" layout="vertical" @finish="saveReview"><a-form-item :label="t('assetLifecycle.coverage')"><a-select v-model:value="review.status" :options="reviewOptions" /></a-form-item><a-form-item :label="t('assetLifecycle.comment')" required><a-textarea v-model:value="review.comment" :maxlength="2000" /></a-form-item><a-form-item v-if="review.status === 'resolved'" :label="t('assetLifecycle.closureTask')" required><a-input v-model:value="review.closure_task_id" /></a-form-item><a-button type="primary" html-type="submit" :loading="reviewSaving" :disabled="reviewSaving || !review.comment.trim()">{{ t('assetLifecycle.submitReview') }}</a-button></a-form>
     </a-modal>
     <a-modal v-model:open="rawOpen" :title="t('assetLifecycle.raw')" width="min(1000px, 100vw)" :footer="null"><a-button @click="downloadRaw">{{ t('assetLifecycle.download') }}</a-button><pre class="raw-content">{{ raw }}</pre></a-modal>
   </div>
@@ -99,11 +100,12 @@ import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { localizeApiError } from '../../i18n/errors'
 import TimezoneSelect from './TimezoneSelect.vue'
-import { setManagedAgentRelatedTargets } from '../../api'
+import { getSecurityRedteamOptions, setManagedAgentRelatedTargets } from '../../api'
 import { listSecurityTargets, listSecurityPolicies, listAssetSources, createAssetSource, updateAssetSource, startAssetSync, listAssetSyncRuns, getAssetSyncRun, cancelAssetSyncRun, getTargetRiskProfile, getManagedAgentRisk, getManagedAgentRiskHistory, getManagedAgentRiskIssues, reviewManagedAgentRisk } from '../../api'
 
 const { t, te, locale } = useI18n(), router = useRouter()
 const sources = ref([]), targets = ref([]), policies = ref([]), sourcesOpen = ref(false)
+const evaluationModels = ref([])
 const loading = ref(false), error = ref(''), busy = ref(''), saving = ref(false)
 const sourceOpen = ref(false), editing = ref(null), appIds = ref(''), form = reactive({ config: {} })
 const runsOpen = ref(false), runs = ref([]), runDetail = ref(null), runSource = ref(null)
@@ -126,6 +128,7 @@ const issueColumns = computed(() => columns([['issue_id', 'issue', 200], ['sever
 const historyColumns = computed(() => columns([['assessed_at', 'assessedAt', 210], ['score', null, 100], ['status', 'coverage', 180], ['revision', null, 100]]))
 const difyTargets = computed(() => targets.value.filter(x => x.connector_type === 'dify').map(x => ({ value: x.target_id, label: x.name })))
 const policyOptions = computed(() => policies.value.filter(x => x.enabled && x.environment === targets.value.find(y => y.target_id === form.template_target_id)?.environment).map(x => ({ value: x.policy_id, label: x.name })))
+const evaluationModelOptions = computed(() => evaluationModels.value.map(model => ({ value: model.name, label: `${model.display_name || model.name} · ${model.provider_name}` })))
 const scopeOptions = computed(() => ['selected', 'workspace'].map(value => ({ value, label: t(`assetLifecycle.${value}`) })))
 const scheduleOptions = computed(() => ['interval', 'daily', 'cron'].map(value => ({ value, label: t(`assetLifecycle.${value}`) })))
 const skillOptions = computed(() => skills.map(value => ({ value, label: checkLabel(value) })))
@@ -134,7 +137,7 @@ const fail = e => { error.value = e.response?.data?.detail || t('assetLifecycle.
 async function load() {
   if (loading.value) return
   loading.value = true; error.value = ''
-  try { const values = await Promise.all([listAssetSources(), listSecurityTargets(), hasAccess('scans:view') ? listSecurityPolicies() : []]); sources.value = values[0]; targets.value = values[1]; policies.value = values[2] } catch (e) { fail(e) } finally { loading.value = false }
+  try { const values = await Promise.all([listAssetSources(), listSecurityTargets(), hasAccess('scans:view') ? listSecurityPolicies() : [], hasAccess('scans:view') ? getSecurityRedteamOptions() : {}]); sources.value = values[0]; targets.value = values[1]; policies.value = values[2]; evaluationModels.value = values[3].evaluation_models || [] } catch (e) { fail(e) } finally { loading.value = false }
 }
 function editSource(row) {
   editing.value = row || null
@@ -146,6 +149,7 @@ async function saveSource() {
   if (saving.value) return
   form.config.app_ids = [...new Set(appIds.value.split('\n').map(x => x.trim()).filter(Boolean))]
   if (!form.name.trim() || !form.template_target_id || !form.policy_id || (form.config.scope === 'selected' && !form.config.app_ids.length)) return message.warning(t('assetLifecycle.required'))
+  if (form.config.auto_scan_policy_id && !form.config.evaluation_model) return message.warning(t('assetLifecycle.evaluationModelRequired'))
   saving.value = true
   try { const payload = { name: form.name.trim(), policy_id: form.policy_id, config: { ...form.config, auto_scan_policy_id: form.config.auto_scan_policy_id || null } }; if (editing.value) await updateAssetSource(editing.value.source_id, { ...payload, version: editing.value.version }); else await createAssetSource({ ...payload, template_target_id: form.template_target_id }); sourceOpen.value = false; message.success(t('assetLifecycle.saved')); await load() } catch (e) { fail(e) } finally { saving.value = false }
 }

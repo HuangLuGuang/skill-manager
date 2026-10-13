@@ -1,5 +1,9 @@
 # Agent Manager Project Guide
 
+平台智能体的创建和编辑支持可选的 MCP 网关多选及当前工具预览。Agent 范围约束运行凭证授权，后续 MCP 请求重新核对 Agent 状态和网关范围；接入指引提供逐网关连接配置，详情页分别展示配置、凭证权限覆盖和实际调用。旧 Agent 从有效运行凭证一次性迁移 MCP 范围。操作步骤与记录归属边界见 [MCP 工具访问](agent-governance.md#mcp-工具访问--mcp-tool-access)。
+
+**English:** Platform Agent creation and editing support optional MCP gateway selection and current tool previews. Agent grants bound runtime credential authorization and subsequent MCP requests recheck Agent state and scope. The integration guide provides per-gateway connection settings; details separates configuration, credential coverage and actual calls. Existing Agent scopes are migrated once from valid runtime credentials. See [MCP tool access](agent-governance.md#mcp-工具访问--mcp-tool-access) for the workflow and attribution limits.
+
 macOS TeleAgent 代理支持后台自动安全升级：候选程序先自检，等待在途模型/工具审核请求完成，再保留监听端口并原 PID 切换；持续忙碌时延后升级。主守护服务内的 Hook 接收器和独立代理均不随桌面退出。设置页按实际进程显示版本、摘要、健康与待升级状态；本地健康不等同于供应商连通。普通事件在发送完成后间隔至少 300 毫秒，单轮预算在等待期间耗尽则保留记录到下一轮。实现边界和实机证据见[客户端后台可靠性说明](agent-manager-client.md#后台可靠性与更新--background-reliability-and-updates)。
 
 **English:** The macOS TeleAgent proxy preflights staged upgrades, waits for in-flight model/review requests, and switches with its listener and PID preserved. Persistent traffic postpones activation. Both the daemon's Hook receiver and the independent proxy survive desktop exit. Settings displays observed process identity, readiness and pending upgrades; local readiness does not prove vendor connectivity. Ordinary events wait at least 300 ms after delivery completion; records waiting past the round budget remain queued. See the linked client reliability guide for limits and live evidence.
@@ -43,6 +47,10 @@ Ordinary-mode enrollment persists the local request and immediately submits an a
 Periodic receiver and policy checks read local plugin settings, installation records and product files without launching Codex or Claude. Native queries remain for installation, upgrades, policy application and manual diagnostics. Configuration, authorization, Hook delivery and log collection progress remain separate evidence. Restart the client with the updated Go component to apply this change; existing staging copies are retained.
 
 ## AIDR 在线帮助 / Online AIDR help
+
+文档首页的“系统总体架构”展示 AIDR 与客户端、治理控制面和证据层的关系，并链接到 `/docs/aidr-overview#architecture` 的详细架构。详细图分开展示三通道采集、客户端持久化与批次上报、平台关联审计、ACK / 策略 / 审批返回，以及执行前决策路径。日志与 Skill 使用认证属于审计核对；阻断须由支持的 Hook、原生系统组件或加载前 Verifier 在对应执行点完成。当前系统采集图按 macOS ES 实现标注，其他产品与系统以支持范围及实际权限为准。
+
+The homepage system architecture places AIDR alongside runtime governance and links to the detailed diagram at `/docs/aidr-overview#architecture`. It separates three collection channels, client persistence and upload, platform correlation and audit, ACK / policy / approval return, and pre-execution decisions. Logs and Skill-use certification provide audit checks; blocking requires a supported Hook, native system component or pre-load Verifier at its enforcement point. System collection is labeled for the current macOS ES implementation; coverage depends on the product, OS and actual permissions. Both online diagrams and PDF summaries include AIDR, with detailed control paths retained in the section text.
 
 平台帮助中心 `/docs` 的“运行审计与防护 · AIDR”提供六个双语专题：三种采集方式对比、平台操作、客户端接入、策略与审批、Skill 使用认证、诊断与性能。入口为 `/docs/aidr-overview`；可按章节搜索、向文档助手提问或导出 PDF，功能清单导出也包含 AIDR。
 
@@ -1726,6 +1734,20 @@ npm run dev
 - 用户名：默认 `admin`，可通过 `INITIAL_ADMIN_USERNAME` 修改
 - 密码：首次创建账号时使用 `INITIAL_ADMIN_PASSWORD`；生产安全模式要求至少 12 个字符。非安全模式下，数据库尚无该账号且变量留空时会生成随机密码；已有账号不会因后来修改该变量而改密。Docker 部署和升级步骤见[管理员初始密码与升级](docker-deployment.md#管理员初始密码与升级)
 
+#### 源码回归 / Source regression
+
+完整源码回归在仓库根目录运行。MCP SDK、Cisco Scanner 和 AIG 模型依赖为可选组件；AIG 的固定 `deepeval` 版本与 Cisco Scanner 的 `click` 约束不同，分开运行隔离环境：
+
+```bash
+uv run --with mcp==2.0.0 pytest
+uv run --with cisco-ai-skill-scanner==2.0.6 pytest tests/test_client_runtime_integration.py::test_real_scan_rejection_is_polled_and_quarantined_without_desktop
+DEEPEVAL_TELEMETRY_OPT_OUT=YES uv run --with deepeval==3.7.5 pytest tests/test_aig_model_auth.py
+```
+
+第一组中因缺少扫描镜像依赖而跳过的两个组件用例由后两组补跑；检查三组输出，跳过不等于通过。测试环境应使用临时 `SQLITE_PATH`、`DATA_DIR` 与 `UPLOADS_DIR`。Go 客户端在 `scanner/` 执行 `go test ./...`，前端在 `web/` 执行 `npm run test:i18n`、`npm run test:docs-search`、`npm run test:docs-export` 和 `npm run build`。
+
+Run the commands above from the repository root for the full source regression and the two optional component checks. The pinned AIG and Cisco Scanner dependencies require separate environments because their Click constraints differ. Review every result: a skipped component is covered only after its separate check passes. Use temporary database, data, and upload paths. Run the Go suite from `scanner/` and the frontend checks from `web/`. Deployed runtimes and external providers require separate acceptance testing.
+
 ### 11.2 本地使用 docker sandbox
 
 如果系统设置里选的是 `docker`，先构建项目自带镜像：
@@ -1959,6 +1981,7 @@ Skill Verifier 下载位置：
 
 - `智能体管理`
 - `接入与运行`
+- `Agent Skill Verifier 接入`
 - `下载 Skill Verifier`
 
 提交和查询扫描结果时使用 Scanner 接入凭证；加载前验签时使用绑定当前 Agent 的运行凭证。两类权限不能合并到同一凭证。脚本分别读取 `AGENT_MANAGER_SCANNER_TOKEN` 和 `AGENT_MANAGER_AGENT_RUNTIME_TOKEN`，也可在对应子命令上传入 `--token`。
@@ -2032,6 +2055,10 @@ Dify 资产清单另按以下顺序配置：创建 Dify 目标并填写 Console 
 用例和轮次负责。外部 Provider、生产网络和客户账号必须在验收环境单独实测。
 
 #### 定时扫描、资产来源与风险评分
+
+在扫描目标的资产来源配置中，启用“变更后扫描策略”时必须选择“自动扫描评估模型”。该模型来自已启用的模型网关模型及供应商，保存时和每次派发时均会校验。旧来源若尚未配置评估模型，需编辑补充后再重试；模型停用、目标凭据缺失或审批未满足时，变更事件保留失败原因并在后续重试，不会记为扫描成功。相同资产版本的变更重复处理只创建一次扫描任务。
+
+For asset sources, selecting a scan policy after changes also requires an automatic scan evaluator model. Select an enabled gateway model with an enabled provider. The platform validates it on save and on every dispatch. Edit older sources to add the evaluator before retrying. If the model is disabled, target credentials are missing, or approval is required, the event retains the failure reason for retry. Reprocessing the same asset revision creates only one scan task.
 
 “发起扫描 → 执行安排”提供立即执行和定时执行。管理员可创建固定间隔、每日、每周或五字段 Cron
 计划，指定 IANA 时区并预览后续执行时间；可勾选保存后立即执行一次。定时任务使用独立会话；
@@ -2335,9 +2362,29 @@ sequenceDiagram
 
 ## 15. Agent 运行侧接入
 
+### 页面入口与下一步 / Onboarding entry and next action
+
+在线文档 `/docs/scenario-selection#integration-flow` 提供可点击的接入选择流程图：按本地工具、自研 Runtime、Dify、Skill 文件或模型 / MCP 调用分支，核对接入条件后点击方案节点进入对应文档；Hook、Verifier 和 AIDR 作为按需组合能力单列。中英文使用相同节点与章节链接，搜索及 PDF 导出保留各路线的条件和操作说明。
+
+The clickable flowchart at `/docs/scenario-selection#integration-flow` branches by local tools, custom runtimes, Dify, Skill files and model / MCP calls. Check the prerequisites and select a solution node to open its guide. Hooks, Verifier and AIDR are optional complementary capabilities. Both languages share node identities and chapter links; search and PDF export retain route conditions and instructions.
+
+先决定是否需要 Agent 身份：按 Agent 做 Skill 运行校验、能力授权和调用归属时需要；普通模型调用、普通 MCP 调用、Scanner 扫描可使用各自凭证。已有身份直接复用，管理电脑时先让客户端发现登记，其他需要身份的运行端再手动创建。自研可改代码选 Runtime API，本机管理选客户端，支持 Skill 指令与脚本的宿主可选 Verifier，单纯模型 / MCP 调用选对应网关路线。选择依据与下一步见[场景选择表](agent-governance.md#按场景选择接入--choose-by-scenario)。
+
+**English:** Decide whether an Agent identity is needed first. Agent-specific Skill verification, authorization and attribution require one; ordinary model calls, MCP calls and Scanner uploads can use their own credentials. Reuse existing identities, discover local Agents through the Client, or register other runtimes manually. Choose Runtime APIs for editable custom code, the Client for computer management, Verifier for hosts supporting Skill instructions and scripts, and gateway routes for model / MCP calls. See the [scenario decision table](agent-governance.md#按场景选择接入--choose-by-scenario).
+
+首次创建可按在线文档“创建与管理智能体”操作：先查找已有身份，再填写必填的 Agent ID 和名称，按需选择模型、Skill、MCP。只用 Verifier 时保留内置模型来源，默认模型留空，选择批准的 Skill 即可；外部模型来源需先准备目录并选定模型。保存后再签发运行凭证、配置运行端并验证调用。字段说明和填写示例见[创建表单说明](agent-governance.md#创建表单怎么填--fill-in-the-registration-form)。
+
+**English:** For first-time registration, follow **Create and manage Agents** in online documentation: find an existing identity first, fill in the required Agent ID and name, then select model, Skill and MCP access as needed. For Verifier only, keep the internal source, leave the default model empty and select an approved Skill. External models require catalog preparation and model selection. After saving, issue a runtime credential, configure the runtime and verify a call. See [registration fields and examples](agent-governance.md#创建表单怎么填--fill-in-the-registration-form).
+
+“智能体管理”中的“平台创建”登记外部 Agent 的治理身份；“客户端发现”来自客户端自动上报。登记后通过“保存并查看接入指引”进入当前 Agent 的步骤页，也可从列表或详情重新打开。接入页按自研 Agent、本机 Agent、Agent Skill Verifier、模型应用和 MCP 应用选择路线，能力可组合；凭证中心继承 Agent 和建议权限，保存一次性明文后返回继续配置。详见[登记与接入](agent-governance.md#登记与接入--registration-and-integration)。
+
+**English:** Platform-created records register governance identities for external Agents; Client-discovered records come from automatic inventory. Save an Agent to open its integration guide, or reopen it from the list or details. Choose custom Agent, local Agent, Agent Skill Verifier, model app or MCP app, then combine capabilities. Credential Center retains the identity and suggested scopes; save the one-time secret and return to configure the runtime. See [registration and integration](agent-governance.md#登记与接入--registration-and-integration).
+
 当前管理台启用的是 Skill 运行校验、复合 Agent 运行凭证和客户端治理。统一凭证中心按真实调用者提供 Agent、普通模型应用、MCP Client、Skill Scanner 和客户端五条创建路线；原始 scope、IP 和容量参数收在高级安全设置中：
 
-- Skill Verifier 在 Agent 使用 Skill 前执行签名、加载许可和 Tool 权限检查，并写入运行审计。
+- Skill Verifier 的 `verify` 在 Agent 使用 Skill 前执行签名与加载许可检查，并写入运行审计；Tool 权限检查需另行在调用位置接入。选择“接入与运行 → Agent Skill Verifier”，按身份与授权、运行凭证、安装、环境配置、验证审计完成接入。仅需 `runtime:verify-signature` 和 `runtime:can-load`，不要求绑定模型或 MCP。
+
+  **English:** Verifier `verify` checks content signatures and loading permission; integrate tool authorization separately at the call boundary. Choose Integration & Runtime → Agent Skill Verifier and follow identity/access, credential, installation, environment and verification/audit steps. Only `runtime:verify-signature` and `runtime:can-load` are required; no model or MCP binding is needed.
 - 一张绑定 Agent 的运行凭证可以组合 `runtime:*`、`model:chat` 和 `mcp:*`；模型与 MCP 网关允许列表分别校验，客户端接入凭证不能替代它。
 - Agent Manager Client 发现本地 Agent 与 Skill 目录，可下发平台批准版本，并按策略审计、恢复或隔离异常内容。
 - 客户端页面中的任务用于安装、恢复、移除 Skill、应用已支持的模型配置和同步策略；执行后应在客户端详情中核对目标、状态和事件。

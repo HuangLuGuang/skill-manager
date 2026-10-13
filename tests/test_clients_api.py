@@ -790,6 +790,10 @@ def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_pat
     assert registered.json()["agents"][0]["local_agent_id"] == "claude-main"
     managed_agent_id = registered.json()["agents"][0]["managed_agent_id"]
     assert managed_agent_id.startswith("client-host-model-claude-main-")
+    database = next(client.app.dependency_overrides[get_db]())
+    database.query(models.ManagedAgent).filter_by(agent_id=managed_agent_id).one().allowed_mcp_gateways_json = '["readonly"]'
+    database.commit()
+    database.close()
     runtime_credential = client.post(
         "/api/v1/access/tokens",
         json={
@@ -1087,6 +1091,10 @@ def test_client_model_switch_catalog_binding_and_task_credential_are_self_servic
     assert registered.status_code == 200
     managed_agent_id = registered.json()["agents"][0]["managed_agent_id"]
     assert managed_agent_id.startswith("client-codex-switch-host-codex-")
+    database = next(client.app.dependency_overrides[get_db]())
+    database.query(models.ManagedAgent).filter_by(agent_id=managed_agent_id).one().allowed_mcp_gateways_json = '["developer-tools"]'
+    database.commit()
+    database.close()
     mcp_runtime = client.post(
         "/api/v1/access/tokens",
         json={
