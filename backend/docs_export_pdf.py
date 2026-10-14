@@ -153,6 +153,8 @@ class HelpPdfTemplate(BaseDocTemplate):
         self.footer_text = footer_text
         self.progress = progress
         self.layout_pass = 0
+        self.completed_pages = 0
+        self.estimated_pages = None
         frame = Frame(
             LEFT_MARGIN,
             BOTTOM_MARGIN,
@@ -167,11 +169,23 @@ class HelpPdfTemplate(BaseDocTemplate):
         self.addPageTemplates(PageTemplate(id="help", frames=[frame], onPage=self._draw_page))
 
     def beforeDocument(self) -> None:
+        self.estimated_pages = self.completed_pages or None
+        self.completed_pages = 0
         self.layout_pass += 1
+        self._report_layout()
+
+    def _report_layout(self) -> None:
+        if self.progress:
+            self.progress({
+                "stage": "layout", "pass": self.layout_pass,
+                "page": self.completed_pages, "estimated_pages": self.estimated_pages,
+            })
+
+    def afterPage(self) -> None:
+        self.completed_pages = self.page
+        self._report_layout()
 
     def _draw_page(self, canvas, doc) -> None:
-        if self.progress:
-            self.progress({"stage": "layout", "pass": self.layout_pass, "page": doc.page})
         canvas.showOutline()
         if doc.page <= 2:
             return
@@ -540,6 +554,10 @@ def build_docs_export_pdf(
             progress({"stage": "preparing", "completed": index, "total": len(payload.articles)})
 
     doc.multiBuild(story)
+    document = output.getvalue()
     if progress:
-        progress({"stage": "downloading"})
-    return output.getvalue()
+        progress({
+            "stage": "downloading", "total_passes": doc.layout_pass,
+            "total_pages": doc.completed_pages, "total_bytes": len(document), "completed_bytes": 0,
+        })
+    return document

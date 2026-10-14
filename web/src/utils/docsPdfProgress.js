@@ -2,6 +2,8 @@ export function createDocsPdfProgressReader(onProgress) {
   let consumed = 0
   let complete = false
   let error
+  let fileProgress
+  let receivedBytes = 0
   const chunks = []
   const feed = text => {
     if (error) return
@@ -12,9 +14,15 @@ export function createDocsPdfProgressReader(onProgress) {
         consumed = end + 1
         if (!line.trim()) continue
         const event = JSON.parse(line)
-        if (event.type === 'progress') onProgress?.(event)
+        if (event.type === 'progress') {
+          if (event.stage === 'downloading') fileProgress = event
+          onProgress?.(event)
+        }
         if (event.type === 'chunk') {
-          chunks.push(Uint8Array.from(atob(event.data), character => character.charCodeAt(0)))
+          const bytes = Uint8Array.from(atob(event.data), character => character.charCodeAt(0))
+          chunks.push(bytes)
+          receivedBytes += bytes.length
+          if (fileProgress) onProgress?.({ ...fileProgress, completed_bytes: receivedBytes })
         }
         if (event.type === 'complete') complete = true
         if (event.type === 'error') throw new Error(event.error_code)

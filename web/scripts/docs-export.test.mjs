@@ -45,6 +45,22 @@ test('PDF progress reader rejects failed and interrupted exports', () => {
   assert.throws(() => createDocsPdfProgressReader().finish('{"type":"chunk","data":"JVBERg=="}\n'), /incomplete/)
 })
 
+test('PDF download progress counts decoded bytes and preserves final page totals', async () => {
+  const progress = []
+  const reader = createDocsPdfProgressReader(event => progress.push(event))
+  const data = [
+    { type: 'progress', stage: 'downloading', total_passes: 3, total_pages: 174, total_bytes: 6, completed_bytes: 0 },
+    { type: 'chunk', data: Buffer.from([37, 80, 68, 70]).toString('base64') },
+    { type: 'chunk', data: Buffer.from([0, 255]).toString('base64') },
+    { type: 'complete' },
+  ].map(event => JSON.stringify(event)).join('\n') + '\n'
+  reader.feed(data.slice(0, data.lastIndexOf('\n', data.length - 2)))
+  const blob = reader.finish(data)
+  assert.deepEqual(progress.map(event => event.completed_bytes), [0, 4, 6])
+  assert.ok(progress.every(event => event.total_passes === 3 && event.total_pages === 174))
+  assert.equal(blob.size, 6)
+})
+
 test('integration flowchart links resolve in both languages and retain routes in PDF export', () => {
   const pathsByLocale = []
   for (const locale of ['zh-CN', 'en-US']) {

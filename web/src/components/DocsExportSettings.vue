@@ -53,14 +53,38 @@
           </a-button>
         </div>
         <div v-if="pdfProgress" class="pdf-progress" role="status" aria-live="polite">
-          <a-steps size="small" :current="pdfProgressStep" :status="pdfProgress.stage === 'failed' ? 'error' : 'process'"
+          <a-steps size="small" :current="pdfProgressStep" :status="pdfProgress.stage === 'failed' ? 'error' : pdfProgress.stage === 'complete' ? 'finish' : 'process'"
             :items="pdfProgressSteps" />
+          <div class="pdf-progress-overall">
+            <span>{{ t('docsExport.progress.overallStages', { completed: pdfProgressStep, total: pdfStageOrder.length }) }}</span>
+            <a-progress :percent="pdfProgressStep / pdfStageOrder.length * 100" :show-info="false"
+              role="progressbar" :aria-label="t('docsExport.progress.overallLabel')"
+              :aria-valuenow="pdfProgressStep" :aria-valuemin="0" :aria-valuemax="pdfStageOrder.length"
+              :aria-valuetext="t('docsExport.progress.overallStages', { completed: pdfProgressStep, total: pdfStageOrder.length })"
+              :status="pdfProgress.stage === 'failed' ? 'exception' : pdfProgress.stage === 'complete' ? 'success' : pdfExporting ? 'active' : 'normal'" />
+          </div>
+          <div v-if="pdfProgress.pass || pdfProgress.total_passes" class="pdf-progress-stats">
+            <div>
+              <span>{{ t('docsExport.progress.roundsLabel') }}</span>
+              <strong>{{ pdfProgress.total_passes
+                ? t('docsExport.progress.roundsTotal', { count: pdfProgress.total_passes })
+                : t('docsExport.progress.roundsPending', { count: pdfProgress.pass, completed: pdfProgress.pass - 1 }) }}</strong>
+            </div>
+            <div>
+              <span>{{ t('docsExport.progress.pagesLabel') }}</span>
+              <strong>{{ pdfProgress.total_pages
+                ? t('docsExport.progress.pagesTotal', { count: pdfProgress.total_pages })
+                : pdfProgress.estimated_pages
+                  ? t('docsExport.progress.pagesEstimate', { count: pdfProgress.estimated_pages })
+                  : t('docsExport.progress.pagesPending') }}</strong>
+            </div>
+          </div>
           <div class="pdf-progress-detail">
             <span>{{ pdfProgressText }}</span>
             <span>{{ t('docsExport.progress.elapsed', { seconds: pdfElapsed }) }}</span>
             <a-button v-if="pdfExporting" size="small" @click="pdfController?.abort()">{{ t('docsExport.progress.cancel') }}</a-button>
           </div>
-          <a-progress v-if="pdfProgress.stage === 'preparing'" :percent="Math.floor(pdfProgress.completed / pdfProgress.total * 100)" />
+          <p v-if="pdfProgress.stage === 'layout'" class="pdf-progress-hint">{{ t('docsExport.progress.layoutHint') }}</p>
         </div>
       </a-tab-pane>
 
@@ -138,13 +162,19 @@ const pdfStageOrder = ['refreshing', 'preparing', 'layout', 'downloading']
 const pdfProgressSteps = computed(() => pdfStageOrder.map(stage => ({ title: t(`docsExport.progress.${stage}`) })))
 const pdfProgressStep = computed(() => {
   if (pdfProgress.value?.stage === 'complete') return 4
-  const stage = pdfProgress.value?.stage === 'failed' ? pdfProgress.value.previousStage : pdfProgress.value?.stage
+  const stage = ['failed', 'cancelled'].includes(pdfProgress.value?.stage) ? pdfProgress.value.previousStage : pdfProgress.value?.stage
   return Math.max(0, pdfStageOrder.indexOf(stage === 'queued' ? 'preparing' : stage))
 })
 const pdfProgressText = computed(() => {
   const progress = pdfProgress.value
-  const key = progress.stage === 'layout' ? 'layoutPages' : progress.stage === 'preparing' ? 'articles' : progress.stage
-  return t(`docsExport.progress.${key}`, progress)
+  const key = progress.stage === 'layout'
+    ? progress.estimated_pages && progress.page <= progress.estimated_pages ? 'layoutEstimated' : 'layoutPages'
+    : progress.stage === 'downloading' && progress.total_bytes ? 'downloadingFile'
+    : progress.stage === 'preparing' ? 'articles' : progress.stage
+  return t(`docsExport.progress.${key}`, {
+    ...progress,
+    percent: progress.total_bytes ? Math.floor(progress.completed_bytes / progress.total_bytes * 100) : 0,
+  })
 })
 const excelExporting = ref(false)
 const pdfKey = slug => slug || HOME_KEY
@@ -269,18 +299,18 @@ const exportPdf = async () => {
       selectedArticleKeys: selectedPdfArticles.value,
       source: pdfSource.value,
     })
-    const blob = await exportDocsPdf(payload, progress => { pdfProgress.value = progress }, pdfController.signal)
+    const blob = await exportDocsPdf(payload, progress => { pdfProgress.value = { ...pdfProgress.value, ...progress } }, pdfController.signal)
     downloadBlob(blob, docsPdfFilename(exportLocale, now))
-    pdfProgress.value = { stage: 'complete' }
+    pdfProgress.value = { ...pdfProgress.value, stage: 'complete' }
     message.success(t('docsExport.pdfSuccess'))
   } catch (error) {
     if (pdfController.signal.aborted) {
-      pdfProgress.value = { stage: 'cancelled' }
+      pdfProgress.value = { ...pdfProgress.value, stage: 'cancelled', previousStage: pdfProgress.value.stage }
       return
     }
     console.error('Help documentation PDF export failed', error)
     const previousStage = pdfProgress.value.stage
-    pdfProgress.value = { stage: 'failed', previousStage }
+    pdfProgress.value = { ...pdfProgress.value, stage: 'failed', previousStage }
     message.error(t('docsExport.pdfFailed'))
   } finally {
     clearInterval(pdfTimer)
@@ -319,6 +349,13 @@ watch(excelLocale, localeValue => {
 .export-card { margin-bottom: 18px; }
 .pdf-progress { margin-top: 18px; padding: 16px; background: #f8fafc; border: 1px solid #e3eaf2; border-radius: 10px; }
 .pdf-progress-detail { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: #526579; overflow-wrap: anywhere; }
+.pdf-progress-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.pdf-progress-stats > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.pdf-progress-stats span, .pdf-progress-hint { color: #718196; font-size: 12px; }
+.pdf-progress-stats strong { color: #29445d; overflow-wrap: anywhere; }
+.pdf-progress-hint { margin: 8px 0 0; line-height: 1.5; }
+.pdf-progress-overall { margin-top: 16px; color: #526579; font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .pdf-progress :deep(.ant-progress-bg::before) { animation: none; } }
 .card-heading { display: flex; align-items: center; gap: 12px; }
 .card-heading > div { display: flex; min-width: 0; flex-direction: column; gap: 3px; white-space: normal; }
 .card-heading strong { color: #1e3852; font-size: 15px; }

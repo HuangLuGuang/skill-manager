@@ -106,6 +106,19 @@ def test_streamed_pdf_reports_layout_and_contains_updated_content():
     assert events[-1]["type"] == "complete"
     document = b"".join(base64.b64decode(event["data"]) for event in events if event["type"] == "chunk")
     reader = PdfReader(BytesIO(document))
+    layout = [event for event in progress if event["stage"] == "layout"]
+    passes = sorted({event["pass"] for event in layout})
+    for pass_number in passes:
+        pages = [event for event in layout if event["pass"] == pass_number]
+        assert pages[0]["page"] == 0
+        assert [event["page"] for event in pages] == list(range(pages[-1]["page"] + 1))
+        estimate = None if pass_number == 1 else max(event["page"] for event in layout if event["pass"] == pass_number - 1)
+        assert all(event["estimated_pages"] == estimate for event in pages)
+    ready = next(event for event in progress if event["stage"] == "downloading")
+    assert ready["total_passes"] == max(passes)
+    assert ready["total_pages"] == len(reader.pages)
+    assert ready["total_bytes"] == len(document)
+    assert ready["completed_bytes"] == 0
     assert "Updated documentation revision for this export." in "".join(page.extract_text() for page in reader.pages)
     assert "Governance flow" in _outline_titles(reader.outline)
 
