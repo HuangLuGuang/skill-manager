@@ -20,48 +20,33 @@
       </template>
     </a-table>
     <a-drawer :open="!!selected" :title="ui('detail')" :width="600" :destroy-on-close="true" @close="selected = null">
-      <article v-if="selected" class="event-record-detail">
-        <div class="event-detail-heading"><h2>{{ view.title }}</h2><span :class="['event-state', view.tone]">{{ view.state }}</span></div>
-        <p><strong>{{ selected.skill_name || '—' }}</strong> / {{ agentLabel(selected.agent_type) }}<span v-if="clientName"> · {{ clientName }}</span></p>
-        <section><h3>{{ ui('what') }}</h3><p v-if="selected.presentation?.category === 'audit'">{{ view.stage }}</p><dl class="event-facts"><div><dt>{{ view.timeLabel }}</dt><dd>{{ time(view.occurred_at) }}</dd></div><div><dt>{{ ui('source') }}</dt><dd>{{ view.category }}</dd></div></dl><p v-if="view.count" class="muted">{{ view.count }}</p></section>
-        <section><h3>{{ ui('why') }}</h3><p>{{ view.reason }}</p></section>
-        <section><h3>{{ ui('handled') }}</h3><p>{{ view.action }} · {{ view.state }}</p><dl class="event-facts"><div v-if="selected.presentation?.category === 'audit'"><dt>{{ ui('fileAction') }}</dt><dd>{{ ui('unknown') }}</dd></div><div v-if="view.checked_at"><dt>{{ ui('checked') }}</dt><dd>{{ time(view.checked_at) }}</dd></div></dl><p v-if="view.retained">{{ ui('retained') }}</p><p v-if="view.error">{{ ui('error') }}: {{ view.error }}</p></section>
-        <section><h3>{{ ui('evidence') }}</h3><a-timeline v-if="view.timeline.length"><a-timeline-item v-for="(node, index) in view.timeline" :key="index"><time>{{ time(node.at) }}</time><strong>{{ phase(node) }}</strong><small>{{ ui('source_' + node.source) }}<template v-if="node.arrival"> · {{ ui('arrival') }}</template></small></a-timeline-item><a-timeline-item v-if="view.checked_at" color="gray"><time>{{ time(view.checked_at) }}</time><strong>{{ ui('checked') }}</strong><small>{{ ui('reason_' + view.current_reason, {}, 'reason_unknown') }}</small></a-timeline-item></a-timeline><p v-else class="muted">{{ ui('noEvidence') }}</p></section>
-        <details><summary>{{ ui('technical') }}</summary><dl class="event-technical"><div v-for="field in technical" :key="field.key"><dt>{{ ui(field.key) }}</dt><dd>{{ field.value || ui('unknown') }}</dd></div></dl></details>
-        <p v-if="selected.presentation?.category === 'audit'" class="event-boundary muted">{{ ui('boundary') }}</p>
-      </article>
-      <template #footer><a-space wrap><a-button v-if="selected?.details?.skill_id" @click="openSkill">{{ ui('viewSkill') }}</a-button><a-button v-if="view?.usage_id" type="primary" @click="evidenceId = view.usage_id">{{ ui('viewEvidence') }}</a-button><a-button @click="selected = null">{{ ui('back') }}</a-button></a-space></template>
+      <ClientEventDetail v-if="selected" :record="selected" :client-id="clientId" :client-name="clientName" :agent-label="agentLabel" @close="selected = null" @collection="$emit('collection')" />
     </a-drawer>
-    <a-drawer :open="!!evidenceId" :width="680" :title="ui('evidence')" destroy-on-close @close="evidenceId = ''"><AidrSkillUseDetail v-if="evidenceId" :client-id="clientId" :usage-id="evidenceId" @close="evidenceId = ''" @collection="$emit('collection')" /></a-drawer>
   </section>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
 import { RightOutlined } from '@ant-design/icons-vue'
 import { getClientEventRecords } from '../api'
-import AidrSkillUseDetail from './AidrSkillUseDetail.vue'
+import ClientEventDetail from './ClientEventDetail.vue'
 import '../../../client/desktop/src/event-records.js'
 const props = defineProps({ clientId:String, clientName:String, agentLabel:{ type:Function, required:true } })
 defineEmits(['collection'])
-const { t, te, locale } = useI18n(), router = useRouter()
+const { t, te, locale } = useI18n()
 const ui = (key, args = {}, fallback = 'unknown') => t('clientEvents.' + (te('clientEvents.' + key) ? key : fallback), args)
 const describe = event => globalThis.clientEventRecords.describe(event, ui)
 const agentLabel = value => props.agentLabel(value)
 const time = value => value ? new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(String(value)) ? value : value + 'Z').toLocaleString(locale.value, { hour12:false, timeZone:'Asia/Shanghai' }) : '—'
 const filters = reactive({ keyword:'', agent:'', category:'', status:'', days:0 })
 const items = ref([]), agents = ref([]), categories = ref([]), states = ref([]), total = ref(0), page = ref(1), pageSize = ref(10)
-const loading = ref(false), error = ref(false), selected = ref(null), evidenceId = ref('')
+const loading = ref(false), error = ref(false), selected = ref(null)
 let request = 0, timer, disposed = false
 const rows = computed(() => items.value.map(event => ({ ...event, view:describe(event) })))
-const view = computed(() => selected.value ? describe(selected.value) : null)
 const columns = computed(() => [{ key:'identity', title:'Skill / Agent', width:190 }, { key:'event', title:ui('event'), width:290 }, { key:'state', title:ui('handling'), width:150 }, { key:'time', title:ui('time'), width:180 }, { key:'open', width:30 }])
 const pagination = computed(() => ({ current:page.value, pageSize:pageSize.value, total:total.value, showSizeChanger:true, pageSizeOptions:['10','20','50'] }))
-const technical = computed(() => [{ key:'path', value:view.value?.path }, { key:'session', value:view.value?.session_id }, { key:'native', value:view.value?.native_call_id }, { key:'code', value:selected.value?.event_type }, { key:'created', value:time(selected.value?.created_at) }])
 const options = (values, label) => [{ value:'', label:ui('all') }, ...values.map(value => ({ value, label:label(value) }))]
-const phase = node => ui('stage_' + (node.stage === 'host_confirmed' ? view.value.behavior === 'invocation' ? 'loaded' : 'read' : node.stage), {}, 'stage_unknown')
 const rowProps = row => ({ onClick:() => { selected.value = row } })
 async function load() {
   clearTimeout(timer)
@@ -79,8 +64,7 @@ function filter() { page.value = 1; void load() }
 function searchLater() { clearTimeout(timer); request++; timer = setTimeout(filter, 300) }
 function reset() { Object.assign(filters, { keyword:'', agent:'', category:'', status:'', days:0 }); filter() }
 function changePage(value) { page.value = value.pageSize === pageSize.value ? value.current : 1; pageSize.value = value.pageSize; void load() }
-function openSkill() { router.push('/skills/' + encodeURIComponent(selected.value.details.skill_id)) }
-watch(() => props.clientId, () => { selected.value = null; evidenceId.value = ''; reset() }, { immediate:true })
+watch(() => props.clientId, () => { selected.value = null; reset() }, { immediate:true })
 onBeforeUnmount(() => { disposed = true; request++; clearTimeout(timer) })
 defineExpose({ refresh:load })
 </script>
@@ -97,11 +81,4 @@ defineExpose({ refresh:load })
 .event-state { display:inline-block; padding:3px 9px; border:1px solid; border-radius:4px; font-size:12px; line-height:1.6; }
 .neutral { color:#596774; background:#f6f8fa; border-color:#cbd3dc; } .warning { color:#ad5418; background:#fff8ed; border-color:#efc18f; }
 .danger { color:#b7333b; background:#fff1f2; border-color:#f0a9ae; } .success { color:#257664; background:#f0faf6; border-color:#91c9b7; } .info { color:#246ac6; background:#f0f6ff; border-color:#a9c9f4; }
-.event-detail-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; } h2 { font-size:21px; margin:0; }
-.event-detail-heading .event-state { flex-shrink:0; max-width:42%; }
-.event-record-detail { overflow-wrap:anywhere; } .event-record-detail section { padding:19px 0; border-top:1px solid #e8edf2; } h3 { font-size:14px; color:#4c5b6b; margin:0 0 10px; }
-.event-facts { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin:12px 0 0; } dt { font-size:12px; margin-bottom:5px; } dd { margin:0; }
-.event-record-detail :deep(.ant-timeline) { margin-top:20px; } .event-record-detail time { margin-right:12px; font-size:12px; color:#697586; }
-.event-record-detail summary { cursor:pointer; color:#4c5b6b; padding:14px 0; border-top:1px solid #e8edf2; } .event-technical div { margin:12px 0; } .event-boundary { font-size:12px; margin-top:20px; }
-@media(max-width:600px) { .event-facts { grid-template-columns:1fr; } .event-detail-heading { flex-wrap:wrap; } }
 </style>

@@ -51,7 +51,7 @@ PAGES = [
     ("external-ai-gateways", "agent-management", "外部 AI 网关", "External AI Gateways", "/external-ai-gateways", "external_gateways:view", "api", None),
     ("credentials", "agent-management", "统一凭证中心", "Credentials", "/credentials", "credentials:view", "key", None),
     ("runtime", "agent-management", "接入与运行", "Integration & Runtime", "/runtime", "runtime:view", "safety", None),
-    ("skill-audit", "agent-management", "审计追踪", "Skill Audit", "/audit", "skills:view", "audit", None),
+    ("skill-audit", "agent-management", "审计追踪", "Audit Trail", "/audit", "skills:view", "audit", None),
     ("model-gateway", None, "模型网关", "Model Gateway", None, None, "api", None),
     ("providers", "model-gateway", "供应商与模型", "Providers & Models", "/model-gateway/providers", "providers:view", "api", None),
     ("bindings", "model-gateway", "组策略绑定", "Group Policy Bindings", "/model-gateway/policy-bindings", "groups:view", "team", None),

@@ -324,9 +324,17 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 
 ### 3.8 可验证安全审计
 
-“智能体管理 → 审计追踪”按时间、事件、对象、Agent 与来源、操作人展示 Skill 与客户端治理记录。输入关键词或更改事件类型、最近 24 小时 / 7 天 / 30 天范围后立即刷新并回到第一页，点击“查看”展开事件 ID 与记录提供的原因。“原始 JSON”保留完整字段和值，供按事件 ID 排障、核对来源或向技术支持提供证据；日常浏览无需打开。Skill 名称与 ID、Agent 与来源 IP 分层显示；证据保留原文。
+“智能体管理 → 审计追踪”以智能体与客户端为入口，覆盖身份与接入、凭证与授权、配置变更、任务与执行、能力使用与处置。列表展示身份、事件与对象、结果和时间，支持关键词、平台智能体或本地 Agent 类型、客户端、类别、结果及最近 24 小时 / 7 天 / 30 天 / 全部时间筛选。关键词输入采用 300 毫秒防抖，筛选回到第一页，时间支持升降序；所有展示时间为北京时间（UTC+8）。
 
-In **Agent management → Audit Trail**, filter governance events by keyword, event type, and the last 24 hours, 7 days, or 30 days. Filters apply immediately as you type or select and return to page one. Select **View** to expand the event ID and any recorded reason. **Original JSON** preserves the complete fields and values for troubleshooting by event ID, checking the source, or sharing evidence with technical support; routine review does not require it. Skill IDs and source IPs appear beneath their corresponding objects and Agents; evidence remains in its original language.
+点击事件打开右侧宽详情区；窄屏切换为详情单列，可返回原列表。客户端 Skill 事件复用客户端事件详情、证据时间线和 Skill 使用详情，继续提供已有关联证据与重新采集入口。其他类型按记录展示身份、关联对象、操作主体、原因和来源标识；运行治理事件可打开现有运行任务详情接口返回的任务与动作记录。平台授权决定、任务状态、认证状态与宿主执行证据分别呈现，缺少明确身份时显示未关联。原始路径、备注、错误和证据内容保持原文，固定字段、事件及状态支持简体中文和英文。
+
+联合接口 `GET /api/v1/audit-trail` 在各来源内先筛选、计数，再合并分页，沿用页面的 `skills:view` 入口权限。客户端事件与任务还需 `clients:view` 并按设备注册人限制可见范围；运行决策需 `audit:security`，管理操作及历史操作需 `audit:operation`；智能体名称和跳转只在有 `agents:view` 且可查看该资产时提供。复用客户端原始事件时排除 Registry 中的客户端投影，避免重复计数和绕过设备权限。来源包括客户端事件、客户端任务、运行任务安全审计、智能体/客户端/凭证/运行治理管理操作、已有客户端治理操作记录，以及原有 Skill Registry 审计。客户端任务展示当前状态，时间取完成、开始或创建时间；巡检聚合次数表示发现次数。列表总量表示来源记录数，不等同于独立调用次数。
+
+In **Agent management → Audit Trail**, trace identity, authorization, configuration, tasks and capability activity by Agent and client. Filter by keyword, platform Agent or local Agent type, client, category, outcome, and the last 24 hours / 7 days / 30 days / all time. Search is debounced by 300 ms; filters return to page one. Event time supports ascending and descending order and is displayed in Beijing time (UTC+8).
+
+Select an event to open the wide detail panel, or a single detail view on narrow screens. Client Skill events reuse the existing event details, evidence timeline and Skill-use detail, including associated evidence and content recollection. Other events show their recorded identity, objects, actor, reasons and source identifiers. Runtime governance events can open task and action records through the existing task detail API. Platform decisions, task states, certification and host execution evidence retain separate meanings. Missing identities remain unlinked. Field labels, events and states are bilingual; paths, notes, errors and evidence retain their original content.
+
+`GET /api/v1/audit-trail` filters and counts each source before merging paginated results. The page retains `skills:view`; client events and tasks additionally require `clients:view` and device ownership, runtime decisions require `audit:security`, and management records require `audit:operation`. Agent names and links also require `agents:view` and asset visibility. Registry projections of client events are excluded in favor of device-scoped originals. Sources comprise client events/tasks, runtime task security audits, Agent/client/credential/runtime management operations, existing client governance operations and Skill Registry audits. Client tasks show their current state, timed by completion, start or creation; inspection counts represent discoveries. The total counts source records, not independent invocations.
 
 管理面的 Token、Agent、MCP、模型和策略写操作会进入统一安全审计链。每条事件包含前一条事件哈希，并使用独立 Ed25519 审计密钥签名。管理员可调用 `GET /api/v1/security-audit/verify`，或在 Backend 环境执行 `python -m backend.security_audit verify` 检查完整性。配置 `SECURITY_AUDIT_EXPORT_PATH` 后，同一事件还会追加写入 JSONL，供外部日志平台采集。
 

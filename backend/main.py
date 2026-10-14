@@ -43,6 +43,7 @@ from .routers import (
     runtime_governance,
     runtime_traces,
     security_audit,
+    audit_trail,
     security_scans,
     scan_schedules,
     system,
@@ -163,6 +164,7 @@ app.include_router(tasks.router, prefix=settings.API_PREFIX)
 app.include_router(agents.router, prefix=settings.API_PREFIX)
 app.include_router(access_tokens.router, prefix=f"{settings.API_PREFIX}/v1")
 app.include_router(security_audit.router, prefix=settings.API_PREFIX)
+app.include_router(audit_trail.router, prefix=settings.API_PREFIX)
 app.include_router(
     agent_security.router, prefix=settings.API_PREFIX, dependencies=[Depends(get_current_security_reader)]
 )

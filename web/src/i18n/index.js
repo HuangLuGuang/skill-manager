@@ -26,6 +26,7 @@ import { skillColumnMessages } from './skillColumns.js'
 import { policySettingsMessages } from './policySettings.js'
 import { policySimulationMessages } from './policySimulation.js'
 import { auditMessages } from './audit.js'
+import { auditTrailMessages } from './audit-trail.js'
 import { externalAiGatewayMessages } from './externalAiGateway.js'
 import { externalModelMessages } from './externalModel.js'
 import { agentAssetMessages } from './agentAssets.js'
@@ -900,6 +901,7 @@ export const i18n = createI18n({
       },
       policySimulation: policySimulationMessages['zh-CN'],
       auditLog: auditMessages['zh-CN'],
+      auditTrail: auditTrailMessages['zh-CN'],
       credentials: {
         pageTitle: '统一凭证中心',
         pageSubtitle: '先按调用者选择凭证，再配置它能访问的资源',
@@ -2028,6 +2030,7 @@ export const i18n = createI18n({
       },
       policySimulation: policySimulationMessages['en-US'],
       auditLog: auditMessages['en-US'],
+      auditTrail: auditTrailMessages['en-US'],
       credentials: {
         pageTitle: 'Credential Center',
         pageSubtitle: 'Choose the caller first, then define the resources it may access',

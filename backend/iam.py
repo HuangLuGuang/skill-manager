@@ -47,6 +47,11 @@ def initialize(db):
             db.add(im.Menu(name=name, parent_name=parent, title_zh=zh, title_en=en,
                            title_key=f"iam.navigation.{name}", path=path, icon=icon, sort_order=index, is_system=True))
             db.flush()
+    audit_menu = db.get(im.Menu, 'skill-audit')
+    if (audit_menu and audit_menu.is_system and audit_menu.title_key is None
+            and audit_menu.title_zh == '审计追踪' and audit_menu.title_en == 'Skill Audit'):
+        audit_menu.title_key = 'iam.navigation.skill-audit'
+        audit_menu.title_en = 'Audit Trail'
     db.commit()
 
 

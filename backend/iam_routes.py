@@ -82,6 +82,7 @@ def route_permission(request):
         ("/api/v1/deployments", "skills", "deploy"),
         ("/api/v1/review", "skills", None),
         ("/api/v1/audit", "skills", "view"),
+        ("/api/v1/audit-trail", "skills", "view"),
         ("/api/v1/dashboard", "dashboard", "view"),
         ("/api/config/docs-assistant", "docs", None),
         ("/api/config", "settings", None),

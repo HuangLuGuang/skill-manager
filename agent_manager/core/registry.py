@@ -1695,6 +1695,56 @@ class Registry:
         with self._lock, self._connect() as conn:
             self._insert_audit(conn, event, ignore_existing=True)
 
+    def governance_audit_page(self, *, since=None, q='', agent='', client_id='', category='', result='', limit=10, order='desc', matching_agent_ids=()):
+        """Read original registry events for the federated governance view.
+
+        Client-event projections have an authoritative, device-scoped source in
+        the management database and must not bypass its visibility rules here.
+        """
+        if client_id or category not in ('', 'capability') or (agent and not agent.startswith('platform:')):
+            return {'items': [], 'total': 0, 'agents': []}
+        state = """CASE
+            WHEN event_type IN ('skill_load_blocked','tool_blocked','skill_rejected') THEN 'deny'
+            WHEN event_type IN ('skill_processing_failed','skill_auto_install_failed') THEN 'failed'
+            WHEN event_type = 'skill_load_allowed' THEN 'allow'
+            WHEN event_type IN ('skill_approved','skill_signature_verified','skill_processing_completed','skill_deployed') THEN 'success'
+            ELSE 'recorded' END"""
+        clauses = ["event_id NOT LIKE 'client-event-%'", "COALESCE(json_extract(payload, '$.details.source'), '') != 'managed_client'"]
+        params = []
+        def audit_timestamp(value):
+            stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            return stamp.astimezone(timezone.utc).isoformat(timespec='microseconds')
+
+        with self._read_connection() as conn:
+            # Match the federated sort's precision; SQLite date functions round to milliseconds.
+            conn.create_function('audit_timestamp', 1, audit_timestamp, deterministic=True)
+            agents = [row[0] for row in conn.execute(
+                "SELECT DISTINCT json_extract(payload, '$.details.agent_id') FROM skill_audit_events WHERE " + ' AND '.join(clauses)
+            ) if row[0]]
+            if since:
+                clauses.append('audit_timestamp(timestamp) >= audit_timestamp(?)')
+                params.append(since.isoformat())
+            if q:
+                clauses.append("(instr(lower(skill_name), lower(?)) > 0 OR instr(lower(skill_id), lower(?)) > 0 OR instr(lower(event_type), lower(?)) > 0 OR instr(lower(COALESCE(actor,'')), lower(?)) > 0 OR instr(lower(COALESCE(json_extract(payload, '$.details.agent_id'),'')), lower(?)) > 0)")
+                params.extend([q] * 5)
+                if matching_agent_ids:
+                    placeholders = ','.join('?' for _ in matching_agent_ids)
+                    clauses[-1] = f"({clauses[-1]} OR json_extract(payload, '$.details.agent_id') IN ({placeholders}))"
+                    params.extend(matching_agent_ids)
+            if agent:
+                clauses.append("json_extract(payload, '$.details.agent_id') = ?")
+                params.append(agent.partition(':')[2])
+            if result:
+                clauses.append(f'({state}) = ?')
+                params.append(result)
+            where = ' AND '.join(clauses)
+            total = conn.execute('SELECT count(*) FROM skill_audit_events WHERE ' + where, params).fetchone()[0]
+            direction = 'ASC' if order == 'asc' else 'DESC'
+            rows = conn.execute(f'SELECT payload, {state} AS result FROM skill_audit_events WHERE {where} ORDER BY audit_timestamp(timestamp) {direction}, event_id {direction} LIMIT ?', [*params, limit])
+            return {'items': [{**json.loads(row['payload']), 'result':row['result']} for row in rows], 'total':total, 'agents':agents}
+
     def read_audit(
         self,
         since: datetime | None = None,
