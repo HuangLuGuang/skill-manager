@@ -16,7 +16,6 @@ uv.lock
 .env
 company-policy.yaml
 .claude/settings.local.json
-.DS_Store
 sqlite/
 node_modules/
 web/node_modules/
@@ -44,5 +43,11 @@ agent-manager/
 client/desktop/src-tauri/tauri.release.conf.json
 client/desktop/release-output/
 /output/
+/outputs/
+/scanner/agent-manager-client
+/scanner/agent-manager-client.exe
+/scanner/skill-scanner.exe
+# Keep OS metadata ignored after vendored data allowlists.
+.DS_Store
 # Reasonix editor artifacts
 .reasonix/

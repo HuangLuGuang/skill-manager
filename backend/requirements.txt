@@ -11,3 +11,5 @@ passlib[bcrypt]
 captcha
 psutil
 croniter
+tree-sitter>=0.25,<0.26
+tree-sitter-bash>=0.25,<0.26

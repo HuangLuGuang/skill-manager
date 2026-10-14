@@ -319,6 +319,10 @@ P1 安全配置默认使用 SQLite，不新增数据库服务。`request_leases`
 
 ## 构建脚本
 
+Backend 镜像通过 `uv pip install --system -e ".[scanner,compression]" -r backend/pyproject.toml python-frontmatter` 安装核心包和管理后端运行依赖。新增后端依赖需维护 `backend/pyproject.toml`；镜像构建直接读取该文件。构建阶段会实际解析一条复合 Shell 命令，确认 `tree-sitter` 与 Bash 语法库可用；CI 继续在切换运行容器前验证应用启动和 `/health`。
+
+The backend image installs the core package and backend runtime dependencies directly from `backend/pyproject.toml`. Update that manifest when adding backend dependencies. The image build parses a compound Shell command to verify the tree-sitter runtime and Bash grammar; CI then checks application startup and `/health` before replacing running containers.
+
 Backend 镜像中的 SkillSpector 固定为 **2.2.3**，源码提交为
 `a5092dd9b9521ff57a9b53612bb129ce78019002`。升级时更新 `backend/Dockerfile`
 中的固定提交，并同步本文档；
