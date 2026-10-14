@@ -305,9 +305,13 @@ export SKILL_SCANNER_HOST_ID="customer-prod-01"
 | --- | --- | --- | --- |
 | 规则分析：`--behavioral` | 按需，上传时生效 | 默认关闭；只写开关。 | 请求服务端规则/行为分析，不在客户机执行 Skill 脚本。 |
 | 静态深度扫描：`--deep-scan` | 按需，上传时生效 | 默认关闭；只写开关。 | 不自动启用 LLM；与 --llm 组合时，证据交给最终 LLM 汇总。 |
-| Sandbox 分析：`--sandbox` | 按需，上传时生效 | 默认关闭；只写开关。 | 请求服务端受控运行分析，需可用 Sandbox 配置；未传此开关时，服务端策略仍可能要求执行。 |
-| LLM 分析：`--llm` | 按需，上传时生效 | 默认关闭；只写开关。 | 使用服务端配置的模型和凭据；不自动启用其他分析开关。 |
+| Sandbox 分析：`--sandbox` | 按需，上传时生效 | 默认关闭；只写开关。 | `--sandbox` 仅请求分析；还需在服务端启用 Sandbox 运行检测并完成可用配置，才会执行。未传此开关时，服务端策略仍可能要求执行。 |
+| LLM 分析：`--llm` | 按需，上传时生效 | 默认关闭；只写开关。 | `--llm` 仅请求分析；还需在服务端启用 AI 分析并配置模型和凭据，才会调用模型。服务端未启用时显示“未启用”；不自动启用其他分析开关。 |
 | 风险判定模式：`--judgement-mode <MODE>` / `SKILL_SCANNER_JUDGEMENT_MODE` | 可选，上传时生效 | strict（严格）、balanced（平衡）、permissive（宽松）。 | 命令行优先；未配置沿用服务端策略。不依赖 --llm。 |
+
+即使 Scanner 传入 `--llm`，服务端关闭 AI 分析时仍接受上传并继续其他检测；本次报告 `analyzer_timings.llm` 记录 `status=disabled`、`reason=llm_analysis_disabled`。列表、详情和版本摘要显示未启用；详情说明本次未调用模型。开启后的配置错误或模型调用异常仍显示调用失败。原始提交选项保留用户请求，不反推实际执行状态。
+
+`--llm` only requests analysis. AI analysis must also be enabled on the server with a configured model and credentials. When disabled, upload and other analysis continue; the report records `status=disabled` and `reason=llm_analysis_disabled`. The list, detail and version summary show Disabled. Configuration and model request errors while enabled remain Failed. `--sandbox` likewise requires server-side Sandbox runtime detection to be enabled and configured; server policy may still require execution when the switch is omitted.
 
 #### 本地处理限制
 

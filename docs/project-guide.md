@@ -215,6 +215,9 @@ LLM 分析生成详细的安全报告，如果是恶意skill，还会生成攻�
 - Skill 详情中的基础信息、检测报告、文件等内容分别加载，已返回的内容立即显示。“版本差异”在打开时加载比较结果，等待期间仍可切换其他标签；相同版本直接显示无文本文件差异，比较失败可点击“重新加载差异”。
 - 版本差异默认以最新版本为目标、前一个版本为基准，支持选择版本、交换比较方向、切换差异文件及并排或单栏对比。在本次详情查看期间，版本选择未变时切换标签再返回会继续等待或显示已有比较结果。比较范围为可读取的 UTF-8 文本文件，单文件不超过 1 MiB；跳过软链接及 `.git`、`.venv`、`node_modules`、`__pycache__`、`dist`、`build` 目录。
 - Skill 列表默认展示 LLM 判定结果，与最终风险独立显示；“显示列”可设置全部列的显示或隐藏，默认展示现有基础列与 LLM 判定结果，规则扫描、深度扫描和 Sandbox 默认隐藏；支持恢复默认，选择保存在当前浏览器。检测中、调用失败、已跳过、未启用和未记录分别显示。
+- Scanner 的 `--llm` 是请求开关；系统关闭 AI 分析时，上传和其他检测继续，报告以 `analyzer_timings.llm.status=disabled`、`reason=llm_analysis_disabled` 记录本次未调用模型。列表及版本摘要显示“未启用”，详情显示原因说明；系统开启后的缺配置或真实调用异常仍为失败。既有报告保留本次记录，不随当前开关改变；重新检测生成新的实际状态。
+- The Scanner `--llm` flag requests analysis. If AI analysis is disabled on the server, uploads and other checks continue, and the report records `disabled` with reason `llm_analysis_disabled`. The list, detail and version summary show the recorded state. Configuration or model request errors while enabled remain failures. Existing reports retain their historical state; rescan to apply new settings.
+
 - Skill 列表搜索与审核队列一致：输入或清空关键词后停止操作 300 毫秒自动查询全部分页数据，回到第一页并清除当前页勾选，保留状态、风险及 Sandbox 筛选条件。连续输入合并查询，点击“查询”或按 Enter 可立即查询；刷新、重置或切换筛选条件会取消待执行的延迟查询，离开页面时清理定时器。
 - 是否复用只在“策略配置”全局控制，提交页和客户端不再提供单次“禁用缓存”。
 - 如需重新检测，在 Skill 详情的版本列表中点击“重新检测”。重扫会新增 Scan Run，不会创建内容版本；重扫完成前或重扫失败时，上一份可信结果继续有效。

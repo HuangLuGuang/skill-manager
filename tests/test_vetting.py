@@ -4,6 +4,7 @@ import sys
 import textwrap
 import threading
 import types
+from unittest.mock import Mock
 
 import pytest
 
@@ -44,6 +45,73 @@ def skill_dir(tmp_path):
 @pytest.fixture
 def default_policy():
     return CompanyPolicy.default()
+
+
+@pytest.mark.parametrize("provider", ["deepseek", "model-gateway"])
+def test_requested_llm_disabled_by_server_keeps_other_analysis(
+    skill_dir, monkeypatch, provider,
+):
+    model_call = Mock(side_effect=AssertionError("disabled LLM must not be called"))
+    monkeypatch.setattr(
+        "agent_manager.core.vetting.LLMConfig.load",
+        lambda: LLMConfig(enabled=False, provider=provider),
+    )
+    monkeypatch.setattr(
+        "agent_manager.core.vetting.analyze_skill_with_llm_single_round", model_call,
+    )
+    monkeypatch.setattr(
+        "agent_manager.core.vetting._run_scanner",
+        lambda *_: {"findings": [], "max_severity": "SAFE"},
+    )
+    monkeypatch.setattr(
+        "agent_manager.core.vetting._run_skillspector_without_llm",
+        lambda *_: {"available": True, "findings": [], "max_severity": "SAFE"},
+    )
+    states = []
+    result, *_ = VettingPipeline(CompanyPolicy({"require_sandbox_for_risk": []})).vet(
+        skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_llm=True, use_skillspector=True,
+        analyzer_callback=lambda name, state: states.append((name, state)),
+    )
+    timing = result.scan_report["analyzer_timings"]["llm"]
+    assert timing["status"] == "disabled"
+    assert timing["reason"] == "llm_analysis_disabled"
+    assert ("llm", "running") not in states
+    assert states[-1] == ("llm", "disabled")
+    assert result.scan_report["analyzer_timings"]["scanner"]["status"] == "completed"
+    assert result.scan_report["analyzer_timings"]["skillspector"]["status"] == "completed"
+    assert (
+        result.scan_report["risk_reconciliation"]["strategy"]
+        == "deterministic_policy_merge"
+    )
+    assert "llm_analysis" not in result.scan_report
+    assert not any(note.startswith("[LLM] analysis skipped:") for note in result.policy_notes)
+    model_call.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", [None, "upstream unavailable"])
+def test_enabled_llm_configuration_and_call_errors_remain_failed(
+    skill_dir, monkeypatch, failure,
+):
+    monkeypatch.setattr(
+        "agent_manager.core.vetting.LLMConfig.load", lambda: LLMConfig(enabled=True),
+    )
+    monkeypatch.setattr(
+        "agent_manager.core.vetting._run_scanner",
+        lambda *_: {"findings": [], "max_severity": "SAFE"},
+    )
+    if failure:
+        def fail(**_kwargs):
+            raise RuntimeError(failure)
+        monkeypatch.setattr(
+            "agent_manager.core.vetting.analyze_skill_with_llm_single_round", fail,
+        )
+    result, *_ = VettingPipeline(CompanyPolicy({"require_sandbox_for_risk": []})).vet(
+        skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_llm=True, use_skillspector=False,
+    )
+    timing = result.scan_report["analyzer_timings"]["llm"]
+    assert timing["status"] == "failed"
+    assert "reason" not in timing
+    assert any((failure or "LLM config is not ready") in note for note in result.policy_notes)
 
 
 def test_parallel_analyzers_report_independent_progress(skill_dir, monkeypatch):

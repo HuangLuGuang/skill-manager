@@ -23,6 +23,7 @@ from agent_manager.api.scanner_router import (
     router,
     runtime_router,
 )
+from agent_manager.core.llm import LLMConfig
 from agent_manager.core.manager import AgentManager
 from agent_manager.core.models import SkillOrigin, SkillStatus, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
@@ -40,6 +41,53 @@ def _skill_zip() -> bytes:
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("SKILL.md", "---\nname: api-skill\ndescription: API test\n---\n")
     return buffer.getvalue()
+
+
+def test_scanner_requested_llm_disabled_is_consistent_in_reports(tmp_path, monkeypatch):
+    class ImmediateExecutor:
+        def submit(self, callback, *args):
+            callback(*args)
+
+    manager = AgentManager(
+        policy=CompanyPolicy({"require_sandbox_for_risk": []}),
+        data_dir=tmp_path / "data",
+    )
+    monkeypatch.setattr(api_router, "_scan_executor", ImmediateExecutor())
+    monkeypatch.setattr(LLMConfig, "load", lambda: LLMConfig(enabled=False))
+    monkeypatch.setattr(
+        "agent_manager.core.vetting._run_scanner",
+        lambda *_: {"findings": [], "max_severity": "SAFE"},
+    )
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_manager] = lambda: manager
+    client = TestClient(app)
+    _, token = ScannerTokenStore(manager.registry.data_dir).create(name="llm-disabled")
+    response = client.post(
+        "/api/v1/scanner/imports",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"file": ("skill.zip", _skill_zip(), "application/zip")},
+        data={"use_llm": "true"},
+    )
+    assert response.status_code == 200
+    entry = manager.get_skill(response.json()["version_id"])
+    assert entry.scan_options["use_llm"] is True
+    assert entry.vetting.scan_report["analyzer_timings"]["llm"]["status"] == "disabled"
+    summary = manager.list_skill_summaries(page=1, page_size=10)["items"][0]
+    assert summary["analysis_results"]["llm"] == {"status": "disabled", "risk_level": None}
+    assert api_router._version_summary(entry)["risk_chain"]["llm_status"] == "disabled"
+    read_response = client.get(
+        f"/api/v1/scanner/imports/{entry.skill_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert read_response.status_code == 200
+    notes = read_response.json()["vetting"]["policy_notes"]
+    assert not any("[LLM] analysis skipped:" in note for note in notes)
+    # 摘要须优先使用本次状态，不能被旧版策略备注推断覆盖。
+    entry.vetting.policy_notes = ["[LLM] analysis skipped: upstream unavailable"]
+    for state in ("failed", "skipped", "disabled", "completed"):
+        entry.vetting.scan_report["analyzer_timings"]["llm"]["status"] = state
+        assert api_router._version_summary(entry)["risk_chain"]["llm_status"] == state
 
 
 def test_scanner_fingerprint_orders_relative_paths_like_go(tmp_path):

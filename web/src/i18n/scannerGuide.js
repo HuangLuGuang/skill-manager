@@ -94,13 +94,13 @@ export const scannerGuideMessages = {
         "name": "Sandbox 分析",
         "required": "按需，上传时生效",
         "value": "默认关闭；只写开关。",
-        "usage": "请求服务端受控运行分析，需可用 Sandbox 配置；未传此开关时，服务端策略仍可能要求执行。"
+        "usage": "--sandbox 仅请求分析；还需在服务端启用 Sandbox 运行检测并完成可用配置，才会执行。未传此开关时，服务端策略仍可能要求执行。"
       },
       "llm": {
         "name": "LLM 分析",
         "required": "按需，上传时生效",
         "value": "默认关闭；只写开关。",
-        "usage": "使用服务端配置的模型和凭据；不自动启用其他分析开关。"
+        "usage": "--llm 仅请求分析；还需在服务端启用 AI 分析并配置模型和凭据，才会调用模型。服务端未启用时显示“未启用”；不自动启用其他分析开关。"
       },
       "judgement": {
         "name": "风险判定模式",
@@ -229,13 +229,13 @@ export const scannerGuideMessages = {
         "name": "Sandbox analysis",
         "required": "As needed; uploads only",
         "value": "Off by default; no value needed.",
-        "usage": "Requests controlled server-side runtime analysis; requires an available Sandbox configuration. Server policy may still require execution when this switch is omitted."
+        "usage": "--sandbox only requests analysis. Sandbox runtime detection must also be enabled and configured on the server before execution. Server policy may still require execution when this switch is omitted."
       },
       "llm": {
         "name": "LLM analysis",
         "required": "As needed; uploads only",
         "value": "Off by default; no value needed.",
-        "usage": "Uses the server-configured model and credentials; does not enable other analysis switches."
+        "usage": "--llm only requests analysis. AI analysis must also be enabled on the server with a model and credentials configured before a model is called. When disabled on the server, the result is Disabled. Does not enable other analysis switches."
       },
       "judgement": {
         "name": "Risk judgement mode",

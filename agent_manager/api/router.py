@@ -1752,7 +1752,11 @@ def _version_summary(
     policy_notes = list(entry.vetting.policy_notes if entry.vetting else [])
     llm_note = next((str(note) for note in policy_notes if str(note).startswith("[LLM]")), None)
     analyzers = {str(item).lower() for item in report.get("analyzers_used", [])}
-    if llm_analysis:
+    # 优先使用本次报告状态，旧报告继续沿用原有推断规则。
+    recorded_llm_status = report.get("analyzer_timings", {}).get("llm", {}).get("status")
+    if recorded_llm_status in {"completed", "failed", "disabled", "skipped"}:
+        llm_status = recorded_llm_status
+    elif llm_analysis:
         llm_status = "completed"
     elif llm_note:
         llm_status = "skipped"

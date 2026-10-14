@@ -642,7 +642,8 @@
             </a-tab-pane>
             <a-tab-pane key="llm" :tab="$t('decisionFlow.llmAnalysis')">
                 <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
-                  <a-alert v-if="llmFailure !== null" type="error" show-icon :message="$t('skillDetail.llmFailed')">
+                  <a-alert v-if="llmDisabled" type="info" show-icon :message="$t('skillDetail.llmDisabled')" :description="$t('skillDetail.llmDisabledReason')" />
+                  <a-alert v-else-if="llmFailure !== null" type="error" show-icon :message="$t('skillDetail.llmFailed')">
                     <template #description><div style="white-space: pre-wrap; overflow-wrap: anywhere">{{ llmFailure || $t('skillDetail.llmFailureUnavailable') }}</div></template>
                   </a-alert>
                   <template v-else-if="llmAnalysis">
@@ -1280,6 +1281,7 @@ const versionRiskChain = record => record?.risk_chain || {
 
 const llmStageLabel = chain => {
   if (chain.llm_status === 'completed') return chain.llm_risk_level ? riskDisplay(chain.llm_risk_level) : t('skillVersions.llmCompleted')
+  if (chain.llm_status === 'disabled') return t('skillColumns.stepStates.disabled')
   if (chain.llm_status === 'skipped') return t('skillVersions.llmSkipped')
   if (chain.llm_status === 'failed') return t('skillVersions.llmFailed')
   return t('skillVersions.llmNotRun')
@@ -1780,6 +1782,9 @@ const llmAnalysis = computed(() => {
     risk_level: analysis.risk_level || 'benign',
   }
 })
+// 仅按本次报告的关闭原因展示说明，不使用当前系统开关推断历史结果。
+const llmDisabled = computed(() => analysisState(scanReport.value, 'llm') === 'disabled'
+  && scanReport.value?.analyzer_timings?.llm?.reason === 'llm_analysis_disabled')
 const llmFailure = computed(() => formatLlmFailureReason(llmFailureReason(scanReport.value, policyNotes.value), t))
 const llmExplanationHtml = computed(() => {
   const text = llmAnalysis.value?.report || ''

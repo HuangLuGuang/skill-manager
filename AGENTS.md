@@ -246,3 +246,5 @@ make sandbox-runtime-build
 - 深度扫描已过滤噪声明细复用后端过滤原因规则，使用 `suppressed_findings` 与稳定 `suppression_reason` 编码；界面统一展示严重度、规则、标题、文件名、独立行号和过滤原因，双语资源使用 `skillDetail.suppressed`。历史报告仅在读取响应中补齐明细，保留原存储和风险判定。
 
 - 噪声明细的过滤原因仅翻译原因资源自身声明的编码；编码未知、为空或缺失时，统一按当前语言显示“未知 / Unknown”；兜底仅作用于过滤原因。
+
+- Scanner 的 `--llm` 以服务端 AI 开关为执行边界；关闭时本次报告记录 `analyzer_timings.llm.status=disabled`、`reason=llm_analysis_disabled`，其他检测继续，提交选项保持原请求。列表、详情与版本摘要使用本次报告状态；开启后的配置或调用异常仍为 failed。Scanner 的 LLM/Sandbox 参数说明须同时说明服务端启用与配置要求。
