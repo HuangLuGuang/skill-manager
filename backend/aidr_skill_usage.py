@@ -284,7 +284,7 @@ def refresh(db, row, manager, settings=None):
         key = hashlib.sha256(('skill-use:' + row.client_id + ':' + row.call_key).encode()).hexdigest()
         values = dict(client_id=row.client_id,event_type='aidr_skill_alert',agent_type=row.agent,
                       skill_name=data['skill'].get('name') or check.get('name'),details_json=dump(details),
-                      aggregate_key=key,last_seen_at=datetime.utcnow())
+                      aggregate_key=key)
         stmt = insert(models.ClientEvent).values(**values)
         db.execute(stmt.on_conflict_do_update(index_elements=['aggregate_key'],set_={k:v for k,v in values.items() if k != 'aggregate_key'}))
     else:

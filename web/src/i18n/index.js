@@ -1,4 +1,5 @@
 import { dashboardMessages } from './dashboard.js'
+import { clientEventMessages } from './client-events.js'
 import { mcpServerFormMessages } from './mcpServerForm.js'
 import { systemSelectionMessages } from './system-selection.js'
 import { runtimeGovernanceMessages } from './runtime-governance.js'
@@ -52,6 +53,7 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      clientEvents: clientEventMessages['zh-CN'],
       localAssets: localAssetMessages['zh-CN'],
       dashboard: dashboardMessages['zh-CN'],
       docsArchitecture: docsArchitectureMessages['zh-CN'],
@@ -1167,6 +1169,7 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      clientEvents: clientEventMessages['en-US'],
       localAssets: localAssetMessages['en-US'],
       dashboard: dashboardMessages['en-US'],
       docsArchitecture: docsArchitectureMessages['en-US'],

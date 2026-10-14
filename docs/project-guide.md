@@ -2356,8 +2356,41 @@ UI 验收 Todo / Manual UI checks（中英文）：在客户端详情展开有/�
 平台默认处置策略按未认证 Skill、已认证 Skill、检测结果处置分区；单台客户端可逐项
 继承默认或设置覆盖。保存前按客户端、Agent、Skill 逐层预览影响，保存后查看同步任务。
 策略已应用与 Skill 处置完成分别记录。客户端概览的“检测策略”页显示本机有效规则。
-平台客户端详情的最近事件支持服务端分页，每页 10 条。桌面执行记录按有效处置类型筛选，
-例如自动治理动作中的 `quarantine` 与旧版直接上报的隔离事件统一显示为“隔离 Skill”；
+客户端“执行记录 → 巡检与处置”和平台“客户端详情 → Agent 与资产 → 治理记录”统一展示
+Skill / Agent、事件与原因、处理情况和发生时间，支持关键词、Agent、事件类别、处理情况、
+时间范围及服务端分页。点击记录打开详情，分为“发生了什么、为什么记录、系统处理、关联证据、
+路径与技术标识”。事件类别用于归类，具体标题说明加载、文件读取、巡检发现或文件处置；
+内部事件编码保留在技术标识中，便于核验。
+
+“仅记录”表示该次巡检保留本地文件；“告警仍有效”表示仍满足告警条件；“当前不再触发”
+仅表示当前不满足告警条件。隔离、卸载、恢复等操作按实际动作及结果显示成功或失败，缺少
+结果时显示“处理结果未确认”。使用审计告警单独注明文件处置是否有记录。
+
+使用审计按同一客户端、精确关联且未过期的行为证据中的最早发生时间排序；缺少该时间时
+显示“记录到达”。巡检记录显示“最近巡检发现”和累计巡检发现次数；告警核对单独显示
+“最近核对”，定期核对不会刷新行为发生时间。时间筛选与列表排序使用同一口径，界面按
+北京时间展示。详情区分证据发生与到达，保留原始路径、会话和调用标识。
+
+**English:** Desktop **Activity Records → Findings and actions** and platform
+**Client Details → Agents and Assets → Governance history** share the same semantic event list,
+filters and server-side pagination. Each record shows the Skill/Agent, specific event and reason,
+handling and event time. Open a record to review what happened, why it was recorded, system handling,
+linked evidence and technical identifiers. “Record only” retains local files for that inspection;
+“Alert active” and “No longer triggered” describe alert conditions. File actions report their actual
+success or failure; missing outcomes remain unconfirmed. Usage audit timestamps come from the earliest
+explicit occurrence time in exactly linked, unexpired evidence from the same client. Missing occurrence
+times are labeled “Record received.” Inspections show their latest finding time and finding count.
+“Last checked” is separate and never moves old activity to the top. Date filtering and sorting use
+these same timestamps, displayed in Beijing time. Original evidence and identifiers remain unchanged.
+
+平台详情中的“查看行为证据”进入已有 Skill 行为详情，可继续查看原始证据及重新采集。
+桌面详情展示证据来源和时间线；完整证据在平台按现有审计权限查看。能唯一定位本地 Skill
+时提供“查看 Skill”；平台存在明确的 Skill 版本 ID 时提供版本详情入口。
+
+**English:** The platform's “View activity evidence” opens the existing Skill activity detail, including
+original evidence and recollection. Desktop details show evidence sources and the timeline; full evidence
+uses existing platform audit permissions. “View Skill” appears only when a unique local Skill can be
+located on desktop, or an explicit registered version ID is available on the platform.
 进入执行记录或页面打开期间收到新的治理通知时，客户端会刷新第一页。
 
 桌面主要入口为客户端概览、Agent 管理、模型切换、执行记录。“Agent 管理”内按 Agent

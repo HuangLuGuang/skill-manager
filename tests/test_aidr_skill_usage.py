@@ -79,8 +79,15 @@ def test_registry_states_and_single_alert(service,tmp_path,monkeypatch,state,exp
         row,entry,manager,root=setup_certification(db,tmp_path)
         entry.status=state
         assert refresh(db,row,manager)['certification']['status']==expected
+        first_alert = db.query(models.ClientEvent).first()
+        if first_alert:
+            first_alert.last_seen_at = datetime(2020, 1, 1)
+            db.flush()
         db.flush(); refresh(db,row,manager); db.flush()
         assert db.query(models.ClientEvent).count()==(expected!='verified_content')
+        if first_alert:
+            db.refresh(first_alert)
+            assert first_alert.last_seen_at == datetime(2020, 1, 1)
 
 
 def test_content_change_source_ambiguity_and_authorization(service,tmp_path,monkeypatch):

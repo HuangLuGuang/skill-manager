@@ -214,23 +214,7 @@
           </a-table>
           </template>
 
-          <template v-if="inventoryView === 'history'">
-          <div class="section-title">{{ $t("agentRuntimeGovernance.detail.skillEvents") }}</div>
-          <a-spin :spinning="eventsLoading">
-          <a-timeline v-if="detail.events?.length">
-            <a-timeline-item v-for="event in detail.events" :key="event.id" :color="eventColor(event)">
-              <strong>{{ eventLabel(event.event_type) }}</strong>
-              <span v-if="event.skill_name"> · {{ event.skill_name }}</span>
-              <div v-if="event.event_type === 'aidr_skill_alert'" class="muted">{{ $t('aidr.skillUse.' + event.details.behavior) }} · {{ $t('aidr.skillUse.' + event.details.stage) }} · {{ $t('aidr.skillUse.' + event.details.reason_code) }}<span v-if="event.details.active === false"> · {{ $t('aidr.skillUse.inactiveAlert') }}</span></div>
-              <div class="muted">{{ formatTime(event.created_at) }}</div>
-              <div v-if="event.details?.trigger" class="muted">{{ governanceEventValue(event.details.trigger) }} · {{ governanceEventValue(event.details.action) }}</div>
-              <div v-if="event.observation_count > 1" class="muted">{{ $t('clientGovernance.observations', { count: event.observation_count }) }} · {{ $t('clientGovernance.lastSeen', { time: formatTime(event.last_seen_at) }) }}</div>
-            </a-timeline-item>
-          </a-timeline>
-          <a-empty v-else :description="$t('legacy.1fxykwc')" />
-          <a-pagination v-if="detail.events_total" class="event-more" :current="detail.event_page" :page-size="detail.event_page_size" :total="detail.events_total" :show-size-changer="false" :disabled="eventsLoading" @change="changeEventPage" />
-          </a-spin>
-          </template>
+          <ClientEventRecords v-if="inventoryView === 'history'" ref="eventRecordsPanel" :client-id="detail.client_id" :client-name="detail.name || detail.hostname" :agent-label="agentLabel" @collection="navigateDetail('collection')" />
             </a-tab-pane>
             <a-tab-pane key="plugins" :tab="$t('agentRuntimeGovernance.tabs.plugins')"><ClientRuntimeGovernance :client-id="detail.client_id" @collection="navigateDetail('collection')" @policy="navigateDetail('control')" @events="openHookEvents" /></a-tab-pane>
             <a-tab-pane key="audit" :tab="$t('agentRuntimeGovernance.tabs.audit')"><ClientBehaviorAudit v-model:view="auditView" :client-id="detail.client_id" :activity-request="activityRequest" @policy="openClassification(detail.client_id)" @plugins="runtimeTab = 'plugins'" /></a-tab-pane>
@@ -357,6 +341,7 @@ import { can as hasAccess } from '../access'
 import ClientGovernancePolicy from '../components/ClientGovernancePolicy.vue'
 import ClientPolicyWorkbench from '../components/ClientPolicyWorkbench.vue'
 import ClientBehaviorAudit from '../components/ClientBehaviorAudit.vue'
+import ClientEventRecords from '../components/ClientEventRecords.vue'
 import ClientDeviceOverview from '../components/ClientDeviceOverview.vue'
 import ClientRuntimeGovernance from '../components/ClientRuntimeGovernance.vue'
 import ClientHookPanel from '../components/ClientHookPanel.vue'
@@ -409,8 +394,7 @@ watch(() => [route.query.policy, route.query.client], ([value, clientId]) => {
 }, { immediate: true })
 const detailLoading = ref(false)
 const submitting = ref(false)
-const eventsLoading = ref(false)
-let eventSequence = 0
+const eventRecordsPanel = ref(null)
 const detailVisible = ref(false)
 const runtimeTab = ref('overview')
 const inventoryView = ref('inventory'), inventoryType = ref('agents')
@@ -605,8 +589,6 @@ const openDetail = async (record) => {
   inventoryView.value = 'inventory'; inventoryType.value = 'agents'
   runtimeTab.value = 'overview'; auditView.value = 'tools'; controlView.value = 'tools'
   const sequence = ++detailSequence
-  ++eventSequence
-  eventsLoading.value = false
   detailVisible.value = true
   detailLoading.value = true
   detail.value = null
@@ -624,31 +606,13 @@ const refreshDetail = async () => {
   if (!detail.value?.client_id) return
   const clientId = detail.value.client_id
   const sequence = ++detailSequence
-  const eventsRequest = eventSequence
   const result = await getClientDetail(clientId, { event_page: detail.value.event_page || 1 })
   if (sequence !== detailSequence || !detailVisible.value || detail.value?.client_id !== clientId) return
-  if (eventsLoading.value || eventsRequest !== eventSequence) {
-    Object.assign(result, { events: detail.value.events, events_total: detail.value.events_total, event_page: detail.value.event_page, event_page_size: detail.value.event_page_size })
-  }
   detail.value = result
   currentPolicy.value = detail.value.policy_mode || 'audit'
   currentGovernance.value = detail.value.governance_mode || 'registry'
   await overviewPanel.value?.refresh()
-}
-const changeEventPage = async page => {
-  const clientId = detail.value?.client_id
-  if (!clientId || eventsLoading.value) return
-  const sequence = ++eventSequence
-  eventsLoading.value = true
-  try {
-    const result = await getClientDetail(clientId, { event_page: page })
-    if (sequence !== eventSequence || !detailVisible.value || detail.value?.client_id !== clientId) return
-    Object.assign(detail.value, { events: result.events, events_total: result.events_total, event_page: result.event_page, event_page_size: result.event_page_size })
-  } catch {
-    if (sequence === eventSequence) message.error(i18n.global.t('clientGovernance.eventsLoadFailed'))
-  } finally {
-    if (sequence === eventSequence) eventsLoading.value = false
-  }
+  await eventRecordsPanel.value?.refresh()
 }
 const watchTask = async (taskId, clientId = detail.value?.client_id) => {
   for (let attempt = 0; attempt < 15 && detailVisible.value && detail.value?.client_id === clientId; attempt += 1) {
@@ -907,12 +871,7 @@ const policyDescription = mode => ({
 }[mode])
 const governanceDescription = mode => i18n.global.t(`clientGovernance.governanceModeDescription.${mode}`)
 const governanceShortLabel = mode => ({ registry: phrase('legacy.2kc7ip'), strict: phrase('legacy.y5lawk') }[mode] || phrase('legacy.2kc7ip'))
-const eventLabel = value => ['skill_governance_recorded', 'skill_governance_detected', 'skill_governance_action', 'skill_scan_submitted'].includes(value)
-  ? i18n.global.t(`clientGovernance.${value}`)
-  : translateDomain('auditEvent', value, value)
 const governanceEventValue = value => i18n.global.te(`clientGovernance.${value}`) ? i18n.global.t(`clientGovernance.${value}`) : value || '-'
-const eventColor = event => event.details?.action === 'record_only' ? 'default' : event.details?.trigger === 'malicious' || event.details?.status === 'failed' || ['skill_blocked', 'skill_quarantined'].includes(event.event_type)
-  ? 'red' : ['skill_modified', 'skill_governance_detected', 'aidr_skill_alert'].includes(event.event_type) ? 'orange' : 'green'
 const taskLabel = task => {
   if (task.task_type === 'skill_action') return governanceEventValue(task.payload?.action)
   if (task.task_type === 'rescan' && task.payload?.reason === 'policy_changed') return phrase('legacy.q9utgp')

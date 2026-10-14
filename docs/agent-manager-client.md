@@ -570,9 +570,28 @@ visible but are excluded from the Agent count.
 
 桌面“客户端概览”包含总览、运行与同步、检测策略、扫描能力和客户端信息。
 “Agent 管理”按 Agent 切换本地 Skills、检测记录和隔离副本。“执行记录”分为巡检与处置、
-平台任务，支持按 Agent、有效处置类型和时间筛选及分页；巡检与处置列表单独展示 Skill、
-Agent、类型、结果和最近发生时间。切换到执行记录会重新加载第一页，页面打开期间收到新的
-治理通知也会自动刷新第一页。右上角齿轮进入设置，铃铛进入安全通知。
+平台任务。巡检与处置支持按关键词、Agent、事件类别、处理情况和时间筛选及分页；列表展示
+Skill / Agent、事件与原因、处理情况、发生时间。具体标题区分加载、文件读取、巡检发现和
+文件处置。“仅记录”保留本地文件；告警状态与隔离、卸载、恢复等操作结果分别呈现，缺少
+处置结果时保持未确认。点击记录可查看原因、系统处理、证据时间线和技术标识。
+
+使用审计的发生时间取精确关联证据的最早行为时间；缺少行为时间时标为“记录到达”。
+巡检记录显示最近发现时间及累计发现次数。“最近核对”单独展示，定期核对不改变旧行为
+的列表排序和时间筛选。时间以北京时间显示。桌面证据时间线展示来源、阶段和发生/到达时间；
+平台相同列表另有“查看行为证据”入口，进入已有行为详情及重新采集流程。
+切换到执行记录会重新加载第一页，页面打开期间收到新的治理通知也会自动刷新第一页。
+右上角齿轮进入设置，铃铛进入安全通知。
+
+**English:** Activity Records separates inspection/remediation events from platform tasks. Event lists
+show Skill/Agent, specific event and reason, handling and event time. Search, Agent, category, handling,
+time range and pagination use the same semantics on desktop and platform. Record-only findings retain
+local files; alert conditions and file action outcomes are separate. Unrecorded outcomes remain unknown.
+Details show the reason, system handling, evidence timeline and technical identifiers. Usage audit time
+is the earliest explicit occurrence time in exactly linked evidence, falling back to a labeled record
+receipt time. Inspections show the latest finding time and count. Check time is separate; periodic checks
+do not change old activity ordering or date filtering. Times are displayed in Beijing time. The platform
+also links to full Skill activity evidence and recollection. Page entry and new governance notifications
+refresh the first page.
 
 平台任务按实际动作显示，例如“安装 Hook 插件”“检查 Hook 插件接入”“自动应用接入与采集策略”，并显示目标 Agent、任务编号、策略和插件版本。策略任务可展开查看当次保存的通道、模式及自动安装/更新目标；这些是任务目标，执行结果以该行状态和错误为准。类型筛选可直接选择具体 Hook 操作，Agent 筛选包含策略任务中的多个目标。历史记录无需迁移，缺少字段时保留未知，不使用当前策略补写旧任务。
 

@@ -285,6 +285,7 @@ export const getClientGovernance = clientId => api.get(clientGovernancePath(clie
 export const previewClientGovernance = (clientId, data) => api.post(`${clientGovernancePath(clientId)}/preview`, data)
 export const saveClientGovernance = (clientId, data) => api.put(clientGovernancePath(clientId), data)
 export const getClientDetail = (clientId, params) => api.get(`/v1/clients/${clientId}`, { params })
+export const getClientEventRecords = (clientId, params) => api.get(`/v1/clients/${clientId}/event-records`, { params })
 export const getAgentWorkspace = (clientId, params) => api.get(`/v1/clients/${encodeURIComponent(clientId)}/agent-workspace`, { params })
 const aidrPath = clientId => `/v1/clients/${encodeURIComponent(clientId)}/aidr`
 export const getClientAidrOverview = (clientId, params) => api.get(`${aidrPath(clientId)}/overview`, { params })
