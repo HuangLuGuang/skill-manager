@@ -46,7 +46,7 @@ from agent_manager.core.sandbox import (
     test_sandbox_connection,
 )
 from agent_manager.core.scan_report_pdf import build_scan_report_pdf
-from agent_manager.core.skillspector import is_skillspector_available
+from agent_manager.core.skillspector import get_suppressed_findings, is_skillspector_available
 from agent_manager.core.text_reader import read_text_fallback
 from agent_manager.core.vetting import _load_manifest
 from agent_manager.core.upload_jobs import UploadImportJobs
@@ -1706,12 +1706,23 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
     entry = mgr.get_skill(skill_id_or_name)
     if entry is None:
         raise HTTPException(status_code=404, detail="Skill not found")
+    report = entry.vetting.scan_report if entry.vetting else {}
+    deep = report.get("skillspector_analysis")
+    if (
+        isinstance(deep, dict)
+        and "suppressed_findings" not in deep
+        and isinstance(deep.get("raw_report"), dict)
+    ):
+        # 仅补齐响应中的历史噪声明细，保留已存储报告与风险判定。
+        report = {**report, "skillspector_analysis": {
+            **deep, "suppressed_findings": get_suppressed_findings(deep["raw_report"]),
+        }}
     return {
         "skill_id": entry.family_id or entry.skill_id,
         "version_id": entry.skill_id,
         "version_no": entry.version_no,
         "name": entry.name,
-        "scan_report": entry.vetting.scan_report if entry.vetting else {},
+        "scan_report": report,
     }
 
 
@@ -1757,7 +1768,11 @@ def _version_summary(
     policy_notes = list(entry.vetting.policy_notes if entry.vetting else [])
     llm_note = next((str(note) for note in policy_notes if str(note).startswith("[LLM]")), None)
     analyzers = {str(item).lower() for item in report.get("analyzers_used", [])}
-    if llm_analysis:
+    # 优先使用本次报告状态，旧报告继续沿用原有推断规则。
+    recorded_llm_status = report.get("analyzer_timings", {}).get("llm", {}).get("status")
+    if recorded_llm_status in {"completed", "failed", "disabled", "skipped"}:
+        llm_status = recorded_llm_status
+    elif llm_analysis:
         llm_status = "completed"
     elif llm_note:
         llm_status = "skipped"

@@ -956,36 +956,40 @@ class VettingPipeline:
         llm_notes: list[str] = []
         llm_result = None
         if use_llm:
-            if progress_callback:
-                progress_callback("llm")
-            report_analyzer("llm", "running")
             llm_started = time.monotonic()
             try:
                 llm_config = LLMConfig.load()
-                from .llm import _build_skill_snapshot as _build_snapshot
+                # CLI 只请求分析；服务端关闭 AI 时记录未启用，不进入模型调用。
+                if not llm_config.enabled:
+                    llm_status = "disabled"
+                else:
+                    if progress_callback:
+                        progress_callback("llm")
+                    report_analyzer("llm", "running")
+                    from .llm import _build_skill_snapshot as _build_snapshot
 
-                llm_result = analyze_skill_with_llm_single_round(
-                    skill_snapshot=_build_snapshot(skill_path, llm_config),
-                    rule_results={
-                        "max_severity": scan_report.get("max_severity", "SAFE"),
-                        "findings": [
-                            finding
-                            for finding in scan_report.get("findings", [])
-                            if finding.get("source") not in {"behavioral", "sandbox"}
-                        ],
-                    },
-                    behavioural_result=behavioral_for_llm,
-                    sandbox_result=sandbox_result,
-                    config=llm_config,
-                )
-                scan_report["analyzers_used"] = [
-                    *scan_report.get("analyzers_used", ["basic"]),
-                    f"llm:{llm_result.provider}",
-                ]
-                scan_report["llm_analysis"] = llm_result.model_dump(mode="json")
-                if llm_result.report:
-                    llm_notes.append(f"[LLM] {llm_result.report}")
-                llm_status = "completed"
+                    llm_result = analyze_skill_with_llm_single_round(
+                        skill_snapshot=_build_snapshot(skill_path, llm_config),
+                        rule_results={
+                            "max_severity": scan_report.get("max_severity", "SAFE"),
+                            "findings": [
+                                finding
+                                for finding in scan_report.get("findings", [])
+                                if finding.get("source") not in {"behavioral", "sandbox"}
+                            ],
+                        },
+                        behavioural_result=behavioral_for_llm,
+                        sandbox_result=sandbox_result,
+                        config=llm_config,
+                    )
+                    scan_report["analyzers_used"] = [
+                        *scan_report.get("analyzers_used", ["basic"]),
+                        f"llm:{llm_result.provider}",
+                    ]
+                    scan_report["llm_analysis"] = llm_result.model_dump(mode="json")
+                    if llm_result.report:
+                        llm_notes.append(f"[LLM] {llm_result.report}")
+                    llm_status = "completed"
             except Exception as exc:
                 logger.warning("LLM analysis skipped for %s: %s", skill_path, exc)
                 llm_notes.append(f"[LLM] analysis skipped: {exc}")
@@ -995,6 +999,8 @@ class VettingPipeline:
                 "status": llm_status,
                 "duration_seconds": time.monotonic() - llm_started,
             }
+            if llm_status == "disabled":
+                analyzer_timings["llm"]["reason"] = "llm_analysis_disabled"
 
         llm_risk_level = RiskLevel(llm_result.risk_level) if llm_result else None
         has_blocking_findings = bool(risk_classification.get("blocking_count"))
@@ -1024,7 +1030,7 @@ class VettingPipeline:
             "mode_aware_llm_judgement"
             if llm_result
             else "llm_unavailable_deterministic_fallback"
-            if use_llm
+            if use_llm and llm_status != "disabled"
             else "deterministic_policy_merge"
         )
         scan_report["risk_reconciliation"] = {

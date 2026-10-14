@@ -1,3 +1,4 @@
+import { scannerGuideMessages } from './scannerGuide.js'
 import { dashboardMessages } from './dashboard.js'
 import { mcpServerFormMessages } from './mcpServerForm.js'
 import { systemSelectionMessages } from './system-selection.js'
@@ -81,6 +82,13 @@ export const i18n = createI18n({
       scanTaskActions: scanTaskActionsMessages['zh-CN'],
       mcpScan: mcpScanMessages['zh-CN'],
       mcpServerForm: mcpServerFormMessages['zh-CN'],
+      scannerGuide: scannerGuideMessages['zh-CN'],
+      mcpDebug: {
+        gatewayCredential: 'MCP 网关凭证',
+        gatewayCredentialHelp: '填写凭证中心生成的 Token，不含中文、空格或换行；无需添加 Bearer 前缀。',
+        gatewayCredentialRequired: '请填写 MCP 网关凭证。',
+        gatewayCredentialInvalid: 'MCP 网关凭证格式无效：仅允许英文字符、数字和半角符号，不含空格或换行。请填写凭证中心生成的 Token。',
+      },
       skillUpload: {
         sandboxRuntime: { remote: '远程服务', docker: '本地 Docker' },
         scanState: { PENDING: '本次检测排队或执行中。', COMPLETED: '本次检测已完成。', REUSED: '已复用相同检测配置的结果。', FAILED: '本次检测失败。', CANCELLED: '本次检测已取消。', UNKNOWN: '无法关联本次检测记录。' },
@@ -657,6 +665,7 @@ export const i18n = createI18n({
           destructive: '破坏性',
         },
         environment: '网关环境',
+        environmentHelp: '沙箱：隔离实验、可重置数据。\n测试：功能测试、联调。\n预生产：上线前验收。\n生产：真实业务；禁止完整主动，执行生产 Tool 禁用清单。\n前三种环境的调用限制相同；环境不自动隔离或切换服务、数据、凭证。',
         environments: {
           sandbox: '沙箱',
           test: '测试',
@@ -664,6 +673,7 @@ export const i18n = createI18n({
           production: '生产',
         },
         executionMode: '执行模式',
+        executionModeHelp: '被动：禁止调用 Tool。\n只读：仅允许标记为只读的 Tool。\n安全主动：按策略调用，允许生产环境。\n完整主动：调用限制与安全主动基本相同，生产环境禁止。\n所有模式均受权限、审批和限流约束。',
         executionModes: {
           passive: '被动',
           read_only: '只读',
@@ -705,6 +715,9 @@ export const i18n = createI18n({
         credential: '调用凭证',
         sourceIp: '来源 IP',
         requestedAt: '申请时间',
+        requestedFrom: '申请开始时间',
+        requestedTo: '申请结束时间',
+        timeHelp: '按申请时间筛选，包含起止边界；本页时间均为北京时间（UTC+8）。',
         expiresAt: '失效时间',
         status: '状态',
         actions: '操作',
@@ -1183,6 +1196,13 @@ export const i18n = createI18n({
       scanTaskActions: scanTaskActionsMessages['en-US'],
       mcpScan: mcpScanMessages['en-US'],
       mcpServerForm: mcpServerFormMessages['en-US'],
+      scannerGuide: scannerGuideMessages['en-US'],
+      mcpDebug: {
+        gatewayCredential: 'MCP gateway credential',
+        gatewayCredentialHelp: 'Enter a token from the credential center, without non-ASCII characters, spaces or line breaks. Do not add the Bearer prefix.',
+        gatewayCredentialRequired: 'Enter an MCP gateway credential.',
+        gatewayCredentialInvalid: 'Invalid MCP gateway credential: use printable ASCII characters without spaces or line breaks. Enter a token from the credential center.',
+      },
       skillUpload: {
         sandboxRuntime: { remote: 'Remote service', docker: 'Local docker' },
         scanState: { PENDING: 'This scan is queued or running.', COMPLETED: 'This scan has completed.', REUSED: 'Reused results with the same scan configuration.', FAILED: 'This scan failed.', CANCELLED: 'This scan was cancelled.', UNKNOWN: 'The scan record for this submission could not be identified.' },
@@ -1759,6 +1779,7 @@ export const i18n = createI18n({
           destructive: 'Destructive',
         },
         environment: 'Gateway environment',
+        environmentHelp: 'Sandbox: Isolated experiments, resettable data.\nTest: Functional and integration testing.\nStaging: Pre-release acceptance.\nProduction: Live business; active full is forbidden and the production Tool denylist applies.\nThe first three have the same call restrictions. This setting does not create isolation or switch services, data or credentials.',
         environments: {
           sandbox: 'Sandbox',
           test: 'Test',
@@ -1766,6 +1787,7 @@ export const i18n = createI18n({
           production: 'Production',
         },
         executionMode: 'Execution mode',
+        executionModeHelp: 'Passive: Tool calls blocked.\nRead only: Only Tools classified as read.\nActive safe: Calls follow policies; allowed in production.\nActive full: Largely the same call restrictions as active safe; forbidden in production.\nAll modes follow permissions, approvals and rate limits.',
         executionModes: {
           passive: 'Passive',
           read_only: 'Read only',
@@ -1807,6 +1829,9 @@ export const i18n = createI18n({
         credential: 'Credential',
         sourceIp: 'Source IP',
         requestedAt: 'Requested At',
+        requestedFrom: 'Requested from',
+        requestedTo: 'Requested until',
+        timeHelp: 'Filter by request creation time, including both boundaries. All times on this page are Beijing time (UTC+8).',
         expiresAt: 'Expires At',
         status: 'Status',
         actions: 'Actions',

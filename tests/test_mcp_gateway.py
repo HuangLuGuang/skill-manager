@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime, timedelta
 
 import httpx
 import pytest
@@ -13,6 +14,40 @@ from backend import auth, models
 from backend.api_errors import ApiError, api_error_handler, validation_error_handler
 from backend.routers import access_tokens, mcp_gateway
 from backend.sqlite_db import Base, get_db
+
+
+@pytest.mark.parametrize("status", [None, "pending", "approved,rejected,used,expired,cancelled"])
+@pytest.mark.parametrize("bounds", [
+    ("2026-10-13T04:43:03+08:00", "2026-10-13T09:00:00+08:00"),
+    ("2026-10-12T20:43:03Z", "2026-10-13T01:00:00Z"),
+    ("2026-10-12T20:43:03", "2026-10-13T01:00:00"),
+])
+def test_approval_requested_time_filter_timezone_and_boundaries(tmp_path, monkeypatch, status, bounds):
+    client, sessions = _client(tmp_path, monkeypatch)
+    start = datetime(2026, 10, 12, 20, 43, 3)
+    end = datetime(2026, 10, 13, 1)
+    times = [start - timedelta(seconds=1), start, start + timedelta(minutes=1), end, end + timedelta(seconds=1)]
+    expected = set()
+    with sessions() as db:
+        for state in ("pending", "rejected", "expired"):
+            for index, created_at in enumerate(times):
+                request_id = f"{state}-{index}"
+                db.add(models.McpToolApproval(
+                    approval_hash=request_id, request_id=request_id, token_id=1,
+                    gateway_slug="time-test", tool_name="test_tool", arguments_hash="hash",
+                    status=state, expires_at=datetime(2099, 1, 1), created_by="test",
+                    created_at=created_at,
+                ))
+                if index in (1, 2, 3) and (status is None or state in status.split(",")):
+                    expected.add(request_id)
+        db.commit()
+    params = {"created_from": bounds[0], "created_to": bounds[1], "gateway_slug": "time-test"}
+    if status:
+        params["status"] = status
+    response = client.get("/api/v1/mcp/approval-requests", params=params)
+    assert response.status_code == 200
+    assert {row["request_id"] for row in response.json()["items"]} == expected
+    assert response.json()["total"] == len(expected)
 
 
 def test_streamable_http_sse_response_is_parsed():

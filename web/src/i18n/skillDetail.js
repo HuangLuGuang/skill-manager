@@ -1,8 +1,23 @@
 export const skillDetailMessages = {
   'zh-CN': {
+    sandboxErrorOutput: '错误输出',
+    suppressed: {
+      title: '已过滤噪声明细（{count}）',
+      reason: '过滤原因',
+      unknown: '未知',
+      lines: '行号',
+      missing: '本报告未记录完整的噪声明细。',
+      reasons: {
+        font_file: '字体文件中的扫描命中，按字体噪声过滤。',
+        raster_image: '位图文件中的扫描命中，按图片噪声过滤。',
+        license_scope_wording: '许可证文件中的 EA3 规则命中“limited to”措辞，按许可证常见措辞过滤。',
+      },
+    },
     reviewTextHelp: '最多 {max} 个字符，中文、英文、标点、空格和换行均计入。',
     reviewTextCount: '{count} / {max} 个字符',
     reviewTextCountOver: '{count} / {max} 个字符，已超出 {excess} 个字符，请缩短后再保存。',
+    llmDisabled: '未启用 AI 分析',
+    llmDisabledReason: '系统未启用 AI 分析，本次未调用模型。其他检测结果仍可查看。',
     llmFailed: 'LLM 分析失败',
     llmUpstreamFailed: '上游模型接口失败',
     llmFailureUnavailable: '报告未记录失败原因，请查看服务端日志。',
@@ -42,9 +57,24 @@ export const skillDetailMessages = {
     autoApproval: '策略自动批准', cachedAutoApproval: '复用结果 · 策略自动批准', pendingReview: '待审核',
   },
   'en-US': {
+    sandboxErrorOutput: 'Error output',
+    suppressed: {
+      title: 'Filtered noise details ({count})',
+      reason: 'Filter reason',
+      unknown: 'Unknown',
+      lines: 'Lines',
+      missing: 'This report does not contain complete filtered noise details.',
+      reasons: {
+        font_file: 'A finding in a font file, filtered as font noise.',
+        raster_image: 'A finding in a raster image file, filtered as image noise.',
+        license_scope_wording: 'EA3 matched “limited to” in a license file, filtered as common license wording.',
+      },
+    },
     reviewTextHelp: 'Maximum {max} characters, including Chinese, English, punctuation, spaces and line breaks.',
     reviewTextCount: '{count} / {max} characters',
     reviewTextCountOver: '{count} / {max} characters — {excess} over the limit. Shorten it before saving.',
+    llmDisabled: 'AI analysis disabled',
+    llmDisabledReason: 'AI analysis is disabled in system settings. No model was called for this scan. Other analysis results are still available.',
     llmFailed: 'LLM analysis failed',
     llmUpstreamFailed: 'Upstream model request failed',
     llmFailureUnavailable: 'The report did not record a failure reason. Check the server logs.',

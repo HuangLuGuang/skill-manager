@@ -275,33 +275,64 @@ export SKILL_SCANNER_HOST_ID="customer-prod-01"
 
 ### 5.3 参数说明
 
-| 参数 | 说明 |
-| --- | --- |
-| `scan <path>` | 扫描根目录。scanner 会递归发现包含 `SKILL.md` 的目录。 |
-| `--server URL` | Agent Manager 服务端地址。设置后会自动启用上传。 |
-| `--token TOKEN` | 接入 Token，需要包含 `scanner:submit`。也可用 `SKILL_SCANNER_TOKEN`。 |
-| `--output PATH` | 本地 JSON 报告输出路径，默认 `skill-scan-report.json`。 |
-| `--host-id ID` | 客户侧主机或环境标识，方便服务端审计来源。 |
-| `--upload` | 显式上传到服务端。配置 `--server` 时会自动上传。 |
-| `--behavioral` | 启用服务端规则分析。界面里显示为“规则分析”。 |
-| `--deep-scan` | 启用服务端深度扫描；不会自动启用 LLM。 |
-| `--sandbox` | 启用服务端 sandbox 动态执行验证。 |
-| `--llm` | 启用服务端 LLM 分析。需要系统设置里已配置 LLM，或已通过模型网关环境变量配置隐私路由。 |
-| `--timeout` | HTTP 请求超时时间，默认 `120s`。 |
-| `--max-file-mb` | 单文件打包大小上限，默认 `20`。 |
-| `--max-total-mb` | 单个 skill 包总大小上限，默认 `50`。 |
-| `--max-files` | 单个 skill 最大文件数，默认 `2000`。 |
-| `--ignore` | 忽略目录名，默认 `.git,.venv,node_modules,__pycache__,dist,build`。 |
+本地扫描只需路径；上传还需平台地址和 Scanner 凭证。每项分别选择命令行或对应环境变量，命令行优先，地址和凭证的来源可混用。设置地址即自动上传，仅配置凭证不会上传。
+
+仅本地扫描时，使用以下独立命令覆盖终端已有的平台地址：
+
+```bash
+./skill-scanner scan /path/to/skills --server="" --output skill-scan-report.json
+```
+
+#### 基础与上传配置
+
+平台地址和凭证是上传所需的两项配置，不是两套必须同时填写的参数。
+
+| 配置项 | 何时需要 | 填写方式 / 默认值 | 作用及关系 |
+| --- | --- | --- | --- |
+| 扫描路径：`scan <path>` | 必填 | 本机可读目录，如 /opt/openclaw/skills；含空格时加引号。 | 可填单个 Skill 或多个 Skill 的根目录；递归发现 SKILL.md，一次只支持一个路径。 |
+| 平台地址：`--server <URL>` / `SKILL_SCANNER_SERVER` | 上传时必需 | 任选一种；默认未配置。例：https://agent-manager.example.com | 命令行优先；有地址即上传。填写扫描机器可访问的平台基础地址，不是 API 路径；127.0.0.1 指扫描机器自身。 |
+| Scanner 凭证：`--token <TOKEN>` / `SKILL_SCANNER_TOKEN` | 上传时必需 | 任选一种；默认未配置。amat_xxx 仅为示例，请替换为实际凭证。 | 命令行优先；凭证中心生成的 Scanner 凭证，包含 scanner:submit。只填 Token，不加 Bearer 前缀。 |
+| 显式上传：`--upload` | 可选，通常省略 | 默认关闭；只写开关。 | 仍需地址和凭证；缺地址会报错。已有地址时自动上传，--upload=false 也不能抵消；仅本地扫描用 --server=""。 |
+| 本地报告：`--output <PATH>` | 可选 | 默认 skill-scan-report.json；例：--output report.json | 相对路径以命令当前目录为基准，目录需可写。报告含预检和提交信息；上传成功才有 skill_id，不会等待全部后台分析完成。 |
+| 来源标识：`--host-id <ID>` / `SKILL_SCANNER_HOST_ID` | 可选 | 任选一种；默认未填写。例：customer-prod-01 | 命令行优先；随上传提交以区分主机/环境，不切换平台、凭证或扫描对象。 |
+| 请求超时：`--timeout <DURATION>` | 可选，仅上传时生效 | 默认 120s；例：--timeout 2m。建议正时长。 | 限制上传 HTTP 请求时长，不是服务端整个扫描任务的耗时上限。 |
+
+#### 服务端分析
+
+仅上传时生效；四个分析开关默认关闭，可独立组合，需服务端对应能力可用。
+
+| 配置项 | 何时需要 | 填写方式 / 默认值 | 作用及关系 |
+| --- | --- | --- | --- |
+| 规则分析：`--behavioral` | 按需，上传时生效 | 默认关闭；只写开关。 | 请求服务端规则/行为分析，不在客户机执行 Skill 脚本。 |
+| 静态深度扫描：`--deep-scan` | 按需，上传时生效 | 默认关闭；只写开关。 | 不自动启用 LLM；与 --llm 组合时，证据交给最终 LLM 汇总。 |
+| Sandbox 分析：`--sandbox` | 按需，上传时生效 | 默认关闭；只写开关。 | `--sandbox` 仅请求分析；还需在服务端启用 Sandbox 运行检测并完成可用配置，才会执行。未传此开关时，服务端策略仍可能要求执行。 |
+| LLM 分析：`--llm` | 按需，上传时生效 | 默认关闭；只写开关。 | `--llm` 仅请求分析；还需在服务端启用 AI 分析并配置模型和凭据，才会调用模型。服务端未启用时显示“未启用”；不自动启用其他分析开关。 |
+| 风险判定模式：`--judgement-mode <MODE>` / `SKILL_SCANNER_JUDGEMENT_MODE` | 可选，上传时生效 | strict（严格）、balanced（平衡）、permissive（宽松）。 | 命令行优先；未配置沿用服务端策略。不依赖 --llm。 |
+
+即使 Scanner 传入 `--llm`，服务端关闭 AI 分析时仍接受上传并继续其他检测；本次报告 `analyzer_timings.llm` 记录 `status=disabled`、`reason=llm_analysis_disabled`。列表、详情和版本摘要显示未启用；详情说明本次未调用模型。开启后的配置错误或模型调用异常仍显示调用失败。原始提交选项保留用户请求，不反推实际执行状态。
+
+`--llm` only requests analysis. AI analysis must also be enabled on the server with a configured model and credentials. When disabled, upload and other analysis continue; the report records `status=disabled` and `reason=llm_analysis_disabled`. The list, detail and version summary show Disabled. Configuration and model request errors while enabled remain Failed. `--sandbox` likewise requires server-side Sandbox runtime detection to be enabled and configured; server policy may still require execution when the switch is omitted.
+
+#### 本地处理限制
+
+每个 Skill 单独计算，与是否上传无关。超限的 Skill 不上传，其他 Skill 可继续。大小单位按 1024 × 1024 字节计算；默认值不是固定最大可填值。建议正整数；当前实现中，0 或负数关闭对应本地限制。上传仍受服务端及凭证配额约束。
+
+| 配置项 | 何时需要 | 填写方式 / 默认值 | 作用及关系 |
+| --- | --- | --- | --- |
+| 单文件大小：`--max-file-mb <N>` | 可选 | 默认 20；例：--max-file-mb 20 | 纳入打包的单文件大小上限。 |
+| 单个 Skill 总大小：`--max-total-mb <N>` | 可选 | 默认 50；例：--max-total-mb 50 | 纳入打包的原始文件大小总和，不是 ZIP 压缩后大小。 |
+| 单个 Skill 文件数：`--max-files <N>` | 可选 | 默认 2000；例：--max-files 2000 | 纳入打包的文件数量上限。 |
+| 忽略名称：`--ignore <NAMES>` | 可选 | 默认 .git,.venv,node_modules,__pycache__,dist,build | 逗号分隔名称，不是路径或通配符；自定义值替换默认列表，需保留的默认项一起填写。跳过同名目录，打包时也跳过同名文件。 |
 
 ### 5.4 本地报告
 
-CLI 会生成 JSON 报告，内容包括：
+CLI 会生成 JSON 报告及对应打包目录。报告记录本地预检与提交状态，不等待全部服务端分析完成；完整结果在管理台 Skill 列表查看。内容包括：
 
 - 扫描根目录
 - 发现的 skills 数量
 - 每个 skill 的路径、名称、描述、文件数、大小
 - 本地轻量预检结果
-- 上传后的 `skill_id`
+- 上传成功后的 `skill_id`
 - 服务端返回状态
 - 详情页链接
 

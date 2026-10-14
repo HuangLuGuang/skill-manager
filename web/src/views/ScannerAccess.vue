@@ -54,8 +54,20 @@
       </a-col>
     </a-row>
 
-    <a-card :title="$t('legacy.eskstn')" style="margin-top: 16px">
-      <a-table :data-source="parameterRows" :columns="parameterColumns" row-key="name" :pagination="false" size="small" />
+    <a-card :title="t('scannerGuide.title')" style="margin-top: 16px">
+      <a-alert type="info" show-icon :message="t('scannerGuide.summary')" :description="t('scannerGuide.priority')" />
+      <section v-for="group in parameterGroups" :key="group.id">
+        <a-typography-title :level="5">{{ t(`scannerGuide.groups.${group.id}.title`) }}</a-typography-title>
+        <p>{{ t(`scannerGuide.groups.${group.id}.help`) }}</p>
+        <a-table :data-source="group.rows" :columns="parameterColumns" row-key="id" :pagination="false" :scroll="{ x: 1000 }" size="small">
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'name'">
+              <div>{{ record.name }}</div>
+              <div v-for="form in record.forms" :key="form"><code>{{ form }}</code></div>
+            </template>
+          </template>
+        </a-table>
+      </section>
     </a-card>
 
     <a-card :title="$t('legacy.1ue20m4')" style="margin-top: 16px">
@@ -75,7 +87,7 @@
         <a-tab-pane key="switches" :tab="$t('legacy.moasaw')">
           <pre class="code-block">{{ switchesCommand }}</pre>
         </a-tab-pane>
-        <a-tab-pane key="env" :tab="$t('legacy.2dp295')">
+        <a-tab-pane key="env" :tab="t('scannerGuide.examples.cliTab')">
           <pre class="code-block">{{ envCommand }}</pre>
         </a-tab-pane>
       </a-tabs>
@@ -92,12 +104,12 @@ import { translateLegacy as phrase } from '../i18n'
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 
 import {
   downloadScannerBinary,
   listScannerDownloads,
 } from '../api'
-import { useLocaleText } from '../i18n/useLocaleText'
 
 defineProps({
   embedded: {
@@ -107,7 +119,7 @@ defineProps({
 })
 
 const router = useRouter()
-const { text } = useLocaleText()
+const { t } = useI18n()
 const downloads = ref([])
 const downloading = ref(false)
 const selectedPlatform = ref('darwin-arm64')
@@ -119,87 +131,83 @@ const platformOptions = [
   { value: 'windows-amd64.exe', label: 'Windows x86_64（windows-amd64.exe）' },
 ]
 const parameterColumns = computed(() => [
-  { title: text('参数', 'Parameter'), dataIndex: 'name', key: 'name', width: 180 },
-  { title: text('是否必填', 'Required'), dataIndex: 'required', key: 'required', width: 100 },
-  { title: text('作用', 'Purpose'), dataIndex: 'usage', key: 'usage' },
-  { title: text('示例', 'Example'), dataIndex: 'example', key: 'example', width: 260 },
+  { title: t('scannerGuide.columns.name'), dataIndex: 'name', key: 'name', width: 250 },
+  { title: t('scannerGuide.columns.required'), dataIndex: 'required', key: 'required', width: 150 },
+  { title: t('scannerGuide.columns.value'), dataIndex: 'value', key: 'value', width: 280 },
+  { title: t('scannerGuide.columns.usage'), dataIndex: 'usage', key: 'usage' },
 ])
-
-const parameterRows = computed(() => [
-  { name: 'scan <path>', required: text('是', 'Yes'), usage: text('客户本地 skills 根目录。scanner 会递归查找包含 SKILL.md 的目录。', 'Local skills root. The scanner recursively discovers directories containing SKILL.md.'), example: './skill-scanner scan /opt/openclaw/skills' },
-  { name: 'SKILL_SCANNER_SERVER', required: text('上传时必填', 'Required for upload'), usage: text('Agent Manager 管理台地址。设置后会启用上传；也可以用 --server 传入。', 'Agent Manager URL. Setting it enables uploads; --server can also be used.'), example: 'http://127.0.0.1:8001' },
-  { name: 'SKILL_SCANNER_TOKEN', required: text('上传时必填', 'Required for upload'), usage: text('凭证管理中创建的 Scanner 接入凭证，需要包含 scanner:submit。', 'Scanner credential created in Credential Center with scanner:submit scope.'), example: 'amat_xxx' },
-  { name: '--server', required: text('否', 'No'), usage: text('命令行方式指定平台地址，会覆盖环境变量。', 'Set the platform URL from the command line, overriding the environment variable.'), example: '--server https://agent-manager.example.com' },
-  { name: '--token', required: text('否', 'No'), usage: text('命令行方式指定接入凭证，会覆盖环境变量。', 'Set the credential from the command line, overriding the environment variable.'), example: '--token amat_xxx' },
-  { name: '--output', required: text('否', 'No'), usage: text('本地 JSON 报告输出路径。报告里有 skill_id、fingerprint、本地预检结果和上传状态。', 'Local JSON report path containing skill_id, fingerprint, precheck results, and upload status.'), example: '--output report.json' },
-  { name: '--host-id', required: text('否', 'No'), usage: text('客户主机或环境标识，便于后台区分来源。也可以用 SKILL_SCANNER_HOST_ID。', 'Host or environment identifier used to distinguish sources. SKILL_SCANNER_HOST_ID is also supported.'), example: '--host-id customer-a-prod-01' },
-  { name: '--behavioral', required: text('否', 'No'), usage: text('请求服务端启用规则分析，扫描 scripts、references 等文件中的可疑行为。', 'Enable server-side rule analysis for suspicious behavior in scripts, references, and related files.'), example: '--behavioral' },
-  { name: '--deep-scan', required: text('否', 'No'), usage: text('请求服务端启用静态深度扫描；不会单独调用 LLM。与 --llm 同时使用时，深度扫描证据会交给最后一次 LLM 统一汇总。', 'Enable static deep analysis without a separate LLM call. With --llm, its evidence is included in the single final LLM reconciliation.'), example: '--deep-scan' },
-  { name: '--sandbox', required: text('否', 'No'), usage: text('请求服务端启用 Sandbox probe，观察受控运行时行为。', 'Enable the Sandbox probe to observe controlled runtime behavior.'), example: '--sandbox' },
-  { name: '--llm', required: text('否', 'No'), usage: text('请求服务端启用 LLM 分析。服务端会使用策略配置中选择的模型网关模型。', 'Enable LLM analysis using the gateway model selected in Policy Settings.'), example: '--llm' },
-  { name: '--max-file-mb', required: text('否', 'No'), usage: text('本地打包前限制单文件大小。', 'Limit individual file size before packaging.'), example: '--max-file-mb 20' },
-  { name: '--max-total-mb', required: text('否', 'No'), usage: text('本地打包前限制单个 skill 总大小。', 'Limit total size of one skill before packaging.'), example: '--max-total-mb 50' },
-  { name: '--max-files', required: text('否', 'No'), usage: text('本地打包前限制单个 skill 文件数量。', 'Limit the number of files in one skill before packaging.'), example: '--max-files 2000' },
-  { name: '--ignore', required: text('否', 'No'), usage: text('逗号分隔的忽略目录，避免扫描依赖目录和构建目录。', 'Comma-separated directories to ignore, such as dependencies and build output.'), example: '--ignore .git,node_modules,.venv,dist' },
-])
+// 按配置项合并命令行与环境变量，避免把某种填写方式误标为必填。
+const parameterForms = {
+  path: ['scan <path>'],
+  server: ['--server <URL>', 'SKILL_SCANNER_SERVER'],
+  token: ['--token <TOKEN>', 'SKILL_SCANNER_TOKEN'],
+  upload: ['--upload'],
+  output: ['--output <PATH>'],
+  host: ['--host-id <ID>', 'SKILL_SCANNER_HOST_ID'],
+  timeout: ['--timeout <DURATION>'],
+  behavioral: ['--behavioral'],
+  deep: ['--deep-scan'],
+  sandbox: ['--sandbox'],
+  llm: ['--llm'],
+  judgement: ['--judgement-mode <MODE>', 'SKILL_SCANNER_JUDGEMENT_MODE'],
+  file: ['--max-file-mb <N>'],
+  total: ['--max-total-mb <N>'],
+  files: ['--max-files <N>'],
+  ignore: ['--ignore <NAMES>'],
+}
+const parameterGroups = computed(() => [
+  { id: 'connection', fields: ['path', 'server', 'token', 'upload', 'output', 'host', 'timeout'] },
+  { id: 'analysis', fields: ['behavioral', 'deep', 'sandbox', 'llm', 'judgement'] },
+  { id: 'limits', fields: ['file', 'total', 'files', 'ignore'] },
+].map(group => ({
+  id: group.id,
+  rows: group.fields.map(id => ({
+    id, forms: parameterForms[id],
+    ...Object.fromEntries(['name', 'required', 'value', 'usage'].map(key => [key, t(`scannerGuide.rows.${id}.${key}`)])),
+  })),
+})))
 
 const serverOrigin = computed(() => window.location.origin)
 const quickStartCommand = computed(() => `chmod +x ./skill-scanner
-./skill-scanner scan /path/to/skills --output skill-scan-report.json
+# ${t('scannerGuide.examples.local')}
+./skill-scanner scan /path/to/skills --server="" --output skill-scan-report.json
 
-# ${text('上传到平台', 'Upload to Agent Manager')}:
+# ${t('scannerGuide.examples.upload')}
 export SKILL_SCANNER_SERVER="${serverOrigin.value}"
 export SKILL_SCANNER_TOKEN="amat_xxx"
 ./skill-scanner scan /path/to/skills --behavioral
 
-# ${text('启用全部分析能力', 'Enable all analysis capabilities')}:
+# ${t('scannerGuide.examples.all')}
 ./skill-scanner scan /path/to/skills --behavioral --deep-scan --sandbox --llm`)
-const basicCommand = computed(() => `# ${text('只做本地发现和轻量预检，不上传', 'Local discovery and lightweight precheck only; do not upload')}
-./skill-scanner scan /path/to/customer/skills \\
-  --output skill-scan-report.json`)
+const basicCommand = computed(() => `# ${t('scannerGuide.examples.local')}
+./skill-scanner scan /path/to/skills --server="" --output skill-scan-report.json`)
 
 const fullCommand = computed(() => `export SKILL_SCANNER_SERVER="${serverOrigin.value}"
 export SKILL_SCANNER_TOKEN="amat_xxx"
 export SKILL_SCANNER_HOST_ID="customer-prod-01"
 
-./skill-scanner scan /path/to/customer/skills \\
-  --behavioral \\
-  --deep-scan \\
-  --sandbox \\
-  --llm \\
-  --output skill-scan-report.json`)
+./skill-scanner scan /path/to/skills --behavioral --deep-scan --sandbox --llm --output skill-scan-report.json`)
 
-const switchesCommand = computed(() => `# ${text('启动规则分析', 'Enable rule analysis')}
-./skill-scanner scan /path/to/customer/skills --behavioral
-
-# ${text('启动深度扫描', 'Enable deep analysis')}
-./skill-scanner scan /path/to/customer/skills --deep-scan
-
-# ${text('启动 Sandbox', 'Enable Sandbox')}
-./skill-scanner scan /path/to/customer/skills --sandbox
-
-# ${text('启动 LLM 分析', 'Enable LLM analysis')}
-./skill-scanner scan /path/to/customer/skills --llm
-
-# ${text('组合使用', 'Combined example')}
-./skill-scanner scan /path/to/customer/skills \\
-  --behavioral \\
-  --deep-scan \\
-  --sandbox \\
-  --llm \\
-  --output skill-scan-report.json`)
-
-const envCommand = computed(() => `# ${text('本地调试示例，后端端口按你的 dev_server 配置填写', 'Local debugging example; use the port configured for dev_server')}
-export SKILL_SCANNER_SERVER="http://127.0.0.1:8001"
+const switchesCommand = computed(() => `export SKILL_SCANNER_SERVER="${serverOrigin.value}"
 export SKILL_SCANNER_TOKEN="amat_xxx"
-export SKILL_SCANNER_HOST_ID="customer-prod-01"
 
-./skill-scanner scan /Users/huangluguang/Downloads/skills-main \\
-  --behavioral \\
-  --deep-scan \\
-  --sandbox \\
-  --llm \\
-  --output skill-scan-report.json`)
+# ${t('scannerGuide.examples.rules')}
+./skill-scanner scan /path/to/skills --behavioral
+
+# ${t('scannerGuide.examples.deep')}
+./skill-scanner scan /path/to/skills --deep-scan
+
+# ${t('scannerGuide.examples.sandbox')}
+./skill-scanner scan /path/to/skills --sandbox
+
+# ${t('scannerGuide.examples.llm')}
+./skill-scanner scan /path/to/skills --llm
+
+# ${t('scannerGuide.examples.combined')}
+./skill-scanner scan /path/to/skills --behavioral --deep-scan --sandbox --llm`)
+
+const envCommand = computed(() => `# ${t('scannerGuide.examples.cli')}
+./skill-scanner scan /path/to/skills --server "${serverOrigin.value}" --token "amat_xxx" --output skill-scan-report.json`)
 
 const fetchDownloads = async () => {
   try {

@@ -143,6 +143,8 @@ make sandbox-runtime-build
 
 - Skill 详情的远程 Sandbox 服务地址按报告原因编码展示：`no_executable_script` 对应“未调用 / Not called”。
 
+- Skill 详情 Sandbox 调试信息的“错误输出”使用 `skillDetail.sandboxErrorOutput` 双语标签，汇总区在“说明”前展示 `sandbox_analysis.stderr`，每条 Probe 在“执行结果”前展示自身 `stderr`；按纯文本保留原文及换行，长内容可滚动，空值或字段缺失时内容留空。
+
 - Sandbox 的风险等级只代表运行时 probe 观察到的行为，不等同于静态扫描或 LLM 的最终风险。
 - 默认 probe 可能覆盖不足；启用 LLM 时可以生成测试参数，但不要让 LLM 生成要执行的代码。
 - 本地 Docker runtime 镜像建议使用 `agent-manager-sandbox-runtime:latest`，避免运行时缺少常见依赖。
@@ -232,3 +234,18 @@ make sandbox-runtime-build
 - MCP 服务表单的Endpoint说明和协议校验读取 `/api/v1/mcp/servers/options` 的 `allow_http`；首次用户输入后即时校验字段，刚打开的表单不显示空字段错误。协议配置未读取完成时展示读取中说明。
 
 - MCP 审批日期范围筛选需完整显示开始和结束日期时间（含秒）；宽屏预留足够宽度，筛选栏不足时整项换行，窄屏允许输入分行。
+- MCP 审批关键词、Tool 和调用凭证输入使用300毫秒防抖自动筛选；网关选择和日期范围确认或清空立即筛选，回到第一页。列表查询由首次加载、筛选、分页、手动刷新及审批操作触发；手动刷新及回车清理待执行筛选；防抖期间翻页或调整每页数量时先应用筛选并回第一页，保留所选每页数量；旧请求不得覆盖最新列表、统计或加载状态，离开页面清理定时器。
+
+- MCP审批页所有时间展示及日期框钟面输入统一为北京时间（UTC+8），筛选申请时间created_at并包含起止边界；后端将带时区查询转换为数据库UTC时间，既有无时区查询按UTC兼容。刷新按钮加载状态只由手动刷新驱动。
+
+- MCP网关环境和执行模式帮助复用标签旁QuestionCircleOutlined与mcpSecurity语义双语资源，按选项分行解释实际限制；保持文案与服务端调用边界一致。
+
+- MCP调试平台网关凭证使用mcpDebug语义双语说明及字段错误；首次输入和连接前检查必填、无空白可打印ASCII字符，保留非法草稿并阻止请求，错误不包含凭证值。服务端负责凭证有效性及授权校验。
+
+- ScannerAccess参数说明按配置项合并CLI/环境变量，展示必填条件、默认值与关系；双语资源使用scannerGuide。独立本地示例显式--server=""，分析示例包含地址/凭证配置；示例凭证明确要求替换为实际凭证，Sandbox说明包含服务端策略仍可能要求执行的关系；说明需与scanner/internal/config及runner实际行为一致。
+
+- 深度扫描已过滤噪声明细复用后端过滤原因规则，使用 `suppressed_findings` 与稳定 `suppression_reason` 编码；界面统一展示严重度、规则、标题、文件名、独立行号和过滤原因，双语资源使用 `skillDetail.suppressed`。历史报告仅在读取响应中补齐明细，保留原存储和风险判定。
+
+- 噪声明细的过滤原因仅翻译原因资源自身声明的编码；编码未知、为空或缺失时，统一按当前语言显示“未知 / Unknown”；兜底仅作用于过滤原因。
+
+- Scanner 的 `--llm` 以服务端 AI 开关为执行边界；关闭时本次报告记录 `analyzer_timings.llm.status=disabled`、`reason=llm_analysis_disabled`，其他检测继续，提交选项保持原请求。列表、详情与版本摘要使用本次报告状态；开启后的配置或调用异常仍为 failed。Scanner 的 LLM/Sandbox 参数说明须同时说明服务端启用与配置要求。

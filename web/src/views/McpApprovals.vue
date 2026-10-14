@@ -41,8 +41,10 @@
           </a-select>
           <a-input v-model:value="filters.tool_name" allow-clear :placeholder="t('mcpApproval.tool')" class="filter-control" @pressEnter="applyFilters" />
           <a-input v-model:value="filters.token_name" allow-clear :placeholder="t('mcpApproval.credential')" class="filter-control" @pressEnter="applyFilters" />
-          <a-range-picker v-model:value="filters.timeRange" show-time class="date-filter" @change="applyFilters" />
-          <a-button type="primary" :loading="loading" @click="applyFilters">{{ t('mcpApproval.refresh') }}</a-button>
+          <a-tooltip :title="t('mcpApproval.timeHelp')">
+            <a-range-picker v-model:value="filters.timeRange" show-time class="date-filter" :placeholder="[t('mcpApproval.requestedFrom'), t('mcpApproval.requestedTo')]" @change="applyFilters" />
+          </a-tooltip>
+          <a-button type="primary" :loading="refreshing" @click="refreshManually">{{ t('mcpApproval.refresh') }}</a-button>
         </a-space>
       </div>
 
@@ -189,11 +191,12 @@ import {
   listMcpGateways,
   rejectMcpApprovalRequest,
 } from '../api'
-import { formatDateTime } from '../utils/format'
+import { formatBeijingDateTime as formatDateTime } from '../utils/format'
 
 const { t } = useI18n()
 const route = useRoute()
 const loading = ref(false)
+const refreshing = ref(false)
 const detailLoading = ref(false)
 const revealing = ref(false)
 const submitting = ref(false)
@@ -235,13 +238,20 @@ const statusFilter = () => ({ pending: 'pending', processed: 'approved,rejected,
 
 const emitStats = () => window.dispatchEvent(new CustomEvent('mcp-approval-stats', { detail: { ...stats } }))
 
-const fetchStats = async () => {
+let requestVersion = 0
+let filterTimer
+let disposed = false
+
+const fetchStats = async version => {
   const data = await getMcpApprovalRequestStats()
+  if (version !== requestVersion) return
   Object.assign(stats, data)
   emitStats()
 }
 
 const fetchRows = async () => {
+  if (disposed) return
+  const version = ++requestVersion
   loading.value = true
   try {
     const timeRange = filters.timeRange || []
@@ -251,32 +261,61 @@ const fetchRows = async () => {
       gateway_slug: filters.gateway_slug || undefined,
       tool_name: filters.tool_name.trim() || undefined,
       token_name: filters.token_name.trim() || undefined,
-      created_from: timeRange[0]?.toISOString(),
-      created_to: timeRange[1]?.toISOString(),
+      // 日期框中的钟面时间与列表一样按北京时间解释，不依赖浏览器时区。
+      created_from: timeRange[0] ? `${timeRange[0].format('YYYY-MM-DDTHH:mm:ss.SSS')}+08:00` : undefined,
+      created_to: timeRange[1] ? `${timeRange[1].format('YYYY-MM-DDTHH:mm:ss.SSS')}+08:00` : undefined,
       page: pagination.current,
       page_size: pagination.pageSize,
     })
+    // 连续筛选时只采用最新请求，避免旧列表与统计覆盖当前结果。
+    if (version !== requestVersion) return
     rows.value = data.items || []
     pagination.total = Number(data.total || 0)
-    await fetchStats()
+    await fetchStats(version)
   } catch (error) {
+    if (version !== requestVersion) return
     message.error(error.response?.data?.detail || t('mcpApproval.loadFailed'))
   } finally {
-    loading.value = false
+    if (version === requestVersion) loading.value = false
   }
 }
 
 const applyFilters = () => {
+  window.clearTimeout(filterTimer)
+  filterTimer = undefined
   pagination.current = 1
-  fetchRows()
+  return fetchRows()
+}
+
+const refreshManually = async () => {
+  if (refreshing.value) return
+  // 仅手动刷新驱动按钮转圈，筛选及标签切换仍使用列表加载状态。
+  refreshing.value = true
+  try {
+    await applyFilters()
+  } finally {
+    refreshing.value = false
+  }
 }
 
 const handleTabChange = () => applyFilters()
 const handleTableChange = next => {
-  pagination.current = next.current
   pagination.pageSize = next.pageSize
+  // 待执行筛选优先回第一页，避免翻页取消防抖后查询错误页码。
+  if (filterTimer !== undefined) {
+    applyFilters()
+    return
+  }
+  pagination.current = next.current
   fetchRows()
 }
+
+// 文本输入停止300毫秒后查询；回车、选择及刷新沿用立即查询入口。
+watch(() => [filters.q, filters.tool_name, filters.token_name], () => {
+  window.clearTimeout(filterTimer)
+  requestVersion += 1
+  filterTimer = window.setTimeout(applyFilters, 300)
+}, { flush: 'sync' })
 
 const openDetails = async record => {
   detailVisible.value = true
@@ -360,7 +399,6 @@ const submitReject = async () => {
   }
 }
 
-let refreshTimer
 const openRequestedDetails = () => {
   const requestId = route.query.request_id
   if (typeof requestId === 'string' && requestId) openDetails({ request_id: requestId })
@@ -374,11 +412,12 @@ onMounted(async () => {
   }
   await fetchRows()
   openRequestedDetails()
-  refreshTimer = window.setInterval(() => fetchRows(), 15000)
 })
 
 onUnmounted(() => {
-  if (refreshTimer) window.clearInterval(refreshTimer)
+  disposed = true
+  requestVersion += 1
+  window.clearTimeout(filterTimer)
 })
 </script>
 

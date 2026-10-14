@@ -64,8 +64,9 @@
             </a-form-item>
           </a-col>
           <a-col :xs="24" :lg="15">
-            <a-form-item :label="$t('legacy.1gb7s5r')" required>
-              <a-input-password v-model:value="gatewayToken" autocomplete="off" :placeholder="$t('legacy.1hbgqpx')" @change="resetConnection" @pressEnter="connect" />
+            <a-form-item required :validate-status="gatewayTokenError ? 'error' : undefined" :help="gatewayTokenError ? t(gatewayTokenError) : undefined">
+              <template #label><span>{{ t('mcpDebug.gatewayCredential') }}</span><a-tooltip :title="t('mcpDebug.gatewayCredentialHelp')"><QuestionCircleOutlined tabindex="0" :aria-label="t('mcpDebug.gatewayCredentialHelp')" style="margin-left: 6px" /></a-tooltip></template>
+              <a-input-password ref="gatewayTokenInput" v-model:value="gatewayToken" autocomplete="off" :placeholder="$t('legacy.1hbgqpx')" @update:value="gatewayTokenChecked = true" @change="resetConnection" @pressEnter="connect" />
             </a-form-item>
           </a-col>
         </a-row>
@@ -202,6 +203,7 @@ import { translateLegacy as phrase, translateText as text } from '../i18n'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
+import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 
 import { debugMcpUpstream, listMcpGateways, listMcpServers } from '../api'
 import { copyText, promptManualCopy } from '../utils/clipboard'
@@ -220,6 +222,14 @@ const authorizationValue = ref('')
 const timeoutSeconds = ref(30)
 const gatewaySlug = ref()
 const gatewayToken = ref('')
+const gatewayTokenInput = ref(null)
+const gatewayTokenChecked = ref(false)
+// 在构造HTTP Header前校验原始凭证，保留非法草稿且不回显敏感值。
+const gatewayTokenError = computed(() => {
+  if (!gatewayTokenChecked.value) return ''
+  if (!gatewayToken.value) return 'mcpDebug.gatewayCredentialRequired'
+  return /^[\x21-\x7e]+$/u.test(gatewayToken.value) ? '' : 'mcpDebug.gatewayCredentialInvalid'
+})
 const gatewayEndpoint = ref('')
 const connected = ref(false)
 const connecting = ref(false)
@@ -393,7 +403,14 @@ const connect = async () => {
       return
     }
   }
-  if (targetMode.value === 'gateway' && (!gatewaySlug.value || !gatewayEndpoint.value.trim() || !gatewayToken.value.trim())) return message.warning(phrase('legacy.1wfq6rv'))
+  if (targetMode.value === 'gateway') {
+    gatewayTokenChecked.value = true
+    if (gatewayTokenError.value) {
+      gatewayTokenInput.value?.focus()
+      return
+    }
+    if (!gatewaySlug.value || !gatewayEndpoint.value.trim()) return message.warning(phrase('legacy.1wfq6rv'))
+  }
   connecting.value = true
   resetConnection()
   try {

@@ -348,6 +348,35 @@
                         {{ skillspectorAnalysis.suppressed_findings_count }}
                       </a-descriptions-item>
                     </a-descriptions>
+                    <a-collapse v-if="skillspectorAnalysis.suppressed_findings_count" style="margin-top: 12px">
+                      <a-collapse-panel key="suppressed" :header="$t('skillDetail.suppressed.title', { count: skillspectorAnalysis.suppressed_findings_count })">
+                        <a-alert
+                          v-if="skillspectorSuppressedFindings.length !== skillspectorAnalysis.suppressed_findings_count"
+                          type="info"
+                          show-icon
+                          :message="$t('skillDetail.suppressed.missing')"
+                          style="margin-bottom: 12px"
+                        />
+                        <!-- 噪声明细沿用发现项布局，行号独立显示，便于核对过滤位置。 -->
+                        <a-list v-if="skillspectorSuppressedFindings.length" :data-source="skillspectorSuppressedFindings" :pagination="{ pageSize: 5, size: 'small', hideOnSinglePage: true }" bordered size="small">
+                          <template #renderItem="{ item }">
+                            <a-list-item>
+                              <div style="width: 100%; overflow-wrap: anywhere">
+                                <a-space wrap>
+                                  <a-tag :color="severityColor(item.severity)">{{ severityDisplay(item.severity) }}</a-tag>
+                                  <a-tag>{{ item.rule_id || '-' }}</a-tag>
+                                  <strong>{{ findingTitle(item) }}</strong>
+                                  <a-button v-if="item.file" type="link" size="small" style="padding: 0; white-space: normal; height: auto; text-align: left" @click="openFileViewer(item.file)">{{ item.file }}</a-button>
+                                </a-space>
+                                <div v-if="item.line != null" class="muted" style="margin-top: 4px">{{ $t('skillDetail.suppressed.lines') }}: {{ item.line }}</div>
+                                <!-- 原因编码缺少对应译文时统一显示未知，兼容报告字段缺失和版本差异。 -->
+                                <div style="margin-top: 6px">{{ $t('skillDetail.suppressed.reason') }}: {{ $te(`skillDetail.suppressed.reasons.${item.suppression_reason}`) ? $t(`skillDetail.suppressed.reasons.${item.suppression_reason}`) : $t('skillDetail.suppressed.unknown') }}</div>
+                              </div>
+                            </a-list-item>
+                          </template>
+                        </a-list>
+                      </a-collapse-panel>
+                    </a-collapse>
                     <a-collapse v-if="skillspectorFindings.length" v-model:activeKey="skillspectorFindingsActiveKey" style="margin-top: 12px">
                       <a-collapse-panel
                         v-for="group in groupedSkillspectorFindings"
@@ -473,6 +502,10 @@
                           <a-descriptions-item :label="$t('legacy.181sskz')">{{ sandboxAnalysis.timed_out ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
                           <a-descriptions-item><template #label><SandboxDebugHelp field="duration" :value="sandboxAnalysis.duration_ms" label>{{ $t('legacy.12sj4tc') }}</SandboxDebugHelp></template><SandboxDebugHelp field="duration" :value="sandboxAnalysis.duration_ms ?? '-'" /> ms</a-descriptions-item>
                           <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ $t('skillDetail.networkAttempts', { count: sandboxAnalysis.network_attempts ?? 0 }) }}</a-descriptions-item>
+                          <a-descriptions-item :label="$t('skillDetail.sandboxErrorOutput')" :span="2">
+                            <!-- 保留 stderr 原文，方便查看执行异常；未记录时留空。 -->
+                            <pre v-if="sandboxAnalysis.stderr" class="sandbox-error-output">{{ sandboxAnalysis.stderr }}</pre>
+                          </a-descriptions-item>
                           <a-descriptions-item v-if="sandboxAnalysis.reason" :label="$t('legacy.1mi4vdj')" :span="2">
                             {{ platformResultText(sandboxAnalysis.reason) }}
                           </a-descriptions-item>
@@ -572,6 +605,10 @@
                           <a-descriptions-item><template #label><SandboxDebugHelp field="runtime" :value="record.runtime || sandboxAnalysis.runtime" label>{{ $t('legacy.1sdwzrx') }}</SandboxDebugHelp></template><SandboxDebugHelp field="runtime" :value="record.runtime || sandboxAnalysis.runtime || '-'" /></a-descriptions-item>
                           <a-descriptions-item><template #label><SandboxDebugHelp field="duration" :value="record.duration_ms" label>{{ $t('legacy.12sj4tc') }}</SandboxDebugHelp></template><SandboxDebugHelp field="duration" :value="record.duration_ms ?? '-'" /> ms</a-descriptions-item>
                           <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ $t('skillDetail.networkAttempts', { count: record.network_attempts ?? 0 }) }}</a-descriptions-item>
+                          <a-descriptions-item :label="$t('skillDetail.sandboxErrorOutput')" :span="2">
+                            <!-- 每条 Probe 展示自身 stderr，方便核对该次执行异常。 -->
+                            <pre v-if="record.stderr" class="sandbox-error-output">{{ record.stderr }}</pre>
+                          </a-descriptions-item>
                           <a-descriptions-item :label="$t('legacy.1suldox')" :span="2">
                             {{ sandboxProbeResultText(record) }}
                           </a-descriptions-item>
@@ -605,7 +642,8 @@
             </a-tab-pane>
             <a-tab-pane key="llm" :tab="$t('decisionFlow.llmAnalysis')">
                 <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
-                  <a-alert v-if="llmFailure !== null" type="error" show-icon :message="$t('skillDetail.llmFailed')">
+                  <a-alert v-if="llmDisabled" type="info" show-icon :message="$t('skillDetail.llmDisabled')" :description="$t('skillDetail.llmDisabledReason')" />
+                  <a-alert v-else-if="llmFailure !== null" type="error" show-icon :message="$t('skillDetail.llmFailed')">
                     <template #description><div style="white-space: pre-wrap; overflow-wrap: anywhere">{{ llmFailure || $t('skillDetail.llmFailureUnavailable') }}</div></template>
                   </a-alert>
                   <template v-else-if="llmAnalysis">
@@ -1243,6 +1281,7 @@ const versionRiskChain = record => record?.risk_chain || {
 
 const llmStageLabel = chain => {
   if (chain.llm_status === 'completed') return chain.llm_risk_level ? riskDisplay(chain.llm_risk_level) : t('skillVersions.llmCompleted')
+  if (chain.llm_status === 'disabled') return t('skillColumns.stepStates.disabled')
   if (chain.llm_status === 'skipped') return t('skillVersions.llmSkipped')
   if (chain.llm_status === 'failed') return t('skillVersions.llmFailed')
   return t('skillVersions.llmNotRun')
@@ -1743,6 +1782,9 @@ const llmAnalysis = computed(() => {
     risk_level: analysis.risk_level || 'benign',
   }
 })
+// 仅按本次报告的关闭原因展示说明，不使用当前系统开关推断历史结果。
+const llmDisabled = computed(() => analysisState(scanReport.value, 'llm') === 'disabled'
+  && scanReport.value?.analyzer_timings?.llm?.reason === 'llm_analysis_disabled')
 const llmFailure = computed(() => formatLlmFailureReason(llmFailureReason(scanReport.value, policyNotes.value), t))
 const llmExplanationHtml = computed(() => {
   const text = llmAnalysis.value?.report || ''
@@ -1993,6 +2035,7 @@ const manualApprovalSummary = computed(() => {
   return admissionBlockedSummary.value
 })
 const skillspectorAnalysis = computed(() => scanReport.value?.skillspector_analysis || null)
+const skillspectorSuppressedFindings = computed(() => skillspectorAnalysis.value?.suppressed_findings || [])
 const skillspectorFindings = computed(() => {
   const findings = skillspectorAnalysis.value?.findings
   if (Array.isArray(findings)) return findings
@@ -3106,6 +3149,14 @@ watch(
   word-break: break-word;
   background: #0f172a;
   border-radius: 8px;
+}
+
+.sandbox-error-output {
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .evidence-box {
