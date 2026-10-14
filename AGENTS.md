@@ -240,3 +240,7 @@ make sandbox-runtime-build
 - MCP调试平台网关凭证使用mcpDebug语义双语说明及字段错误；首次输入和连接前检查必填、无空白可打印ASCII字符，保留非法草稿并阻止请求，错误不包含凭证值。服务端负责凭证有效性及授权校验。
 
 - ScannerAccess参数说明按配置项合并CLI/环境变量，展示必填条件、默认值与关系；双语资源使用scannerGuide。独立本地示例显式--server=""，分析示例包含地址/凭证配置；示例凭证明确要求替换为实际凭证，Sandbox说明包含服务端策略仍可能要求执行的关系；说明需与scanner/internal/config及runner实际行为一致。
+
+- 深度扫描已过滤噪声明细复用后端过滤原因规则，使用 `suppressed_findings` 与稳定 `suppression_reason` 编码；界面统一展示严重度、规则、标题、文件名、独立行号和过滤原因，双语资源使用 `skillDetail.suppressed`。历史报告仅在读取响应中补齐明细，保留原存储和风险判定。
+
+- 噪声明细的过滤原因仅翻译原因资源自身声明的编码；编码未知、为空或缺失时，统一按当前语言显示“未知 / Unknown”；兜底仅作用于过滤原因。

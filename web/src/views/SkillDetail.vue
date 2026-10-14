@@ -348,6 +348,35 @@
                         {{ skillspectorAnalysis.suppressed_findings_count }}
                       </a-descriptions-item>
                     </a-descriptions>
+                    <a-collapse v-if="skillspectorAnalysis.suppressed_findings_count" style="margin-top: 12px">
+                      <a-collapse-panel key="suppressed" :header="$t('skillDetail.suppressed.title', { count: skillspectorAnalysis.suppressed_findings_count })">
+                        <a-alert
+                          v-if="skillspectorSuppressedFindings.length !== skillspectorAnalysis.suppressed_findings_count"
+                          type="info"
+                          show-icon
+                          :message="$t('skillDetail.suppressed.missing')"
+                          style="margin-bottom: 12px"
+                        />
+                        <!-- 噪声明细沿用发现项布局，行号独立显示，便于核对过滤位置。 -->
+                        <a-list v-if="skillspectorSuppressedFindings.length" :data-source="skillspectorSuppressedFindings" :pagination="{ pageSize: 5, size: 'small', hideOnSinglePage: true }" bordered size="small">
+                          <template #renderItem="{ item }">
+                            <a-list-item>
+                              <div style="width: 100%; overflow-wrap: anywhere">
+                                <a-space wrap>
+                                  <a-tag :color="severityColor(item.severity)">{{ severityDisplay(item.severity) }}</a-tag>
+                                  <a-tag>{{ item.rule_id || '-' }}</a-tag>
+                                  <strong>{{ findingTitle(item) }}</strong>
+                                  <a-button v-if="item.file" type="link" size="small" style="padding: 0; white-space: normal; height: auto; text-align: left" @click="openFileViewer(item.file)">{{ item.file }}</a-button>
+                                </a-space>
+                                <div v-if="item.line != null" class="muted" style="margin-top: 4px">{{ $t('skillDetail.suppressed.lines') }}: {{ item.line }}</div>
+                                <!-- 原因编码缺少对应译文时统一显示未知，兼容报告字段缺失和版本差异。 -->
+                                <div style="margin-top: 6px">{{ $t('skillDetail.suppressed.reason') }}: {{ $te(`skillDetail.suppressed.reasons.${item.suppression_reason}`) ? $t(`skillDetail.suppressed.reasons.${item.suppression_reason}`) : $t('skillDetail.suppressed.unknown') }}</div>
+                              </div>
+                            </a-list-item>
+                          </template>
+                        </a-list>
+                      </a-collapse-panel>
+                    </a-collapse>
                     <a-collapse v-if="skillspectorFindings.length" v-model:activeKey="skillspectorFindingsActiveKey" style="margin-top: 12px">
                       <a-collapse-panel
                         v-for="group in groupedSkillspectorFindings"
@@ -1993,6 +2022,7 @@ const manualApprovalSummary = computed(() => {
   return admissionBlockedSummary.value
 })
 const skillspectorAnalysis = computed(() => scanReport.value?.skillspector_analysis || null)
+const skillspectorSuppressedFindings = computed(() => skillspectorAnalysis.value?.suppressed_findings || [])
 const skillspectorFindings = computed(() => {
   const findings = skillspectorAnalysis.value?.findings
   if (Array.isArray(findings)) return findings

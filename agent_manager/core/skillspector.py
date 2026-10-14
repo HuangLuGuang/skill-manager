@@ -139,6 +139,7 @@ def run_skillspector_scan(
                 for finding in raw_findings
                 if not _is_noisy_finding(finding)
             ]
+            suppressed_findings = get_suppressed_findings(raw_report)
             risk_assessment = raw_report.get("risk_assessment")
             if not isinstance(risk_assessment, dict):
                 risk_assessment = {}
@@ -171,7 +172,8 @@ def run_skillspector_scan(
                 "effective_risk_recommendation": _recommendation_for_severity(effective_severity, raw_risk_recommendation),
                 "max_severity": effective_severity,
                 "findings": findings,
-                "suppressed_findings_count": _suppressed_findings_count(raw_report),
+                "suppressed_findings_count": len(suppressed_findings),
+                "suppressed_findings": suppressed_findings,
                 "raw_report": raw_report,
                 "llm_requested": use_llm,
                 "llm_enabled": effective_use_llm,
@@ -231,8 +233,22 @@ def _normalize_raw_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
     return findings
 
 
-def _suppressed_findings_count(report: dict[str, Any]) -> int:
-    return sum(1 for finding in _normalize_raw_findings(report) if _is_noisy_finding(finding))
+def get_suppressed_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return display details using the same rules as scan filtering."""
+    # 新扫描与历史报告复用过滤原因，避免统计和展示规则不一致。
+    details = []
+    for finding in _normalize_raw_findings(report):
+        reason = _noise_reason(finding)
+        if reason:
+            details.append({
+                "severity": finding["severity"],
+                "title": finding["title"],
+                "rule_id": finding["rule_id"],
+                "file": finding["file"],
+                "line": finding.get("line"),
+                "suppression_reason": reason,
+            })
+    return details
 
 
 def _effective_severity(
@@ -268,17 +284,21 @@ def _is_empty_safe_low(raw_severity: str, risk_score: Any, recommendation: Any) 
 
 
 def _is_noisy_finding(finding: dict[str, Any]) -> bool:
+    return _noise_reason(finding) is not None
+
+
+def _noise_reason(finding: dict[str, Any]) -> str | None:
     file = str(finding.get("file") or "")
     rule = str(finding.get("rule") or finding.get("rule_id") or "").upper()
     message = str(finding.get("message") or finding.get("evidence") or "").lower()
     suffix = Path(file).suffix.lower()
     if suffix in _FONT_EXTENSIONS:
-        return True
+        return "font_file"
     if _is_raster_image_noise_finding(finding):
-        return True
+        return "raster_image"
     if rule == "EA3" and _is_license_file(file) and "limited to" in message:
-        return True
-    return False
+        return "license_scope_wording"
+    return None
 
 
 def _is_raster_image_noise_finding(finding: dict[str, Any]) -> bool:

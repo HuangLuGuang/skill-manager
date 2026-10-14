@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import json
+from pathlib import Path
 import subprocess
 import textwrap
+from types import SimpleNamespace
 import urllib.request
 
 import pytest
@@ -13,6 +16,7 @@ from agent_manager.core.llm import LLMConfig
 from agent_manager.core.models import RiskLevel, SkillOrigin, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.scan_cache import compute_scan_context_fingerprint
+from agent_manager.core.skillspector import get_suppressed_findings, run_skillspector_scan
 from agent_manager.core.vetting import VettingPipeline
 
 
@@ -586,3 +590,83 @@ def test_scan_context_changes_when_deep_scan_option_changes():
     )
 
     assert disabled != enabled
+
+
+@pytest.mark.parametrize(
+    "finding, reason",
+    [
+        ({"rule_id": "EA3", "message": "not limited to", "file": "LICENSE.txt", "start_line": 28}, "license_scope_wording"),
+        ({"rule_id": "MP2", "file": "fonts/demo.ttf"}, "font_file"),
+        ({"rule_id": "P2", "file": "assets/cover.png"}, "raster_image"),
+    ],
+)
+def test_suppressed_details_match_scan_count(tmp_path, monkeypatch, finding, reason):
+    payload = {"filtered_findings": [finding, {"rule_id": "E2", "file": "sync.py", "severity": "HIGH"}]}
+    monkeypatch.setattr("agent_manager.core.skillspector._skillspector_executable", lambda: "/mock/skillspector")
+    monkeypatch.setattr("agent_manager.core.skillspector.get_skillspector_version", lambda: "test")
+
+    def fake_run(cmd, **_kwargs):
+        Path(cmd[cmd.index("--output") + 1]).write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr("agent_manager.core.skillspector.subprocess.run", fake_run)
+    result = run_skillspector_scan(tmp_path)
+    assert result["suppressed_findings_count"] == len(result["suppressed_findings"]) == 1
+    detail = result["suppressed_findings"][0]
+    assert detail["suppression_reason"] == reason
+    assert detail["file"] == finding["file"]
+    assert detail["line"] == finding.get("start_line")
+    assert result["findings"][0]["file"] == "sync.py"
+    assert result["max_severity"] == "HIGH"
+
+
+@pytest.mark.parametrize("field", ["filtered_findings", "findings", "issues"])
+def test_historical_suppressed_details_are_read_only(field):
+    from agent_manager.api.router import get_scan_report
+
+    report = {"skillspector_analysis": {
+        "suppressed_findings_count": 1,
+        "findings": [],
+        "raw_report": {field: [{"rule_id": "EA3", "finding": "not limited to", "file": "LICENSE.txt", "start_line": 28}]},
+    }}
+    before = deepcopy(report)
+    entry = SimpleNamespace(family_id="family", skill_id="version", version_no=1, name="sample", vetting=SimpleNamespace(scan_report=report))
+    mgr = SimpleNamespace(get_skill=lambda _id: entry)
+    result = get_scan_report("family", mgr)["scan_report"]["skillspector_analysis"]
+    assert result["suppressed_findings"][0]["suppression_reason"] == "license_scope_wording"
+    assert result["suppressed_findings"][0]["line"] == 28
+    assert report == before
+
+
+def test_noise_matching_keeps_code_and_nonmatching_license_findings():
+    report = {"findings": [
+        {"rule_id": "EA3", "message": "not limited to", "file": "script.py"},
+        {"rule_id": "E2", "message": "not limited to", "file": "LICENSE.txt"},
+        {"rule_id": "EA3", "message": "unrestricted", "file": "LICENSE.txt"},
+    ]}
+    assert get_suppressed_findings(report) == []
+
+
+@pytest.mark.parametrize("analysis", [
+    {"suppressed_findings_count": 4},
+    {"suppressed_findings_count": 0, "raw_report": {}},
+    {"suppressed_findings_count": 1, "suppressed_findings": [
+        {"file": "old.png", "suppression_reason": "raster_image"},
+    ], "raw_report": {}},
+])
+def test_report_preserves_recorded_noise_details_and_counts(analysis):
+    from agent_manager.api.router import get_scan_report
+
+    # 读取兼容仅补齐缺失明细，不覆盖已记录的过滤结果和统计。
+    before = deepcopy(analysis)
+    entry = SimpleNamespace(
+        family_id="family", skill_id="version", version_no=1, name="sample",
+        vetting=SimpleNamespace(scan_report={"skillspector_analysis": analysis}),
+    )
+    result = get_scan_report(
+        "family", SimpleNamespace(get_skill=lambda _id: entry),
+    )["scan_report"]["skillspector_analysis"]
+    assert result["suppressed_findings_count"] == before["suppressed_findings_count"]
+    if "suppressed_findings" in before:
+        assert result["suppressed_findings"] == before["suppressed_findings"]
+    assert analysis == before
