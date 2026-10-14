@@ -1,4 +1,7 @@
 from io import BytesIO
+import base64
+import json
+from copy import deepcopy
 
 import pytest
 from pypdf import PdfReader
@@ -79,6 +82,60 @@ def test_docs_export_endpoint_returns_pdf_with_outline_header():
     reader = PdfReader(BytesIO(response.content))
     assert "Capability governance" in _outline_titles(reader.outline)
     assert "Governance flow" in _outline_titles(reader.outline)
+
+
+def test_docs_export_accepts_more_than_forty_articles():
+    payload = _payload("en-US")
+    payload["articles"] = [deepcopy(payload["articles"][0]) for _ in range(41)]
+    assert len(schemas.DocsPdfExportRequest.model_validate(payload).articles) == 41
+
+
+def test_streamed_pdf_reports_layout_and_contains_updated_content():
+    client, _ = _test_client()
+    payload = _payload("en-US")
+    payload["articles"][0]["summary"] = "Updated documentation revision for this export."
+    response = client.post("/api/config/docs-export.pdf?stream=true", json=payload)
+    assert response.status_code == 200
+    assert response.headers["x-accel-buffering"] == "no"
+    assert response.headers["cache-control"] == "no-store"
+    events = [json.loads(line) for line in response.text.splitlines() if line]
+    progress = [event for event in events if event["type"] == "progress"]
+    assert progress[0]["stage"] == "queued"
+    assert any(event["stage"] == "preparing" and event["completed"] == 1 for event in progress)
+    assert any(event["stage"] == "layout" and event["pass"] >= 2 for event in progress)
+    assert events[-1]["type"] == "complete"
+    document = b"".join(base64.b64decode(event["data"]) for event in events if event["type"] == "chunk")
+    reader = PdfReader(BytesIO(document))
+    assert "Updated documentation revision for this export." in "".join(page.extract_text() for page in reader.pages)
+    assert "Governance flow" in _outline_titles(reader.outline)
+
+
+def test_streamed_pdf_failure_has_stable_error_without_complete(monkeypatch):
+    from backend import docs_export_stream
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("Internal render error")
+
+    monkeypatch.setattr(docs_export_stream, "build_docs_export_pdf", fail)
+    client, _ = _test_client()
+    response = client.post("/api/config/docs-export.pdf?stream=true", json=_payload())
+    events = [json.loads(line) for line in response.text.splitlines() if line]
+    assert events[-1] == {"type": "error", "error_code": "docs_export.generation_failed"}
+    assert not any(event["type"] in {"chunk", "complete"} for event in events)
+
+
+def test_streamed_pdf_checks_permission_before_generation(monkeypatch):
+    from backend import iam
+    from backend.api_errors import ApiError
+
+    def deny(*args, **kwargs):
+        raise ApiError(403, "auth.permission_denied", "权限不足", "Permission denied")
+
+    client, _ = _test_client()
+    monkeypatch.setattr(iam, "check", deny)
+    response = client.post("/api/config/docs-export.pdf?stream=true", json=_payload())
+    assert response.status_code == 403
+    assert response.json()["error_code"] == "auth.permission_denied"
 
 
 def test_docs_export_rejects_unsafe_screenshot_names():

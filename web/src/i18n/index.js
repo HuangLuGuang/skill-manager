@@ -619,6 +619,13 @@ export const i18n = createI18n({
         exportExcel: '导出 Excel',
         pdfSuccess: '带侧边目录的帮助文档 PDF 已生成',
         pdfFailed: '生成帮助文档 PDF 失败',
+        progress: {
+          refreshing: '读取最新文档', preparing: '整理文章', layout: '排版与目录', downloading: '接收 PDF 文件',
+          queued: '等待生成 PDF', articles: '已整理 {completed} / {total} 篇文章',
+          layoutPages: '第 {pass} 轮排版，已处理 {page} 页（目录需多轮校准）',
+          elapsed: '已用时 {seconds} 秒', complete: 'PDF 已生成并开始下载',
+          failed: '导出失败，请重试', cancelled: '已取消导出', cancel: '取消导出',
+        },
         excelSuccess: '产品功能清单已生成',
         excelFailed: '生成产品功能清单失败',
         presets: {
@@ -1721,6 +1728,13 @@ export const i18n = createI18n({
         exportExcel: 'Export Excel',
         pdfSuccess: 'Help documentation PDF generated with sidebar bookmarks',
         pdfFailed: 'Failed to generate help documentation PDF',
+        progress: {
+          refreshing: 'Read latest documentation', preparing: 'Prepare articles', layout: 'Layout and contents', downloading: 'Receive PDF file',
+          queued: 'Waiting to generate PDF', articles: 'Prepared {completed} / {total} articles',
+          layoutPages: 'Layout pass {pass}, {page} pages processed (contents require multiple passes)',
+          elapsed: 'Elapsed: {seconds}s', complete: 'PDF generated and download started',
+          failed: 'Export failed. Please retry.', cancelled: 'Export cancelled', cancel: 'Cancel export',
+        },
         excelSuccess: 'Product feature list generated',
         excelFailed: 'Failed to generate product feature list',
         presets: {

@@ -6,7 +6,7 @@ import html
 import os
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
@@ -148,9 +148,11 @@ class BookmarkParagraph(Paragraph):
 
 
 class HelpPdfTemplate(BaseDocTemplate):
-    def __init__(self, *args, footer_text: str, **kwargs) -> None:
+    def __init__(self, *args, footer_text: str, progress=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.footer_text = footer_text
+        self.progress = progress
+        self.layout_pass = 0
         frame = Frame(
             LEFT_MARGIN,
             BOTTOM_MARGIN,
@@ -164,7 +166,12 @@ class HelpPdfTemplate(BaseDocTemplate):
         )
         self.addPageTemplates(PageTemplate(id="help", frames=[frame], onPage=self._draw_page))
 
+    def beforeDocument(self) -> None:
+        self.layout_pass += 1
+
     def _draw_page(self, canvas, doc) -> None:
+        if self.progress:
+            self.progress({"stage": "layout", "pass": self.layout_pass, "page": doc.page})
         canvas.showOutline()
         if doc.page <= 2:
             return
@@ -448,7 +455,10 @@ def _article_flowables(
     return story
 
 
-def build_docs_export_pdf(payload: DocsPdfExportRequest, *, generated_at: str) -> bytes:
+def build_docs_export_pdf(
+    payload: DocsPdfExportRequest, *, generated_at: str,
+    progress: Callable[[dict], None] | None = None,
+) -> bytes:
     """Return a self-contained A4 PDF whose module/article tree appears as PDF bookmarks."""
     _register_font()
     labels = COPY[payload.locale]
@@ -465,6 +475,7 @@ def build_docs_export_pdf(payload: DocsPdfExportRequest, *, generated_at: str) -
         author="Agent Manager",
         subject=labels["subtitle"],
         footer_text=labels["page"],
+        progress=progress,
     )
 
     story: list = [Spacer(1, 12 * mm)]
@@ -525,6 +536,10 @@ def build_docs_export_pdf(payload: DocsPdfExportRequest, *, generated_at: str) -
             styles=styles,
         ))
         previous_group = article.group_title
+        if progress:
+            progress({"stage": "preparing", "completed": index, "total": len(payload.articles)})
 
     doc.multiBuild(story)
+    if progress:
+        progress({"stage": "downloading"})
     return output.getvalue()

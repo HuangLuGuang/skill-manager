@@ -259,7 +259,7 @@ class DocsPdfArticle(BaseModel):
 
 class DocsPdfExportRequest(BaseModel):
     locale: str = Field(default="zh-CN", pattern="^(zh-CN|en-US)$")
-    articles: list[DocsPdfArticle] = Field(min_length=1, max_length=40)
+    articles: list[DocsPdfArticle] = Field(min_length=1, max_length=200)
 
 
 class ScheduledTaskBase(BaseModel):
