@@ -299,7 +299,7 @@ func runManagedLogWorker(ctx context.Context, home string, plan logRunPlan, enab
 		return err
 	}
 	defer func() { resultErr = errors.Join(resultErr, s.Close()) }()
-	c, err := upload.New(upload.Options{Server: plan.server, ClientID: plan.device, Token: plan.token})
+	c, err := upload.New(upload.Options{Server: plan.server, ClientID: plan.device, Token: plan.token, ObserveHTTP: aidrHTTPObserver(home)})
 	if err != nil {
 		return err
 	}

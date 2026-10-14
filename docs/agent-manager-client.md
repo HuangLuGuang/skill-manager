@@ -1309,6 +1309,14 @@ Call evidence remains separate from result evidence. Details prioritize event, t
 
 ### 接收器重试与任务记录
 
+Hook 与日志批次上传遇到网络失败、HTTP 404（接口暂不可用）、408、429 或 5xx 时，在现有采集工作循环内退避重试，间隔从 1 秒递增、上限 60 秒，并受循环调度间隔约束。冻结批次、采集游标及本地接收器保持；网络重试不消耗接收器进程的重启额度。只有收到匹配设备、流、批次摘要、记录数和 durable 标记的 ACK 后才确认出队。401/403 鉴权拒绝、409 冲突、413 大小限制和 422 契约错误仍需排查，不能作为临时路由故障处理。
+
+主后台的 Hook/日志 HTTP 诊断写入 `~/.agent-manager/logs/diagnostics/`：模块为 `aidr_http:<method>:<resource>`，记录 HTTP 状态、客户端错误码、符合格式的服务端 `aidr.*` 错误码及可重试标志。相同错误合并计数，每分钟汇总，恢复记录 `sync_recovered`；请求、响应正文和凭据不写入该诊断。404 本身只能证明接口当时不可用，确定热重载、路由或代理原因还需对照后端访问与启动日志。后端发布应在路由及就绪检查通过后接入流量，开发热重载期间应保留访问日志。
+
+旧版已耗尽重试的暂停状态需在升级后分别执行“重试接收器”和“重试日志采集”（CLI：`agent-manager-client aidr-desktop --action retry` / `--action retry-logs`）。核对两条通道恢复、原待发记录的 ACK 和平台持久化记录；保留原队列、策略与凭据，不靠清空状态解除暂停。
+
+**English:** Hook and log uploads back off inside their collection loops for network failures, HTTP 404/408/429 and 5xx, from one second up to 60 seconds subject to loop scheduling. These retries preserve intake and frozen bytes without consuming receiver restart attempts. Only an exact durable ACK removes records. Authentication, conflict, size and contract failures retain their existing handling. Managed HTTP diagnostics record only method/resource, status, stable codes and retryability, aggregate repeated failures and report recovery. Correlate 404s with backend access/startup logs; route traffic only after readiness checks. Previously suspended installations require separate receiver and log retry actions after upgrade, followed by queue/ACK and server persistence verification.
+
 Hook 接收器的固定重试次数针对一轮连续故障：只有连续收到有效健康报告满 60 秒，才恢复下一轮的重试额度；单次启动、短暂运行或恢复调度不重置额度。失败立即循环的进程仍会按策略暂停，需修正原因后点击“重试接收器”。新版本保留原有暂停记录，不通过升级删除重试状态或队列。诊断区保留最近失败及时间；系统强制终止、终止信号和正常结束分别显示，不能仅凭 SIGKILL 判断是谁终止了进程。
 
 同一用户的多个桌面窗口均观察主后台服务中的同一个 Hook 接收器；窗口之间不争夺接收器管理权。桌面退出不改变后台 PID、队列或接收器实例。旧版本迁移时，主服务等待旧桌面释放监督锁，随后继续使用原队列；外部身份或绑定不符的 socket 保持冲突，不自动接管。
@@ -1322,6 +1330,12 @@ Hook 接收器的固定重试次数针对一轮连续故障：只有连续收到
 人工验收：固定重试策略下验证连续失败耗尽额度、手动重试、稳定运行一分钟后恢复额度；检查系统信号退出原因。平台中英文核对成功/失败任务、长产品名称、窄屏换行和执行信息展开，不把历史任务失败当作当前采集失败。
 
 多窗口 UI 验收：同时打开两个新版桌面，确认两者显示同一后台 PID、实例和 ACK；退出任一或全部桌面后接收器继续工作。中英文检查状态及重试文案。
+
+临时后端故障 UI 验收 Todo（中文/英文）：在隔离测试后端模拟 404、503，核对桌面“运行治理 → 接入与采集”接收器仍运行、上传显示退避而非重启耗尽；恢复接口后待发数量下降、ACK 更新。平台客户端采集状态应恢复新鲜上报；历史故障仍保留原时间。页面显示就绪不能替代待发记录的服务端落库和 ACK 核验。
+
+2026-10-14 本机 macOS 验证：上传、受管客户端和 CLI 三个 Go 包回归通过；HTTP 分类及 Hook/日志连续三次 404 后恢复的测试通过 race 检查，原冻结字节不变、匹配 ACK 后出队。更新开发 sidecar 并恢复既有队列后，原 3 条 Hook 和 5 条日志待发记录逐条匹配平台记录与客户端 ACK，原冻结批次摘要一致。此验证不包含日常后端故障注入，也未确认此前短暂 404 的服务端成因。
+
+**Local verification (2026-10-14):** Three Go packages passed; HTTP classification and Hook/log recovery after three consecutive 404s passed race checks. The updated macOS development sidecar resumed the existing queues, with all three pending Hook records and five log records matched to server persistence and local ACK evidence. Frozen digests were preserved. This did not inject a fault into the daily backend or establish the server-side cause of the earlier 404s.
 
 ### 多产品日志与 Hook 接入
 

@@ -11,10 +11,12 @@ import (
 	"skill-manager/scanner/internal/aidr/enforcement"
 )
 
-func (c *Client) RuntimeGet(ctx context.Context, resource string) ([]byte, Result) {
+func (c *Client) RuntimeGet(ctx context.Context, resource string) (body []byte, result Result) {
 	if resource != "snapshot" && resource != "commands" && resource != "bootstrap" && resource != "collection/device" {
 		return nil, Result{Code: "aidr_enforcement_request_invalid"}
 	}
+	diagnostic := HTTPDiagnostic{Method: http.MethodGet, Resource: "enforcement/" + resource}
+	defer func() { c.reportHTTP(ctx, diagnostic, result) }()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/api/v1/clients/"+url.PathEscape(c.clientID)+"/aidr/enforcement/"+resource, nil)
 	if err != nil {
 		return nil, Result{Code: "aidr_enforcement_request_invalid"}
@@ -26,10 +28,12 @@ func (c *Client) RuntimeGet(ctx context.Context, resource string) ([]byte, Resul
 		return nil, Result{Code: "aidr_upload_transport", Retryable: true}
 	}
 	defer response.Body.Close()
+	diagnostic.StatusCode = response.StatusCode
 	data, err := io.ReadAll(io.LimitReader(response.Body, 1048577))
 	if err != nil || len(data) > 1048576 {
 		return nil, Result{Code: "aidr_upload_response_invalid", Retryable: true}
 	}
+	diagnostic.ServerCode = responseErrorCode(data)
 	if response.StatusCode == 401 || response.StatusCode == 403 {
 		return nil, Result{Code: "aidr_upload_auth_rejected"}
 	}
@@ -50,7 +54,7 @@ func (c *Client) RuntimeGet(ctx context.Context, resource string) ([]byte, Resul
 			return nil, Result{Code: code}
 		}
 	}
-	if response.StatusCode == 429 || response.StatusCode >= 500 {
+	if retryableHTTPStatus(response.StatusCode) {
 		return nil, Result{Code: "aidr_upload_server_unavailable", Retryable: true}
 	}
 	if response.StatusCode != 200 {

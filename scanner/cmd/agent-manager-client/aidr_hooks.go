@@ -372,7 +372,7 @@ func aidrHookServeContext(parent context.Context, args []string, out io.Writer) 
 	if *managedHome != "" {
 		token = managedToken
 	}
-	c, err := upload.New(upload.Options{Server: *server, ClientID: *device, Token: token})
+	c, err := upload.New(upload.Options{Server: *server, ClientID: *device, Token: token, ObserveHTTP: aidrHTTPObserver(*managedHome)})
 	if err != nil {
 		return err
 	}

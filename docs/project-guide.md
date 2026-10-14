@@ -66,6 +66,10 @@ Hook 接收器重试按连续故障计数，收到一分钟有效健康报告后
 
 Hook retry budgets recover after one minute of valid health reports. Client overview task history includes successes and identifies the action, products, time and policy revision independently of live collection health.
 
+Hook 和日志上传将网络失败、HTTP 404/408/429 与 5xx 保留在采集循环内退避重试（最长间隔 60 秒），不会耗尽接收器重启额度；本地队列在匹配的 durable ACK 后出队。后台诊断补充接口、HTTP 状态和稳定错误码。旧版已暂停的两条通道需分别手动重试，具体恢复步骤和双语验收见[接收器重试与任务记录](agent-manager-client.md#接收器重试与任务记录)。
+
+Hook/log uploads retry network failures and HTTP 404/408/429/5xx within the collection loop, with up to 60 seconds of backoff and no receiver restart-budget consumption. Exact durable ACKs confirm queued records; HTTP diagnostics identify the failing endpoint and status. Previously paused channels require separate manual retries after upgrade.
+
 这份文档是这个项目的主说明文档，目标是把下面几件事讲清楚：
 
 - 这个项目解决什么问题

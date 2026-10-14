@@ -108,6 +108,26 @@ func TestSyncErrorsAreSummarizedAndRecoveryRecorded(t *testing.T) {
 	}
 }
 
+func TestBackgroundSyncDiagnosticsWithoutClientDatabase(t *testing.T) {
+	home := t.TempDir()
+	for i := 0; i < 5; i++ {
+		RecordBackgroundSyncDiagnostic(home, "aidr_http:POST:hooks:batch", os.ErrNotExist, map[string]any{"status_code": 404, "retryable": true})
+	}
+	RecordBackgroundSyncDiagnostic(home, "aidr_http:POST:hooks:batch", nil, nil)
+	root := filepath.Join(home, ".agent-manager")
+	if _, err := os.Stat(filepath.Join(root, "client.db")); !os.IsNotExist(err) {
+		t.Fatal("diagnostics created a client database")
+	}
+	files, err := diagnosticFiles(root)
+	if err != nil || len(files) != 1 {
+		t.Fatal(files, err)
+	}
+	body, err := os.ReadFile(files[0].path)
+	if err != nil || len(strings.Split(strings.TrimSpace(string(body)), "\n")) != 2 || !strings.Contains(string(body), `"status_code":404`) || !strings.Contains(string(body), `"failure_count":5`) || !strings.Contains(string(body), "sync_recovered") {
+		t.Fatalf("missing failure metadata or recovery: %s %v", body, err)
+	}
+}
+
 func TestDiagnosticFileRotation(t *testing.T) {
 	root := t.TempDir()
 	if _, err := SaveLogSettings(root, 7); err != nil {
