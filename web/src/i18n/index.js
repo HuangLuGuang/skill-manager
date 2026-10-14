@@ -1,3 +1,4 @@
+import { scannerGuideMessages } from './scannerGuide.js'
 import { mcpServerFormMessages } from './mcpServerForm.js'
 import { systemSelectionMessages } from './system-selection.js'
 import { runtimeGovernanceMessages } from './runtime-governance.js'
@@ -62,6 +63,7 @@ export const i18n = createI18n({
       scanTaskActions: scanTaskActionsMessages['zh-CN'],
       mcpScan: mcpScanMessages['zh-CN'],
       mcpServerForm: mcpServerFormMessages['zh-CN'],
+      scannerGuide: scannerGuideMessages['zh-CN'],
       mcpDebug: {
         gatewayCredential: 'MCP 网关凭证',
         gatewayCredentialHelp: '填写凭证中心生成的 Token，不含中文、空格或换行；无需添加 Bearer 前缀。',
@@ -1162,6 +1164,7 @@ export const i18n = createI18n({
       scanTaskActions: scanTaskActionsMessages['en-US'],
       mcpScan: mcpScanMessages['en-US'],
       mcpServerForm: mcpServerFormMessages['en-US'],
+      scannerGuide: scannerGuideMessages['en-US'],
       mcpDebug: {
         gatewayCredential: 'MCP gateway credential',
         gatewayCredentialHelp: 'Enter a token from the credential center, without non-ASCII characters, spaces or line breaks. Do not add the Bearer prefix.',

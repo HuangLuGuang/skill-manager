@@ -238,3 +238,5 @@ make sandbox-runtime-build
 - MCP网关环境和执行模式帮助复用标签旁QuestionCircleOutlined与mcpSecurity语义双语资源，按选项分行解释实际限制；保持文案与服务端调用边界一致。
 
 - MCP调试平台网关凭证使用mcpDebug语义双语说明及字段错误；首次输入和连接前检查必填、无空白可打印ASCII字符，保留非法草稿并阻止请求，错误不包含凭证值。服务端负责凭证有效性及授权校验。
+
+- ScannerAccess参数说明按配置项合并CLI/环境变量，展示必填条件、默认值与关系；双语资源使用scannerGuide。独立本地示例显式--server=""，分析示例包含地址/凭证配置；示例凭证明确要求替换为实际凭证，Sandbox说明包含服务端策略仍可能要求执行的关系；说明需与scanner/internal/config及runner实际行为一致。
