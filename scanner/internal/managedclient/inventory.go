@@ -17,7 +17,7 @@ import (
 
 var Version = "dev"
 
-const InventoryCacheVersion = "8"
+const InventoryCacheVersion = "9"
 
 type Skill struct {
 	Governance    *SkillObservation `json:"governance,omitempty"`
@@ -35,15 +35,16 @@ type Skill struct {
 }
 
 type Agent struct {
-	LocalAgentID             string         `json:"local_agent_id"`
-	AgentType                string         `json:"agent_type"`
-	DisplayName              string         `json:"display_name,omitempty"`
-	Version                  string         `json:"version,omitempty"`
-	InstallPath              string         `json:"install_path,omitempty"`
-	SkillsPath               string         `json:"skills_path,omitempty"`
-	SkillManagementSupported bool           `json:"skill_management_supported"`
-	Capabilities             map[string]any `json:"capabilities"`
-	Skills                   []Skill        `json:"skills"`
+	AssetInventory           *AssetInventory `json:"asset_inventory,omitempty"`
+	LocalAgentID             string          `json:"local_agent_id"`
+	AgentType                string          `json:"agent_type"`
+	DisplayName              string          `json:"display_name,omitempty"`
+	Version                  string          `json:"version,omitempty"`
+	InstallPath              string          `json:"install_path,omitempty"`
+	SkillsPath               string          `json:"skills_path,omitempty"`
+	SkillManagementSupported bool            `json:"skill_management_supported"`
+	Capabilities             map[string]any  `json:"capabilities"`
+	Skills                   []Skill         `json:"skills"`
 }
 
 type Inventory struct {
@@ -172,6 +173,7 @@ func Discover(home string) (Inventory, error) {
 			SkillManagementSupported: true,
 			Capabilities:             map[string]any{"skill_management": true, "custom": true, "display_name": custom.Name},
 			Skills:                   []Skill{},
+			AssetInventory:           discoverAssets(home, "", nil),
 		}
 		info, statErr := os.Stat(custom.SkillsPath)
 		if statErr != nil || !info.IsDir() {
@@ -307,6 +309,10 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 		if agent.Capabilities["model_config_auto_apply"] == true {
 			agent.Capabilities["model_config_contract"] = modelContractForVersion(spec.agentType, agent.Version)
 		}
+	}
+	agent.AssetInventory = discoverAssets(home, spec.agentType, roots)
+	if len(agent.AssetInventory.MCPServers) > 0 || len(agent.AssetInventory.Plugins) > 0 {
+		relatedDirectoryFound = true
 	}
 	if !relatedDirectoryFound && agent.InstallPath == "" {
 		return agent, false, nil

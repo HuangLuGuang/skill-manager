@@ -1,5 +1,17 @@
 # External Agent Integration
 
+Skill 检测期间，Scanner 结果轮询和客户端扫描状态长轮询只读取所需元数据，完整报告保留在详情查询。
+导入准备采用独立并发额度，验签每次读取已提交状态并保存审计。调度配置及混合负载验收见
+[API 响应说明](project-guide.md#114-skill-检测期间的-api-响应--api-responsiveness-during-skill-scans)。
+
+**English:** Scanner result polling and client scan-status long polling read metadata without full reports. Import
+preparation has separate bounded capacity; verification still checks committed state and persists audits on each call.
+See the linked guide for configuration and mixed-load acceptance.
+
+客户端会按所属 Agent 实例上报 MCP 和插件资产；客户端详情及智能体管理使用同一份快照，插件可展开查看内含 Skill 与 MCP。发现依据区分配置、安装记录、本地文件与缓存；启用状态反映配置读取结果，无法确认时保持未知。此资产发现不建立 MCP 网关授权或运行调用证据。升级平台与客户端后随资产同步生效，具体适配范围、只读采集与凭据脱敏边界见[项目指南](project-guide.md#客户端-mcp-与插件资产--client-mcp-and-plugin-inventory)。
+
+**English:** Clients report MCP and plugin inventory per Agent installation. Client details and Agent management share the snapshot, including bundled Skills and MCP entries. Configuration, installation records, local files and caches remain distinct; configured enabled state stays unknown without evidence. Discovery does not establish gateway authorization or runtime calls. Upgrade platform and client, then wait for inventory sync. See the [project guide](project-guide.md#客户端-mcp-与插件资产--client-mcp-and-plugin-inventory) for adapters, read-only discovery and credential redaction.
+
 平台创建的 Agent 可在创建或编辑时配置“允许访问的 MCP 网关”。运行凭证只能选择该范围的子集；接入指引按能力生成步骤，并提供每个 MCP 网关的地址及鉴权模板。使用支持 Streamable HTTP 的运行环境读取工具列表，再按需调用并到智能体详情检查实际记录。移除网关会限制后续请求，新增网关须单独为凭证授权。完整说明见 [MCP 工具访问](agent-governance.md#mcp-工具访问--mcp-tool-access)。
 
 **English:** Platform-created Agents can configure allowed MCP gateways during registration or editing. Runtime credentials may grant only a subset. The guide generates capability-specific steps with gateway URLs and authentication templates. Use a Streamable HTTP runtime to list tools, call appropriate tools as needed and inspect records in Agent details. Removing a gateway limits subsequent requests; additions require a separate credential grant. See [MCP tool access](agent-governance.md#mcp-工具访问--mcp-tool-access).
@@ -485,9 +497,15 @@ python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_ver
 
 这类接法依赖 Agent 遵循 Skill 指令和脚本退出码。需要事件自动触发时，在具体 Agent 的生命周期事件上接 Hook 或 runtime adapter。
 
-### Event Hook
+### 客户端 AIDR 插件 Hook（默认）
 
-完整的 Claude Code、TraeCode、Codex 和 OpenClaw 配置、凭证权限、验收及排查步骤见 [hook-integration.md](hook-integration.md)。其中 TraeCode 部分是基于官方协议的待验证适配，不是已通过实机验收的集成。本节只保留运行时检查顺序和关键边界。
+日常宿主事件采集和工具策略默认通过客户端接入：连接设备，在客户端策略选择产品和 Hook 通道，完成原生信任后用新会话核对事件与 ACK。客户端按策略管理插件或 Hook 配置，接收器运行在主后台服务中。完整步骤见[客户端 AIDR 插件 Hook](hook-integration.md)。
+
+**English:** Use Client AIDR plugin Hooks by default for host audit and tool policies. Connect the device, select products and the Hook channel, complete native trust, then verify new-session events and ACKs. The Client manages integration components and runs reception in its main background service. See the [Client Hook guide](hook-integration.md).
+
+### 开发者：加载前验签与手工 Event Hook
+
+同步 Skill 内容与授权校验应接到真实 Loader 或受支持的加载事件。完整的 Claude Code、TraeCode、Codex 和 OpenClaw 手工脚本、凭证权限、验收及排查步骤见[开发者：加载前验签](developer-skill-verification.md)。其中 TraeCode 部分是基于官方协议的待验证适配，不是已通过实机验收的集成。本节只保留运行时检查顺序和关键边界。
 
 Hook 的接入点应与检查目标一一对应：
 
@@ -496,39 +514,9 @@ Hook 的接入点应与检查目标一一对应：
 | Skill 读取或加载前 | 本地计算内容摘要，依次调用 `verify-skill-signature` 和 `can-load` | 两个接口均返回 `allowed=true`，状态为可加载状态 |
 | Tool 执行前 | 调用 `check-tool`，传入 Skill 名称、Tool 名称和稳定的 Agent ID | 接口返回 `allowed=true` |
 
-Claude Code 可参考 `demo/claude-code-api-hook/agent_guard_hook.py`，在 `PreToolUse` 中使用绝对路径启动脚本：
+手工脚本配置与产品适配边界统一维护在[开发者指南](developer-skill-verification.md)。推广前至少演练平台不可达、凭证过期、Skill 路径缺失、内容变化和 Tool 未授权，并同时核对 Agent 侧结果、脚本日志与平台运行审计。
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-该示例读取 `AGENT_MANAGER_BASE_URL`、`AGENT_MANAGER_API_TOKEN` 和 `AGENT_ID`。`AGENT_MANAGER_API_TOKEN` 的值必须是绑定该 Agent 的运行凭证。对于能识别出的 Skill 调用，内容不一致、未授权、API 错误或网络错误会以退出码 `2` 阻止；成功时返回 `0`。诊断日志位于 `~/.agent-manager/logs/agent_guard_hook.log`。无法解析的输入和非 Skill 调用不进入 Skill 校验，因此上线前必须用目标 Agent 的真实事件验证 Skill 名称与目录提取结果。
-
-TraeCode 官方已支持 `PreToolUse` 和命令退出码 `2` 拒绝，但 Agent Manager 尚未完成真实 TraeCode 端到端验证。其项目级配置位置是 `.trae/hooks.json`，macOS / Linux 用户级配置才是 `~/.trae-cn/hooks.json`；具体配置、官方来源和待验证项见 [Hook 接入指南](hook-integration.md#4-traecode--trae-cn-接入状态)。
-
-Codex 使用独立示例 `demo/codex-agent-manager-hook/`。把环境文件保存在仓库外，复制或合并 `hooks.json.example` 到项目 `.codex/hooks.json` 或用户级 `~/.codex/hooks.json`，将脚本和环境文件改成绝对路径；重启后在 Codex CLI 运行 `/hooks` 并信任该 Hook。当前示例在受支持的 `PreToolUse` 路径前校验全部受治理 Skill，但尚未覆盖所有 Shell、WebSearch 和其他 Tool，不能解释为全路径强制拦截。
-
-OpenClaw 示例位于 `demo/openclaw-agent-manager-hook/`：
-
-- `agent:bootstrap` 内部 Hook 枚举可见 Skill，执行签名和加载许可检查。
-- `before_tool_call` 通过插件 Hook 调用 `check-tool`，必须接入实际 OpenClaw 插件工程。
-- 事件中的会话身份必须稳定映射到平台登记的 Agent ID，不能直接假设任意 session key 就是 Agent ID。
-
-推广前至少演练平台不可达、凭证过期、Skill 路径缺失、内容变化和 Tool 未授权五类场景，并同时核对 Agent 侧结果、Hook 日志与平台运行审计。
+**English:** Integrate synchronous Skill content and authorization checks at the real Loader or a supported load event. Manual scripts, runtime credentials, host configuration and product-specific coverage are maintained in the [developer guide](developer-skill-verification.md). Validate failures and actual host outcomes alongside script logs and platform audits.
 
 ## Registry As Artifact Catalog
 

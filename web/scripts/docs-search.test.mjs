@@ -122,8 +122,8 @@ test('Skill docs follow the console capability-governance grouping and order', (
 
 test('Agent docs follow the console agent-management grouping and order', () => {
   const expected = {
-    'zh-CN': { title: '智能体管理', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'agent-security-runtime', 'security-scan-guide', 'dify-security-access', 'security-operations', 'runtime-trace-guide', 'audit-trail'] },
-    'en-US': { title: 'Agent management', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'agent-security-runtime', 'security-scan-guide', 'dify-security-access', 'security-operations', 'runtime-trace-guide', 'audit-trail'] },
+    'zh-CN': { title: '智能体管理', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'developer-skill-verification', 'agent-security-runtime', 'security-scan-guide', 'dify-security-access', 'security-operations', 'runtime-trace-guide', 'audit-trail'] },
+    'en-US': { title: 'Agent management', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'developer-skill-verification', 'agent-security-runtime', 'security-scan-guide', 'dify-security-access', 'security-operations', 'runtime-trace-guide', 'audit-trail'] },
   }
   for (const [locale, { title, slugs }] of Object.entries(expected)) {
     const group = docsContent[locale].groups.find(item => item.title === title)
@@ -162,14 +162,22 @@ test('Ask AI finds Scanner, Credential Center, and Audit trail guidance', () => 
   }
 })
 
-test('Ask AI finds the dedicated Hook integration guide', () => {
+test('Ask AI distinguishes Client Hook setup from developer verification scripts', () => {
   const questions = {
-    'zh-CN': 'Claude Code、Codex 和 OpenClaw 的 Hook 怎么配置和验证？',
-    'en-US': 'How do I configure and validate Hooks for Claude Code Codex and OpenClaw?',
+    'zh-CN': [
+      ['客户端 AIDR 插件 Hook 接入：普通自动安装与宿主信任', 'hook-integration'],
+      ['开发者加载前验签：Claude Code Codex OpenClaw 手工脚本', 'developer-skill-verification'],
+    ],
+    'en-US': [
+      ['Client AIDR plugin Hook integration automatic installation native trust', 'hook-integration'],
+      ['Developer pre-load verification manual scripts Claude Code Codex OpenClaw', 'developer-skill-verification'],
+    ],
   }
-  for (const [locale, query] of Object.entries(questions)) {
-    const [first] = rankDocsContexts({ content: docsContent[locale], query })
-    assert.equal(first.slug, 'hook-integration')
+  for (const [locale, queries] of Object.entries(questions)) {
+    for (const [query, expectedSlug] of queries) {
+      const [first] = rankDocsContexts({ content: docsContent[locale], query })
+      assert.equal(first.slug, expectedSlug, `${locale}: ${query}`)
+    }
   }
 })
 
@@ -260,7 +268,7 @@ test('Ask AI finds AI Security scanning and runtime-trace guidance in both langu
   }
 })
 
-test('Hook guide includes official Claude Code, TraeCode, and Codex references', () => {
+test('Developer verification guide includes official Claude Code, TraeCode, and Codex references', () => {
   const expectedUrls = [
     'https://code.claude.com/docs/en/hooks-guide',
     'https://code.claude.com/docs/en/hooks',
@@ -273,7 +281,7 @@ test('Hook guide includes official Claude Code, TraeCode, and Codex references',
   ]
 
   for (const [locale, content] of Object.entries(docsContent)) {
-    const references = content.articles['hook-integration'].sections.flatMap(section => section.references || [])
+    const references = content.articles['developer-skill-verification'].sections.flatMap(section => section.references || [])
     const urls = new Set(references.map(reference => reference.url))
     for (const url of expectedUrls) assert.ok(urls.has(url), `${locale}: missing official reference ${url}`)
   }

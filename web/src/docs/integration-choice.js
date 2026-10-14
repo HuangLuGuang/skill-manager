@@ -14,7 +14,8 @@ const diagrams = {
     ],
     additionalTitle: '还需要运行时校验或审计？按条件组合接入',
     additional: [
-      node('Hook 接入', 'hook-integration', '产品提供所需前置事件：接到真实控制点并验证允许 / 拒绝。'),
+      node('客户端 AIDR 插件 Hook', 'hook-integration', '平台策略 → 插件安装与宿主信任 → 新会话事件及工具策略验收。'),
+      node('开发者：加载前验签', 'developer-skill-verification', '能控制 Loader 或加载事件：接入同步验签、加载授权及手工脚本。'),
       node('Agent Skill Verifier', 'runtime-integration#skill-verifier', '宿主支持 Skill 指令和脚本：每次使用前校验；实际阻断依赖宿主执行。'),
       node('AIDR 运行审计与防护', 'aidr-overview#architecture', '需要会话、工具或系统证据：按产品与权限选择日志、Hook、系统通道。'),
     ],
@@ -34,7 +35,8 @@ const diagrams = {
     ],
     additionalTitle: 'Need runtime checks or audit too? Combine supported capabilities',
     additional: [
-      node('Hook integration', 'hook-integration', 'The product provides the required pre-execution event: integrate at that point and verify allow / deny.'),
+      node('Client AIDR plugin Hooks', 'hook-integration', 'Policy → plugin installation and native trust → verify new-session events and tool decisions.'),
+      node('Developer: pre-load verification', 'developer-skill-verification', 'Control the Loader or load event: integrate synchronous signature and authorization checks or adapt manual scripts.'),
       node('Agent Skill Verifier', 'runtime-integration#skill-verifier', 'The host supports Skill instructions and scripts: verify before every use; blocking depends on host execution.'),
       node('AIDR runtime audit and protection', 'aidr-overview#architecture', 'For session, tool or system evidence, choose log, Hook and system channels by product and permissions.'),
     ],

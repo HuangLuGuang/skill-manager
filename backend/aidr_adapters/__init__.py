@@ -27,3 +27,13 @@ def session_entry_sql(expression, requested):
 def family_filter_sql(agent):
     members = [a.id for a in ADAPTERS.values() if a.family == agent and agent]
     return "agent IN (" + ','.join("'" + name + "'" for name in members) + ")" if members else "(:agent = '' OR agent = :agent)"
+
+def session_source_ids(requested, *, logs=False):
+    """Raw source IDs that map to the requested session entry or product family."""
+    members = {a.id for a in ADAPTERS.values() if a.family == requested} or {requested}
+    if not logs:
+        return sorted(members)
+    def entry(source):
+        adapter = get(source)
+        return adapter.session_entry if adapter.session_entry and source != requested else source
+    return sorted(source for source in members | ADAPTERS.keys() if entry(source) in members)

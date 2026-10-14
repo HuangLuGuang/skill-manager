@@ -56,7 +56,6 @@
         <a-table :columns="itemColumns" :data-source="runDetail.items" row-key="external_id" :scroll="{ x: 700 }">
           <template #bodyCell="{ column, record }"><template v-if="['status', 'change_kind'].includes(column.key)">{{ label(record[column.key]) }}</template><template v-else-if="column.key === 'error_code'">{{ record.error_code ? errorCode(record.error_code) : '—' }}</template><template v-else-if="column.key === 'task_id'"><a v-if="record.task_id" @click="openTask(record.task_id)">{{ record.task_id }}</a></template></template>
         </a-table>
-        <a-button @click="showRaw(runDetail)">{{ t('assetLifecycle.raw') }}</a-button>
       </template>
     </a-drawer>
 
@@ -80,14 +79,12 @@
             <a-tab-pane key="checks" :tab="t('assetLifecycle.checks')"><a-list :data-source="risk.coverage"><template #renderItem="{ item }"><a-list-item><span>{{ checkLabel(item.check) }}</span><a-space wrap><a-tag :color="color(item.status)">{{ label(item.status) }}</a-tag><a v-if="item.task_id" @click="openTask(item.task_id)">{{ t('assetLifecycle.evidence') }}</a></a-space></a-list-item></template></a-list></a-tab-pane>
             <a-tab-pane key="history" :tab="t('assetLifecycle.history')"><a-table :columns="historyColumns" :data-source="history" row-key="assessment_id" :scroll="{ x: 650 }"><template #bodyCell="{ column, record }"><template v-if="column.key === 'status'">{{ label(record.status) }}</template><template v-else-if="column.key === 'score'">{{ record.score ?? '—' }}</template></template></a-table></a-tab-pane>
           </a-tabs>
-          <a-button @click="showRaw({ risk, issues, history })">{{ t('assetLifecycle.raw') }}</a-button>
         </template>
       </a-spin>
     </a-drawer>
     <a-modal v-model:open="reviewOpen" :title="t('assetLifecycle.review')" :footer="null">
       <a-form :model="review" layout="vertical" @finish="saveReview"><a-form-item :label="t('assetLifecycle.coverage')"><a-select v-model:value="review.status" :options="reviewOptions" /></a-form-item><a-form-item :label="t('assetLifecycle.comment')" required><a-textarea v-model:value="review.comment" :maxlength="2000" /></a-form-item><a-form-item v-if="review.status === 'resolved'" :label="t('assetLifecycle.closureTask')" required><a-input v-model:value="review.closure_task_id" /></a-form-item><a-button type="primary" html-type="submit" :loading="reviewSaving" :disabled="reviewSaving || !review.comment.trim()">{{ t('assetLifecycle.submitReview') }}</a-button></a-form>
     </a-modal>
-    <a-modal v-model:open="rawOpen" :title="t('assetLifecycle.raw')" width="min(1000px, 100vw)" :footer="null"><a-button @click="downloadRaw">{{ t('assetLifecycle.download') }}</a-button><pre class="raw-content">{{ raw }}</pre></a-modal>
   </div>
 </template>
 
@@ -111,7 +108,6 @@ const sourceOpen = ref(false), editing = ref(null), appIds = ref(''), form = rea
 const runsOpen = ref(false), runs = ref([]), runDetail = ref(null), runSource = ref(null)
 const riskOpen = ref(false), riskLoading = ref(false), selectedAgent = ref(null), risk = ref(null), issues = ref([]), history = ref([])
 const reviewOpen = ref(false), reviewSaving = ref(false), reviewIssue = ref(null), review = reactive({ status: 'open', comment: '', closure_task_id: '' })
-const rawOpen = ref(false), raw = ref('')
 const relatedTargets = ref([]), linksSaving = ref(false)
 const skills = ['data-leakage-detection', 'tool-abuse-detection', 'indirect-injection-detection', 'authorization-bypass-detection', 'web-exfiltration-detection', 'agentic-supply-chain-detection', 'unexpected-code-execution-detection', 'inter-agent-comm-security-detection', 'cascading-failure-detection', 'human-agent-trust-exploit-detection']
 const mcpOptions = computed(() => { const owner = targets.value.find(x => x.target_id === selectedAgent.value?.target_id); return targets.value.filter(x => x.asset_type === 'mcp' && x.owner_user_id === owner?.owner_user_id && x.owner_group_id === owner?.owner_group_id).map(x => ({ value: x.target_id, label: x.name })) })
@@ -163,8 +159,6 @@ function openTask(id) { riskOpen.value = false; runsOpen.value = false; router.p
 async function saveLinks() { if (linksSaving.value) return; linksSaving.value = true; try { await setManagedAgentRelatedTargets(selectedAgent.value.agent_id, relatedTargets.value); message.success(t('assetLifecycle.saved')); await openRisk(selectedAgent.value); await load() } catch (e) { fail(e) } finally { linksSaving.value = false } }
 function openReview(issue) { reviewIssue.value = issue; Object.assign(review, { status: issue.status, comment: '', closure_task_id: '' }); reviewOpen.value = true }
 async function saveReview() { if (reviewSaving.value || !review.comment.trim()) return; reviewSaving.value = true; try { await reviewManagedAgentRisk(selectedAgent.value.agent_id, reviewIssue.value.issue_id, { ...review, closure_task_id: review.closure_task_id || null }); reviewOpen.value = false; message.success(t('assetLifecycle.reviewed')); await openRisk(selectedAgent.value); await load() } catch (e) { fail(e) } finally { reviewSaving.value = false } }
-function showRaw(value) { raw.value = JSON.stringify(value, null, 2); rawOpen.value = true }
-function downloadRaw() { const url = URL.createObjectURL(new Blob([raw.value], { type: 'application/json' })); const link = document.createElement('a'); link.href = url; link.download = 'asset-risk-report.json'; link.click(); URL.revokeObjectURL(url) }
 let timer
 onMounted(() => { timer = setInterval(async () => { if (runsOpen.value && runSource.value && !busy.value) { try { runs.value = await listAssetSyncRuns(runSource.value.source_id); if (runDetail.value) await showRun(runDetail.value.run_id) } catch { /* The next explicit refresh presents request errors. */ } } }, 10000) })
 onUnmounted(() => clearInterval(timer))
@@ -188,6 +182,5 @@ small { display: block; color: #667085; overflow-wrap: anywhere; }
 .form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 20px; }
 .form-grid :deep(.ant-input-number) { width: 100%; }
 .asset-lifecycle :deep(.ant-table-cell), .asset-lifecycle :deep(.ant-select-selection-item) { overflow-wrap: anywhere; }
-.raw-content { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 65vh; overflow: auto; font-size: 12px; padding: 16px; background: #f5f7fa; }
 @media (max-width: 600px) { .form-grid { grid-template-columns: minmax(0, 1fr); }.risk-overview { gap: 12px; align-items: flex-start; }.page-heading h1 { font-size: 21px; } }
 </style>

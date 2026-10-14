@@ -287,35 +287,6 @@ test('agents-only reader loads without requesting unrelated account or credentia
   for (const name of ['groups', 'users', 'models', 'skills']) assert.deepEqual(context[name].value, [])
 })
 
-test('overview-only reader requests aggregate data without unrelated business APIs', async () => {
-  const forbidden = () => { throw new Error('Unrelated API requested') }
-  const context = {
-    can: code => code === 'dashboard:view',
-    listAgents: forbidden, listModelProviders: forbidden, listModelEndpoints: forbidden,
-    getAudit: forbidden, getPrivacyStats: forbidden, getLlmStatsDaily: forbidden, getLlmStatsByModel: forbidden,
-    safeRequest: request => request(),
-    getDashboardRiskSourceStats: async () => ({ items: [], skill_summary: { total: 7 } }),
-    toArray: (value, key = 'items') => Array.isArray(value) ? value : value?.[key] || [],
-    agentRows: {}, providerRows: {}, modelRows: {}, auditRows: {}, riskSourceRows: {}, skillSummary: {},
-    loading: {}, loadFailed: {}, dashboardInFlight: false,
-    privacyStats: {}, gatewayDailyRows: {}, gatewayModelRows: {},
-    phrase: key => key, message: { error: forbidden },
-  }
-  await (await viewFunction('Dashboard', 'fetchDashboard', context))()
-  assert.equal(context.skillSummary.value.total, 7)
-  assert.deepEqual(context.agentRows.value, [])
-  assert.deepEqual(context.gatewayDailyRows.value, [])
-  assert.equal(context.loading.value, false)
-  assert.equal(context.loadFailed.value, false)
-})
-
-test('overview marks a failed data source as unavailable instead of a successful empty result', async () => {
-  const loadFailed = ref(false)
-  const request = await viewFunction('Dashboard', 'safeRequest', { loadFailed })
-  assert.deepEqual(await request(async () => { throw new Error('offline') }, []), [])
-  assert.equal(loadFailed.value, true)
-})
-
 test('scan reader loads tasks without requesting target or schedule management data', async () => {
   const forbidden = () => { throw new Error('Unrelated API requested') }
   const context = {

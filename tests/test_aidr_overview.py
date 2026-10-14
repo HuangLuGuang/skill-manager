@@ -38,7 +38,7 @@ def test_late_result_replay_and_retention_reconcile(service):
     pre=hook(factory, 1)
     drain(factory)
     with factory() as db:
-        assert overview(db,'one',now=NOW)['totals']==dict(commands=1,tools=1,failures=0,sessions=1)
+        assert overview(db,'one',now=NOW)['totals']==dict(commands=1,tools=1,failures=0,sessions=1,command_occurrences=1)
     post=hook(factory,2,'tool.failure')
     drain(factory); drain(factory)
     with factory() as db:
@@ -76,6 +76,11 @@ def test_source_scope_product_grouping_and_missing_identity(service):
     details=client.get(BASE+'/details',params={'since':response.json()['since'],'until':response.json()['until']})
     assert details.status_code==200,details.text
     assert len(details.json()['items'])==2
+    assert details.json()['total']==2
+    for filters, total in [({'source':'logs'},1), ({'agent':'qoder'},2), ({'agent':'codex'},0),
+                           ({'dimension':'agents','value':'qoder'},2), ({'dimension':'tools','value':'Read'},0)]:
+        result=client.get(BASE+'/details',params={'since':response.json()['since'],'until':response.json()['until'],**filters}).json()
+        assert result['total']==total and len(result['items'])==total
     r=client.get(BASE+'/entry',params={'record_id':details.json()['items'][0]['record_id']})
     assert r.status_code==200,r.text
     assert 'PRIVATE-UNSEARCHABLE' not in r.text
@@ -111,7 +116,7 @@ def test_initial_backfill_and_metadata_only_query(service):
             assert overview(db,'one',now=NOW)['totals']['tools']==4
     finally: sql_event.remove(engine,'before_cursor_execute',record)
     assert not any('payload_json' in sql for sql in statements)
-    assert len(statements)<=5
+    assert len(statements)<=7
 
 
 def test_task_history_does_not_promote_recovered_or_ancient_failures(service):
@@ -135,9 +140,9 @@ def test_task_history_does_not_promote_recovered_or_ancient_failures(service):
 def test_wrapper_command_classification():
     from backend.aidr_overview import command_name
     b=behavior();b['category']='wrapper'
-    assert command_name(b)=='true'
+    assert command_name(b)=='command'
     b['actions'].append(dict(category='command',command='pwd'))
-    assert command_name(b)=='other'
+    assert command_name(b)=='command'
     b['actions']=[]
     assert command_name(b)==''
 
@@ -151,10 +156,21 @@ def test_metadata_pagination_retention_and_worker_restart(service):
     stats=client.get(BASE).json()
     params={k:stats[k] for k in ('since','until')}
     first=client.get(BASE+'/details',params=params).json()
-    second=client.get(BASE+'/details',params={**params,'cursor':first['next_cursor']}).json()
+    second=client.get(BASE+'/details',params={**params,'page':2}).json()
     ids=[r['record_id'] for r in first['items']+second['items']]
     assert len(ids)==len(set(ids))==33
-    assert client.get(BASE+'/details',params={**params,'cursor':'invalid'}).status_code==422
+    assert first['total']==second['total']==33
+    assert first['page']==1 and second['page']==2 and first['page_size']==30
+    jump=client.get(BASE+'/details',params={**params,'page':3,'page_size':10}).json()
+    assert jump['page']==3 and jump['page_size']==10 and jump['total']==33
+    assert jump['items']==first['items'][20:30]
+    resized=client.get(BASE+'/details',params={**params,'page_size':50}).json()
+    assert resized['total']==33 and len(resized['items'])==33
+    last=client.get(BASE+'/details',params={**params,'page':999999999999999999999,'page_size':10}).json()
+    assert last['page']==4 and len(last['items'])==3
+    for invalid in ({'page':0},{'page':-1},{'page':'invalid'},{'page_size':0},{'page_size':101}):
+        assert client.get(BASE+'/details',params={**params,**invalid}).status_code==422
+    assert client.get(BASE.replace('/one/','/two/')+'/details',params=params).status_code==404
     configure(factory,lifecycle={'enabled':True,'retention_days':1})
     with factory() as db:
         expire_once(db,datetime.utcnow()+timedelta(days=2))
@@ -162,6 +178,25 @@ def test_metadata_pagination_retention_and_worker_restart(service):
         assert db.query(OverviewOperation).count()==0
     drain(factory)
     assert client.get(BASE).json()['totals']['tools']==0
+    empty=client.get(BASE+'/details',params={**params,'page':4,'page_size':10}).json()
+    assert empty==dict(items=[],total=0,page=1,page_size=10)
+
+
+def test_session_pages_count_groups_and_preserve_scope(service):
+    client,factory=service
+    for n in range(1,8):
+        hook(factory,n,call=str(n),session_id=f'session-{n//2}',agent='qoder-cli' if n<6 else 'codex')
+    drain(factory)
+    stats=client.get(BASE).json()
+    params={k:stats[k] for k in ('since','until')}
+    params.update(dimension='sessions',agent='qoder',page_size=2)
+    first=client.get(BASE+'/details',params=params).json()
+    second=client.get(BASE+'/details',params={**params,'page':2}).json()
+    assert first['total']==second['total']==3
+    assert len(first['items'])==2 and len(second['items'])==1
+    assert len({r['key'] for r in first['items']+second['items']})==3
+    assert all(r['agent']=='qoder-cli' for r in first['items']+second['items'])
+    assert client.get(BASE+'/details',params={**params,'since':stats['until'],'until':stats['until']+3600}).json()['total']==0
 
 
 def test_two_workers_do_not_double_count(service):
@@ -219,3 +254,75 @@ def test_open_hour_excludes_future_events_from_totals_and_drilldown(service):
         assert result['totals']['tools'] == 2
         assert sum(r['commands']+r['other'] for r in result['trend']) == 2
         assert len(details(db, 'one', 'hooks', result['since'], result['until'])['items']) == 2
+
+
+def test_subcommand_occurrences_buckets_drilldown_and_retention(service):
+    from backend.aidr_overview import details, OverviewCommandBucket
+    client, factory = service
+    b = behavior()
+    b['actions'][0]['command'] = "sed -n '1,180p' a\nrg 'a|b' f && rg x f"
+    pre = hook(factory, 1, behavior=b)
+    hook(factory, 2, 'tool.post', behavior=b)  # Result cannot multiply occurrences.
+    old = hook(factory, 3, call='old', behavior=b)
+    with factory() as db:
+        row = db.get(AidrHookEvent, old)
+        raw = json.loads(row.payload_json)
+        raw['received_at'] = (NOW-timedelta(hours=2)).isoformat()
+        row.payload_json = json.dumps(raw)
+        db.commit()
+    drain(factory, 1); drain(factory, 1)
+    with factory() as db:
+        stats = overview(db, 'one', now=NOW)
+        assert stats['totals']['tools'] == stats['totals']['commands'] == 2
+        assert stats['totals']['command_occurrences'] == 6
+        assert stats['rankings']['commands'] == [{'name': 'rg', 'count': 4}, {'name': 'sed', 'count': 2}]
+        rows = details(db, 'one', 'hooks', stats['since'], stats['until'], dimension='commands', value='rg', page_size=1)
+        assert rows['total'] == 2  # Two calls, although rg appears four times.
+        assert len(rows['items']) == 1 and rows['items'][0]['command_counts'] == {'rg': 2, 'sed': 1}
+        following = details(db, 'one', 'hooks', stats['since'], stats['until'], dimension='commands', value='rg', page=2, page_size=1)
+        assert len(following['items']) == 1 and following['items'][0]['key'] != rows['items'][0]['key']
+        assert details(db, 'one', 'hooks', stats['since'], stats['until'], dimension='commands', value="rg' OR 1=1 --")['items'] == []
+        remove_evidence(db, 'hooks', [pre, old]); db.commit()
+        stats = overview(db, 'one', now=NOW)
+        assert stats['totals']['tools'] == stats['totals']['command_occurrences'] == 0
+        assert db.query(OverviewCommandBucket).count() == 0
+
+
+def test_capture_priority_and_unknown_preserve_tool_call_counts(service):
+    _, factory = service
+    b = behavior()
+    b['contents'] = [{'kind': 'command_body', 'source_field': 'input.cmd', 'text': 'rg x\nrg y', 'truncated': False}]
+    hook(factory, 1, behavior=b)
+    b['contents'][0]['truncated'] = True
+    hook(factory, 2, call='truncated', behavior=b)
+    b['contents'][0].update(text='"$CMD" data', truncated=False)
+    hook(factory, 3, call='dynamic', behavior=b)
+    drain(factory)
+    with factory() as db:
+        stats = overview(db, 'one', now=NOW)
+        assert stats['totals']['tools'] == stats['totals']['commands'] == 3
+        assert stats['totals']['command_occurrences'] == 2
+        assert stats['rankings']['commands'] == [{'name': 'rg', 'count': 2}]
+
+
+def test_existing_overview_upgrade_rebuilds_only_projections(service):
+    from backend.aidr_migrations import upgrade_aidr_schema
+    _, factory = service
+    ident = hook(factory, 1)
+    drain(factory)
+    with factory() as db:
+        original = db.get(AidrHookEvent, ident).payload_json
+    engine = factory.kw['bind']
+    with engine.begin() as connection:
+        for name in ('aidr_overview_evidence', 'aidr_overview_operations'):
+            connection.exec_driver_sql(f'ALTER TABLE {name} DROP COLUMN command_counts_json')
+    upgrade_aidr_schema(engine)
+    with factory() as db:
+        assert db.get(AidrHookEvent, ident).payload_json == original
+        assert db.query(OverviewOperation).count() == 0
+        assert overview(db, 'one', now=NOW)['state'] == 'preparing'
+    drain(factory, 1)
+    upgrade_aidr_schema(engine)
+    with factory() as db:
+        assert overview(db, 'one', now=NOW)['totals']['command_occurrences'] == 1
+        assert db.get(AidrHookEvent, ident).payload_json == original

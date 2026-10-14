@@ -49,7 +49,16 @@
           <a-button @click="resetFilters" :disabled="loading">{{ $t("legacy.1wq9feq") }}</a-button>
         </div>
 
-        <a-table :data-source="agents" :columns="columns" :scroll="{ x: 1180 }" rowKey="asset_key" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }">
+        <a-table class="agent-asset-table" :data-source="agents" :columns="columns" :show-sorter-tooltip="false" :scroll="{ x: 1480 }" rowKey="asset_key" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }">
+          <template #headerCell="{ column }">
+            <span v-if="column.sortHelp" class="asset-sort-heading">
+              {{ column.title }}
+              <a-popover :trigger="['hover', 'focus', 'click']" placement="topRight" :overlay-style="{ maxWidth: 'calc(100vw - 32px)' }">
+                <template #content><div class="asset-sort-help"><strong>{{ $t('agentAssets.sorting.basis') }}</strong><p>{{ $t(column.sortHelp) }}</p><p>{{ $t('agentAssets.sorting.cycle') }}</p></div></template>
+                <button class="asset-sort-info" type="button" :aria-label="$t('agentAssets.sorting.helpLabel', { column: column.title })" @click.stop @keydown.stop><InfoCircleOutlined /></button>
+              </a-popover>
+            </span>
+          </template>
           <template #emptyText>
             <div class="source-empty">
               <p>{{ $t(sourceEmptyKey) }}</p>
@@ -86,6 +95,8 @@
             <template v-else-if="column.key === 'assets'">
               <div>{{ assetModelText(record) }}</div>
               <div class="muted">{{ record.origin_type === 'platform' ? $t('agentAssets.assignedSkillSummary', { count: record.skill_names?.length || 0 }) : record.client_status === 'not_detected' ? $t('agentAssets.inventoryUnavailable') : $t('agentAssets.discoveredSkillSummary', { count: record.discovered_skill_count || 0 }) }}</div>
+              <div v-if="record.instances?.some(instance => instance.asset_inventory)" class="muted">{{ $t('localAssets.summary', { mcp: record.discovered_mcp_count, plugins: record.discovered_plugin_count }) }}</div>
+              <div v-if="record.plugin_skill_count" class="muted">{{ $t('localAssets.pluginSkills', { count: record.plugin_skill_count }) }}</div>
             </template>
             <template v-else-if="column.key === 'status'">
               <a-space direction="vertical" size="small">
@@ -159,6 +170,12 @@
             </a-tab-pane>
             <a-tab-pane key="mcp" :tab="$t('agentMcp.count', { count: selectedAsset.allowed_mcp_gateways?.length || 0 })">
               <AgentMcpAccess :key="selectedAsset.agent_id" :agent-pk="selectedAsset.managed_agent_pk" />
+            </a-tab-pane>
+            <a-tab-pane v-if="selectedAsset.instances?.length" key="local-assets" :tab="$t('localAssets.instances')">
+              <section v-for="instance in selectedAsset.instances" :key="`${instance.client_id}:${instance.local_agent_id}`" class="detail-section">
+                <h3>{{ instance.client_name }} · {{ instance.local_agent_id }}</h3>
+                <AgentLocalAssets :inventory="instance.asset_inventory" :skills="instance.skills" />
+              </section>
             </a-tab-pane>
             <a-tab-pane key="model" :tab="$t('agentAssets.drawer.modelAccess')">
               <a-descriptions bordered size="small" :column="2">
@@ -313,6 +330,8 @@ import AgentMcpAccess from '../components/AgentMcpAccess.vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
+import { InfoCircleOutlined } from '@ant-design/icons-vue'
+import AgentLocalAssets from '../components/AgentLocalAssets.vue'
 
 import {
   createAgent,
@@ -331,7 +350,7 @@ const router = useRouter(), route = useRoute()
 const workspaceAsset = ref(null)
 const closeWorkspace = () => { workspaceAsset.value = null; const query = { ...route.query }; delete query.agent; delete query.client; delete query.local; router.replace({ query }) }
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const loading = ref(false)
 const assetsLoadFailed = ref(false)
 const submitting = ref(false)
@@ -382,14 +401,23 @@ const agentForm = reactive({
   allowed_mcp_gateways: [],
   prompt_names: [],
 })
+const compareAssetText = (a, b) => String(a || '').localeCompare(String(b || ''), locale.value, { numeric: true, sensitivity: 'base' })
+const assetSkillCount = record => record.origin_type === 'platform' ? record.skill_names?.length || 0 : record.client_status === 'not_detected' ? -1 : record.discovered_skill_count || 0
+const assetTimestamp = record => {
+  const value = record.last_seen_at || record.updated_at
+  if (!value) return 0
+  return Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`) || 0
+}
+const assetStatusRank = record => ({ draft: 0, active: 1, disabled: 2 }[record.status] ?? 3)
+const assetDepartment = record => record.origin_type === 'client_discovery' ? ownerDepartmentText(record) : record.department_name || ''
 const columns = computed(() => [
-  { title: t('agentAssets.columns.agent'), key: 'agent', width: 210 },
-  { title: t('agentAssets.columns.source'), key: 'source', width: 170 },
-  { title: t('agentAssets.columns.owner'), key: 'owner', width: 160 },
-  { title: t('agentAssets.columns.location'), key: 'location', width: 220 },
-  { title: t('agentAssets.columns.assets'), key: 'assets', width: 220 },
-  { title: t('agentAssets.columns.status'), key: 'status', width: 180 },
-  { title: t('agentAssets.columns.lastSeen'), key: 'lastSeen', width: 170 },
+  { title: t('agentAssets.columns.agent'), key: 'agent', width: 210, sorter: (a, b) => compareAssetText(a.name, b.name) },
+  { title: t('agentAssets.columns.source'), key: 'source', width: 170, sorter: (a, b) => Number(a.origin_type !== 'platform') - Number(b.origin_type !== 'platform') },
+  { title: t('agentAssets.columns.owner'), key: 'owner', width: 180, sorter: (a, b) => compareAssetText(assetDepartment(a), assetDepartment(b)) || compareAssetText(a.owner, b.owner) },
+  { title: t('agentAssets.columns.location'), key: 'location', width: 220, sorter: (a, b) => compareAssetText(a.instances?.[0]?.client_name, b.instances?.[0]?.client_name) },
+  { title: t('agentAssets.columns.assets'), key: 'assets', width: 220, sorter: (a, b) => assetSkillCount(a) - assetSkillCount(b), sortHelp: 'agentAssets.sorting.assets' },
+  { title: t('agentAssets.columns.status'), key: 'status', width: 180, sorter: (a, b) => assetStatusRank(a) - assetStatusRank(b), sortHelp: 'agentAssets.sorting.status' },
+  { title: t('agentAssets.columns.lastSeen'), key: 'lastSeen', width: 190, sorter: (a, b) => assetTimestamp(a) - assetTimestamp(b) },
   { title: t('agentAssets.columns.actions'), key: 'actions', width: 110, fixed: 'right' },
 ])
 const activeUsers = computed(() => users.value.filter(item => item.is_active !== false))
@@ -715,6 +743,15 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.agent-asset-table :deep(th) { white-space: normal; word-break: normal; }
+.asset-sort-heading { display: inline-flex; align-items: center; gap: 6px; }
+.asset-sort-info { display: inline-flex; align-items: center; justify-content: center; padding: 3px; border: 0; border-radius: 4px; background: transparent; color: #626b78; cursor: help; }
+.asset-sort-info:hover { color: #245eea; background: #eef4ff; }
+.asset-sort-info:focus-visible { outline: 2px solid #245eea; outline-offset: 2px; }
+.asset-sort-help { width: 300px; max-width: calc(100vw - 64px); font-size: 13px; line-height: 1.65; white-space: normal; color: #526078; }
+.asset-sort-help strong { color: #253248; }
+.asset-sort-help p { margin: 6px 0 0; }
+.asset-sort-help p:last-child { border-top: 1px solid #e8edf3; margin-top: 12px; padding-top: 10px; }
 .agent-list-card :deep(.ant-page-header-heading) { flex-wrap: wrap; gap: 12px; }
 :global(.agent-registration-modal .ant-modal-footer) { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 :global(.agent-registration-modal .ant-modal-footer .ant-btn) { margin-inline-start: 0; height: auto; min-height: 32px; white-space: normal; }

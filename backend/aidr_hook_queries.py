@@ -1,7 +1,7 @@
 """Bounded metadata-only Hook navigation and exact source identity lookup."""
 from . import aidr_adapters
 import json
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, literal_column
 from .aidr_models import AidrHookEvent
 from .aidr_content import metadata_view
 from .aidr_hook_context import project as project_context, MAX_ID
@@ -55,8 +55,11 @@ def related(db, client_id, row):
         return result
     query = db.query(AidrHookEvent).filter(AidrHookEvent.client_id == client_id,
         AidrHookEvent.stream_id == row.stream_id, AidrHookEvent.expired_at.is_(None),
+        # The required native call ID is nonempty. Match the indexed JSON
+        # expression directly before checking the rest of the source identity.
+        literal_column("json_extract(payload_json, '$.event.native_call_id')") == event['native_call_id'],
         func.json_extract(AidrHookEvent.payload_json, '$.user_scope') == record['user_scope'])
-    for name in (*required, 'turn_id', 'native_agent_id'):
+    for name in ('agent', 'session_id', 'tool', 'turn_id', 'native_agent_id'):
         query = query.filter(func.coalesce(event_field(name), '') == event.get(name, ''))
     query = query.filter(event_field('kind').in_(('tool.pre', 'tool.post', 'tool.failure')))
     rows = query.order_by(AidrHookEvent.id).limit(33).all()

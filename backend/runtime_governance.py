@@ -265,13 +265,15 @@ def compatibility_view(report, supports_tasks, stale):
 
 
 def latest_product_arrivals(db, client_id):
-    from sqlalchemy import func, literal_column
+    from sqlalchemy import literal, literal_column, select, union_all
     from .aidr_models import AidrHookEvent
     agent = literal_column("json_extract(payload_json, '$.event.agent')")
-    rows = db.query(agent, func.max(AidrHookEvent.received_at)).filter(
-        AidrHookEvent.client_id == client_id, AidrHookEvent.expired_at.is_(None)
-    ).group_by(agent).all()
-    return {name: at.isoformat()+'Z' for name, at in rows if name in BY_ID and at}
+    # One indexed latest-timestamp lookup per supported product, independent of history size.
+    lookups = [select(literal(name), select(AidrHookEvent.received_at).where(
+        AidrHookEvent.client_id == client_id, AidrHookEvent.expired_at.is_(None), agent == name,
+    ).order_by(AidrHookEvent.received_at.desc()).limit(1).scalar_subquery()) for name in BY_ID]
+    rows = db.execute(union_all(*lookups)).all()
+    return {name: at.isoformat()+'Z' for name, at in rows if at}
 
 
 def hook_connections(policy, report, stale, onboarding, arrivals=None):

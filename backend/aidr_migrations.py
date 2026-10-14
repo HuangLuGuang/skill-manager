@@ -16,6 +16,18 @@ def upgrade_aidr_schema(engine):
         conn.commit()
         try:
             conn.exec_driver_sql("BEGIN IMMEDIATE")
+            # Rebuild only derived overview metadata; original evidence and ACKs stay intact.
+            rebuild_overview = False
+            for name in ('aidr_overview_evidence', 'aidr_overview_operations'):
+                columns = {r[1] for r in conn.exec_driver_sql(f'PRAGMA table_info("{name}")')}
+                if columns and 'command_counts_json' not in columns:
+                    conn.exec_driver_sql(f"ALTER TABLE {name} ADD COLUMN command_counts_json TEXT NOT NULL DEFAULT '{{}}'")
+                    rebuild_overview = True
+            if rebuild_overview:
+                for name in ('aidr_overview_evidence', 'aidr_overview_operations', 'aidr_overview_buckets',
+                             'aidr_overview_command_buckets', 'aidr_overview_watermarks'):
+                    if conn.exec_driver_sql("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).first():
+                        conn.exec_driver_sql(f'DELETE FROM {name}')
             runtime_columns = {r[1] for r in conn.exec_driver_sql('PRAGMA table_info("client_runtime_governance")')}
             if runtime_columns and "supports_tasks" not in runtime_columns:
                 conn.exec_driver_sql("ALTER TABLE client_runtime_governance ADD COLUMN supports_tasks BOOLEAN NOT NULL DEFAULT 0")
@@ -85,9 +97,9 @@ def upgrade_aidr_schema(engine):
             repair_codex_session_projections(conn)
             from .aidr_correlation import install_indexes
             install_indexes(conn)
-            from .aidr_models import SESSION_MESSAGE_INDEX, SESSION_LIST_INDEXES
+            from .aidr_models import SESSION_MESSAGE_INDEX, SESSION_LIST_INDEXES, RUNTIME_GOVERNANCE_INDEXES, HOOK_RELATED_INDEX
             SESSION_MESSAGE_INDEX.create(conn, checkfirst=True)
-            for index in SESSION_LIST_INDEXES:
+            for index in (*SESSION_LIST_INDEXES, *RUNTIME_GOVERNANCE_INDEXES, HOOK_RELATED_INDEX):
                 # SQLite expression indexes are not reflected by SQLAlchemy.
                 conn.execute(CreateIndex(index, if_not_exists=True))
             from .aidr_enforcement import RUNTIME_QUERY_INDEXES

@@ -109,7 +109,8 @@ def test_policy_request_decision_signature_idempotence_and_revocation(control):
     assert detail.json()["approval"] == row
     evidence = detail.json()["evidence"]
     assert evidence["event_id"] == request["event_id"]
-    assert evidence["event"]["behavior"]["actions"][0]["command"] == "/bin/sleep 1"
+    assert 'command' not in evidence["event"]["behavior"]["actions"][0]
+    assert evidence["event"]["behavior"]["contents"][0]["source_field"] == 'behavior.actions.command'
     assert client.get(ROOT.replace('/one/', '/two/')+f"/hook-approvals/{row['id']}").status_code == 404
     assert row["state"] == "pending" and row["scope"]["execution_point"] == "plugin_pre_tool"
     assert client.post(ROOT+"/hook-approvals", json=request, headers=HEADERS).json() == row

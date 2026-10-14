@@ -7,6 +7,11 @@ export const agentAssetMessages = {
     inventoryUnavailable: '暂无当前 Skill 清单',
     notDetectedHint: '该历史登记在当前客户端清单中没有对应实例，Skill 数量暂不可用。',
     columns: { agent: '智能体', source: '来源', owner: '部门 / 负责人', location: '运行位置', assets: '能力资产', status: '状态', lastSeen: '最近更新 / 发现', actions: '操作' },
+    sorting: {
+      basis: '排序依据', helpLabel: '{column}排序说明', cycle: '点击列名依次切换升序、降序和默认顺序。',
+      assets: '按 Skill 数量排序：平台创建使用已分配数量，客户端发现使用本机发现数量。暂无当前清单的记录在升序时排在零值之前。',
+      status: '按智能体启用状态排序，升序为草稿、启用、停用。客户端在线情况单独展示。',
+    },
     source: { platform: '平台创建', client: '客户端发现' },
     platformRuntime: '平台 / API 接入',
     locationUnknown: '运行位置未上报',
@@ -48,6 +53,11 @@ export const agentAssetMessages = {
     inventoryUnavailable: 'Current Skill inventory unavailable',
     notDetectedHint: 'This historical registration has no instance in the current Client inventory. Its Skill count is unavailable.',
     columns: { agent: 'Agent', source: 'Source', owner: 'Department / Owner', location: 'Runtime location', assets: 'Capability assets', status: 'Status', lastSeen: 'Last updated / discovered', actions: 'Actions' },
+    sorting: {
+      basis: 'Sort basis', helpLabel: '{column} sort information', cycle: 'Click the heading to cycle through ascending, descending and default order.',
+      assets: 'Sorts by assigned Skill count for platform-created Agents and discovered Skill count for client-discovered Agents. Unavailable inventories come before zero counts in ascending order.',
+      status: 'Sorts by Agent status: draft, active, then disabled in ascending order. Client connectivity is shown separately.',
+    },
     source: { platform: 'Platform-created', client: 'Client-discovered' },
     platformRuntime: 'Platform / API integration',
     locationUnknown: 'Runtime location not reported',

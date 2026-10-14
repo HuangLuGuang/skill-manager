@@ -171,6 +171,19 @@ class AidrSkillUse(Base):
 for _model in (AidrEvent, AidrHookEvent, AidrCoverageRecord, AidrOperation):
     Index('ix_' + _model.__tablename__ + '_retention', _model.expired_at, _model.received_at)
 
+RUNTIME_GOVERNANCE_INDEXES = (
+    Index('ix_aidr_hook_product_arrival', AidrHookEvent.client_id,
+          literal_column("json_extract(payload_json, '$.event.agent')"), AidrHookEvent.received_at,
+          sqlite_where=AidrHookEvent.expired_at.is_(None)),
+    Index('ix_aidr_hook_batch_latest', AidrHookBatch.client_id, AidrHookBatch.stream_id, AidrHookBatch.id),
+)
+
+HOOK_RELATED_INDEX = Index(
+    'ix_aidr_hook_source_call', AidrHookEvent.client_id, AidrHookEvent.stream_id,
+    literal_column("json_extract(payload_json, '$.event.native_call_id')"), AidrHookEvent.id,
+    sqlite_where=AidrHookEvent.expired_at.is_(None),
+)
+
 # Session navigation reads messages separately from potentially large tool payloads.
 SESSION_MESSAGE_INDEX = Index(
     'ix_aidr_session_messages', AidrEvent.client_id, AidrEvent.id, AidrEvent.agent,
@@ -179,6 +192,10 @@ SESSION_MESSAGE_INDEX = Index(
 
 # Cover session-list metadata without loading tool arguments or output bodies.
 SESSION_LIST_INDEXES = (
+    Index('ix_aidr_operation_device_page', AidrOperation.client_id, AidrOperation.id),
+    Index('ix_aidr_hook_active_page', AidrHookEvent.client_id, AidrHookEvent.expired_at, AidrHookEvent.id),
+    Index('ix_aidr_operation_product_sessions', AidrOperation.client_id, AidrOperation.expired_at,
+          AidrOperation.agent, AidrOperation.id, AidrOperation.session_id, AidrOperation.latest_at),
     Index('ix_aidr_operation_session_turns', AidrOperation.client_id, AidrOperation.agent,
           AidrOperation.session_id, AidrOperation.expired_at, AidrOperation.id,
           literal_column("coalesce(json_extract(payload_json, '$.call.turn_id'), json_extract(payload_json, '$.result.turn_id'), '')"),

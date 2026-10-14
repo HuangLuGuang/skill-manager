@@ -4170,7 +4170,7 @@ async def recover_workers(
 
 
 @router.post("/worker/heartbeat")
-async def worker_heartbeat(
+def worker_heartbeat(
     db: Session = Depends(get_db),
     worker: models.SecurityScanWorker = Depends(resolve_security_worker),
 ):

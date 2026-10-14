@@ -30,6 +30,15 @@ Skill 总量、日增版本数、平均包体积、报告与审计保留周期�
 
 ## 本地开箱启动
 
+Skill 导入准备的并发由 `.env` 中 `AGENT_MANAGER_IMPORT_WORKERS` 控制，默认 `2`，独立于后台检测
+`AGENT_MANAGER_SCAN_WORKERS=2` 和分析器 `AGENT_MANAGER_ANALYZER_WORKERS=8`。导入额度耗尽时请求等待，
+普通同步 API 仍可使用自己的线程额度。更新代码/镜像和 Compose 后重建 Backend 生效；多 API 进程各有自己的额度，
+总并发随进程数增加。这是工作调度限制，CPU、内存和磁盘仍需按混合负载监测。
+
+**English:** `AGENT_MANAGER_IMPORT_WORKERS=2` independently bounds blocking import preparation per API process.
+Recreate Backend after updating the image/configuration. Queued imports preserve ordinary API thread capacity;
+CPU, memory and disk remain shared. See [performance validation](performance-benchmark.md#skill-导入与-api-隔离回归2026-10-14).
+
 ```bash
 ./build.sh --all
 cp .env.example .env

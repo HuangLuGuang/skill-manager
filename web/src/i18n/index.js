@@ -1,3 +1,4 @@
+import { dashboardMessages } from './dashboard.js'
 import { mcpServerFormMessages } from './mcpServerForm.js'
 import { systemSelectionMessages } from './system-selection.js'
 import { runtimeGovernanceMessages } from './runtime-governance.js'
@@ -31,6 +32,7 @@ import { skillVerifierMessages } from './skillVerifier.js'
 import { agentMcpMessages } from './agentMcp.js'
 import { docsArchitectureMessages } from './docsArchitecture.js'
 import { agentWorkspaceMessages } from './agent-workspace.js'
+import { localAssetMessages } from './localAssets.js'
 
 import { domainKey, domainMessages } from './domain.js'
 import { legacyKey, legacyMessages } from './legacy.js'
@@ -50,6 +52,8 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      localAssets: localAssetMessages['zh-CN'],
+      dashboard: dashboardMessages['zh-CN'],
       docsArchitecture: docsArchitectureMessages['zh-CN'],
       helpDeployment: {
         httpTraffic: 'HTTP / SSE → HTTP_PORT（默认 80）',
@@ -1150,6 +1154,8 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      localAssets: localAssetMessages['en-US'],
+      dashboard: dashboardMessages['en-US'],
       docsArchitecture: docsArchitectureMessages['en-US'],
       helpDeployment: {
         httpTraffic: 'HTTP / SSE → HTTP_PORT (default 80)',

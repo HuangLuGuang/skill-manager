@@ -4,19 +4,18 @@ import asyncio
 import hashlib
 import json
 import logging
-import re
-import shlex
 import time
 from collections import OrderedDict
 from threading import RLock
 from datetime import datetime, timezone, timedelta
 
-from sqlalchemy import Column, Integer, String, Index, select, func, text, or_, and_
+from sqlalchemy import Column, Integer, String, Text, Index, select, func, text
 from sqlalchemy.dialects.sqlite import insert
 from starlette.concurrency import run_in_threadpool
 from .sqlite_db import Base
 from .aidr_models import AidrEvent, AidrHookEvent
 from .aidr_operations import operation_key
+from .aidr_commands import command_counts
 
 
 class OverviewEvidence(Base):
@@ -33,6 +32,7 @@ class OverviewEvidence(Base):
     phase = Column(String(16), nullable=False)
     tool = Column(String(256), nullable=False)
     command = Column(String(64), nullable=False)
+    command_counts_json = Column(Text, nullable=False, default='{}', server_default='{}')
     outcome = Column(String(16), nullable=False)
     __table_args__ = (Index('ix_overview_evidence_operation', 'operation_key'),
                      Index('ix_overview_evidence_window', 'client_id', 'source', 'at', 'product', 'session_key'))
@@ -47,6 +47,7 @@ class OverviewOperation(Base):
     at = Column(Integer, nullable=False)
     tool = Column(String(256), nullable=False)
     command = Column(String(64), nullable=False)
+    command_counts_json = Column(Text, nullable=False, default='{}', server_default='{}')
     failed = Column(Integer, nullable=False)
     record_id = Column(Integer, nullable=False)
     __table_args__ = (Index('ix_overview_operation_window', 'client_id', 'source', 'at', 'product'),)
@@ -74,6 +75,18 @@ class OverviewWatermark(Base):
     initial_ceiling = Column(Integer, nullable=False, default=0)
 
 
+class OverviewCommandBucket(Base):
+    __tablename__ = 'aidr_overview_command_buckets'
+    key = Column(String(64), primary_key=True)
+    client_id = Column(String(128), nullable=False)
+    source = Column(String(8), nullable=False)
+    product = Column(String(32), nullable=False)
+    hour = Column(Integer, nullable=False)
+    program = Column(String(64), nullable=False)
+    occurrences = Column(Integer, nullable=False)
+    __table_args__ = (Index('ix_overview_command_window', 'client_id', 'source', 'hour', 'product'),)
+
+
 def product_id(agent):
     return aidr_adapters.get(agent).family or agent
 
@@ -94,20 +107,8 @@ def command_name(behavior):
     actions = behavior.get('actions') or []
     if behavior.get('category') != 'command' and not any(a.get('category') == 'command' for a in actions):
         return ''
-    # Only a simple executable token is a program identity, never a full script.
-    if len(actions) != 1:
-        return 'other'
-    command = actions[0].get('command', '')
-    if any(c in command for c in '\n;&|<>`$'):
-        return 'other'
-    try:
-        argv = shlex.split(command)
-    except ValueError:
-        return 'other'
-    if not argv:
-        return 'other'
-    name = argv[0].replace('\\', '/').rsplit('/', 1)[-1]
-    return name if re.fullmatch(r'[a-zA-Z0-9_.+-]{1,64}', name) else 'other'
+    # This field identifies terminal tool calls; occurrence ranks use their own counts.
+    return 'command'
 
 
 def project(source, row):
@@ -140,7 +141,8 @@ def project(source, row):
                 session_id=session,
                 operation_key=digest(identity) if reliable and phase != 'activity' else '',
                 at=timestamp(raw.get('received_at') if source == 'hooks' else e.get('observed_at')),
-                phase=phase, tool=e.get('tool', ''), command=command_name(behavior), outcome=outcome)
+                phase=phase, tool=e.get('tool', ''), command=command_name(behavior), outcome=outcome,
+                command_counts_json=json.dumps(command_counts(behavior), sort_keys=True, separators=(',', ':')))
 
 
 def bucket_change(db, operation, delta):
@@ -152,6 +154,16 @@ def bucket_change(db, operation, delta):
     db.execute(stmt.on_conflict_do_update(index_elements=['key'], set_={
         'calls': table.c.calls + delta, 'failures': table.c.failures + delta * operation['failed']}))
     db.execute(table.delete().where(table.c.key == key, table.c.calls == 0))
+    counts = json.loads(operation['command_counts_json'])
+    for program, count in counts.items():
+        dims = {k: operation[k] for k in ('client_id', 'source', 'product')}
+        dims.update(hour=operation['at'] // 3600 * 3600, program=program)
+        key = digest(dims)
+        table = OverviewCommandBucket.__table__
+        amount = delta * count
+        stmt = insert(table).values(key=key, **dims, occurrences=amount)
+        db.execute(stmt.on_conflict_do_update(index_elements=['key'], set_={'occurrences': table.c.occurrences + amount}))
+        db.execute(table.delete().where(table.c.key == key, table.c.occurrences == 0))
 
 
 def reconcile(db, key):
@@ -166,7 +178,7 @@ def reconcile(db, key):
     if len(rows) < 34 and len(calls) == 1 and calls[0]['at']:
         call = calls[0]
         results = [r for r in rows if r['phase'] == 'result']
-        current = dict(key=key, **{k: call[k] for k in ('client_id', 'source', 'product', 'at', 'tool', 'command', 'record_id')},
+        current = dict(key=key, **{k: call[k] for k in ('client_id', 'source', 'product', 'at', 'tool', 'command', 'command_counts_json', 'record_id')},
                        failed=int(len(results) == 1 and results[0]['outcome'] == 'failed'))
     if prior and (not current or any(prior[k] != v for k, v in current.items())):
         bucket_change(db, prior, -1)
@@ -237,7 +249,7 @@ def overview(db, client_id, source='hooks', agent='', hours=24, now=None):
     rows += db.execute(text(f'''SELECT product,:current hour,tool,command,count(*) calls,sum(failed) failures
         FROM aidr_overview_operations WHERE {current_where} GROUP BY product,tool,command'''), params).mappings().all()
     trend = {at: {'at': at, 'commands': 0, 'other': 0} for at in range(start, end, 3600)}
-    totals = dict(commands=0, tools=0, failures=0)
+    totals = dict(commands=0, tools=0, failures=0, command_occurrences=0)
     ranks = {k: {} for k in ('commands', 'tools', 'agents')}
     for row in rows:
         n = row['calls']
@@ -245,9 +257,18 @@ def overview(db, client_id, source='hooks', agent='', hours=24, now=None):
         totals['failures'] += row['failures']
         totals['commands'] += n if row['command'] else 0
         trend[row['hour']]['commands' if row['command'] else 'other'] += n
-        for dimension, value in [('commands', row['command']), ('tools', row['tool']), ('agents', row['product'])]:
+        for dimension, value in [('tools', row['tool']), ('agents', row['product'])]:
             if value:
                 ranks[dimension][value] = ranks[dimension].get(value, 0) + n
+    # Occurrences have a separate aggregation so repeated subcommands never multiply tool calls.
+    command_rows = db.execute(text(f'''SELECT program,sum(occurrences) occurrences
+        FROM aidr_overview_command_buckets WHERE {where} AND hour<:current GROUP BY program'''), params).mappings().all()
+    command_rows += db.execute(text(f'''SELECT j.key program,sum(j.value) occurrences
+        FROM aidr_overview_operations, json_each(command_counts_json) j
+        WHERE {current_where} GROUP BY j.key'''), params).mappings().all()
+    for row in command_rows:
+        ranks['commands'][row['program']] = ranks['commands'].get(row['program'], 0) + row['occurrences']
+        totals['command_occurrences'] += row['occurrences']
     evidence_where = where.replace('hour', 'at')
     extras = db.execute(text(f'''SELECT count(DISTINCT nullif(session_key,'')) sessions,
         sum(CASE WHEN phase!='activity' AND (operation_key='' OR NOT EXISTS (SELECT 1 FROM aidr_overview_operations o WHERE o.key=aidr_overview_evidence.operation_key)) THEN 1 ELSE 0 END) unlinked
@@ -330,9 +351,15 @@ def task_summary(db, client_id, before=None):
     return result
 
 
-def details(db, client_id, source, since, until, agent='', dimension='', value='', before=None, limit=30):
+def details(db, client_id, source, since, until, agent='', dimension='', value='', page=1, page_size=30):
     agent = product_id(agent)
-    cursor_at, cursor_key = (int(before.split(':')[0]), before.split(':')[1]) if before else (None, None)
+
+    def paginate(query, present_row):
+        total = query.order_by(None).count()
+        current = min(page, max(1, (total + page_size - 1) // page_size))
+        rows = query.offset((current - 1) * page_size).limit(page_size).all()
+        return dict(items=[present_row(row) for row in rows], total=total, page=current, page_size=page_size)
+
     if dimension == 'sessions':
         q = db.query(OverviewEvidence.session_key, OverviewEvidence.agent, OverviewEvidence.session_id,
                      func.max(OverviewEvidence.at).label('at')).filter(OverviewEvidence.client_id == client_id,
@@ -340,29 +367,29 @@ def details(db, client_id, source, since, until, agent='', dimension='', value='
             OverviewEvidence.session_key != '')
         if agent: q = q.filter(OverviewEvidence.product == agent)
         q = q.group_by(OverviewEvidence.session_key, OverviewEvidence.agent, OverviewEvidence.session_id)
-        if before:
-            q = q.having(or_(func.max(OverviewEvidence.at) < cursor_at, and_(func.max(OverviewEvidence.at) == cursor_at, OverviewEvidence.session_key < cursor_key)))
-        rows = q.order_by(func.max(OverviewEvidence.at).desc(), OverviewEvidence.session_key.desc()).limit(limit+1).all()
-        return dict(items=[dict(key=r.session_key, agent=r.agent, session_id=r.session_id, at=r.at) for r in rows[:limit]],
-                    next_cursor=f'{rows[limit-1].at}:{rows[limit-1].session_key}' if len(rows)>limit else '')
+        return paginate(q.order_by(func.max(OverviewEvidence.at).desc(), OverviewEvidence.session_key.desc()),
+                        lambda r: dict(key=r.session_key, agent=r.agent, session_id=r.session_id, at=r.at))
     q = db.query(OverviewOperation).filter(OverviewOperation.client_id == client_id,
         OverviewOperation.source == source, OverviewOperation.at >= since, OverviewOperation.at < until)
     if agent:
         q = q.filter(OverviewOperation.product == agent)
-    if dimension == 'commands':
-        q = q.filter(OverviewOperation.command == value) if value else q.filter(OverviewOperation.command != '')
+    if dimension == 'commands' and not value:
+        q = q.filter(OverviewOperation.command != '')
+    elif dimension in ('commands', 'command_occurrences'):
+        if value:
+            q = q.filter(text('EXISTS (SELECT 1 FROM json_each(aidr_overview_operations.command_counts_json) j WHERE j.key=:program)')).params(program=value)
+        else:
+            q = q.filter(OverviewOperation.command_counts_json != '{}')
     elif dimension == 'tools' and value:
         q = q.filter(OverviewOperation.tool == value)
     elif dimension == 'agents' and value:
         q = q.filter(OverviewOperation.product == value)
     elif dimension == 'failures':
         q = q.filter(OverviewOperation.failed == 1)
-    if before:
-        q = q.filter(or_(OverviewOperation.at < cursor_at, and_(OverviewOperation.at == cursor_at, OverviewOperation.key < cursor_key)))
-    rows = q.order_by(OverviewOperation.at.desc(), OverviewOperation.key.desc()).limit(limit + 1).all()
-    return {'items': [dict(key=r.key, agent=r.product, at=r.at, tool=r.tool, command=r.command,
-                           failed=bool(r.failed), record_id=str(r.record_id)) for r in rows[:limit]],
-            'next_cursor': f'{rows[limit-1].at}:{rows[limit-1].key}' if len(rows) > limit else ''}
+    return paginate(q.order_by(OverviewOperation.at.desc(), OverviewOperation.key.desc()),
+                    lambda r: dict(key=r.key, agent=r.product, at=r.at, tool=r.tool, command=r.command,
+                                   command_counts=json.loads(r.command_counts_json),
+                                   failed=bool(r.failed), record_id=str(r.record_id)))
 
 
 def detail_entry(db, client_id, source, record_id):

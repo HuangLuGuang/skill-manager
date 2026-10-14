@@ -396,11 +396,15 @@ Prompt当前明确适配 `UserPromptSubmit.prompt`；文件正文适配Write/Edi
 
 Codex 0.159.0 和 0.159.2 的自检走原生 App Server 本地库存与有效配置，不等待远端目录；来源缺失或冲突保持未知，实际插件版本取自原生包。该诊断适配与真实工具验收分开。**English:** Codex 0.159.0 and 0.159.2 inspection uses native local inventory and effective configuration, avoiding remote catalog waits. Missing or ambiguous sources stay unknown; native package versions remain authoritative. Diagnostics do not imply successful tool execution.
 
-平台安装/更新按钮在宿主版本未知或未验证时禁用并说明原因，仍可下发只读自检。客户端实际执行时继续校验版本，页面显示不替代原生检查。**English:** Installation and update actions remain disabled for unknown or unverified host versions, with a visible explanation; read-only inspection stays available. The native installer independently checks the actual version.
+平台安装/更新依据客户端报告的原生接口兼容性与安装能力；未知、过期或不支持的报告需先自检。客户端执行时再次检查接口，版本字符串只作诊断标签。**English:** Installation and updates depend on reported native interface compatibility and installation capabilities. Reinspect unknown, stale or unsupported reports. The Client checks interfaces again when executing; version strings are diagnostic labels.
 
 macOS 客户端完成现有设备认证、管理员确认设备凭证具有 `aidr:heartbeat` / `aidr:report-events` 权限且平台允许设备 AIDR 上报后，按平台默认客户端策略自动接入所选宿主；客户无需逐台点击接入。若管理员选择显式安装方式，则从平台下发安装任务。本地 **Agent 运行治理** 查看实际应用、宿主安装/启用/信任和接收器状态。客户端使用随包 Go 程序和插件资源，原生安装当前用户插件，写入不含凭证的稳定连接路径，并自动管理接收器。客户不需要启动命令行接收器、设置桥接环境变量或复制设备 Token。配置只对新的宿主会话生效。
 
-普通插件安装器当前验证目标是 Claude Code 2.1.220，以及 Codex 0.158.0-alpha.2.1、0.159.0、0.159.2。0.159.0 已核实原生首装/重复安装、用户审阅后的12项持久信任、新独立会话8条真实 Hook、本地/平台精确 ACK 及中英文详情，覆盖6种审计事件。0.159.2 已验原生接口、含空格路径首装/重复安装、既有信任读取及自动任务，真实工具因401未完成。企业受管 Codex 接口仍限定0.159.0，系统加载另待专用环境核验。未知版本返回 `aidr_plugin_version_unverified`。普通 Codex 信任由用户在原生 `/hooks` 审阅，客户端不代写信任记录；只读信任查询只是当前查询范围的快照。Claude 原生确认若出现，也需用户处理。
+当前普通插件与受管接入按原生接口探测判断兼容性，完整规则见[Agent 小版本兼容与接入检查](#agent-小版本兼容与接入检查)。普通 Codex 信任由用户在原生 `/hooks` 审阅，客户端不代写信任记录；只读信任查询只是当前查询范围的快照。Claude 原生确认若出现，也需用户处理。受管安装还需确认原生授权与实际加载结果。
+
+历史验收记录：普通插件曾验证 Claude Code 2.1.220，以及 Codex 0.158.0-alpha.2.1、0.159.0、0.159.2。0.159.0 已核实原生首装/重复安装、用户审阅后的12项持久信任、新独立会话8条真实 Hook、本地/平台精确 ACK 及中英文详情，覆盖6种审计事件。0.159.2 已验原生接口、含空格路径首装/重复安装、既有信任读取及自动任务，真实工具因401未完成。这些记录证明对应验收范围，当前安装条件以接口探测和设备报告为准。
+
+**English:** Current ordinary and managed integration uses native interface probes to determine compatibility. Complete native trust and required managed authorization, then verify actual loading and event delivery. Historical version-specific acceptance records establish only the scenarios tested; current installation readiness comes from interface checks and device reports.
 
 本地接收器、插件安装/启用/信任、平台报告 ACK 和事件上传错误分别展示。Hook 接收器与日志采集运行在 `agent-manager-client run` 主后台服务内，共用一个进程。桌面只读取健康状态和提交操作请求；切页、关闭窗口、完全退出或重启桌面均不停止工具审核和事件上传。托盘“退出应用”仅退出界面。接入 TeleAgent 时另有独立模型代理，总计 2 个常驻后台进程；按需系统采集器另计。接收器遵循平台重试策略，保留暂停原因、重试额度、队列及 ACK。主后台服务本身重启会短暂重建接收器，不等同于界面重启。
 
@@ -435,15 +439,49 @@ TeleAgent 模型代理由独立 macOS 用户级 LaunchAgent 运行。关闭、�
 
 ## Agent 运行治理的平台操作
 
+概览区分**工具调用次数、终端工具调用次数、命令出现次数**。一次调用的执行前后事件按可靠身份合并，只算一次工具调用；命令排行按静态解析后的程序名出现次数累计。例如三行 `sed ...`、`rg ...`、`rg ...` 算一次调用、三次命令出现，排行为 `rg × 2`、`sed × 1`。`uv run pytest > test.log 2>&1` 计一次 `uv`；`ps ...; tail ...` 分别计一次 `ps` 和 `tail`。
+
+详情保留已采集原始命令，按顺序展示子命令、程序名和行号。解析支持 Bash / POSIX 换行、分号、条件连接、管道、后台执行、重定向、子 Shell 和命令替换；引号及 heredoc 的普通正文不拆成命令。循环、条件分支与函数体只按文本计数，不能据此推断执行次数；`bash -c`、`python -c` 等参数中的代码不递归解释。动态程序名保留文本，仅确定的程序名计入排行。语法不完整、正文截断或超出解析上限时显示原因并保留调用计数。完整正文及其解析结果沿用审计正文权限，原有脱敏与保留期不变。旧版动作中的命令摘要及包装工具提取的终端动作同样属于审计正文，列表与下钻只返回内容描述；需要 `clients:read-audit-content` 权限才能按记录读取命令与子命令文本。程序名和出现次数仍作为统计元数据展示。
+
+点击排行查看包含该程序的调用，每条记录可以包含多次命令出现。对应操作弹框使用标准分页，显示当前筛选范围内的总条数；默认每页 30 条，可选择 10、20、30、50、100 条并跳转页码。切换每页条数回到第一页，保留当前筛选范围；点击“查看记录”直接展开详情。日志与 Hook 按来源独立统计，宿主报告结果属于整个调用，不代表每个子命令的结果。“查看记录”按设备、上报流和原生调用标识定位候选事件，再核对用户、产品、会话、轮次、工具与子 Agent 身份。关联索引由数据库升级自动创建，缺少或冲突的证据仍按原有状态展示。
+
+**English:** The matching-operations dialog uses standard pagination and displays the total number of matching records. Choose 10, 20, 30 (default), 50 or 100 records per page, or jump to a page number. Changing page size returns to page 1 and retains the current filters. View record opens the details immediately. Overview distinguishes tool calls, terminal tool calls and command occurrences. Reliable pre/post identities merge into one call. Rankings count statically parsed program occurrences: three lines containing `sed`, `rg`, `rg` produce one call and three occurrences (`rg × 2`, `sed × 1`). `uv run pytest > test.log 2>&1` contributes one `uv`; `ps ...; tail ...` contributes one each of `ps` and `tail`.
+
+Details retain captured original commands and show subcommands, program names and line numbers in source order. Bash / POSIX parsing supports newlines, semicolons, conditional chains, pipelines, background execution, redirection, subshells and command substitution. Ordinary quoted/heredoc text is not split into commands. Loops, branches and function bodies count textual occurrences, not executions; code inside `bash -c` or `python -c` arguments is not recursively interpreted. Dynamic program names keep their text but only resolved names enter rankings. Incomplete syntax, truncation or parsing limits show their reason and retain call counts. Full content and its analysis retain existing permissions, redaction and retention. Legacy command summaries and terminal actions extracted from wrappers are also protected audit content. Lists and drilldowns return descriptors only; command and subcommand text requires `clients:read-audit-content` through the record content endpoint. Program names and occurrence counts remain statistical metadata.
+
+Rankings open calls containing the selected program; one row may contain multiple occurrences. Logs and Hooks remain separate sources, and host outcomes apply to the whole call. View record uses an indexed device/stream/native-call lookup and then verifies user, product, session, turn, tool and subagent identity. Database upgrades create the index; missing and conflicting evidence retain their original interpretation.
+
+客户端发现智能体的详情页在基础资产返回后即可浏览；运行治理、会话和策略分别补齐，会话尚未返回时显示加载状态。`GET /api/v1/clients/{client_id}/runtime-governance` 按产品索引读取最后一次有效 Hook 到达时间，并按客户端、流和记录顺序查找上传回执。历史到达时间仍保留，过期事件不参与统计。数据库升级会自动创建对应索引。
+
+**English:** Discovered Agent details become available when the base inventory loads; runtime governance, sessions and policy load independently, with a loading indicator for pending sessions. The runtime-governance endpoint uses indexed latest-event lookups per product and indexed receipt lookups per client and stream. Historical arrival timestamps remain available and expired events are excluded. Database upgrades create the required indexes automatically.
+
+最近会话按当前产品在日志、Hook 和消息来源内筛选，再合并各会话的计数和最近时间。分页快照、产品筛选与问题预览使用对应索引，普通列表聚合无需加载整段工具或消息正文；问题预览仍需要审计内容权限并记录查看审计。首屏并行读取工作区、运行治理、日志状态、最近会话和 Hook 策略。日志状态使用 `include_retention=false`，详情不重复统计历史过期数量。实际点击至渲染耗时与测量范围见 [性能测试记录](performance-benchmark.md#客户端发现的智能体详情首屏2026-10-14)。
+
+**English:** Recent sessions filter the selected product within log, Hook and message sources before merging session counts and latest timestamps. Indexed snapshot and prompt lookups keep ordinary aggregation independent of full tool/message bodies. Question previews still require audit-content permission and produce access-audit records. The overview concurrently loads the workspace, runtime governance, log status, recent sessions and Hook policy. Log status uses `include_retention=false` to skip unused historical expiry totals. Actual click-to-render measurements and their scope are documented in the performance benchmark.
+
+人工复验 / Manual checks：① 从客户端发现的 Codex / Claude Code / Qoder 进入详情，基础内容和最近会话正常加载；② “查看全部”后翻页、按会话或问题搜索，产品范围与计数正确；③ 无审计内容权限时不显示问题正文；④ 中英文详情、刷新及切换安装入口正常。/ Open discovered Codex, Claude Code and Qoder details; verify base content, recent sessions, full-list pagination/search, restricted prompt visibility, both languages, refresh and installation switching.
+
+在客户端“Agent 与资产”以及客户端发现智能体的“能力与配置”中，Skill、插件和 MCP 服务的名称列表头提供搜索图标。点击后输入名称关键词，停顿 300 毫秒自动筛选，也可按回车或点击“搜索”立即查询；匹配忽略大小写。搜索覆盖当前清单全部记录后再分页，清除搜索恢复清单。各表格的搜索条件独立，资产页签的数量仍表示完整清单数量。
+
+**English:** Skill, plugin and MCP name columns provide a search icon in the client's Agent and assets view and the discovered Agent's Capabilities view. Enter a name keyword to filter after a 300 ms pause, or press Enter / Search to apply immediately. Matching is case-insensitive and covers the entire current inventory before pagination. Clear search restores the list. Each table has independent filters; asset tab counts still describe the full inventory.
+
+客户端列表的 **Agent** 列分别显示“已发现”和“可治理”；可治理表示支持 Skill 管理，不代表正在运行或治理已生效。**Skill** 列显示各 Agent 与共享来源上报的记录总数，未跨来源去重；共享来源数量单独显示，不计入 Agent 数量。两列表头的信息图标提供分项说明，支持悬浮、键盘聚焦和点击查看；点击图标不会改变排序。窄屏可横向滚动表格查看。
+
+**English:** In the client list, **Agent** shows discovered Agents and the subset supporting Skill management. Governable counts do not indicate active runtimes or applied governance. **Skill** shows reported records across Agents and shared sources, without cross-source deduplication. Shared sources are listed separately and excluded from Agent counts. Hover, focus or click the header information icons to read each metric's definition without changing the sort order. The table scrolls horizontally on narrow screens.
+
+点击客户端、系统、Agent、Skill、凭据创建人、状态或最后心跳列名，可依次切换升序、降序和默认顺序。排序作用于当前客户端列表的全部数据，再进行分页。Agent 按已发现数量排序，Skill 按记录数排序；系统先按操作系统再按架构排序，状态升序为离线在前，最后心跳按时间排序，未上报时间的记录在升序时排在前面。
+
+**English:** Click Client, System, Agent, Skill, Credential Creator, Status or Last Heartbeat to cycle through ascending, descending and default order. Sorting applies to the full loaded client list before pagination. Agent uses discovered count; Skill uses record count. System sorts by OS then architecture. Status sorts offline first in ascending order. Heartbeats sort chronologically, with missing timestamps first in ascending order.
+
 客户端策略中的审计配置保存前展示当前目标与本次目标；关闭脱敏、扩大正文范围或缩短保留期限须确认影响，取消返回编辑且不发送请求。保存目标不等于客户端已应用，请在设备页核对实际版本、范围及报告时间。本轮中英文真实页面已验预览、确认、取消、扩大采集发布、409版本冲突、503保存失败保留草稿及恢复重试；双击保存只有一次持久发布。隔离设置已恢复，细节见验收记录。**English:** Audit settings require review and acknowledgement for sensitive changes. Cancellation sends no request. Bilingual browser checks passed actual scope publication, persistent 409/503 feedback with draft preservation, retry and one durable publication on double-click. Verify the client-reported version and scope separately; the isolated capture policy was restored.
 
-客户端侧边栏 **Agent 运行治理** 独立于设置页。平台入口为 **客户端管理 → 设备详情 → Agent 运行治理**，可执行安装、更新、自检和接收器启停；现有审计脱敏、插件工具控制、系统防护策略仍在各自平台入口维护。权限和设备可见性沿用现有客户端管理。
+客户端侧边栏 **Agent 运行治理** 独立于设置页。平台入口为 **客户端管理 → 设备详情 → 插件接入**，可执行安装、更新、自检和接收器启停；现有审计脱敏、插件工具控制、系统防护策略仍在各自平台入口维护。权限和设备可见性沿用现有客户端管理。
 
-平台任务具有幂等标识、24 小时执行期限和独立回执；每设备最多一个活动接入任务。安装/更新只使用客户端随包插件 0.1.1，保留宿主和接收器的停用状态。平台管理后本地安装/启停按钮禁用，自检及故障重试继续可用。客户端关闭时，基础工作者可完成安装，但接收器要等桌面重开才运行。旧客户端不报告管理能力时不能下发本类型任务。
+平台任务具有幂等标识、24 小时执行期限和独立回执；每设备最多一个活动接入任务。安装/更新只使用客户端随包插件，保留宿主和接收器的停用状态。平台管理后本地安装/启停按钮禁用，自检及故障重试继续可用。桌面关闭时，主后台服务仍可执行安装任务，并按有效策略运行 Hook 接收器和日志采集。旧客户端不报告管理能力时不能下发本类型任务。
 
 实际状态显示接收器配置、运行、平台传输、队列、实际策略版本、宿主安装/启用/信任和检查时间。平台刷新只取最后报告，不触发原生扫描；自检在客户端运行。页面超过30秒未收到报告标为历史。冻结队列和旧回执不因配置动作删除或改写。
 
-**English:** Device details provide installation, native update, inspection and receiver enable/disable tasks using existing device permissions. Tasks have idempotent identities, 24-hour validity and durable receipts. Package 0.1.1 preserves disabled native plugins, receiver preferences and queued data. Managed local installation/enablement is disabled; inspection and fault recovery remain available. Refresh reads observations, inspection runs on the client, and stale reports retain their age. The base worker can install while the desktop is closed, but the receiver starts only with an enabled desktop application.
+**English:** Device details provide installation, native update, inspection and receiver enable/disable tasks using existing device permissions. Tasks have idempotent identities, 24-hour validity and durable receipts. Bundled plugin installation preserves disabled native plugins, receiver preferences and queued data. Managed local installation/enablement is disabled; inspection and fault recovery remain available. Refresh reads observations, inspection runs on the client, and stale reports retain their age. The main background service can install components and run the Hook receiver and log collector according to effective policy while the desktop is closed.
 
 ## AIDR macOS 系统防护（P2）
 
@@ -1111,7 +1149,7 @@ macOS 系统防护中的终止入口使用服务端返回的 `can_terminate` / `
 
 桌面侧边栏 **Agent 运行治理 → 插件接入与采集** 首先展示本地接收器、平台传输、待发记录和最近事件上传确认。Claude/Codex 各自的卡片显示实际版本、兼容性、安装、启用、原生信任和检查时间，接入/更新操作位于对应宿主卡片内。未连接设备时使用“前往客户端概览”完成现有认证；平台管理的安装和启停仍在平台执行。路径与来源、采集范围、策略应用、重试及状态报告时间可展开查看；宿主路径使用整行左对齐等宽文本。状态报告成功与事件 ACK 分开，缺失信息保持未知。
 
-平台 **客户端管理 → 设备详情** 使用五个标签：**概览、Agent 与 Skill、插件接入、行为审计、策略与审批**。概览只显示可跳转摘要、各自报告时间及最近需关注任务；待审批数字仅统计最近读取的最多50条申请，不是全量计数。Agent与Skill集中库存、模型配置、治理、恢复副本及相关任务/记录，其他标签不重复显示。
+平台 **客户端管理 → 设备详情** 使用五个标签：**概览、Agent 与资产、插件接入、行为审计、策略与审批**。概览只显示可跳转摘要、各自报告时间及最近需关注任务；待审批数字仅统计最近读取的最多50条申请，不是全量计数。Agent 与资产集中库存、模型配置、治理、恢复副本及相关任务/记录，其他标签不重复显示。
 
 插件接入展示Claude/Codex的版本、安装/启用/信任、接入方式和安装/更新/自检；来源漂移按需展开，接入任务保留独立回执。接收器、上传及覆盖诊断统一通过“采集状态”跳转查看。配置接入策略链接到策略与审批的唯一客户端策略入口。
 
@@ -1121,11 +1159,11 @@ macOS 系统防护中的终止入口使用服务端返回的 `can_terminate` / `
 
 本次布局人工复核清单：中英文切换工具规则、审批记录、系统策略及两个配置入口；窄屏检查刷新按钮和状态换行；使用只读账号确认权限。Manual UI checklist: check all three policy categories and both configuration entries in both languages, narrow-screen wrapping and read-only permissions.
 
-策略与审批默认进入工具规则；审批记录和系统策略通过分类入口切换，历史与响应回执在对应系统视图查看。进程终止仍在系统事件行，保持完整身份、执行器/monitor新鲜度及服务端独立校验。客户端分类/安装目标等既有配置通过此标签的客户端策略入口编辑；Skill治理方式仍在Agent与Skill中操作。
+策略与审批默认进入工具规则；审批记录和系统策略通过分类入口切换，历史与响应回执在对应系统视图查看。进程终止仍在系统事件行，保持完整身份、执行器/monitor新鲜度及服务端独立校验。客户端分类/安装目标等既有配置通过此标签的客户端策略入口编辑；Skill治理方式仍在Agent 与资产中操作。
 
 非活动标签及审计/策略视图卸载组件，清理其计时器；返回重新读取，未提交筛选和展开状态可能重置。概览无定时轮询，插件页只按需刷新；系统事件视图不读取策略/历史/回执，系统策略视图不读取完整事件列表。读取失败持续提示，不作为空配置；已有日志快照保留并明确可能过时。正文、设备可见性和操作权限沿用既有接口，不更改采集、身份、队列或ACK协议。
 
-**English:** Device details provide Overview, Agents and Skills, Plugin access, Behavior audit, and Policies and approvals. Inventory/model/Skill actions and records belong to Agents and Skills; host installation/trust/actions and access receipts belong to Plugin access. Behavior audit separates log operations, native lifecycle/Hooks, system events, and collection status. Collection diagnostics distinguish Hook intake from log reading, including separate report times, unknowns and coverage. Approvals/rules and system policies/responses live under Policies and approvals; exact-process termination remains in system event rows. The overview fetches bounded summaries once; detailed diagnostics load when expanded, and inactive views dispose their timers. Existing access/content permissions and all evidence/ACK contracts remain unchanged.
+**English:** Device details provide Overview, Agents and Assets, Plugin access, Behavior audit, and Policies and approvals. Inventory/model/Skill actions and records belong to Agents and Assets; host installation/trust/actions and access receipts belong to Plugin access. Behavior audit separates log operations, native lifecycle/Hooks, system events, and collection status. Collection diagnostics distinguish Hook intake from log reading, including separate report times, unknowns and coverage. Approvals/rules and system policies/responses live under Policies and approvals; exact-process termination remains in system event rows. The overview fetches bounded summaries once; detailed diagnostics load when expanded, and inactive views dispose their timers. Existing access/content permissions and all evidence/ACK contracts remain unchanged.
 
 
 2026-10-03新版平台标签、历史/未知状态、Hook分页与Codex详情，以及最终900宽桌面长路径已通过中英文实测。日志操作有数据的列表、低权限、网络故障及隐藏面板请求计数仍按已有验收记录检查；本次测试后台日志操作为空，不作替代证明。Bilingual real-page checks passed the new tabs and Hook evidence; populated log operations and permission/network branches remain listed in experiments/aidr-agentlog/ACCEPTANCE.md.
@@ -1192,7 +1230,7 @@ English: Administrators set the allowed products and choose client-selected or p
 
 平台启动的 `upgrade_aidr_schema` 会在原事务内补齐旧 `client_runtime_governance.supports_tasks`。默认值为 false；只有保存的报告通过当前严格契约校验且明确声明任务协议 1 或 2，才恢复支持标记。未报告、无效报告及协议 0 不作为支持依据。原报告内容、报告时间和任务不改写；失败回滚，可在下次启动重试。已有列不重复回填，正常心跳继续更新真实能力。ORM `create_all` 本身不会升级已有表。
 
-设备详情的“插件接入”和“行为审计 → 采集状态 → Hook 接收与上传”读取运行治理报告。它们与“工具操作”的日志读取心跳独立。新实现由既有Go基础后台管理日志循环，桌面管理插件Hook接收器；尚未升级的基础后台仍需按其版本诊断，不能把新增平台配置当成已自动应用。设备“允许上报”是服务端接收许可，不是通道运行目标。Hook 有 Pre/Post 而工具操作为空时，先检查两个通道的报告时间和读取器进程，不要自动认定 Hook 丢失。
+设备详情的“插件接入”和“行为审计 → 采集状态 → Hook 接收与上传”读取运行治理报告。它们与“工具操作”的日志读取心跳独立。日志循环与插件 Hook 接收器均由 Go 主后台服务管理，桌面读取状态并提交操作请求；尚未升级的基础后台仍需按其版本诊断，不能把新增平台配置当成已自动应用。设备“允许上报”是服务端接收许可，不是通道运行目标。Hook 有 Pre/Post 而工具操作为空时，先检查两个通道的报告时间和读取器进程，不要自动认定 Hook 丢失。
 
 恢复日志读取时，先检查既有 Go 后台服务及日志策略；新版后台自动协调日志读取，不需要额外手动启动 `aidr-sync`。仅在排查旧版或独立命令行部署时沿用原平台、设备和私有状态目录，并避免两个读取器占用同一目录；凭证不得复制到命令参数或页面。旧游标沿用原范围，待发批次和 ACK 保持原契约。版本标记 `aidr_log_version_unverified` 表示尚未认证该日志版本，即使部分调用能正确解析，也不表示完整支持。
 
@@ -1203,7 +1241,7 @@ English: Administrators set the allowed products and choose client-selected or p
 
 ### 行为审计的通道、Hook 含义与自动刷新
 
-设备详情的三个证据列表来自独立通道：“工具操作（Agent 日志）”来自日志读取与上传，新版由既有Go基础后台按日志目标管理；“宿主事件（Hook）”来自桌面自动管理的插件接收器；“系统事件”来自独立macOS原生系统通道。接收器运行只说明Hook组件状态；应分别核对基础后台版本及日志目标应用报告，也不证明系统通道已接入。日志健康按有效运行策略判断：继承默认策略或设备覆盖中未启用 Agent Logs 时，显示“按策略未启用”，无日志心跳属于预期状态；不因 Hook 在线或日志历史列表而推断正在采集。策略未知显示未知，新目标与通道报告版本不同显示等待应用，已启用目标但没有通道报告显示未报告。目标关闭而新鲜旧版本仍报告运行时显示“等待客户端停止”；新鲜报告版本匹配关闭目标但仍声明启用或运行时，明确警告“关闭目标未生效”。只有匹配当前目标的通道观测才用于当前运行判断；超过 30 秒的通道报告标记过期，通道报告运行中但 90 秒内没有日志传输心跳则提示传输失联。设备上报许可关闭或该设备有效审计生命周期暂停分别显示暂停原因。目标状态、客户端原始通道报告、报告版本和最后传输心跳分别展示；历史来源覆盖缺口仍保留为历史事实。桌面依据本机已收到的目标判断，不宣称尚未收到的平台新目标已经应用。没有系统报告时，系统事件明确提示未报告，默认查询全部事件类型。
+设备详情的三个证据列表来自独立通道：“工具操作（Agent 日志）”来自日志读取与上传，新版由既有Go基础后台按日志目标管理；“宿主事件（Hook）”来自主后台服务按策略管理的插件接收器；“系统事件”来自独立macOS原生系统通道。接收器运行只说明Hook组件状态；应分别核对基础后台版本及日志目标应用报告，也不证明系统通道已接入。日志健康按有效运行策略判断：继承默认策略或设备覆盖中未启用 Agent Logs 时，显示“按策略未启用”，无日志心跳属于预期状态；不因 Hook 在线或日志历史列表而推断正在采集。策略未知显示未知，新目标与通道报告版本不同显示等待应用，已启用目标但没有通道报告显示未报告。目标关闭而新鲜旧版本仍报告运行时显示“等待客户端停止”；新鲜报告版本匹配关闭目标但仍声明启用或运行时，明确警告“关闭目标未生效”。只有匹配当前目标的通道观测才用于当前运行判断；超过 30 秒的通道报告标记过期，通道报告运行中但 90 秒内没有日志传输心跳则提示传输失联。设备上报许可关闭或该设备有效审计生命周期暂停分别显示暂停原因。目标状态、客户端原始通道报告、报告版本和最后传输心跳分别展示；历史来源覆盖缺口仍保留为历史事实。桌面依据本机已收到的目标判断，不宣称尚未收到的平台新目标已经应用。没有系统报告时，系统事件明确提示未报告，默认查询全部事件类型。
 
 English: Log health uses the effective channel policy. A disabled Agent Logs target is expected to have no log heartbeat. Unknown policy, a target awaiting application, a missing channel report, an expired channel report, and an expected channel with no recent transport heartbeat are distinct states. Target and reported policy versions remain separate; an old report cannot prove the new target is applied. Hook availability and historical log operations do not establish log collection. Desktop status uses its received policy, not an unseen platform update.
 

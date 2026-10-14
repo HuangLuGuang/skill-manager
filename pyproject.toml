@@ -85,4 +85,6 @@ dev = [
     "pypdf>=5.0.0",
     "python-jose[cryptography]",
     "sqlalchemy",
+    "tree-sitter>=0.25,<0.26",
+    "tree-sitter-bash>=0.25,<0.26",
 ]

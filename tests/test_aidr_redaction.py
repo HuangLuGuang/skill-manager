@@ -64,7 +64,11 @@ def test_receipts_switch_backlog_lost_response_and_forgery(service):
     bad=copy.deepcopy(forged);bad['records'][0]['payload']['behavior']['policy']=new
     assert submit(client,bad).status_code==422
     rows=client.get('/api/v1/clients/one/aidr/events').json()['items']
-    assert rows[0]['event']['behavior']['actions'][0]['command']==command
+    assert 'command' not in rows[0]['event']['behavior']['actions'][0]
+    assert 'synthetic-secret' not in json.dumps(rows)
+    with factory() as db:
+        stored = db.query(models.AidrEvent).filter_by(logical_id=rows[0]['event']['logical_event_id']).one()
+        assert json.loads(stored.payload_json)['behavior']['actions'][0]['command'] == command
     assert submit(client,value).status_code==200
     assert client.post(endpoint,json=request,headers={'authorization':'Bearer test-two'}).status_code==403
 

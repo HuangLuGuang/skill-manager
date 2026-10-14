@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
+from .client_assets import ClientAssetInventory
 
 
 class UserBase(BaseModel):
@@ -422,6 +423,7 @@ class AgentAssetSkill(BaseModel):
 
 
 class AgentAssetInstance(BaseModel):
+    asset_inventory: ClientAssetInventory | None = None
     client_id: str
     client_name: str
     hostname: str
@@ -464,6 +466,9 @@ class AgentAssetResponse(BaseModel):
     external_gateway_name: Optional[str] = None
     skill_names: list[str] = Field(default_factory=list)
     discovered_skill_count: int = 0
+    discovered_mcp_count: int = 0
+    discovered_plugin_count: int = 0
+    plugin_skill_count: int = 0
     prompt_names: list[str] = Field(default_factory=list)
     allowed_mcp_gateways: list[str] = Field(default_factory=list)
     runtime_token_id: Optional[int] = None
@@ -956,6 +961,7 @@ class ClientSkillInventory(BaseModel):
 
 
 class ClientAgentInventory(BaseModel):
+    asset_inventory: ClientAssetInventory | None = None
     local_agent_id: Optional[str] = None
     agent_type: str
     version: Optional[str] = None

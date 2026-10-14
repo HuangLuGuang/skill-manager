@@ -126,6 +126,111 @@ def test_contents_hidden_in_every_view_separate_permission_and_audit(service):
         assert len(audits) == 1 and 'SYNTHETIC-BODY-ONLY' not in audits[0].details
 
 
+def test_parsed_command_content_preserves_permissions_and_original(service):
+    from tests.test_aidr_overview import hook, drain, BASE
+    from backend.aidr_models import AidrHookEvent
+
+    client, factory = service
+    original = "sed -n '1,3p' PRIVATE-PARSED-ARG\nrg one file && rg two file"
+    value = behavior(dict(version='2', enabled=True, receipt='a'*32, capture=SCOPE), '')
+    value.update(category='command', contents=[fragment(original, 'command_body', 'input.command')])
+    record_id = hook(factory, 1, behavior=value)
+    drain(factory)
+    actor = models.User(id=1, username='owner', role='admin', is_active=True)
+    client.app.dependency_overrides[auth.get_current_active_user] = lambda: actor
+    with factory() as db:
+        iam.initialize(db)
+        stored = db.get(AidrHookEvent, record_id).payload_json
+    for path in (BASE, BASE + '/entry?record_id=' + str(record_id), '/api/v1/clients/one/aidr/hooks'):
+        response = client.get(path)
+        assert response.status_code == 200, response.text
+        assert 'PRIVATE-PARSED-ARG' not in response.text
+    url = f'/api/v1/clients/one/aidr/content?source=hook&record_id={record_id}'
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    assert response.headers['cache-control'] == 'no-store'
+    content = next(item for item in response.json()['contents'] if item['kind'] == 'command_body')
+    assert content['text'] == original
+    assert [item['program'] for item in content['command_analysis']['commands']] == ['sed', 'rg', 'rg']
+    assert all('status' not in item for item in content['command_analysis']['commands'])
+    actor.role = 'user'
+    assert client.get(url).status_code == 403
+    actor.role = 'admin'
+    actor.username = 'another-owner'
+    assert client.get(url).status_code == 404
+    with factory() as db:
+        assert db.get(AidrHookEvent, record_id).payload_json == stored
+        assert all('PRIVATE-PARSED-ARG' not in row.details for row in db.query(models.OperationLog).all())
+
+
+@pytest.mark.parametrize('source', ['hook', 'log'])
+@pytest.mark.parametrize('mode', ['legacy', 'captured', 'wrapper'])
+def test_view_only_account_cannot_read_commands_or_subcommands(service, source, mode):
+    from backend import iam_models
+    from backend.aidr_operations import merge_operation
+    from tests.test_aidr_overview import hook, drain, BASE
+    from tests.test_aidr_operations import event
+
+    client, factory = service
+    value = behavior(dict(version='2', enabled=True, receipt='a'*32),
+                     'rg PRIVATE-LEGACY-COMMAND file; sed -n 1p file')
+    if mode == 'captured':
+        value['contents'] = [fragment(value['actions'][0]['command'], 'command_body', 'input.command')]
+    elif mode == 'wrapper':
+        value['category'] = 'wrapper'
+        value['contents'] = [fragment('await tools.exec_command({cmd:"rg PRIVATE-LEGACY-COMMAND file"})', 'command_body', 'input.code')]
+    if source == 'hook':
+        record_id = hook(factory, 1, behavior=value)
+        content_id = str(record_id)
+        paths = ['/api/v1/clients/one/aidr/hooks', f'/api/v1/clients/one/aidr/hooks/{record_id}/related']
+    else:
+        raw = event('tool_call', schema_version=2, behavior=value)
+        with factory() as db:
+            row = models.AidrEvent(client_id='one', logical_id=raw['logical_event_id'], content_hash='a'*64,
+                                   agent='codex', kind='tool_call', payload_json=json.dumps(raw))
+            db.add(row); db.flush()
+            merge_operation(db.connection(), 'one', raw)
+            record_id, content_id = row.id, row.logical_id
+            db.commit()
+        paths = ['/api/v1/clients/one/aidr/events', '/api/v1/clients/one/aidr/operations']
+    drain(factory)
+    with factory() as db:
+        iam.initialize(db)
+        db.add(iam_models.Role(name='command_reader', display_name='Command reader'))
+        db.flush()
+        db.add(iam_models.RolePermission(role_name='command_reader', permission_code='clients:view'))
+        user = db.get(models.User, 1)
+        user.role = 'command_reader'
+        db.commit()
+        assert iam.permission_codes(db, user) == {'clients:view'}
+    # Exercise the real token, route-permission and content-permission dependencies.
+    client.app.dependency_overrides.pop(auth.get_current_admin_user, None)
+    client.headers['authorization'] = 'Bearer ' + auth.create_access_token({'sub': 'owner'})
+    paths += [BASE + '?source=' + source + 's', BASE + f'/entry?source={source}s&record_id={record_id}']
+    for path in paths:
+        response = client.get(path)
+        assert response.status_code == 200, response.text
+        assert 'PRIVATE-LEGACY-COMMAND' not in response.text
+        assert 'command_analysis' not in response.text
+    url = f'/api/v1/clients/one/aidr/content?source={source}&record_id={content_id}'
+    response = client.get(url)
+    assert response.status_code == 403
+    assert 'PRIVATE-LEGACY-COMMAND' not in response.text
+    with factory() as db:
+        db.add(iam_models.RolePermission(role_name='command_reader', permission_code='clients:read-audit-content'))
+        db.commit()
+    permitted = client.get(url)
+    assert permitted.status_code == 200 and 'PRIVATE-LEGACY-COMMAND' in permitted.text
+    analysis = [item['command_analysis'] for item in permitted.json()['contents'] if 'command_analysis' in item]
+    assert len(analysis) == 1
+    assert [cmd['program'] for cmd in analysis[0]['commands']] == ['rg', 'sed']
+    assert client.get(url.replace('/one/', '/two/')).status_code == 404
+    with factory() as db:
+        grant = db.get(iam_models.RolePermission, ('command_reader', 'clients:read-audit-content'))
+        db.delete(grant); db.commit()
+    assert client.get(url).status_code == 403  # A prior permitted request must not seed a shared response cache.
+
+
 def test_prompt_hook_scope_backlog_and_strict_ack(service):
     client, factory = service
     configure(factory)

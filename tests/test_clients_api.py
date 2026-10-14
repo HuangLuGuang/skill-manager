@@ -82,6 +82,88 @@ def _client(tmp_path, manager=None):
     return TestClient(app)
 
 
+def test_mcp_plugin_inventory_round_trip_and_agent_instance_scope(tmp_path):
+    from backend.routers import agents as agent_routes
+
+    client = _client(tmp_path)
+    client.app.include_router(agent_routes.router)
+    token = client.post('/api/v1/access/tokens', json={'name': 'assets', 'token_type': 'client'}).json()['token']
+    headers = {'Authorization': f'Bearer {token}'}
+    snapshot = {
+        'version': 1, 'observed_at': '2026-10-13T09:00:00Z', 'mcp_supported': True, 'plugin_supported': True,
+        'mcp_servers': [{'id': 'direct', 'name': 'docs', 'transport': 'streamable_http',
+                         'endpoint_origin': 'https://user:URL_SECRET@example.com/PATH_SECRET?token=QUERY_SECRET',
+                         'source_path': '/home/test/.codex/config.toml', 'enabled': False,
+                         'headers': {'Authorization': 'HEADER_SECRET'}, 'args': ['ARG_SECRET']}],
+        'plugins': [{'id': 'plugin', 'name': 'reports', 'format': 'codex', 'state': 'installed',
+                     'path': '/plugins/reports', 'source_path': '/plugins/installed_plugins.json',
+                     'skills': [{'name': 'report', 'path': '/plugins/reports/skills/report/SKILL.md'}],
+                     'mcp_servers': [{'id': 'bundled', 'name': 'db', 'transport': 'stdio',
+                                      'source_path': '/plugins/reports/.mcp.json', 'executable': 'TOKEN=SHELL_SECRET node',
+                                      'env': {'TOKEN': 'ENV_SECRET'}, 'credential_keys': ['env.TOKEN']}]}],
+        'issues': [{'code': 'read_failed', 'path': '/unreadable/config.json'}],
+    }
+    local_agents = [
+        {'agent_type': 'codex', 'local_agent_id': 'codex-a', 'skills': [], 'asset_inventory': snapshot},
+        {'agent_type': 'codex', 'local_agent_id': 'codex-b', 'skills': []},
+    ]
+    response = client.post('/api/v1/clients/register', headers=headers, json={
+        'client_id': 'asset-host', 'name': 'Asset host', 'hostname': 'host', 'os': 'linux', 'arch': 'amd64',
+        'client_version': 'test-assets', 'governance_protocol': 2, 'agents': local_agents,
+    })
+    assert response.status_code == 200, response.text
+    response = client.get('/api/v1/clients/asset-host/inventory')
+    assert response.status_code == 200, response.text
+    assert 'SECRET' not in response.text
+    inventory = {item['local_agent_id']: item for item in response.json()['agents']}
+    stored = inventory['codex-a']['asset_inventory']
+    assert stored['mcp_servers'][0]['endpoint_origin'] == 'https://example.com'
+    assert stored['mcp_servers'][0]['enabled'] is False
+    assert stored['plugins'][0]['mcp_servers'][0]['executable'] == ''
+    assert stored['plugins'][0]['mcp_servers'][0]['enabled'] is None
+    assert inventory['codex-b']['asset_inventory'] is None
+    workspace = client.get('/api/v1/clients/asset-host/agent-workspace', params={'local_agent_id': 'codex-a'})
+    assert workspace.status_code == 200, workspace.text
+    assert workspace.json()['agents'][0]['asset_inventory'] == stored
+    rows = client.get('/agents/assets').json()['items']
+    row = next(row for row in rows if any(instance['local_agent_id'] == 'codex-a' for instance in row['instances']))
+    assert (row['discovered_mcp_count'], row['discovered_plugin_count'], row['plugin_skill_count']) == (2, 1, 1)
+    assert row['instances'][0]['asset_inventory'] == stored
+
+    # A platform Agent can own both installations without merging their snapshots.
+    created = client.post('/agents', json={'agent_id': 'asset-platform', 'name': 'Asset platform'})
+    assert created.status_code == 200, created.text
+    db = next(client.app.dependency_overrides[get_db]())
+    try:
+        for local in db.query(models.ClientAgent).filter_by(client_id='asset-host').all():
+            local.managed_agent_id = 'asset-platform'
+        db.commit()
+    finally:
+        db.close()
+    platform = next(item for item in client.get('/agents/assets').json()['items'] if item['agent_id'] == 'asset-platform')
+    assert platform['origin_type'] == 'platform'
+    assert (platform['instance_count'], platform['discovered_mcp_count'], platform['discovered_plugin_count'], platform['plugin_skill_count']) == (2, 2, 1, 1)
+    instances = {item['local_agent_id']: item for item in platform['instances']}
+    assert instances['codex-a']['asset_inventory'] == stored
+    assert instances['codex-b']['asset_inventory'] is None
+
+    # A new complete empty snapshot removes obsolete records on both surfaces.
+    local_agents[0]['asset_inventory'] = {**snapshot, 'mcp_servers': [], 'plugins': [], 'issues': []}
+    assert client.post('/api/v1/clients/asset-host/inventory', headers=headers, json={'agents': local_agents}).status_code == 200
+    updated = client.get('/api/v1/clients/asset-host/inventory').json()['agents'][0]['asset_inventory']
+    assert updated['mcp_servers'] == [] and updated['plugins'] == []
+    updated_rows = client.get('/agents/assets').json()['items']
+    assert all(row['discovered_mcp_count'] == 0 and row['discovered_plugin_count'] == 0 for row in updated_rows)
+
+    # Legacy reports remain explicitly unreported, and capabilities cannot bypass validation.
+    local_agents[0].pop('asset_inventory')
+    local_agents[0]['capabilities'] = {'asset_inventory': {'headers': 'BYPASS_SECRET'}}
+    assert client.post('/api/v1/clients/asset-host/inventory', headers=headers, json={'agents': local_agents}).status_code == 200
+    legacy = client.get('/api/v1/clients/asset-host/inventory')
+    assert 'BYPASS_SECRET' not in legacy.text
+    assert legacy.json()['agents'][0]['asset_inventory'] is None
+
+
 def test_compare_reuses_platform_skill_signature(monkeypatch):
     entry = type("Entry", (), {
         "skill_id": "skill-1",

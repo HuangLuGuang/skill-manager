@@ -110,7 +110,6 @@
         <h4 class="collection-detail-heading">{{ t('aidr.enforcement.coverageTitle', { count: status.configured_roots?.length || 0 }) }}</h4><p>{{ t('aidr.enforcement.coverageHelp') }}</p><code v-for="path in status.configured_roots || []" :key="path" class="coverage-path">{{ path }}</code>
         <h4 class="collection-detail-heading">{{ t('aidr.enforcement.network.title') }}</h4><p>{{ t(`aidr.enforcement.network.health.${networkHealthState}`) }}</p><p>{{ t('aidr.enforcement.network.boundary') }}</p>
         <details class="setup-guide"><summary>{{ t('aidr.enforcement.setup.title') }}</summary><p>{{ t('aidr.enforcement.setup.onDevice') }}</p><p>{{ t('aidr.enforcement.setup.supportBoundary') }}</p><ol v-if="platformSupport === 'macos_endpoint_security'"><li v-for="step in ['check', 'install', 'authorize']" :key="step"><strong>{{ t(`aidr.enforcement.setup.${step}Title`) }}</strong><p>{{ t(`aidr.enforcement.setup.${step}Note`) }}</p></li></ol><p v-else>{{ t('aidr.enforcement.setup.unsupportedNext') }}</p><p>{{ t('aidr.enforcement.setup.collectionNote') }}</p></details>
-        <details><summary>{{ t('aidr.enforcement.diagnostics') }}</summary><p>{{ t('aidr.enforcement.evidence') }}</p><pre class="evidence">{{ JSON.stringify(status, null, 2) }}</pre></details>
         <a-button @click="infoOpen = false; emit('collection')">{{ tr('checkCollection') }}</a-button>
       </a-modal>
     </template>
@@ -157,7 +156,6 @@
         </template>
         <template v-else><p>{{ eventReason(selected.record) }}</p><p>{{ t('aidr.enforcement.applied') }}: {{ selected.record.revision }}</p><p v-if="Number(selected.record.gaps)">{{ t('aidr.enforcement.gaps', { count: selected.record.gaps }) }}</p></template>
       </template>
-      <details><summary>{{ t('aidr.enforcement.diagnostics') }}</summary><p>{{ t('aidr.enforcement.evidence') }}</p><pre class="evidence">{{ JSON.stringify(selected, null, 2) }}</pre></details>
     </a-modal>
   </section>
 </template>
@@ -396,8 +394,7 @@ onBeforeUnmount(() => { generation++; clearInterval(timer) })
 .process-timeline { padding-left: 20px; max-height: 340px; overflow: auto; }
 .process-timeline li { padding: 8px 0; border-bottom: 1px solid #edf0f5; }
 .process-timeline code { display: block; margin-top: 4px; }
-code, .evidence { overflow-wrap: anywhere; white-space: pre-wrap; word-break: break-word; }
-.evidence { max-height: 65vh; overflow: auto; }
+code { overflow-wrap: anywhere; white-space: pre-wrap; word-break: break-word; }
 summary { cursor: pointer; margin: 12px 0; }
 .system-event-view { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; padding: 0; border-color: #e4e8ef; background: #fff; }
 .events-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 14px 16px; flex-shrink: 0; }

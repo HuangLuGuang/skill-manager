@@ -1,6 +1,7 @@
 import { securityGuides } from './security-guides.js'
 import { integrationGuides } from './integration-guides.js'
 import { aidrGuides, aidrGuideOrder } from './aidr-guides.js'
+import { hookGuides } from './hook-guides.js'
 import { agentIntegrationChoices, agentRegistrationGuides } from './agent-registration-guide.js'
 
 const zh = {
@@ -22,7 +23,8 @@ const zh = {
       { slug: 'client-management', title: '客户端管理', summary: '本地 Agent 发现、Skill 下发与持续巡检' },
       { slug: 'credential-management', title: '统一凭证中心', summary: '按调用主体签发最小权限凭证' },
       { slug: 'runtime-integration', title: '接入与运行', summary: '登记与发现的区别、场景选择和创建后的接入步骤' },
-      { slug: 'hook-integration', title: 'Hook 接入', summary: 'Claude Code、Codex 与 OpenClaw 事件拦截配置' },
+      { slug: 'hook-integration', title: 'Hook 接入', summary: '客户端 AIDR 插件、宿主信任与事件验收' },
+      { slug: 'developer-skill-verification', title: '开发者：加载前验签', summary: 'Loader 校验、手工 Hook 脚本与运行凭证' },
       { slug: 'agent-security-runtime', title: 'AI 安全与调用轨迹', summary: 'Agent、MCP、大模型与 AI 基础设施测评、Worker、证据解释与统一轨迹' },
       { slug: 'audit-trail', title: '审计追踪', summary: '查询 Skill、Agent、客户端与 Tool 事件' },
     ] },
@@ -94,7 +96,8 @@ const zh = {
               ['让 Agent 只能使用指定 Skill', { label: '智能体管理 / 能力绑定与凭证', path: '/docs/agent-management' }],
               ['为不同调用方创建最小权限凭证', { label: '统一凭证中心', path: '/docs/credential-management' }],
               ['把验签和 Tool 检查接入自研 Agent', { label: '自研 Agent 运行校验接入', path: '/docs/runtime-integration' }],
-              ['配置 Claude Code、Codex 或 OpenClaw Hook', { label: 'Hook 接入', path: '/docs/hook-integration' }],
+              ['通过客户端接入宿主事件和工具策略', { label: '客户端 AIDR 插件 Hook', path: '/docs/hook-integration' }],
+              ['在真实加载路径验证 Skill 内容与授权', { label: '开发者：加载前验签', path: '/docs/developer-skill-verification' }],
               ['发现本机 Agent 和 Skill 目录', { label: '客户端管理 / Agent 发现', path: '/docs/client-management' }],
               ['向本地 Agent 下发、恢复或移除 Skill', { label: '客户端管理 / 管理台操作', path: '/docs/client-management' }],
               ['接入客户已有的 AI 网关并为 Agent 获取模型', { label: '外部 AI 网关', path: '/docs/external-ai-gateway' }],
@@ -117,8 +120,8 @@ const zh = {
         {
           id: 'check-system',
           title: '1. 检查平台状态',
-          paragraphs: ['先打开平台总览和系统总览，确认核心服务可用。LLM 与 Sandbox 是否启用取决于管理员配置，未配置的检测项会在提交页禁用。'],
-          image: { name: 'dashboard', alt: '平台总览页面', caption: '平台总览用于确认待处理 Skill、风险分布和最近事件。' },
+          paragraphs: ['平台总览按账号权限展示治理资产、Skill 审核与 MCP 调用审批、运行观察、最近活动及统计图。待办标签为完整数量，每类列表展示最近 20 条；点击 MCP 待办可直接打开审批详情。', '运行观察的今日计数与模型趋势按 UTC 自然日统计。趋势统计已记录用量的请求，支持近 7 天和 30 天；Skill 风险分布保留未判定 / 未知项。AIDR 显示最近 24 小时收到且仍保留的日志 / Hook 记录及去重上报客户端数，采集正在测试中。', '核心服务状态请到系统总览查看。LLM 与 Sandbox 是否启用取决于管理员配置，未配置的检测项会在提交页禁用。'],
+          image: { name: 'dashboard', alt: '平台总览页面', caption: '总览展示当前账号可见的资产、待办、运行记录与统计；刷新失败会明确提示。' },
           link: { path: '/dashboard', label: '打开平台总览' },
         },
         {
@@ -1472,22 +1475,28 @@ const zh = {
         },
       ],
     },
-    'hook-integration': {
+    'developer-skill-verification': {
       eyebrow: '功能指南',
-      title: 'Hook 接入',
-      summary: '把 Agent Manager 校验放到 Agent 的真实事件点，并明确每种 Hook 的配置、凭证、阻断范围和验证方法。',
+      title: '开发者：加载前验签',
+      summary: '在真实 Loader 或受支持的宿主事件中核对 Skill 内容和授权；手工脚本按各自覆盖范围配置和验收。',
       sections: [
+        {
+          id: 'loader', title: '先确定加载前的执行边界',
+          paragraphs: ['能修改代码时，在真实 Loader 中对实际目录计算无密钥摘要，先调用 verify-skill-signature，再调用 can-load；两项均允许后才能加载，并保证执行内容与核对内容一致。工具执行前按需接入 check-tool。下面的手工 Hook 示例用于宿主适配，仅覆盖其识别且实际触发的事件。'],
+          callout: { type: 'note', title: '日常 Hook 接入从客户端开始', body: '宿主事件采集和工具策略默认通过客户端 AIDR 插件接入。AIDR 的工具决策与异步 Skill 使用审计不等于同步加载前验签。开发者脚本使用绑定 Agent 的运行凭证，客户端 AIDR 使用设备认证。' },
+          link: { path: '/docs/hook-integration', label: '返回客户端 AIDR 插件 Hook 接入' },
+        },
         {
           id: 'prepare',
           title: '接入前准备',
           steps: [
-            { title: '创建并启用 Agent', body: '在智能体列表创建稳定的Agent ID，将允许使用的已批准Skill绑定给该Agent。Hook运行时的AGENT_ID必须与这里完全一致。' },
+            { title: '复用或登记 Agent 身份', body: '在智能体列表复用已有身份，或创建并启用 Agent；绑定允许使用的已批准 Skill。脚本运行时的 AGENT_ID 必须与该身份一致。' },
             { title: '签发 Agent 运行凭证', body: '在统一凭证中心创建绑定该Agent的运行凭证。Claude Code示例以及待验证的TraeCode适配至少需要runtime:verify-signature和runtime:can-load；需要Tool检查时增加runtime:check-tool。Codex当前示例至少需要runtime:verify-signature。' },
             { title: '确认配置作用域', body: '项目级配置只对该项目生效；用户级配置影响该用户启动的所有项目。先在测试项目验证，再决定是否推广到用户级。' },
             { title: '保护凭证明文', body: '凭证放在环境变量或仓库外、仅当前用户可读的环境文件中。不要写进hooks.json、settings.json、截图或代码仓库。' },
           ],
-          callout: { type: 'warning', title: 'Hook 不等于客户端接管', body: 'Hook只在目标Agent实际提供并触发的事件点执行；Agent Manager Client负责本地Skill目录接管和持续巡检。需要两类能力时可以同时部署。' },
-          link: { path: '/agents', label: '打开智能体列表' },
+          callout: { type: 'note', title: '复用已有 Agent 身份', body: '已有手工登记或客户端发现的 Agent 身份可直接复用。为开发者校验签发绑定该身份的运行凭证，并核对允许使用的 Skill。' },
+          link: { path: '/docs/runtime-integration#verifier-result', label: '查看 Loader 校验接口与验收' },
         },
         {
           id: 'coverage',
@@ -1507,10 +1516,10 @@ const zh = {
           title: '接入 Claude Code，并评估 TraeCode',
           paragraphs: ['推荐使用demo/claude-code-api-hook/agent_guard_hook.py接入Claude Code。脚本通过Agent运行凭证调用平台API，不需要也不允许持有服务端签名私钥。TraeCode只能将该脚本作为待验证的适配起点。'],
           steps: [
-            { title: '安装脚本依赖', body: '在skill-manager源码目录安装项目依赖，确保Hook命令使用的Python解释器能够导入httpx和dotenv。', code: 'python3 -m pip install -e ".[dev]"' },
+            { title: '安装脚本依赖', body: '在 skill-manager 源码目录使用 uv 安装依赖；Hook 命令使用该环境 .venv/bin/python 的绝对路径，确保能够导入 httpx 和 dotenv。', code: 'uv sync --extra dev' },
             { title: '注入运行环境', body: '下面三个值必须对应同一个平台Agent。正式环境应由shell、服务管理器或安全配置注入，不要把真实凭证提交到仓库。', code: 'export AGENT_MANAGER_BASE_URL="https://agent-manager.example.com"\nexport AGENT_MANAGER_API_TOKEN="amat_xxx"\nexport AGENT_ID="your-agent-id"' },
-            { title: '配置Claude Code PreToolUse', body: 'Claude Code写入项目.claude/settings.json或用户级~/.claude/settings.json。命令必须使用脚本绝对路径。', code: '{\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "",\n      "hooks": [{\n        "type": "command",\n        "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"\n      }]\n    }]\n  }\n}' },
-            { title: '配置TraeCode待验证Hook', body: 'TraeCode项目级位置是.trae/hooks.json，macOS/Linux用户级位置是~/.trae-cn/hooks.json。原生配置需要version: 1。下面只是协议适配候选，不代表已通过实机验收。', code: '{\n  "version": 1,\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "Skill",\n      "hooks": [{\n        "type": "command",\n        "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py",\n        "timeout": 30\n      }]\n    }]\n  }\n}' },
+            { title: '配置Claude Code PreToolUse', body: 'Claude Code写入项目.claude/settings.json或用户级~/.claude/settings.json。命令必须使用脚本绝对路径。', code: '{\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "",\n      "hooks": [{\n        "type": "command",\n        "command": "/absolute/path/skill-manager/.venv/bin/python /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"\n      }]\n    }]\n  }\n}' },
+            { title: '配置TraeCode待验证Hook', body: 'TraeCode项目级位置是.trae/hooks.json，macOS/Linux用户级位置是~/.trae-cn/hooks.json。原生配置需要version: 1。下面只是协议适配候选，不代表已通过实机验收。', code: '{\n  "version": 1,\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "Skill",\n      "hooks": [{\n        "type": "command",\n        "command": "/absolute/path/skill-manager/.venv/bin/python /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py",\n        "timeout": 30\n      }]\n    }]\n  }\n}' },
             { title: '分别完成真实验收', body: '在目标Agent的新会话中调用已授权且内容一致的Skill，然后演练内容篡改、撤销授权和平台不可达。TraeCode必须额外确认真实Skill Tool的tool_input、环境变量可见性和退出码2的界面表现。', expected: 'Claude Code应形成Agent界面、Hook日志和平台审计证据链；TraeCode在完成同等证据链前仍标记为未验证。' },
           ],
           references: [
@@ -1570,6 +1579,15 @@ const zh = {
   "title": "客户端管理",
   "summary": "配置 Agent 发现与分类处置策略，在客户端管理 Skill，并核对同步、检测和恢复结果。",
   "sections": [
+    {
+      "id": "mcp-plugin-inventory",
+      "title": "按 Agent 查看 MCP 与插件资产",
+      "paragraphs": [
+        "在客户端详情的资产列表展开 Agent，分别在 Skill、插件、MCP 标签页查看资产，默认打开 Skill；智能体管理的能力与配置使用相同标签页。平台 Agent 已绑定客户端实例时，详情的客户端资产入口按实例展示三个标签页。资产与运行详情以可读字段、状态、时间和原因展示。",
+        "插件展开后显示内含 Skill 和 MCP；MCP 列表同时标注独立配置或所属插件。配置记录、安装记录、本地文件与缓存分别展示，未知启用状态保持未知。已注册服务引用只展示引用 ID。",
+        "升级平台和客户端后等待资产同步。旧客户端显示尚未上报，不支持的产品显示尚未支持，来源读取失败或超限会标注清单可能不完整。采集读取配置与元数据，不执行插件或工具；凭据值、URL 路径和查询参数、命令参数不随资产上报。"
+      ]
+    },
     {
       "id": "desktop-and-console",
       "title": "客户端与平台分别做什么",
@@ -2356,7 +2374,8 @@ const en = {
       { slug: 'client-management', title: 'Client management', summary: 'Local Agent discovery, Skill delivery, and continuous inspection' },
       { slug: 'credential-management', title: 'Credential center', summary: 'Issue least-privilege credentials by caller' },
       { slug: 'runtime-integration', title: 'Access and runtime', summary: 'Registration, discovery, scenario selection and runtime setup' },
-      { slug: 'hook-integration', title: 'Hook integration', summary: 'Configure event enforcement for Claude Code, Codex, and OpenClaw' },
+      { slug: 'hook-integration', title: 'Hook integration', summary: 'Client AIDR plugins, native trust and event acceptance' },
+      { slug: 'developer-skill-verification', title: 'Developer: pre-load verification', summary: 'Loader checks, manual Hook scripts and runtime credentials' },
       { slug: 'agent-security-runtime', title: 'AI security and runtime traces', summary: 'Agent, MCP, LLM, and AI infrastructure assessments, Worker operations, evidence, and unified traces' },
       { slug: 'audit-trail', title: 'Audit trail', summary: 'Query Skill, Agent, Client, and Tool events' },
     ] },
@@ -2397,13 +2416,13 @@ const en = {
       sections: [
         { id: 'what-it-does', title: 'What the platform does', paragraphs: ['Agent Manager is not only a Skill registry. It governs Agent Skills, local capability delivery, model integration relationships and built-in gateway traffic, and externally exposed MCP Tools.'], bullets: ['Scan, decide, review, and sign Skills before use, then revalidate changed content.', 'Give Agents least-privilege bindings and credentials; use Clients to discover, deliver, restore, or quarantine local Skills.', 'The built-in model gateway applies access control, Prompt protection, privacy replacement, optional token compression, and usage analysis. External-gateway mode manages connections, external Agents, and API-key mapping while model traffic bypasses the built-in proxy.', 'Publish selected MCP Tools through gateways with time-bound high-risk approvals and audits.'] },
         { id: 'system-architecture', title: 'System architecture', paragraphs: ['A unified entry connects administrators, Scanners, Agents and Clients, model applications, and MCP Clients. The governance control plane centralizes policy, identity, authorization, and audit. Runtime capabilities cover Skill admission, endpoint governance, model privacy processing, MCP Tool controls, and AIDR runtime audit and protection.'], bullets: ['Skill evidence from rules, deep scan, optional Sandbox, and LLM analysis reaches policy before an admission state is decided.', 'The Client governs local Skill content; Verifier or Hooks check digest and authorization before an Agent loads it.', 'Built-in model traffic passes credential and model scope, Prompt protection, PII pseudonymization, and optional compression. External-gateway traffic goes directly from the Agent or Client to the customer gateway while the platform manages connection and identity mapping.', 'MCP callers reach only published Tools; high-risk Tools require time-bound approval before execution.', 'AIDR collects Agent logs, Hooks and system events through clients and correlates sessions and runtime evidence on the platform. Policies and approvals return to supported host or OS enforcement points; coverage depends on adapters, permissions and effective policy.', 'Registry records, reports, tasks, traces, AIDR runtime evidence and security audit support cross-domain investigation.'], diagram: 'architecture', link: { path: '/docs/aidr-overview#architecture', label: 'Explore the detailed AIDR architecture and control boundaries' }, callout: { type: 'note', title: 'Control plane and execution boundaries', body: 'The platform controls admission, authorization, routing, and evidence. Agents still load local Skill directories, Sandbox runs dynamic checks in isolation, and upstream models and MCP Servers remain external runtime dependencies.' } },
-        { id: 'capability-map', title: 'Choose a feature by goal', table: { columns: ['Goal', 'Module'], rows: [['Choose an integration by product and runtime', { label: 'Scenario selection', path: '/docs/scenario-selection' }], ['Submit and scan a Skill', { label: 'Skill governance / Submit Skill', path: '/docs/skill-governance' }], ['Batch-import Skills from a host or CI', { label: 'Scanner access', path: '/docs/scanner-access' }], ['Choose scan methods and interpret results', { label: 'Skill scanning capabilities', path: '/docs/scan-capabilities' }], ['Understand how finding classifications affect final risk', { label: 'Finding classification', path: '/docs/risk-classification' }], ['Configure Skill risk and admission rules', { label: 'Skill policy settings', path: '/docs/skill-policy' }], ['Review a suspicious Skill', { label: 'Skill governance / Skill Review', path: '/docs/skill-governance' }], ['Restrict an Agent to specific Skills', { label: 'Agent management / Bindings and credentials', path: '/docs/agent-management' }], ['Issue least-privilege credentials by caller', { label: 'Credential center', path: '/docs/credential-management' }], ['Add signature and Tool checks to an Agent', { label: 'Agent runtime integration', path: '/docs/runtime-integration' }], ['Configure a Claude Code, Codex, or OpenClaw Hook', { label: 'Hook integration', path: '/docs/hook-integration' }], ['Discover local Agents and Skill roots', { label: 'Client management / Agent Discovery', path: '/docs/client-management' }], ['Deliver, restore, or remove Skills on managed hosts', { label: 'Client management / Console operations', path: '/docs/client-management' }], ['Use a customer AI gateway and obtain models for an Agent', { label: 'External AI gateway', path: '/docs/external-ai-gateway' }], ['Protect private model input', { label: 'Model gateway / Privacy policies', path: '/docs/model-gateway' }], ['Compress model context and measure savings', { label: 'Model gateway / Token compression', path: '/docs/model-gateway' }], ['Analyze token usage by user', { label: 'Model gateway / User token analytics', path: '/docs/model-gateway' }], ['Audit anomalous Skills declared in model calls', { label: 'Model gateway / Skill Alerts', path: '/docs/model-gateway' }], ['Publish and audit MCP Tools', { label: 'MCP governance / Servers and gateways', path: '/docs/mcp-governance' }], ['Trace Skill, Agent, Client, and Tool events', { label: 'Audit trail', path: '/docs/audit-trail' }]] } },
+        { id: 'capability-map', title: 'Choose a feature by goal', table: { columns: ['Goal', 'Module'], rows: [['Choose an integration by product and runtime', { label: 'Scenario selection', path: '/docs/scenario-selection' }], ['Submit and scan a Skill', { label: 'Skill governance / Submit Skill', path: '/docs/skill-governance' }], ['Batch-import Skills from a host or CI', { label: 'Scanner access', path: '/docs/scanner-access' }], ['Choose scan methods and interpret results', { label: 'Skill scanning capabilities', path: '/docs/scan-capabilities' }], ['Understand how finding classifications affect final risk', { label: 'Finding classification', path: '/docs/risk-classification' }], ['Configure Skill risk and admission rules', { label: 'Skill policy settings', path: '/docs/skill-policy' }], ['Review a suspicious Skill', { label: 'Skill governance / Skill Review', path: '/docs/skill-governance' }], ['Restrict an Agent to specific Skills', { label: 'Agent management / Bindings and credentials', path: '/docs/agent-management' }], ['Issue least-privilege credentials by caller', { label: 'Credential center', path: '/docs/credential-management' }], ['Add signature and Tool checks to an Agent', { label: 'Agent runtime integration', path: '/docs/runtime-integration' }], ['Connect host events and tool policies through the Client', { label: 'Client AIDR plugin Hooks', path: '/docs/hook-integration' }], ['Verify Skill content and authorization before loading', { label: 'Developer: pre-load verification', path: '/docs/developer-skill-verification' }], ['Discover local Agents and Skill roots', { label: 'Client management / Agent Discovery', path: '/docs/client-management' }], ['Deliver, restore, or remove Skills on managed hosts', { label: 'Client management / Console operations', path: '/docs/client-management' }], ['Use a customer AI gateway and obtain models for an Agent', { label: 'External AI gateway', path: '/docs/external-ai-gateway' }], ['Protect private model input', { label: 'Model gateway / Privacy policies', path: '/docs/model-gateway' }], ['Compress model context and measure savings', { label: 'Model gateway / Token compression', path: '/docs/model-gateway' }], ['Analyze token usage by user', { label: 'Model gateway / User token analytics', path: '/docs/model-gateway' }], ['Audit anomalous Skills declared in model calls', { label: 'Model gateway / Skill Alerts', path: '/docs/model-gateway' }], ['Publish and audit MCP Tools', { label: 'MCP governance / Servers and gateways', path: '/docs/mcp-governance' }], ['Trace Skill, Agent, Client, and Tool events', { label: 'Audit trail', path: '/docs/audit-trail' }]] } },
       ],
     },
     'quick-start': {
       eyebrow: 'Get started', title: 'Complete your first Skill governance flow', summary: 'Use a test ZIP with no production secrets or personal data to complete submission, scanning, review, Agent authorization, and runtime verification.',
       sections: [
-        { id: 'check-system', title: '1. Check platform status', paragraphs: ['Open the dashboard and system overview first. LLM and Sandbox checks depend on administrator configuration; unavailable checks remain disabled on the submission page.'], image: { name: 'dashboard', alt: 'Platform dashboard', caption: 'The dashboard highlights pending Skills, risk distribution, and recent events.' }, link: { path: '/dashboard', label: 'Open dashboard' } },
+        { id: 'check-system', title: '1. Check platform status', paragraphs: ['The overview shows governed assets, Skill reviews, MCP call approvals, runtime activity and charts according to your permissions. Tab counts include all pending work; each type lists its latest 20 items. MCP items open the corresponding approval details.', 'Daily runtime counters and model trends use UTC calendar days. The 7 / 30-day trend counts requests with recorded usage. Skill risk distribution includes unassessed / unknown items. AIDR shows retained log / Hook records received in the last 24 hours and distinct reporting clients; collection is in testing.', 'Check core services in System Overview. LLM and Sandbox checks depend on administrator configuration; unavailable checks remain disabled on the submission page.'], image: { name: 'dashboard', alt: 'Platform dashboard', caption: 'Assets, pending work, runtime records and statistics visible to the current account. Refresh failures are explicitly indicated.' }, link: { path: '/dashboard', label: 'Open dashboard' } },
         {
           "id": "submit-zip",
           "title": "2. Upload a ZIP or folder and select Skills",
@@ -3310,12 +3329,18 @@ const en = {
         },
       ],
     },
-    'hook-integration': {
-      eyebrow: 'Feature guide', title: 'Hook integration', summary: 'Run Agent Manager checks at real Agent event points, with explicit configuration, credential, enforcement, and validation boundaries for each Hook.',
+    'developer-skill-verification': {
+      eyebrow: 'Feature guide', title: 'Developer: pre-load verification', summary: 'Verify Skill content and authorization at the real Loader or a supported host event. Configure and validate manual scripts within their actual coverage.',
       sections: [
-        { id: 'prepare', title: 'Prepare the Agent and credential', steps: [{ title: 'Create and enable the Agent', body: 'Use a stable Agent ID and bind the approved Skills it may use. AGENT_ID at runtime must match this record exactly.' }, { title: 'Issue an Agent runtime credential', body: 'The Claude Code example and the unvalidated TraeCode adapter need at least runtime:verify-signature and runtime:can-load; add runtime:check-tool when the integration performs Tool checks. The current Codex example needs at least runtime:verify-signature.' }, { title: 'Choose configuration scope', body: 'Project settings affect one project; user settings affect every project started by that user. Validate in a test project before moving to user scope.' }, { title: 'Protect the plaintext secret', body: 'Inject it through environment configuration or a user-only file outside the repository. Never put a real token in hooks.json, settings.json, screenshots, or source control.' }], callout: { type: 'warning', title: 'A Hook is not Client takeover', body: 'A Hook runs only at events the target Agent actually exposes and triggers. Agent Manager Client governs local Skill directories and performs continuous inspection. Deploy both when both boundaries are required.' }, link: { path: '/agents', label: 'Open Agents' } },
+        {
+          id: 'loader', title: 'Identify the real pre-load boundary',
+          paragraphs: ['When you control the code, compute a keyless digest of the actual directory inside the Loader. Call verify-skill-signature and then can-load. Load only if both allow it, and ensure executed content matches the checked content. Add check-tool before tool execution as needed. The manual Hook examples below cover only events they recognize and the host actually triggers.'],
+          callout: { type: 'note', title: 'Start routine Hook integration with the Client', body: 'Use Client AIDR plugins for host collection and tool policies. AIDR tool decisions and asynchronous Skill usage audit are separate from synchronous pre-load verification. Developer scripts use an Agent-bound runtime credential; Client AIDR uses device authentication.' },
+          link: { path: '/docs/hook-integration', label: 'Return to Client AIDR plugin Hook integration' },
+        },
+        { id: 'prepare', title: 'Prepare the Agent and credential', steps: [{ title: 'Reuse or register an Agent identity', body: 'Reuse an existing identity or create and enable an Agent. Bind the approved Skills it may use. AGENT_ID in the script must match this record exactly.' }, { title: 'Issue an Agent runtime credential', body: 'The Claude Code example and the unvalidated TraeCode adapter need at least runtime:verify-signature and runtime:can-load; add runtime:check-tool when the integration performs Tool checks. The current Codex example needs at least runtime:verify-signature.' }, { title: 'Choose configuration scope', body: 'Project settings affect one project; user settings affect every project started by that user. Validate in a test project before moving to user scope.' }, { title: 'Protect the plaintext secret', body: 'Inject it through environment configuration or a user-only file outside the repository. Never put a real token in hooks.json, settings.json, screenshots, or source control.' }], callout: { type: 'warning', title: 'Reuse an existing Agent identity', body: 'Reuse a registered or Client-discovered Agent. Issue a runtime credential bound to that identity for developer checks and confirm its authorized Skills.' }, link: { path: '/docs/runtime-integration#verifier-result', label: 'Read Loader APIs and acceptance steps' } },
         { id: 'coverage', title: 'Understand current coverage first', table: { columns: ['Agent', 'Event and check', 'Current boundary'], rows: [['Claude Code', 'PreToolUse; verify signature and can-load after recognizing a Skill call', 'Malformed input and non-Skill calls pass through'], ['TraeCode / TRAE CN', 'Official PreToolUse support; the protocol has partial compatibility with the existing script', 'Agent Manager has not completed end-to-end validation in a real TraeCode instance'], ['Codex', 'PreToolUse; verify every discovered governed Skill before supported Tools', 'Currently covers supported paths such as Bash, apply_patch, and MCP—not every Tool path'], ['OpenClaw', 'agent:bootstrap for load checks; planned before_tool_call Tool checks', 'The repository provides a skeleton that must be adapted to the real target-version payload and plugin project']] } },
-        { id: 'claude-trae', title: 'Connect Claude Code and evaluate TraeCode', paragraphs: ['Use demo/claude-code-api-hook/agent_guard_hook.py for Claude Code. It calls platform APIs with an Agent runtime credential and never needs the server signing private key. For TraeCode, treat this script only as an unvalidated adapter starting point.'], steps: [{ title: 'Install dependencies', body: 'Run this in the skill-manager source directory so the Python used by the Hook can import httpx and dotenv.', code: 'python3 -m pip install -e ".[dev]"' }, { title: 'Inject the runtime identity', body: 'All three values must resolve to the same platform Agent. Use shell or service configuration in production and keep the real token out of the repository.', code: 'export AGENT_MANAGER_BASE_URL="https://agent-manager.example.com"\nexport AGENT_MANAGER_API_TOKEN="amat_xxx"\nexport AGENT_ID="your-agent-id"' }, { title: 'Configure Claude Code PreToolUse', body: 'Claude Code uses project .claude/settings.json or user ~/.claude/settings.json. The script command must use an absolute path.', code: '{\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "",\n      "hooks": [{\n        "type": "command",\n        "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"\n      }]\n    }]\n  }\n}' }, { title: 'Configure an unvalidated TraeCode Hook', body: 'TraeCode uses project .trae/hooks.json or, on macOS/Linux, user ~/.trae-cn/hooks.json. Native configuration requires version: 1. This is a protocol adapter candidate, not a configuration that has passed real-instance acceptance.', code: '{\n  "version": 1,\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "Skill",\n      "hooks": [{\n        "type": "command",\n        "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py",\n        "timeout": 30\n      }]\n    }]\n  }\n}' }, { title: 'Run real acceptance separately', body: 'Exercise an authorized Skill, changed content, revoked authorization, and an unreachable platform in a new target-Agent session. For TraeCode, also confirm the real Skill tool_input shape, environment visibility, and exit-code-2 behavior.', expected: 'Claude Code should produce Agent UI, Hook log, and Runtime Audit evidence. Keep TraeCode marked unvalidated until the same evidence chain is complete.' }], references: [{ label: 'Claude Code: Hooks quickstart', url: 'https://code.claude.com/docs/en/hooks-guide' }, { label: 'Claude Code: Hooks reference', url: 'https://code.claude.com/docs/en/hooks' }, { label: 'Claude Code: Permissions and PreToolUse hooks', url: 'https://code.claude.com/docs/en/permissions' }, { label: 'TRAE: Automate actions with Hooks', url: 'https://docs.trae.cn/ide_automate-actions-with-hooks' }, { label: 'TRAE: Hook configuration reference', url: 'https://docs.trae.cn/ide_hook-configuration-reference' }, { label: 'TRAE CN: Changelog', url: 'https://docs.trae.cn/ide_changelog' }] },
+        { id: 'claude-trae', title: 'Connect Claude Code and evaluate TraeCode', paragraphs: ['Use demo/claude-code-api-hook/agent_guard_hook.py for Claude Code. It calls platform APIs with an Agent runtime credential and never needs the server signing private key. For TraeCode, treat this script only as an unvalidated adapter starting point.'], steps: [{ title: 'Install dependencies', body: 'Run uv in the skill-manager source directory. Use the absolute path to that environment’s .venv/bin/python in Hook commands so it can import httpx and dotenv.', code: 'uv sync --extra dev' }, { title: 'Inject the runtime identity', body: 'All three values must resolve to the same platform Agent. Use shell or service configuration in production and keep the real token out of the repository.', code: 'export AGENT_MANAGER_BASE_URL="https://agent-manager.example.com"\nexport AGENT_MANAGER_API_TOKEN="amat_xxx"\nexport AGENT_ID="your-agent-id"' }, { title: 'Configure Claude Code PreToolUse', body: 'Claude Code uses project .claude/settings.json or user ~/.claude/settings.json. The script command must use an absolute path.', code: '{\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "",\n      "hooks": [{\n        "type": "command",\n        "command": "/absolute/path/skill-manager/.venv/bin/python /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"\n      }]\n    }]\n  }\n}' }, { title: 'Configure an unvalidated TraeCode Hook', body: 'TraeCode uses project .trae/hooks.json or, on macOS/Linux, user ~/.trae-cn/hooks.json. Native configuration requires version: 1. This is a protocol adapter candidate, not a configuration that has passed real-instance acceptance.', code: '{\n  "version": 1,\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "Skill",\n      "hooks": [{\n        "type": "command",\n        "command": "/absolute/path/skill-manager/.venv/bin/python /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py",\n        "timeout": 30\n      }]\n    }]\n  }\n}' }, { title: 'Run real acceptance separately', body: 'Exercise an authorized Skill, changed content, revoked authorization, and an unreachable platform in a new target-Agent session. For TraeCode, also confirm the real Skill tool_input shape, environment visibility, and exit-code-2 behavior.', expected: 'Claude Code should produce Agent UI, Hook log, and Runtime Audit evidence. Keep TraeCode marked unvalidated until the same evidence chain is complete.' }], references: [{ label: 'Claude Code: Hooks quickstart', url: 'https://code.claude.com/docs/en/hooks-guide' }, { label: 'Claude Code: Hooks reference', url: 'https://code.claude.com/docs/en/hooks' }, { label: 'Claude Code: Permissions and PreToolUse hooks', url: 'https://code.claude.com/docs/en/permissions' }, { label: 'TRAE: Automate actions with Hooks', url: 'https://docs.trae.cn/ide_automate-actions-with-hooks' }, { label: 'TRAE: Hook configuration reference', url: 'https://docs.trae.cn/ide_hook-configuration-reference' }, { label: 'TRAE CN: Changelog', url: 'https://docs.trae.cn/ide_changelog' }] },
         { id: 'codex', title: 'Connect Codex', steps: [{ title: 'Prepare an environment file outside the repository', body: 'Copy the example, then set the platform URL, Agent runtime credential, and bound Agent ID. Never commit this file.', code: 'mkdir -p ~/.agent-manager\ncp demo/codex-agent-manager-hook/codex-agent-manager-hook.env.example \\\n  ~/.agent-manager/codex-agent-manager-hook.env' }, { title: 'Configure governed roots', body: 'The Hook always checks project and user .agents/skills, ~/.codex/skills, and /etc/codex/skills when present. AGENT_MANAGER_CODEX_SKILLS_DIRS adds plugin or custom roots without disabling defaults.' }, { title: 'Install the Hook configuration', body: 'Copy the example to project .codex/hooks.json or merge it into ~/.codex/hooks.json, then replace the Python script and environment-file paths with absolute paths.', code: 'mkdir -p .codex\ncp demo/codex-agent-manager-hook/hooks.json.example .codex/hooks.json' }, { title: 'Review and validate', body: 'Restart Codex or create a new task, run /hooks in Codex CLI, and trust the Hook. A supported Tool call should return permissionDecision=deny when any governed Skill is unapproved, unbound, or modified; it should pass after correction.' }], callout: { type: 'warning', title: 'Codex coverage boundary', body: 'The current Codex PreToolUse example is fail-closed for calls it can intercept, but it does not cover every Shell, WebSearch, or other Tool path. It does not replace OS sandboxing, plugin trust, or controlled Skill deployment.' }, references: [{ label: 'OpenAI Docs: Codex Hooks', url: 'https://learn.chatgpt.com/docs/hooks' }, { label: 'OpenAI Docs: Codex configuration reference', url: 'https://learn.chatgpt.com/docs/config-file/config-reference' }] },
         { id: 'openclaw', title: 'Connect OpenClaw', steps: [{ title: 'Capture a real payload first', body: 'Install the payload recorder in demo/openclaw-agent-manager-hook, trigger agent:bootstrap, and inspect ~/.openclaw/logs/hook-payloads.jsonl.' }, { title: 'Adapt load verification', body: 'Use the real event to tighten discoverVisibleSkills and resolveSkillNameFromContext, then install the internal Hook as a managed Hook.' }, { title: 'Connect Tool checks', body: 'before_tool_call is not an internal Hook event. Integrate plugin-hooks.ts into the real OpenClaw plugin project and call check-tool. Map session identity to a stable platform Agent ID.' }], callout: { type: 'warning', title: 'Not a turnkey integration yet', body: 'The OpenClaw example is a skeleton. Do not claim enforced Skill-load and Tool-call coverage until it has been adapted and tested against the target OpenClaw event and plugin APIs.' } },
         { id: 'verify-troubleshoot', title: 'Acceptance tests and troubleshooting', table: { columns: ['Scenario', 'Expected result', 'Check first'], rows: [['Approved, bound, unchanged Skill', 'Allow', 'Agent ID, credential binding, Skill path, and digest'], ['Modified Skill content', 'Block', 'Consistent signature ignore sets; exclude .DS_Store on macOS'], ['Skill not bound or wrong credential', 'Block', 'Agent bindings, credential type, state, and scopes'], ['Platform unreachable or credential expired', 'Declared fail-closed paths block', 'URL, proxy, certificate, timeout, and Hook stderr'], ['No Hook log at all', 'Integration is not proven', 'Session cwd, project/user settings scope, event name, and whether the Tool triggers that Hook']] }, bullets: ['Check the Agent result, local Hook log, and platform Runtime Audit together.', 'Exercise allow, tamper, unauthorized, unreachable, and event-not-triggered cases.', 'Roll out to one test project before user-level or enterprise templates.'], link: { path: '/runtime?tab=records', label: 'Open Access & Runtime audit' } },
@@ -3326,6 +3351,15 @@ const en = {
   "title": "Client management",
   "summary": "Configure Agent discovery and classification policies, manage local Skills, and verify synchronization, scanning, and recovery.",
   "sections": [
+    {
+      "id": "mcp-plugin-inventory",
+      "title": "View MCP and plugin assets by Agent",
+      "paragraphs": [
+        "Expand an Agent in Client details to view separate Skills, Plugins and MCP tabs, with Skills selected by default. Agent management uses the same tabs under Capabilities. Platform Agents with bound client instances show these tabs per instance under Client assets. Asset and operational details use readable fields, status, times and reasons.",
+        "Expand a plugin to view bundled Skills and MCP entries. The MCP list distinguishes standalone configuration from parent plugins. Configuration records, installation records, local files and caches are shown separately; unknown enabled states remain unknown. Registered server references show only their IDs.",
+        "Update both platform and client, then wait for inventory sync. Legacy clients are unreported, unsupported products are labeled, and source errors or limits mark incomplete inventory. Discovery reads configuration and metadata without running plugins or tools. Credential values, URL paths/query strings and command arguments are omitted from reports."
+      ]
+    },
     {
       "id": "desktop-and-console",
       "title": "What the Client and console do",
@@ -4198,6 +4232,7 @@ en.articles['skill-policy'] = {
 }
 
 for (const [locale, content] of [['zh-CN', zh], ['en-US', en]]) {
+  Object.assign(content.articles, hookGuides[locale])
   Object.assign(content.articles, aidrGuides[locale])
   const aidrGroup = {
     title: locale === 'zh-CN' ? '运行审计与防护 · AIDR' : 'Runtime audit and protection · AIDR',
@@ -4205,7 +4240,7 @@ for (const [locale, content] of [['zh-CN', zh], ['en-US', en]]) {
   }
   const agentGroupIndex = content.groups.findIndex(group => group.items.some(item => item.slug === 'audit-trail'))
   content.groups.splice(agentGroupIndex + 1, 0, aidrGroup)
-  for (const slug of ['client-management', 'hook-integration', 'audit-trail']) {
+  for (const slug of ['client-management', 'audit-trail']) {
     content.articles[slug].sections.unshift({
       id: 'aidr-operating-guides',
       title: locale === 'zh-CN' ? '客户端 AIDR 操作指南' : 'Client AIDR operating guides',
@@ -4285,6 +4320,7 @@ export const docsArticleOrder = [
   'credential-management',
   'runtime-integration',
   'hook-integration',
+  'developer-skill-verification',
   'agent-security-runtime',
   'security-scan-guide',
   'dify-security-access',

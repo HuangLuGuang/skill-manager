@@ -13,6 +13,10 @@ Agent Manager 的治理对象从单个 Skill 扩展到智能体。平台需要�
 
 Agents distinguishes **Platform-created** identities registered for external Agent programs from **Client-discovered** identities registered automatically from Client inventory. The runtime executes tasks. Record source is independent of model, Skill, MCP and trace capabilities.
 
+智能体列表的名称、来源、部门 / 负责人、运行位置、能力资产、状态和最近更新 / 发现支持点击列名切换升序、降序和默认顺序，按当前筛选结果整体排序后分页。来源升序为平台创建在前；部门相同时按负责人排序；运行位置按当前展示的客户端名称排序。能力资产按平台已分配或客户端发现的 Skill 数量排序，暂无当前清单的记录在升序时排在零值之前；状态按草稿、启用、停用排序；时间按列表展示的发现或更新时间排序，缺失时间在升序时排在前面。能力资产和状态列的信息图标提供排序依据说明。
+
+**English:** Click Agent, Source, Department / Owner, Runtime location, Capability assets, Status or Last updated / discovered to cycle through ascending, descending and default order. Sorting covers the full filtered result before pagination. Source places platform-created Agents first in ascending order. Department ties are sorted by owner; runtime location uses the displayed client name. Capability assets uses assigned or discovered Skill count, with unavailable inventories before zero counts in ascending order. Status sorts draft, active, then disabled. Dates use the displayed discovery or update timestamp, with missing dates first in ascending order. Information icons explain the capability and status sort criteria.
+
 ### 何时需要创建 / When registration is needed
 
 当你要按某个 Agent 单独授权 Skill、限制模型或 MCP 访问、记录调用归属，或使用 Agent Skill Verifier / 运行时校验接口时，需要平台 Agent 身份。**只有尚无身份且本次不通过客户端自动发现登记时，才需手动创建。** 列表中已有记录就复用；新增模型或 MCP 等能力时仍使用同一身份。
@@ -90,6 +94,10 @@ For the internal model gateway, configure the platform endpoint and runtime cred
 保存后，接入步骤按所选能力生成。在统一凭证中心创建绑定该 Agent 的运行凭证，确认 `mcp:connect`、`mcp:list-tools`、`mcp:call-tools` 和网关子集。凭证只能授权智能体范围内的网关；新增 Agent 网关不会自动扩大旧凭证。移除网关或停用 Agent 后，后续 MCP 请求重新校验并拒绝访问。实际工具调用还受网关发布范围、Schema 和审批策略约束。
 
 **English:** After saving, the guide generates steps for selected capabilities. Issue an Agent-bound runtime credential with `mcp:connect`, `mcp:list-tools`, `mcp:call-tools` and a subset of the Agent's gateways. Adding an Agent gateway does not widen existing credentials. Removing one or disabling the Agent is enforced on subsequent MCP requests. Published tools, approved schemas and approval policies still govern calls.
+
+凭证表单的 MCP 操作分为网关操作和智能体配置两组：先在新标签页编辑智能体 MCP 授权，返回后点击“刷新配置”读取最新授权；“刷新网关”更新网关与工具清单。两组操作独立排列，窄屏自动换行。
+
+**English:** The credential form separates gateway actions from Agent configuration actions. Edit the Agent's MCP grants in a new tab, then return and refresh configuration to retrieve the latest grants. Refresh gateways to update the gateway and tool list. The action groups are spaced separately and wrap on narrow screens.
 
 “连接 MCP 工具”步骤为每个网关提供 `${PLATFORM_URL}/mcp/${GATEWAY_SLUG}`、Streamable HTTP 传输和 `Authorization: Bearer <AGENT_RUNTIME_TOKEN>`。在实际运行环境中配置后，先读取工具列表，再按需试用合适的工具并查看结果；需要审批的调用先完成审批。普通非 Agent MCP 应用仍使用独立 MCP 网关凭证。
 

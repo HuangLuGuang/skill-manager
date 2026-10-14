@@ -2,6 +2,52 @@
 
 本文记录 `2026-08-13` 在隔离测试环境中完成的单节点 Docker 性能基准。数据用于部署选型和参数起步，不是脱离硬件、数据规模和上游服务的产品硬上限。
 
+## Skill 导入与 API 隔离回归（2026-10-14）
+
+当前代码检查与本机隔离测试确认了以下路径，并完成对应优化：
+
+| 路径 | 优化前 | 当前行为 |
+| --- | --- | --- |
+| ZIP / Scanner 导入 | `async def` 中同步解压、复制、计算摘要和准备版本，阻塞事件循环 | 整个准备流程在线程执行，并使用独立导入额度 |
+| URL / ClawHub / 远程候选准备 | 异步下载后在事件循环同步处理文件 | 网络请求保持异步，文件写入、解压和准备在线程执行 |
+| 上传解析、流式进度、本地目录、远程选中导入 | 使用普通同步 API 的线程额度 | 共用独立导入额度，默认并发 2 |
+| Registry 查询 | 读写共用进程锁；扫描写入等待会挡住读取 | 只读连接读取已提交 WAL 快照，退出即关闭；写入继续串行 |
+| 运行验签和客户端扫描状态 | 读取报告后丢弃，或只使用状态/签名 | 查询元数据，省去完整报告读取和解析；详情报告仍可查询 |
+
+`tests/test_scan_api_isolation.py` 使用临时 SQLite、合成 ZIP、ASGI HTTP 请求及受控等待，覆盖：
+
+- 解压等待时，ZIP、Scanner、URL、ClawHub、远程候选和普通/流式上传准备不阻塞列表请求。
+- 导入额度与普通线程额度均设为 1 时，第二个导入排队，普通同步工作仍可完成。
+- 持有扫描写事务时，Registry 查询可读取此前已提交数据；同一读取快照保持一致，下一次查询看到提交后的状态。
+- 2 MB 合成报告不进入验签 SQL，成功验签仍记录审计；详情可读取完整报告，撤销后的新请求被拒绝。
+- 流式连接断开后等待正在执行的准备清理；同一进程并发提交相同内容复用一个版本与待检测任务。
+
+导入查重、版本准备和待检测任务登记使用独立准入锁，避免并行导入同时创建相同内容；该锁不参与普通查询和验签。
+持久化上传导入队列保留原有单线程准备方式。跨进程并发准入未在本次回归中验证。
+
+优化前的受控 2 秒解压可复现 ZIP 和 Scanner 入口阻塞事件循环；持有扫描写锁时，读取也无法在 0.5 秒测试门槛内完成。
+优化后的对应检查通过。这些等待和门槛用于确定性回归，不是生产 P95、端到端吞吐或容量承诺。
+
+可复跑：
+
+```bash
+uv run pytest tests/test_scan_api_isolation.py tests/test_submission_background.py tests/test_registry.py tests/test_runtime.py tests/test_scanner_api.py tests/test_manager.py tests/test_clients_api.py tests/test_client_runtime_integration.py tests/test_review_queue_api.py tests/test_folder_upload_limits.py tests/test_upload_jobs.py tests/test_vetting.py -q
+# 真实 Scanner 使用独立依赖环境，补充默认环境跳过的检测链路：
+uv run --with cisco-ai-skill-scanner==2.0.6 python -m pytest tests/test_client_runtime_integration.py::test_real_scan_rejection_is_polled_and_quarantined_without_desktop -q
+```
+
+本次主回归为 222 项通过、1 项因默认环境缺少 Scanner 跳过；随后使用上面的独立解释器命令补跑真实
+Scanner / Go 客户端 HTTP 链路，1 项通过。最后补充连接断开与相同内容并发提交检查后，导入隔离、后台提交和
+Scanner API 的 41 项检查全部通过。两轮统计有重叠，不应相加作为独立用例数。
+
+共享边界仍包括 CPU/GIL、磁盘、内存和 SQLite 单写者。验签审计、客户端上报等写入仍可能等待扫描写事务。
+正式验收应在目标主机持续批量检测，同时访问页面 API、验签、心跳、任务和状态轮询，记录空闲与检测中的
+P50/P95/P99、错误率、事件循环延迟、CPU、磁盘延迟和数据库写等待。当前未执行生产部署或现场混合负载压测。
+
+**English:** Local contention regressions verify event-loop responsiveness, separate bounded import capacity,
+committed WAL snapshots and metadata-only verification/status polling. Authorization, fresh state reads and durable
+audit remain required. Shared CPU/GIL, disk and SQLite writers still require deployed mixed-load measurement.
+
 ## 测试环境
 
 | 项目 | 本次环境 |
@@ -57,6 +103,7 @@
 | MCP 接入凭证“最大并发请求数” | 使用同一接入凭证的 MCP 请求，允许范围 `1–100` | `5` | 凭证管理的新建或编辑页面 | 新请求返回 `429`；它是凭证级第一层限制 |
 | 单个 MCP Tool“最大并发” | 指定 Tool 同时执行的调用，允许范围 `1–100` | `5` | MCP 网关的 Tool 安全策略 | 超出的调用返回 JSON-RPC 并发限制错误，不会继续调用上游 Tool |
 | Scan Worker | 同时处理的后台 Skill 检测任务数 | `2` | Docker `.env` 中的 `AGENT_MANAGER_SCAN_WORKERS` | 提交仍可被接受，超出的任务在后台队列等待，不代表提交失败 |
+| 导入准备并发 | 解压、目录发现、摘要及版本准备 | `2` | Docker `.env` 中的 `AGENT_MANAGER_IMPORT_WORKERS` | 请求异步等待独立额度，不占用普通 API 线程额度；按 API 进程/事件循环计算 |
 | 分析器 Worker | 静态规则、结构分析等分析任务共用的线程池大小 | `8` | Docker `.env` 中的 `AGENT_MANAGER_ANALYZER_WORKERS` | 数量过小会延长检测；盲目增大可能造成 CPU 争用，不能理解为可同时完成 8 个 Skill |
 | 深度扫描并发 | 同时执行的深度扫描数量 | `2` | Docker `.env` 中的深度扫描并发项 | 超出的深度扫描等待可用槽位，因此批量任务的完成时间会增加 |
 
@@ -129,6 +176,46 @@ MCP Tool 调用同时受“接入凭证最大并发”和“单个 Tool 最大�
 | 1,000 | 414.51 ms | 439.15 ms | 524.31 ms | 210.46 KiB | 16.7–17.1 MiB |
 
 客户端 Inventory 会在本机遍历 Agent Skill 目录、读取元数据、生成清单并写入本地 SQLite，所以这部分 CPU、磁盘读取和内存主要消耗在客户端。平台侧承担客户端注册、Inventory 上报、策略与任务下发，以及选中 Skill 的服务端检测；服务器资源仍会随在线客户端数量、上报频率和待检测任务增加。
+
+## 本地客户端运行治理查询（2026-10-14）
+
+针对约 29,928 条 Hook 事件的客户端，在本地实际 SQLite 数据库上只读执行 `runtime_governance.view`：修复前首次测量为 1,834.8 ms；新增产品到达索引、流回执索引并改为逐产品最新记录查找后，一次新进程测量为 93.1 ms。随后另一进程连续五次为 103.15、9.26、9.44、8.94、10.11 ms。结果包含接口主体查询和响应对象组装，不含 HTTP、鉴权及网络；首轮和后续存在缓存差异，不作为生产延迟承诺或严格冷缓存对比。回归测试用 5,000 条合成事件验证查询使用索引定位、无历史全扫描或临时排序，并验证过期过滤与客户端隔离。
+
+**English:** Read-only measurements of the runtime-governance view against a local client with about 29,928 Hook events were 1,834.8 ms before the fix and 93.1 ms in a fresh process after the fix. Five subsequent calls in another process took 103.15, 9.26, 9.44, 8.94 and 10.11 ms. These measure query and response assembly only, excluding HTTP, authentication and networking. Cache effects differ between runs; these are neither production latency guarantees nor a controlled cold-cache comparison.
+
+## 客户端发现的智能体详情首屏（2026-10-14）
+
+本地真实浏览器从智能体列表点击在线 Codex 的“详情”，经 `localhost:5173` 代理请求实际后端和 SQLite。开始点为详情点击处理函数；结束点为首屏五个请求成功完成、页面加载状态结束后的两次 `requestAnimationFrame`，作为完成渲染的近似测量。基础内容同样在工作区响应应用后等待两帧计时。它不包括尚未打开的行为审计、策略等标签页请求，也不是浏览器底层绘制追踪。
+
+本次基线已包含上一节的运行治理修复。进一步优化最近会话：在三个来源内先筛选产品，Hook 和消息按会话预聚合，再合并统计；聚合读取索引中的身份与时间字段，问题正文只读取当前页所需记录。增加操作分页快照、产品会话和有效 Hook 记录索引，由启动迁移创建。Qoder 产品/入口映射、分页快照、过期过滤、内容权限和查看审计保持原有语义。
+
+| 实际 HTTP 请求 / Request | 优化前中位数（3 次） | 优化后中位数（3 次） |
+| --- | ---: | ---: |
+| `agent-workspace?local_agent_id=codex` | 80.5 ms | 58.0 ms |
+| `runtime-governance` | 106.4 ms | 85.4 ms |
+| `aidr/status?include_retention=false` | 79.7 ms | 82.8 ms |
+| `aidr/sessions?agent=codex&limit=5&include_questions=true` | 235.9 ms | 165.0 ms |
+| `aidr/hook-policy` | 79.2 ms | 98.9 ms |
+| 点击至基础内容渲染 / Click to base content | 116.9 ms | 85.2 ms |
+| 点击至完整首屏渲染 / Click to complete overview | 262.9 ms | 187.9 ms |
+
+完整首屏原始三次值：优化前 262.9、210.3、743.8 ms；最终方案 187.9、324.1、158.5 ms。请求时间包含实际 HTTP、鉴权和响应解析；各接口并发，不能相加作为页面耗时。其余四个首屏接口未发现需要本次修改的同类历史扫描问题，数值变化包含环境波动。数据库持续接收客户端上报，没有清缓存；三次样本不能推导 P95、并发承载能力或生产 SLA。
+
+开发服务自动重启期间另有一次点击耗时 15,677.5 ms：点击时间为 11:05:38，后端新进程启动时间为 11:05:39；五个请求均等待约 15 秒。该记录保留在完整测量文件中，单列为开发服务重启等待，不纳入运行就绪后的三次样本。本地原始测量、查询计划及中间方案记录位于 `outputs/agent-detail-performance-20261014/`，不作为发布文件。
+
+**English:** This measures an actual click from the Agent list into the discovered Codex overview against the local HTTP service. Completion means all five initial requests succeeded, loading ended and two animation frames elapsed; this approximates rendering, rather than recording the browser paint pipeline. The baseline already includes the runtime-governance fix. The new session query filters products before aggregation, combines indexed per-source session summaries and fetches only page-specific prompt bodies. Startup migrations add the required indexes. Snapshot pagination, Qoder aliases, expiry, content authorization and access auditing remain intact. Three completed overview samples changed from 262.9/210.3/743.8 ms to 187.9/324.1/158.5 ms. A separate 15,677.5 ms click coincided with the development server restarting and remains in the raw record. Other tabs, cold-cache behavior and production concurrency were not measured. No production latency guarantee is implied.
+
+## 概览“查看记录”的关联查询（2026-10-14）
+
+复查客户端概览两条 Codex Bash 记录（本地记录 30185、30193）时，执行前后 Hook 关联查询只使用客户端和过期状态索引，未按原生调用标识缩小范围。首次只读执行 `detail_entry` 为 2,464.03 ms，其中关联 SQL 为 2,444.21 ms；其余五次为 177.81–192.39 ms。新增按客户端、上报流、原生调用标识和记录 ID 排列的有效事件索引，查询直接匹配该索引表达式；其余用户、产品、会话、轮次、工具与子 Agent 条件继续校验。两条记录各三次只读复测为 14.66、1.54、2.47 ms 和 1.27、1.12、1.30 ms。以上不包含 HTTP 和鉴权，且未控制冷缓存。
+
+浏览器通过实际“查看记录”入口打开截图中的两条记录，HTTP 请求为 44.0、46.5 ms；从点击处理函数开始到响应应用后的两帧为 69.6、67.4 ms。该指标近似记录卡片渲染完成，不包含再次展开审计正文的请求。另一次记录点击曾等待 21.73 秒，并伴随后端整体无响应；随后事件循环采样抓到安全扫描 Worker 心跳在主线程执行数据库提交、等待写锁，最长采样延迟约 28 秒。心跳改为同步路由，由 FastAPI 在线程池执行；并发回归用阻塞的心跳提交验证其他 HTTP 请求仍可响应，不改变心跳写入与鉴权语义。
+
+**English:** Overview record pairing previously scanned a client's active Hook history. A read-only first call took 2,464.03 ms, of which 2,444.21 ms was the related-event query; subsequent calls took 177.81–192.39 ms. An active-event index on client, stream, native call and record ID reduced the measured handler calls to 1.12–14.66 ms while preserving all remaining identity checks. These exclude HTTP/authentication and are not controlled cold-cache benchmarks. Actual browser clicks for the two supplied records took 69.6 and 67.4 ms through two post-response animation frames, with HTTP durations of 44.0 and 46.5 ms; expanding protected content is a separate request. A separate 21.73-second stall prompted event-loop sampling, which identified synchronous database commits in the async security-worker heartbeat. The heartbeat now runs in FastAPI's worker thread pool. A concurrency regression verifies unrelated HTTP responsiveness while the heartbeat commit is blocked. Local measurements and diagnostic samples are in `outputs/record-entry-performance-20261014/`.
+
+心跳修复后的最终浏览器复测，单条记录 HTTP 为 50.2 ms，点击至两帧后为 70.1 ms。继续采样约一分半未再捕获到超过 0.8 秒的事件循环延迟；这是本地短时观察，不能替代部署环境的持续负载验证。
+
+**English:** The final browser check after the heartbeat fix measured 50.2 ms for HTTP and 70.1 ms from click through two animation frames. About 90 seconds of subsequent sampling captured no event-loop delay above 0.8 seconds. This is a short local observation, not sustained deployed-load validation.
 
 ## 生产使用建议
 

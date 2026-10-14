@@ -16,6 +16,7 @@ import os
 import sqlite3
 import threading
 import uuid
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -84,6 +85,14 @@ class Registry:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=30000")
         return conn
+
+    @contextmanager
+    def _read_connection(self):
+        """Read one committed WAL snapshot without waiting for local writers."""
+        with closing(self._connect()) as conn:
+            conn.execute("PRAGMA query_only=ON")
+            conn.execute("BEGIN")
+            yield conn
 
     def _init_db(self) -> None:
         with self._lock, self._connect() as conn:
@@ -941,66 +950,66 @@ class Registry:
                 if not remaining:
                     conn.execute("DELETE FROM skill_families WHERE family_id = ?", (family_id,))
 
-    def get_by_id(self, skill_id: str) -> RegistryEntry | None:
-        with self._lock, self._connect() as conn:
+    def get_by_id(self, skill_id: str, *, include_scan_report: bool = True) -> RegistryEntry | None:
+        with self._read_connection() as conn:
             row = conn.execute(
-                """
-                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                f"""
+                SELECT s.skill_id, s.name, s.payload, s.updated_at, {"r.report" if include_scan_report else "NULL"} AS scan_report
                 FROM skill_registry s
-                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                {"LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id" if include_scan_report else ""}
                 WHERE s.skill_id = ?
                 """,
                 (skill_id,),
             ).fetchone()
             return self._safe_entry_from_row(row)
 
-    def get_by_name(self, name: str) -> RegistryEntry | None:
+    def get_by_name(self, name: str, *, include_scan_report: bool = True) -> RegistryEntry | None:
         """Return the latest version of the named Skill family."""
-        with self._lock, self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
-                FROM skill_families f
-                JOIN skill_registry s ON s.skill_id = f.latest_version_id
-                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
-                WHERE f.normalized_name = ?
-                """,
-                (self._normalized_skill_name(name),),
-            ).fetchone()
-            return self._safe_entry_from_row(row)
-
-    def get_trusted_by_name(self, name: str) -> RegistryEntry | None:
-        """Return the latest approved or deployed version of the named Skill family."""
-        with self._lock, self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
-                FROM skill_families f
-                JOIN skill_registry s ON s.skill_id = f.latest_trusted_version_id
-                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
-                WHERE f.normalized_name = ?
-                """,
-                (self._normalized_skill_name(name),),
-            ).fetchone()
-            return self._safe_entry_from_row(row)
-
-    def get_by_family_id(self, family_id: str, *, trusted: bool = False) -> RegistryEntry | None:
-        pointer = "latest_trusted_version_id" if trusted else "latest_version_id"
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             row = conn.execute(
                 f"""
-                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                SELECT s.skill_id, s.name, s.payload, s.updated_at, {"r.report" if include_scan_report else "NULL"} AS scan_report
+                FROM skill_families f
+                JOIN skill_registry s ON s.skill_id = f.latest_version_id
+                {"LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id" if include_scan_report else ""}
+                WHERE f.normalized_name = ?
+                """,
+                (self._normalized_skill_name(name),),
+            ).fetchone()
+            return self._safe_entry_from_row(row)
+
+    def get_trusted_by_name(self, name: str, *, include_scan_report: bool = True) -> RegistryEntry | None:
+        """Return the latest approved or deployed version of the named Skill family."""
+        with self._read_connection() as conn:
+            row = conn.execute(
+                f"""
+                SELECT s.skill_id, s.name, s.payload, s.updated_at, {"r.report" if include_scan_report else "NULL"} AS scan_report
+                FROM skill_families f
+                JOIN skill_registry s ON s.skill_id = f.latest_trusted_version_id
+                {"LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id" if include_scan_report else ""}
+                WHERE f.normalized_name = ?
+                """,
+                (self._normalized_skill_name(name),),
+            ).fetchone()
+            return self._safe_entry_from_row(row)
+
+    def get_by_family_id(self, family_id: str, *, trusted: bool = False, include_scan_report: bool = True) -> RegistryEntry | None:
+        pointer = "latest_trusted_version_id" if trusted else "latest_version_id"
+        with self._read_connection() as conn:
+            row = conn.execute(
+                f"""
+                SELECT s.skill_id, s.name, s.payload, s.updated_at, {"r.report" if include_scan_report else "NULL"} AS scan_report
                 FROM skill_families f
                 JOIN skill_registry s ON s.skill_id = f.{pointer}
-                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                {"LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id" if include_scan_report else ""}
                 WHERE f.family_id = ?
                 """,
                 (family_id,),
             ).fetchone()
             return self._safe_entry_from_row(row)
 
-    def list_versions(self, family_id_or_name: str) -> list[RegistryEntry]:
-        with self._lock, self._connect() as conn:
+    def list_versions(self, family_id_or_name: str, *, include_scan_report: bool = True) -> list[RegistryEntry]:
+        with self._read_connection() as conn:
             family = conn.execute(
                 """
                 SELECT family_id, latest_version_id, latest_trusted_version_id
@@ -1010,21 +1019,23 @@ class Registry:
                 (family_id_or_name, self._normalized_skill_name(family_id_or_name)),
             ).fetchone()
             if not family:
-                version = self.get_by_id(family_id_or_name)
-                if not version or not version.family_id:
-                    return []
                 family = conn.execute(
                     """
                     SELECT family_id, latest_version_id, latest_trusted_version_id
-                    FROM skill_families WHERE family_id = ?
+                    FROM skill_families WHERE family_id = (
+                        SELECT json_extract(payload, '$.family_id')
+                        FROM skill_registry WHERE skill_id = ?
+                    )
                     """,
-                    (version.family_id,),
+                    (family_id_or_name,),
                 ).fetchone()
+                if not family:
+                    return []
             rows = conn.execute(
-                """
-                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                f"""
+                SELECT s.skill_id, s.name, s.payload, s.updated_at, {"r.report" if include_scan_report else "NULL"} AS scan_report
                 FROM skill_registry s
-                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                {"LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id" if include_scan_report else ""}
                 WHERE json_extract(s.payload, '$.family_id') = ?
                 ORDER BY CAST(coalesce(json_extract(s.payload, '$.version_no'), 1) AS INTEGER) DESC
                 """,
@@ -1037,7 +1048,7 @@ class Registry:
             return entries
 
     def find_version_by_content(self, name: str, content_fingerprint: str) -> RegistryEntry | None:
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             row = conn.execute(
                 """
                 SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
@@ -1054,7 +1065,7 @@ class Registry:
             return self._safe_entry_from_row(row)
 
     def next_version_no(self, name: str) -> tuple[str | None, int]:
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             family = conn.execute(
                 "SELECT family_id FROM skill_families WHERE normalized_name = ?",
                 (self._normalized_skill_name(name),),
@@ -1133,7 +1144,7 @@ class Registry:
             )
 
     def list_scan_runs(self, version_id: str) -> list[ScanRun]:
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             rows = conn.execute(
                 """
                 SELECT * FROM skill_scan_runs
@@ -1163,7 +1174,7 @@ class Registry:
         if not normalized:
             return result
         rows = []
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             for offset in range(0, len(normalized), 500):
                 batch = normalized[offset:offset + 500]
                 placeholders = ",".join("?" for _ in batch)
@@ -1198,7 +1209,7 @@ class Registry:
         if not normalized:
             return result
         rows = []
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             for offset in range(0, len(normalized), 500):
                 batch = normalized[offset:offset + 500]
                 placeholders = ",".join("?" for _ in batch)
@@ -1223,7 +1234,7 @@ class Registry:
         return result
 
     def list_all(self, status: SkillStatus | None = None) -> list[RegistryEntry]:
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             if status:
                 rows = conn.execute(
                     """
@@ -1247,7 +1258,7 @@ class Registry:
             return self._entries_from_rows(rows)
 
     def count_skills(self) -> int:
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             return int(conn.execute("SELECT count(*) FROM skill_families").fetchone()[0])
 
     def list_certification_candidates(self, *, skill_id: str | None = None, name: str | None = None) -> list[RegistryEntry]:
@@ -1262,7 +1273,7 @@ class Registry:
             where, values = "WHERE name = ?", (name,)
         else:
             where, values = "", ()
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             rows = conn.execute(
                 f"SELECT skill_id, name, payload, updated_at FROM skill_registry {where} ORDER BY updated_at DESC",
                 values,
@@ -1270,7 +1281,7 @@ class Registry:
             return self._entries_from_rows(rows)
 
     def count_review_queue(self) -> int:
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             return int(conn.execute("SELECT count(*) FROM skill_review_queue").fetchone()[0])
 
     def list_by_names(self, names: list[str] | set[str]) -> list[RegistryEntry]:
@@ -1278,7 +1289,7 @@ class Registry:
         if not normalized:
             return []
         placeholders = ", ".join("?" for _ in normalized)
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             rows = conn.execute(
                 f"""
                 SELECT skill_id, name, payload, updated_at
@@ -1361,7 +1372,7 @@ class Registry:
         safe_page_size = max(1, min(page_size, 100))
         offset = (safe_page - 1) * safe_page_size
 
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             version_pointer = "latest_trusted_version_id" if trusted_only else "latest_version_id"
             total = conn.execute(
                 f"""
@@ -1496,7 +1507,7 @@ class Registry:
 
     def dashboard_stats(self) -> dict[str, Any]:
         """Return the dashboard's Skill aggregates without loading full scan reports."""
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             grouped = conn.execute(
                 """
                 SELECT s.status, s.risk_level, count(*) AS count
@@ -1555,7 +1566,7 @@ class Registry:
         """Return all skills whose status is in the given list."""
         if not statuses:
             return []
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             placeholders = ",".join("?" for _ in statuses)
             rows = conn.execute(
                 f"""
@@ -1571,7 +1582,7 @@ class Registry:
 
     def list_loadable(self) -> list[RegistryEntry]:
         """Return all skills that agents can load."""
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             rows = conn.execute(
                 """
                 SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
@@ -1604,14 +1615,14 @@ class Registry:
             return ReviewRequest.model_validate(json.loads(row["payload"]))
 
     def list_review_queue(self) -> list[ReviewRequest]:
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             rows = conn.execute(
                 "SELECT payload FROM skill_review_queue ORDER BY queued_at ASC"
             ).fetchall()
             return [ReviewRequest.model_validate(json.loads(row["payload"])) for row in rows]
 
     def list_reviewed_summaries(self) -> list[dict[str, Any]]:
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             rows = conn.execute(
                 """
                 WITH findings AS (
@@ -1690,7 +1701,7 @@ class Registry:
         skill_id: str | None = None,
         limit: int = 100,
     ) -> list[AuditEvent]:
-        with self._lock, self._connect() as conn:
+        with self._read_connection() as conn:
             clauses: list[str] = []
             params: list[Any] = []
             if since:

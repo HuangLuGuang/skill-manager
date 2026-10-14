@@ -678,9 +678,9 @@ The Agent selector includes configured and historically observed root executable
 
 客户端详情的 **插件接入** 使用产品列表与详情双栏。左侧按品牌选择 Claude Code、Codex、WorkBuddy、Qoder、Cursor；Qoder 优先选择本机已发现的入口，需要时在详情下拉框切换共享 Hook 或 Work，操作仍使用各入口的适配 ID。顶部页签及操作栏固定，左右内容区独立滚动；窄屏将产品列表变为横向选择条。
 
-客户端详情的 **概览** 默认统计 Hook，可切换 Agent 日志、Agent 产品和最近 24 小时 / 7 天 / 30 天。Qoder 在筛选中统一为一个产品。命令调用、工具调用、活跃会话、宿主报告失败支持下钻；趋势按小时聚合显示，长时间范围合并时间柱，命令 / 工具 Top 5 和 Agent 分布可点击查看对应操作。查看原记录时沿用审计正文权限；会话项跳转行为审计并带入来源、产品及会话 ID。
+客户端详情的 **概览** 默认统计 Hook，可切换 Agent 日志、Agent 产品和最近 24 小时 / 7 天 / 30 天。Qoder 在筛选中统一为一个产品。终端工具调用次数、工具调用次数、命令出现次数、活跃会话、宿主报告失败支持下钻；趋势按小时聚合显示，长时间范围合并时间柱，命令 / 工具 Top 5 和 Agent 分布可点击查看对应操作。对应操作弹框使用标准分页，显示当前筛选范围内的总条数；默认每页 30 条，可选择 10、20、30、50、100 条并跳转页码。切换每页条数回到第一页，保留当前来源、Agent 与时间范围。点击“查看记录”直接展开详情，沿用审计正文权限；会话项跳转行为审计并带入来源、产品及会话 ID。
 
-统计按所选来源独立计算，不跨 Hook / 日志相加。工具前后事件只按可靠原生调用身份合并；调用前事件表示尝试，未知结果不算成功。命令调用是包含已识别终端动作的宿主调用，一个包装调用包含多条命令仍只计一次；简单命令按主程序归类，复杂脚本归为单独类别，不聚合参数和正文。缺少可靠身份、缺少调用起点或存在歧义的工具事件单列未计入数量。活跃会话按设备、来源、用户、原生产品及会话标识去重，无会话 ID 的记录不计入。Hook 使用本地接收时间，日志使用来源时间；当前小时未结束且存在后台处理延迟，界面展示更新时间。首次回填显示 loading，统计超过一分钟未更新时明确提示延迟。
+统计按所选来源独立计算，不跨 Hook / 日志相加。工具前后事件只按可靠原生调用身份合并；调用前事件表示尝试，未知结果不算成功。终端工具调用是包含已识别终端动作的宿主调用，一个包装调用包含多条命令仍只计一次。命令出现次数及排行按 Bash / POSIX 语法拆分后的确定程序名累计：一次调用含 sed、rg、rg 三行，调用为 1 次，命令出现为 3 次，排行为 rg 2 次、sed 1 次。详情保留原始命令，并按顺序展示子命令和行号；完整正文及其解析结果受审计正文权限保护。旧版动作中的命令摘要及包装工具提取的终端动作同样属于审计正文，列表与下钻只返回内容描述；需要 `clients:read-audit-content` 权限才能按记录读取命令与子命令文本。程序名和出现次数仍作为统计元数据展示。支持换行、复合连接、管道、重定向和命令替换，普通引号或 heredoc 正文不算命令，解释器参数内代码不递归解析。循环、分支、函数体只统计文本出现次数，不代表实际执行次数；动态程序名不计入排行，截断、不完整语法和超限文本显示原因并保留调用计数。宿主结果属于整个调用，不能分摊为各子命令的执行结果。缺少可靠身份、缺少调用起点或存在歧义的工具事件单列未计入数量。活跃会话按设备、来源、用户、原生产品及会话标识去重，无会话 ID 的记录不计入。Hook 使用本地接收时间，日志使用来源时间；当前小时未结束且存在后台处理延迟，界面展示更新时间。首次回填显示 loading，统计超过一分钟未更新时明确提示延迟。
 
 资产和接入情况用紧凑入口展示，采集健康独立保留 Hook、日志、系统三通道的报告时间，不受统计筛选影响。“需要处理”展示当前来源问题、进行中任务和近 7 天尚未解决的失败；相同目标后续成功、明确被替代的任务移入“任务记录”。旧策略失败只有在新策略成功任务与新鲜的当前有效策略回执一致时才归为历史；模型检查等不同目标不据此恢复。任务记录按需分页，保留原始结果与错误码。审批数量仍仅指近期读取的申请。
 
@@ -688,15 +688,19 @@ The Agent selector includes configured and historically observed root executable
 
 **统计实现与性能：** `backend/aidr_overview.py` 在后台每批最多处理两种来源各 250 条，持久化水位、轻量事件投影、调用投影与小时桶；积压时分批继续，无积压时每 5 秒检查。首次部署自动建表并回填，GET 请求不启动回填、不解析历史正文。结果迟到与多条调用起点会重新核对原调用，保留期清理同步移除对应投影并修正统计。多 worker 通过 SQLite 写事务串行推进水位；原始事件、ACK、客户端游标和队列保持现有机制。查询按设备 / 来源 / 时间索引读取小时摘要；会话去重读取轻量投影。设备权限先于缓存检查，进程内 128 项、5 秒缓存包含完整筛选范围。缓存命中不表示采集链路健康；状态接口与统计独立加载，任务详情、正文及更多记录按需读取。
 
+Shell 解析由 `backend/aidr_commands.py` 使用 tree-sitter Bash 语法树完成，不执行客户命令。单份输入上限为 32 KiB、512 个命令节点、16384 个遍历节点；超限时整份输入不计入命令出现次数。优先解析已采集完整 Shell 正文，否则使用已有命令摘要；包装工具的 JavaScript 正文不会按 Shell 解析，只采用已提取的终端动作。升级时重建派生调用投影、水位和小时桶，后台分批回填；原始证据和 ACK 不变，回填期间显示准备中。
+
 当前小时从有索引的调用投影按截止时间统计，已结束的小时读取汇总桶，避免客户端时钟偏快时提前计入未来记录，确保指标与明细采用相同时间范围。
 
-**English — overview:** Hook is the default statistics source; select Agent logs, product (one Qoder option) and 24 hours / 7 days / 30 days. Metrics, time bars and Top 5 rankings open matching records. Sources are counted independently; terminal actions inside a wrapper count as one host invocation, not individual shell statements. Pre-events show attempts, and only explicit results count as failures. Missing or ambiguous call identities are excluded and disclosed. Raw-record content retains existing access checks. Active sessions require a native session ID. Reports and statistics show independent timestamps; initial aggregation and delayed updates are visible. The open hour uses indexed operations up to the same cutoff as drilldown; completed hours use pre-aggregated buckets, so future-dated client records are not counted early.
+**English — overview:** Hook is the default statistics source; select Agent logs, product (one Qoder option) and 24 hours / 7 days / 30 days. Metrics, time bars and Top 5 rankings open matching records. Sources are counted independently. Overview separates tool calls, terminal tool calls and command occurrences. One wrapper remains one host invocation; rankings count resolved program occurrences parsed with Bash / POSIX grammar. One call with sed, rg, rg has three occurrences (rg × 2, sed × 1). Details retain original text and ordered subcommands with line numbers under existing content permissions. Legacy command summaries and terminal actions extracted from wrappers are also protected audit content. Lists and drilldowns return descriptors only; command and subcommand text requires `clients:read-audit-content` through the record content endpoint. Program names and occurrence counts remain statistical metadata. Newlines, compound chains, pipes, redirections and substitutions are parsed; ordinary quoted/heredoc text and code inside interpreter arguments are not recursively interpreted. Loops, branches and function bodies count textual occurrences, not executions. Dynamic names are excluded from rankings; incomplete, truncated or over-limit source shows a reason and retains tool-call counts. Host outcomes describe the whole call, not individual subcommands. Pre-events show attempts, and only explicit results count as failures. Missing or ambiguous call identities are excluded and disclosed. Raw-record content retains existing access checks. Active sessions require a native session ID. Reports and statistics show independent timestamps; initial aggregation and delayed updates are visible. The open hour uses indexed operations up to the same cutoff as drilldown; completed hours use pre-aggregated buckets, so future-dated client records are not counted early.
+
+The static tree-sitter Bash parser is bounded to 32 KiB, 512 command nodes and 16384 visited nodes per input; exceeding a limit excludes that input from occurrences. Captured complete Shell bodies take precedence over command summaries. Wrapper JavaScript is not parsed as Shell; only its extracted terminal actions are used. Upgrades rebuild derived projections, watermarks and hourly buckets in bounded background batches while preserving original evidence and ACKs; statistics show preparation during backfill.
 
 Current issues are separated from task history. Exact-target later successes and current-policy success receipts can resolve older task failures; unrelated checks cannot. Historical missing files read to the last observed offset are informational; unread files and missing directories remain actionable. Older clients keep an unconfirmed missing-scope message. A bounded background worker maintains metadata projections and hourly buckets; page reads never backfill or parse historical bodies. Retention and late results reconcile counters. SQLite transactions serialize workers; a scoped, short-lived cache reduces repeated queries.
 
-**Agent 与 Skill** 分为资产清单、任务记录、治理记录和待恢复副本。资产清单中的 Agent 与共享 Skill 目录分别选择；展开资产查看 Skill，模型配置、验证和恢复操作位于“更多操作”。**插件接入** 顶部“刷新插件状态”读取平台已有报告；“重新检查接入”是单独的客户端任务，在报告缺失、延迟时突出显示，也可从技术诊断中执行。接入配置与最近事件分开显示。
+**Agent 与资产** 分为资产清单、任务记录、治理记录和待恢复副本。资产清单中的 Agent 与共享 Skill 目录分别选择；展开 Agent 后按标签查看 Skill、插件和 MCP，模型配置、验证和恢复操作位于“更多操作”。**插件接入** 顶部“刷新插件状态”读取平台已有报告；“重新检查接入”是单独的客户端任务，在报告缺失、延迟时突出显示，也可从技术诊断中执行。接入配置与最近事件分开显示。
 
-**English:** Pending approval counts cover recently fetched requests only. Agents and Skills separates inventory, tasks, governance history and recovery copies; shared directories are a separate asset category. Model actions are under More actions. Plugin access reads reports through Refresh plugin status; Recheck integration runs a separate client task. Integration configuration and latest event arrival are shown separately.
+**English:** Pending approval counts cover recently fetched requests only. Agents and Assets separates inventory, tasks, governance history and recovery copies; shared directories are a separate asset category. Model actions are under More actions. Plugin access reads reports through Refresh plugin status; Recheck integration runs a separate client task. Integration configuration and latest event arrival are shown separately.
 
 人工验收 Todo / Manual checks（不新增 UI 单元测试）：
 
@@ -1740,7 +1744,7 @@ npm run dev
 
 ```bash
 uv run --with mcp==2.0.0 pytest
-uv run --with cisco-ai-skill-scanner==2.0.6 pytest tests/test_client_runtime_integration.py::test_real_scan_rejection_is_polled_and_quarantined_without_desktop
+uv run --with cisco-ai-skill-scanner==2.0.6 python -m pytest tests/test_client_runtime_integration.py::test_real_scan_rejection_is_polled_and_quarantined_without_desktop
 DEEPEVAL_TELEMETRY_OPT_OUT=YES uv run --with deepeval==3.7.5 pytest tests/test_aig_model_auth.py
 ```
 
@@ -1765,6 +1769,36 @@ make sandbox-runtime-build
 - [performance-benchmark.md](../docs/performance-benchmark.md)：单节点并发、Skill 数量和客户端 Inventory 实测
 
 配置允许的最大并发不等于稳定处理能力。容量评估应同时检查 P95、错误率、SQLite 写等待、上游延迟和审计增长。
+
+### 11.4 Skill 检测期间的 API 响应 / API responsiveness during Skill scans
+
+ZIP、客户端 Scanner、本地目录和远程导入的解压、目录发现、摘要及版本准备通过独立的导入并发额度执行，
+默认 `AGENT_MANAGER_IMPORT_WORKERS=2`；超过额度的请求异步等待，不占用普通同步 API 的线程额度。
+URL 与 ClawHub 下载保留异步网络请求，下载文件写入及导入准备在线程执行；流式上传进度共用导入额度。
+该额度按 API 进程/事件循环生效，后台检测仍使用 `AGENT_MANAGER_SCAN_WORKERS`。
+同一进程的导入查重、版本准备与待检测任务登记使用独立准入锁，确保并发相同提交复用已有任务；
+该锁不参与 Registry 查询和运行验签。已确认上传的持久化导入队列保留原有单线程准备方式。
+
+Registry 只读查询使用独立 WAL 快照，不等待进程内扫描写锁；一次查询中的家族指针、总数和列表读取同一已提交快照，
+查询结束关闭连接。运行时验签、加载检查、Scanner 结果轮询及客户端扫描状态轮询读取状态和签名等元数据，
+不加载完整扫描报告；Skill 详情继续按需读取报告。每次运行检查仍读取数据库状态并保存审计。
+
+这些措施减少事件循环阻塞、导入线程争用和大报告解析。扫描与 API 仍共享 CPU、磁盘和 SQLite，
+验签审计与客户端写入仍可能等待写事务；生产 P95/P99 需在目标部署混合负载下确认。
+复现与验证范围见 [性能基准](performance-benchmark.md#skill-导入与-api-隔离回归2026-10-14)。
+
+**English:** Import preparation uses separate bounded thread capacity (`AGENT_MANAGER_IMPORT_WORKERS=2` per API
+process/event loop). Queued imports leave ordinary API thread capacity available. Registry reads use committed WAL
+snapshots; verification and client scan-status polling omit full reports. Each runtime check still reads database state
+and persists its audit. CPU, disk and SQLite writers remain shared, so deployed mixed-load P95/P99 requires measurement.
+
+受影响界面人工验收 Todo（简体中文 / English）：
+- [ ] 批量 ZIP、目录、URL/GitHub、ClawHub 提交时切换总览、Skill 列表和客户端页面，确认可以继续访问。
+- [ ] 上传解析进度、软链接确认、候选列表及失败提示正常，检测完成后详情报告可查看。
+- [ ] 检测时执行客户端同步、任务轮询与 Verifier 验签；确认结果及审计，批准/撤销后重新验签读取新状态。
+
+UI checklist: verify concurrent navigation, import progress/confirmation/errors, full reports, client synchronization,
+task polling and fresh verification decisions after approval/revocation in both languages. No UI unit tests are added.
 
 ---
 
@@ -2270,6 +2304,30 @@ Backend 仅接受可信代理网段提供的转发信息，避免把 Nginx 容�
 
 ## 13. 客户端 Skill 怎么统一接管
 
+### 客户端 MCP 与插件资产 / Client MCP and plugin inventory
+
+客户端详情的资产列表按所属 Agent 展开，在 Skill、插件、MCP 三个并列标签页中分别展示，默认打开 Skill。“智能体管理”的客户端发现实例在“能力与配置”中使用相同的三类资产标签页；已绑定客户端实例的平台 Agent 可在详情的“客户端资产”中按实例查看。Skill 页保留原有认证与处置入口，插件页展开后显示插件内 Skill 和 MCP。资产、发现证据和任务详情使用可读字段展示；采集状态、插件状态、Skill 使用和系统事件展示对应状态、时间、原因与操作。关联键为 `client_id + local_agent_id`，不同安装实例分别上报。
+
+MCP 列表包含独立配置和插件内的 MCP，并标注所属插件、配置来源、作用域、连接方式和配置启用状态。插件列表显示名称、版本、格式、路径与发现依据，展开后显示内含 Skill 和 MCP。Codex `.app.json` 中的依赖展示为“已注册服务引用”，只记录引用 ID。启用状态未知时显示“未知”；缓存文件、安装记录、配置记录和本地文件分别标注，文件存在不代表已加载或调用。
+
+当前解析范围：Codex、Claude Code、Cursor、Gemini CLI、Qoder/Qoder CN、CodeBuddy/WorkBuddy 的用户级配置与插件包；OpenCode 的配置插件引用、本地 JS/TS 文件；OpenClaw 的插件安装记录、本地扩展；Claude Desktop 的标准 MCP 配置。支持通用 `plugin.json` 及相应产品清单，发现插件中的 `skills/`、显式 Skill 路径、内联 MCP 和 MCP 配置文件。项目级范围来自 Claude/Codex 已知项目、插件安装记录中的项目路径，以及已配置的产品 Skill 目录；不会搜索整块磁盘。其他产品显示“尚未支持”，旧客户端显示“尚未上报”。此支持范围表示解析适配，不代表所有产品版本均完成实机验收。
+
+采集仅读取本地配置和包元数据，不启动 MCP、执行插件或调用工具。MCP 仅上报 URL 的协议和主机、程序名、参数数量及环境变量/鉴权字段名；URL 路径、查询参数、命令参数和凭据值不进入资产快照。每个 Agent 最多 128 条独立 MCP 和 128 条插件，每个插件最多 128 条 Skill 和 MCP；单配置文件 2 MiB，总配置读取预算 16 MiB，目录遍历有深度和条目限制。读取失败、格式异常、超限和越界组件会显示为不完整来源，其他可读资产继续上报。
+
+快照随客户端原有注册和资产同步链路更新，保存在所属安装实例的扩展信息中，无需新增数据库列。更新平台与客户端后等待下一次资产同步；旧客户端没有该字段时保留“尚未上报”的含义。插件内 Skill 使用只读组件清单，不加入现有 Skill 处置任务。
+
+**English:** Expand an Agent in Client details to view separate Skills, Plugins and MCP tabs, with Skills selected by default. Client-discovered Agents use the same tabs in capabilities/configuration; platform Agents with bound client instances show them per instance under Client assets. Skills retain their certification and action controls. Assets, discovery evidence and task details use readable fields; collection, plugin, Skill-use and system-event views present their relevant status, time, reasons and actions. Ownership is keyed by `client_id + local_agent_id`. MCP views include standalone and bundled entries with source, scope, transport, parent plugin and configured enabled state. Plugin rows expand into bundled Skills and MCP servers. Codex `.app.json` dependencies are registered server references, not verified connections. Installation records, configuration records, cached files and local files remain distinct.
+
+Discovery reads supported user configuration, plugin manifests, installation registries and known project paths. Adapters cover Codex, Claude Code, Cursor, Gemini CLI, Qoder/Qoder CN, CodeBuddy/WorkBuddy, OpenCode plugin references/local JS/TS, OpenClaw plugins, and standard Claude Desktop MCP configuration. Generic Agent Plugins and product manifests are recognized. Project scope comes from known Claude/Codex projects, plugin installation records and configured product Skill roots; there is no full-disk search. Other products are unsupported and legacy clients are unreported. Adapter coverage does not establish acceptance on every product version.
+
+Only URL origins, executable names, argument counts and environment/authentication field names are reported. Credentials, URL paths/query strings and argument values are omitted. Discovery does not run plugins, start MCP servers or call tools. Bounds are 128 standalone MCP entries and plugins per Agent, 128 Skills/MCP entries per plugin, 2 MiB per metadata file and a 16 MiB metadata-read budget, plus bounded directory traversal. Read/parse errors, limits and component path escapes remain visible as incomplete discovery. Snapshots use the existing client inventory sync and per-installation extension storage. Update both platform and client, then wait for inventory sync. Bundled Skills remain read-only components.
+
+UI 验收 Todo / Manual UI checks（中英文）：在客户端详情展开有/无 Skill 的 Agent；核对 MCP 与插件数量、插件内组件、长路径和未知启用状态；切换智能体实例确认资产归属；验证旧客户端、无资产、不支持和部分读取失败；在窄屏检查横向滚动与插件展开。Check both languages, Agent ownership and instance switching, bundled components, long paths, unknown state, legacy/empty/unsupported/partial inventory, and narrow-screen tables.
+
+本机验收（2026-10-13）：重建并重启 macOS ARM64 开发客户端后，本地与服务端的 13 份安装来源快照逐项一致；客户端详情和智能体详情实际展示 MCP、插件及插件内组件，中英文 390px 页面没有整页横向溢出。Codex 用户主目录同时登记为项目时，同一份用户配置仅计一次，独立项目配置仍保留。平台 Agent 绑定多个实例、旧客户端缺少快照、空快照刷新和敏感字段过滤通过隔离 API 回归；Go 客户端两包完整测试与后端 46 项测试通过。这些结果覆盖本机发现与展示，不代表其他操作系统、全部产品版本或 MCP 实际调用已验收。
+
+**Local acceptance (2026-10-13):** After rebuilding and restarting the macOS ARM64 development client, all 13 local source snapshots matched the server. Client and Agent details displayed MCP, plugins and bundled components; Chinese and English pages had no document-wide horizontal overflow at 390px. A home directory registered as a Codex project does not duplicate its user configuration; distinct project configuration remains. Isolated API regression covered multiple installations bound to a platform Agent, legacy missing snapshots, empty refreshes and sensitive-field filtering. Both Go client packages and 46 backend tests passed. This establishes local discovery/display behavior, not other OS hosts, every product version or actual MCP execution.
+
 本地 Skill 列表同时展示认证结果与当前内容快照的检测状态，例如“未认证 · 检测中”。同一路径和内容签名对应的快照处于待提交、检测中或待审核状态时，读取该路径的 Agent 均显示对应状态并禁用提交按钮；内容变化后旧快照状态不再限制新内容提交。检测详情仍显示阶段和分析器进度。检测记录页的“刷新”会向平台核对当前任务状态，后台服务暂时停止时也可更新按钮状态。检测完成后手动重新检测会要求平台启动新的检测任务；仍在检测中的重复请求复用现有任务，不重复记录新提交事件。
 
 未认证 Skill 曾被自动隔离，之后原 Agent 路径重新出现可读取内容，且当前分类策略对该内容执行“仅记录”或“记录且告警”时，客户端巡检会校验本地当前内容并将该路径的旧自动隔离记录归档为 `resolved`，立即刷新隔离区列表和数量。历史副本与审计记录保留；即使应用重建的内容与旧副本不同，也不再把已允许使用的原路径显示为仍在隔离。这不是平台认证，也不自动恢复仍缺失的文件；手动隔离、卸载备份、隔离失败和当前仍要求隔离的记录维持原有处理方式。
@@ -2483,8 +2541,10 @@ MCP 案例的确定性演示服务和调用脚本位于
   [docker-deployment.md](../docs/docker-deployment.md)
 - 外部 Agent 接入：
   [external-agent-integration.md](../docs/external-agent-integration.md)
-- Claude Code、Codex 与 OpenClaw Hook 接入：
+- 客户端 AIDR 插件 Hook 接入（默认）：
   [hook-integration.md](../docs/hook-integration.md)
+- 开发者加载前验签与手工 Hook 脚本：
+  [developer-skill-verification.md](../docs/developer-skill-verification.md)
 - Agent 验签：
   [agent-signature-verification.md](../docs/agent-signature-verification.md)
 - Sandbox 架构：
@@ -2558,13 +2618,13 @@ In client details, **Policies & approvals** offers direct navigation to **Tool r
 - 检查全局继承、只读权限、空规则及加载失败状态。 / Check inheritance, read-only access, empty rules, and load failures.
 - 分组修改配置，预览全部变更并保存；核对客户端回执、审批处理及实际生效模式。 / Edit across groups, preview and save all changes, then verify client receipts, approval actions, and the effective mode.
 
-客户端管理的设备详情分为概览、Agent与Skill、插件接入、行为审计、策略与审批。Skill治理与模型配置位于Agent与Skill；Claude/Codex安装、启用与信任位于插件接入；工具日志、Hook生命周期、系统事件及采集诊断位于行为审计；工具审批、系统策略和响应回执位于策略与审批。公共页头只展示设备与心跳，不在各标签下重复库存或任务表。按需加载的摘要保留报告时间与未知状态；安装回执、Hook意图、日志结果与OS执行证据分别核对。详细操作见[客户端说明](agent-manager-client.md)。
+客户端管理的设备详情分为概览、Agent 与资产、插件接入、行为审计、策略与审批。Skill治理与模型配置位于Agent 与资产；Claude/Codex安装、启用与信任位于插件接入；工具日志、Hook生命周期、系统事件及采集诊断位于行为审计；工具审批、系统策略和响应回执位于策略与审批。公共页头只展示设备与心跳，不在各标签下重复库存或任务表。按需加载的摘要保留报告时间与未知状态；安装回执、Hook意图、日志结果与OS执行证据分别核对。详细操作见[客户端说明](agent-manager-client.md)。
 
 从 **智能体列表 → 客户端发现 → 详情** 可进入单个 Agent 的工作区，按“概览、能力与配置、行为审计、策略与审批、执行记录”组织信息。先选择安装入口，再查看该入口报告的 Skill、模型配置和任务；会话、插件及工具审批按客户端与 Agent 类型查询。系统事件按程序路径或 macOS 应用包筛选，未知归属与其他路径仍可在客户端详情查看。共享接收器、设备信息及跨 Agent 策略由客户端详情管理，两处提供互相跳转入口。
 
 Agent 工作区展示真实采集报告、原始证据和任务回执；创建任务不等于执行成功，发布策略不等于客户端已应用。插件操作、Skill 治理及受支持的模型切换复用现有权限和任务校验。日志重试在桌面客户端“Agent 运行治理 → 接入与采集”执行。English: Agents → Client discovery → Details opens the installation workspace. Skills, model configuration and tasks follow the selected installation; sessions, plugins and tool approvals follow the client and agent type. Shared services and cross-agent policy remain in client details. Runtime reports and execution receipts establish actual outcomes.
 
-详情页优先展示状态与操作：设备 ID 和凭据创建人可展开“设备信息”查看；概览每项功能保留一个摘要入口，页头刷新同时更新当前概览。插件页直接展示宿主安装、信任与操作，协议能力和逐项验收集中在“接入诊断与验收”。行为审计保留当前采集异常与历史覆盖缺口数量，采集边界和查询说明按需展开。审批列表仅显示一个同步时间，存在更多记录或已翻页时显示底部分页；Agent 与 Skill 页仅在有恢复副本时展示该列表。
+详情页优先展示状态与操作：设备 ID 和凭据创建人可展开“设备信息”查看；概览每项功能保留一个摘要入口，页头刷新同时更新当前概览。插件页直接展示宿主安装、信任与操作，协议能力和逐项验收集中在“接入诊断与验收”。行为审计保留当前采集异常与历史覆盖缺口数量，采集边界和查询说明按需展开。审批列表仅显示一个同步时间，存在更多记录或已翻页时显示底部分页；Agent 与资产页仅在有恢复副本时展示该列表。
 
 
 ### AIDR 小版本兼容
@@ -2623,3 +2683,20 @@ Skill 行为接口按需读取认证元数据：优先查询设备部署的版�
 对外名称统一为 Agent Manager、Agent Manager Hook、Agent Manager 本地接收器；内部安装标识和旧事件兼容。具体数据边界、逐产品支持矩阵和人工验收见 [集成文档](external-agent-integration.md#skill-使用识别与认证审计) 与 [客户端说明](agent-manager-client.md#agent-manager-插件名称与-skill-使用审计)。
 
 **English:** Session Skill activity combines entry-specific evidence using strong native identities. Server-side, policy-controlled registry/signature/instance checks create deduplicated client alerts. Missing evidence remains pending and tools are never blocked by this audit feature. Public names are unified while internal IDs remain compatible; see the linked integration matrix for actual verification scope.
+## 平台总览 / Platform overview
+
+平台总览按当前账号的模块权限展示注册智能体、受管 Skill、MCP 服务、配置模型和在线客户端。智能体及客户端沿用现有归属范围；超级管理员可查看全量，其他账号只统计本人创建的智能体及本人注册的客户端。客户端在线依据最近 10 分钟心跳。
+
+待处理事项汇总 Skill 人工审核与未过期的 MCP 调用审批。标签展示完整待办数量，列表每类展示最近 20 条并分页；高风险提示只统计当前标签下已加载的待办。点击 MCP 待办直接打开对应审批详情。最近活动展示近 7 天最新 8 条 Skill / MCP 审计及安全扫描任务状态，仅包含事件、对象和时间等摘要；扫描任务沿用所属用户、用户组及安全审计角色的可见范围，入口打开对应任务。
+
+运行观察的今日模型阻断与 MCP 拒绝分别按审计中的 `blocked`、`denied` 状态统计，使用 UTC 自然日。AIDR 展示最近 24 小时收到且仍保留的日志 / Hook 记录数和去重上报客户端数，采集能力标记为“正在测试中”。记录数不是独立操作数，也不代表执行前阻断覆盖率。
+
+底部提供近 7 天 / 30 天模型调用趋势及 Skill 风险分布。趋势统计已写入 `LlmUsageMetric` 的请求，按 UTC 自然日补齐无记录日期；风险分布按每个 Skill 的最新版本统计，未判定或未知风险单列。页面标注更新时间，支持刷新；刷新失败保留上次数据并明确提示，首次读取失败提供重试。
+
+**English:** The overview shows registered agents, managed Skills, MCP servers, configured models and online clients according to module permissions. Agent and client counts follow existing ownership rules: super administrators see all, while other accounts see agents they created and clients they registered. Online status uses a heartbeat within 10 minutes.
+
+Pending work combines Skill reviews and unexpired MCP call approvals. Tabs show complete totals; each type lists its latest 20 items with pagination. The high-risk notice counts loaded items under the current tab. MCP items open the corresponding approval details. Recent activity contains the latest 8 Skill / MCP audit summaries and security scan task states from the past 7 days. Scan tasks retain user, group and security-reader visibility rules and link to the corresponding task.
+
+Runtime counters use the UTC calendar day and the audit statuses `blocked` for models and `denied` for MCP. AIDR shows retained log / Hook records received in the past 24 hours and distinct reporting clients, with an “In testing” label. Records do not equal unique operations or enforcement coverage.
+
+The charts show 7 / 30 UTC calendar days of requests recorded in `LlmUsageMetric`, including zero-filled dates, and current Skill risk distribution by latest version. Unassessed or unknown risk remains separate. The page shows its refresh time, retains previous data with an explicit warning on refresh failure, and offers retry when initial loading fails.

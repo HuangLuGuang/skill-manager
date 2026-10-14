@@ -21,7 +21,26 @@
     </a-row>
 
     <section class="table-card">
-      <a-table :columns="columns" :data-source="clients" row-key="client_id" :loading="loading" :pagination="{ pageSize: 10 }">
+      <a-table class="client-inventory-table" table-layout="fixed" :scroll="{ x: 1320 }" :columns="columns" :show-sorter-tooltip="false" :data-source="clients" row-key="client_id" :loading="loading" :pagination="{ pageSize: 10 }">
+        <template #headerCell="{ column }">
+          <span v-if="column.key === 'agents' || column.key === 'skills'" class="inventory-column-heading">
+            {{ column.title }}
+            <a-popover :trigger="['hover', 'focus', 'click']" placement="topRight" :overlay-style="{ maxWidth: 'calc(100vw - 32px)' }">
+              <template #content>
+                <div class="inventory-column-help">
+                  <dl>
+                    <div v-for="metric in column.key === 'agents' ? ['discovered', 'governable'] : ['records', 'sharedSources']" :key="metric">
+                      <dt>{{ $t(`clientGovernance.inventoryColumns.${metric}`) }}</dt>
+                      <dd>{{ $t(`clientGovernance.inventoryColumns.${metric}Help`) }}</dd>
+                    </div>
+                  </dl>
+                  <p>{{ $t(`clientGovernance.inventoryColumns.${column.key}Sort`) }}</p>
+                </div>
+              </template>
+              <button type="button" class="inventory-help-trigger" :aria-label="$t('clientGovernance.inventoryColumns.helpLabel', { column: column.title })" @click.stop @keydown.stop><InfoCircleOutlined /></button>
+            </a-popover>
+          </span>
+        </template>
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'client'">
             <a role="button" tabindex="0" @click="openDetail(record)" @keydown.enter.prevent="openDetail(record)" @keydown.space.prevent="openDetail(record)">{{ record.name }}</a>
@@ -32,11 +51,17 @@
             <div class="muted">{{ governanceShortLabel(record.governance_mode) }} · Client {{ record.client_version }}</div>
           </template>
           <template v-else-if="column.key === 'agents'">
-            <span>{{ $t('clientGovernance.counts.discoveredAgents', { count: actualAgentCount(record) }) }}</span>
-            <span class="muted inline-note">{{ $t('clientGovernance.counts.manageableAgents', { count: managedAgentCount(record) }) }}</span>
-            <span v-if="sharedSkillsCount(record)" class="muted inline-note">{{ $t('clientGovernance.counts.sharedSkillSources', { count: sharedSkillsCount(record) }) }}</span>
+            <dl class="inventory-counts">
+              <div><dt>{{ $t('clientGovernance.inventoryColumns.discovered') }}</dt><dd>{{ actualAgentCount(record) }}</dd></div>
+              <div class="inventory-count-secondary"><dt>{{ $t('clientGovernance.inventoryColumns.governable') }}</dt><dd>{{ managedAgentCount(record) }}</dd></div>
+            </dl>
           </template>
-          <template v-else-if="column.key === 'skills'">{{ skillCount(record) }}</template>
+          <template v-else-if="column.key === 'skills'">
+            <dl class="inventory-counts">
+              <div><dt>{{ $t('clientGovernance.inventoryColumns.records') }}</dt><dd>{{ skillCount(record) }}</dd></div>
+              <div v-if="sharedSkillsCount(record)" class="inventory-count-secondary"><dt>{{ $t('clientGovernance.inventoryColumns.sharedSources') }}</dt><dd>{{ sharedSkillsCount(record) }}</dd></div>
+            </dl>
+          </template>
           <template v-else-if="column.key === 'credentialOwner'">{{ record.registered_by || '-' }}</template>
           <template v-else-if="column.key === 'status'">
             <a-tag :color="isOnline(record) ? 'green' : 'default'">{{ isOnline(record) ? $t('legacy.hf6go') : $t('legacy.1hsp9j3') }}</a-tag>
@@ -108,7 +133,10 @@
                   <pre v-if="record.capabilities?.model_config_state?.verification?.length">{{ JSON.stringify(record.capabilities.model_config_state.verification, null, 2) }}</pre>
                 </details>
               </template>
-              <template v-else-if="column.key === 'skills'">{{ record.skills?.length || 0 }}</template>
+              <template v-else-if="column.key === 'skills'">
+                <div>{{ $t('localAssets.skills') }} {{ record.skills?.length || 0 }}</div>
+                <div v-if="record.asset_inventory" class="muted">{{ $t('localAssets.summary', localAssetCounts(record)) }}</div>
+              </template>
               <template v-else-if="column.key === 'action'">
                 <a-space wrap size="small">
                   <a-button v-if="hasAccess('clients:execute')" type="link" :disabled="!record.skill_management_supported || (currentGovernance === 'strict' && isSharedSkillsRecord(record))" :title="currentGovernance === 'strict' && isSharedSkillsRecord(record) ? $t('legacy.13rv9dd') : ''" @click="openInstall(record)">{{ $t('legacy.1byrs80') }}</a-button>
@@ -126,6 +154,8 @@
               </template>
             </template>
             <template #expandedRowRender="{ record: agentRecord }">
+              <AgentLocalAssets :inventory="agentRecord.asset_inventory" :skills="agentSkills(agentRecord)" :integrations="!isSharedSkillsRecord(agentRecord)">
+                <template #skills>
               <a-table class="agent-skill-table" table-layout="fixed" :columns="skillColumns" :data-source="agentSkills(agentRecord)" :row-key="row => `${row.agent_type}:${row.path}`" size="small" :pagination="false">
                 <template #bodyCell="{ column, record }">
                   <template v-if="column.key === 'name'">
@@ -144,6 +174,8 @@
                   </template>
                 </template>
               </a-table>
+                </template>
+              </AgentLocalAssets>
             </template>
           </a-table>
               </template>
@@ -329,6 +361,8 @@ import ClientDeviceOverview from '../components/ClientDeviceOverview.vue'
 import ClientRuntimeGovernance from '../components/ClientRuntimeGovernance.vue'
 import ClientHookPanel from '../components/ClientHookPanel.vue'
 import ClientSkillScan from '../components/ClientSkillScan.vue'
+import AgentLocalAssets from '../components/AgentLocalAssets.vue'
+import { withAssetNameSearch } from '../utils/assetNameSearch'
 import ClientSkillActions from '../components/ClientSkillActions.vue'
 import {
   getCurrentLocale,
@@ -344,6 +378,7 @@ import { useRoute, useRouter } from 'vue-router'
 const discoveryOpen = ref(false)
 const globalToolPolicyOpen = ref(false)
 import { message } from 'ant-design-vue'
+import { InfoCircleOutlined } from '@ant-design/icons-vue'
 
 import {
   cancelClientTask,
@@ -464,20 +499,26 @@ const downloadPlatformLabel = item => text(item.platform_label, {
   'linux-x86_64': 'Linux 64-bit',
 }[item.platform] || item.platform_label)
 
+const compareClientText = (left, right) => String(left || '').localeCompare(String(right || ''), getCurrentLocale(), { numeric: true, sensitivity: 'base' })
+const heartbeatTime = value => {
+  if (!value) return 0
+  const text = String(value)
+  return Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : `${text}Z`) || 0
+}
 const columns = [
-  { title: phrase('legacy.tus94r'), key: 'client' },
-  { title: phrase('legacy.p0ysv3'), key: 'platform', width: 170 },
-  { title: 'Agent', key: 'agents', width: 160 },
-  { title: 'Skill', key: 'skills', width: 90 },
-  { title: phrase('legacy.1mk8o97'), key: 'credentialOwner', width: 120 },
-  { title: phrase('legacy.1ccx4t4'), key: 'status', width: 90 },
-  { title: phrase('legacy.12y43gp'), key: 'lastSeen', width: 180 },
-  { title: phrase('legacy.501w24'), key: 'action', width: 80 },
+  { title: phrase('legacy.tus94r'), key: 'client', sorter: (a, b) => compareClientText(a.name, b.name) },
+  { title: phrase('legacy.p0ysv3'), key: 'platform', width: 170, sorter: (a, b) => compareClientText(a.os, b.os) || compareClientText(a.arch, b.arch) },
+  { title: 'Agent', key: 'agents', width: 180, sorter: (a, b) => actualAgentCount(a) - actualAgentCount(b) },
+  { title: 'Skill', key: 'skills', width: 180, sorter: (a, b) => skillCount(a) - skillCount(b) },
+  { title: phrase('legacy.1mk8o97'), key: 'credentialOwner', width: 140, sorter: (a, b) => compareClientText(a.registered_by, b.registered_by) },
+  { title: phrase('legacy.1ccx4t4'), key: 'status', width: 100, sorter: (a, b) => Number(isOnline(a)) - Number(isOnline(b)) },
+  { title: phrase('legacy.12y43gp'), key: 'lastSeen', width: 200, sorter: (a, b) => heartbeatTime(a.last_seen_at) - heartbeatTime(b.last_seen_at) },
+  { title: phrase('legacy.501w24'), key: 'action', width: 100 },
 ]
 const agentColumns = [
   { title: 'Agent', key: 'type' },
   { title: i18n.global.t('clientModelConfig.model'), key: 'model', width: 230 },
-  { title: 'Skill', key: 'skills', width: 70 },
+  { title: () => i18n.global.t('localAssets.assets'), key: 'skills', width: 155 },
   { title: phrase('legacy.501w24'), key: 'action', width: 170, fixed: 'right' },
 ]
 const visibleAgentColumns = computed(() => agentColumns
@@ -485,7 +526,7 @@ const visibleAgentColumns = computed(() => agentColumns
   .map(column => column.key === 'type' && inventoryType.value === 'shared' ? { ...column, title: i18n.global.t('clientDetail.shared') } : column))
 const inventoryAgents = computed(() => (detail.value?.agents || []).filter(agent => isSharedSkillsRecord(agent) === (inventoryType.value === 'shared')))
 const skillColumns = [
-  { title: 'Skill', key: 'name' },
+  withAssetNameSearch({ title: 'Skill', key: 'name' }),
   { title: phrase('legacy.1ccx4t4'), key: 'status', width: 240 },
   { title: phrase('legacy.501w24'), key: 'action', width: 190 },
 ]
@@ -503,7 +544,8 @@ const actualAgentCount = record => record.agents?.filter(agent => !isSharedSkill
 const sharedSkillsCount = record => record.agents?.filter(isSharedSkillsRecord).length || 0
 const agentCount = computed(() => clients.value.reduce((sum, item) => sum + actualAgentCount(item), 0))
 const issueCount = computed(() => clients.value.reduce((sum, item) => sum + (item.issue_count || 0), 0))
-const agentTableExpandable = { rowExpandable: record => Boolean(record.skills?.length) }
+const localAssetCounts = record => ({ mcp: (record.asset_inventory?.mcp_servers?.length || 0) + (record.asset_inventory?.plugins || []).reduce((count, plugin) => count + plugin.mcp_servers.length, 0), plugins: record.asset_inventory?.plugins?.length || 0 })
+const agentTableExpandable = { rowExpandable: record => !isSharedSkillsRecord(record) || Boolean(record.skills?.length) }
 const selectedManagedAgent = computed(() => agents.value.find(agent => agent.agent_id === installForm.managed_agent_id))
 const tokenNotExpired = token => {
   if (!token.expires_at) return true
@@ -919,9 +961,23 @@ onMounted(async () => {
 }
 .model-catalog-state { margin-top: 12px; }
 .model-call-note { margin: 8px 0; }
-.inline-note {
-  margin-left: 8px;
-}
+.client-inventory-table :deep(td) { overflow-wrap: anywhere; }
+.client-inventory-table :deep(th) { white-space: normal; overflow-wrap: normal; word-break: normal; }
+.inventory-column-heading { display: inline-flex; align-items: center; gap: 8px; }
+.inventory-help-trigger { display: inline-flex; align-items: center; justify-content: center; padding: 3px; border: 0; border-radius: 4px; background: transparent; color: #626b78; font-size: 13px; cursor: help; }
+.inventory-help-trigger:hover { color: #245eea; background: #eef4ff; }
+.inventory-help-trigger:focus-visible { outline: 2px solid #245eea; outline-offset: 2px; }
+.inventory-column-help { width: 300px; max-width: calc(100vw - 64px); font-size: 13px; line-height: 1.65; white-space: normal; overflow-wrap: break-word; }
+.inventory-column-help dl { display: grid; gap: 14px; margin: 0; }
+.inventory-column-help dt { margin-bottom: 4px; color: #253248; font-weight: 600; }
+.inventory-column-help dd { margin: 0; color: #526078; }
+.inventory-column-help p { margin: 14px 0 0; padding-top: 10px; border-top: 1px solid #e8edf3; color: #626b78; }
+.inventory-counts { display: grid; gap: 6px; margin: 0; }
+.inventory-counts > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 12px; }
+.inventory-counts dt { overflow-wrap: normal; word-break: normal; }
+.inventory-counts dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.inventory-count-secondary { color: #626b78; font-size: 12px; }
+.inventory-count-secondary dd { font-weight: 400; }
 .client-download-progress {
   display: flex;
   align-items: center;

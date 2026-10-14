@@ -17,6 +17,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTT
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from agent_manager.api.import_work import import_endpoint
 from agent_manager.api.router import (
     RuntimeCheckResponse,
     PromptVerifyPayload,
@@ -420,7 +421,7 @@ def token_runtime_can_load(
         )
     resolved_agent_id = resolve_agent_id(agent_id, x_agent_id)
     agent = ensure_token_agent_allowed(db, token, resolved_agent_id)
-    entry = mgr.get_skill(skill_name)
+    entry = mgr.get_skill(skill_name, include_scan_report=False)
     _ensure_agent_skill_allowed_or_audit(
         mgr,
         agent,
@@ -454,7 +455,7 @@ def token_runtime_verify_skill_signature(
 ):
     resolved_agent_id = resolve_agent_id(body.agent_id, x_agent_id)
     agent = ensure_token_agent_allowed(db, token, resolved_agent_id)
-    registry_entry = mgr.get_skill(body.skill_id or body.skill_name) if (body.skill_id or body.skill_name) else None
+    registry_entry = mgr.get_skill(body.skill_id or body.skill_name, include_scan_report=False) if (body.skill_id or body.skill_name) else None
     if registry_entry:
         _ensure_agent_skill_allowed_or_audit(
             mgr,
@@ -669,7 +670,8 @@ def download_skill_guard():
 
 
 @router.post("/scanner/imports", response_model=ScannerSubmitResponse)
-async def submit_scanner_import(
+@import_endpoint
+def submit_scanner_import(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     manifest: str | None = Form(None),
@@ -710,7 +712,7 @@ async def submit_scanner_import(
     tmp_dir = Path(tempfile.mkdtemp(prefix="agent-manager-scanner-"))
     try:
         zip_path = tmp_dir / "skill.zip"
-        content = await file.read()
+        content = file.file.read()
         if len(content) > max_bytes:
             raise HTTPException(status_code=413, detail=f"File too large (max {scanner_auth.max_upload_mb} MB)")
         zip_path.write_bytes(content)
@@ -825,7 +827,7 @@ def get_scanner_import(
     scanner_auth: ScannerAuthContext = Depends(require_scanner_read_token),
     mgr: AgentManager = Depends(get_manager),
 ):
-    entry = mgr.get_skill(skill_id)
+    entry = mgr.get_skill(skill_id, include_scan_report=False)
     if entry is None:
         raise HTTPException(status_code=404, detail="Skill not found")
     if not _submission_owned_by(scanner_auth, entry):

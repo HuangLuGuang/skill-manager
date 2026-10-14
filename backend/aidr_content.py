@@ -86,11 +86,30 @@ def validate_contents(contents, status, policy):
             raise ValueError('audit_content_secret_rejected')
 
 
+def command_summaries(behavior):
+    """Legacy/action command text is audit content, including wrapper actions."""
+    captured = behavior.get('contents') or []
+    if any(item.get('kind') == 'command_body' and item.get('source_field') in ('input.command', 'input.cmd') for item in captured):
+        return []
+    return [dict(kind='command_body', source_field='behavior.actions.command', block=index,
+                 text=action['command'], source_bytes=len(action['command'].encode()),
+                 redacted=bool(behavior.get('redacted')), truncated=bool(behavior.get('truncated')),
+                 command_summary=True)
+            for index, action in enumerate(behavior.get('actions') or []) if action.get('command')]
+
+
 def metadata_view(value):
     """No list, operation, approval or projection-JSON response contains body text."""
     value = copy.deepcopy(value)
     def walk(node):
         if isinstance(node, dict):
+            if isinstance(node.get('actions'), list):
+                summaries = command_summaries(node)
+                if summaries:
+                    node['contents'] = [*(node.get('contents') or []), *summaries]
+                for action in node['actions']:
+                    action.pop('command', None)
+                    action.pop('command_analysis', None)
             for key, child in node.items():
                 if key == 'contents' and isinstance(child, list):
                     for item in child:
@@ -108,4 +127,6 @@ def metadata_view(value):
 
 def record_contents(value):
     event = value.get('event', value)
-    return [*(event.get('contents') or []), *((event.get('behavior') or {}).get('contents') or []), *((event.get('message') or {}).get('contents') or [])]
+    behavior = event.get('behavior') or {}
+    return [*(event.get('contents') or []), *(behavior.get('contents') or []),
+            *((event.get('message') or {}).get('contents') or []), *command_summaries(behavior)]

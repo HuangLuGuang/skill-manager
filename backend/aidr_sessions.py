@@ -83,23 +83,32 @@ def sessions(db, client_id, *, cursor='', limit=20, keyword='', agent='', includ
                 WHERE instr(lower(json_extract(c.value, '$.text')), :keyword) > 0) ELSE 0 END""" if search_questions else '0'
     agent_filter = aidr_adapters.family_filter_sql(agent)
     log_entry = _session_agent_sql('agent', agent)
+    operation_index = 'ix_aidr_operation_product_sessions' if agent else 'ix_aidr_operation_session_list'
+    log_filter = "AND agent IN (SELECT value FROM json_each(:log_agents))" if agent else ''
+    hook_filter = "AND json_extract(payload_json, '$.event.agent') IN (SELECT value FROM json_each(:hook_agents))" if agent else ''
+    params.update(log_agents=json.dumps(aidr_adapters.session_source_ids(agent, logs=True)),
+                  hook_agents=json.dumps(aidr_adapters.session_source_ids(agent)))
+    # Aggregate each indexed source before merging. MIN on grouped identity
+    # expressions keeps SQLite from fetching the original JSON for bare columns.
     rows = db.execute(text(f"""
         WITH evidence AS (
           SELECT {log_entry} AS agent, session_id, CASE WHEN session_id = '' THEN id ELSE 0 END AS orphan_id,
             julianday(latest_at) AS at, 1 AS logs, 0 AS hooks, 0 AS messages,
             NULL AS prompt_id, 0 AS question_hit
-          FROM aidr_operations WHERE client_id = :client_id AND expired_at IS NULL AND id <= :log_max
+          FROM aidr_operations INDEXED BY {operation_index} WHERE client_id = :client_id AND expired_at IS NULL AND id <= :log_max {log_filter}
           UNION ALL
-          SELECT json_extract(payload_json, '$.event.agent'), json_extract(payload_json, '$.event.session_id'),
-            0, julianday(json_extract(payload_json, '$.received_at')), 0, 1, 0,
-            {hook_prompt}, {hook_hit}
-          FROM aidr_hook_events INDEXED BY ix_aidr_hook_session_list WHERE client_id = :client_id AND expired_at IS NULL AND id <= :hook_max
+          SELECT MIN(json_extract(payload_json, '$.event.agent')), MIN(json_extract(payload_json, '$.event.session_id')),
+            0, MAX(julianday(json_extract(payload_json, '$.received_at'))), 0, COUNT(*), 0,
+            MIN({hook_prompt}), MAX({hook_hit})
+          FROM aidr_hook_events INDEXED BY ix_aidr_hook_session_list WHERE client_id = :client_id AND expired_at IS NULL AND id <= :hook_max {hook_filter}
+          GROUP BY json_extract(payload_json, '$.event.agent'), json_extract(payload_json, '$.event.session_id')
           UNION ALL
-          SELECT {log_entry}, json_extract(payload_json, '$.session_id'), 0,
-            julianday(json_extract(payload_json, '$.observed_at')), 0, 0, 1,
-            {log_prompt}, {log_hit}
+          SELECT MIN({log_entry}), MIN(json_extract(payload_json, '$.session_id')), 0,
+            MAX(julianday(json_extract(payload_json, '$.observed_at'))), 0, 0, COUNT(*),
+            MAX({log_prompt}), MAX({log_hit})
           FROM aidr_events INDEXED BY ix_aidr_message_session_list WHERE client_id=:client_id AND expired_at IS NULL AND id<=:message_max
-            AND kind IN ('user_message','assistant_message')
+            AND kind IN ('user_message','assistant_message') {log_filter}
+          GROUP BY agent, json_extract(payload_json, '$.session_id')
         ), grouped AS (
           SELECT agent, session_id, orphan_id, SUM(logs) AS log_count, SUM(hooks) AS hook_count, SUM(messages) AS message_count,
             MAX(at) AS sort_at, strftime('%Y-%m-%dT%H:%M:%fZ', MAX(at)) AS latest_at,

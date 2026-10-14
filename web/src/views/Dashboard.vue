@@ -1,705 +1,307 @@
 <template>
-  <div>
-    <a-card class="page-card">
-      <template #title>
-        <a-page-header :title="$t('legacy.1jy0sj1')" :sub-title="$t('legacy.1urpidh')">
-          <template #extra>
-            <a-button type="primary" @click="guideVisible = true">{{ $t("legacy.u03t1e") }}</a-button>
-          </template>
-        </a-page-header>
-      </template>
-
-    <div v-if="loading" role="status" :aria-label="t('uiExperience.loading')" aria-busy="true">
-      <a-skeleton active :paragraph="{ rows: 8 }" />
-    </div>
-    <a-result v-else-if="loadFailed" status="warning" :title="t('uiExperience.dashboardUnavailable')" :sub-title="t('uiExperience.dashboardRetryHint')">
-      <template #extra><a-button type="primary" @click="fetchDashboard">{{ t('uiExperience.retry') }}</a-button></template>
+  <div class="dashboard">
+    <header class="dashboard-heading">
+      <div><h1>{{ t('dashboard.title') }}</h1><p>{{ t('dashboard.subtitle') }}</p></div>
+      <div class="heading-actions">
+        <span v-if="data" class="updated">{{ t('dashboard.updated', { time: formatDateTime(data.as_of) }) }}</span>
+        <a-button @click="router.push('/docs')"><BookOutlined />{{ t('dashboard.guide') }}</a-button>
+        <a-button :loading="loading" :disabled="loading" @click="load(days)"><ReloadOutlined />{{ t('dashboard.refresh') }}</a-button>
+      </div>
+    </header>
+    <a-skeleton v-if="loading && !data" active :paragraph="{ rows: 12 }" :aria-label="t('uiExperience.loading')" />
+    <a-result v-else-if="!data && failed" status="warning" :title="t('dashboard.loadFailed')" :sub-title="t('dashboard.retryHint')">
+      <template #extra><a-button type="primary" @click="load(days)">{{ t('dashboard.retry') }}</a-button></template>
     </a-result>
-    <template v-else>
-    <a-row :gutter="[16, 16]">
-      <a-col :xs="24" :xl="8" v-for="item in moduleCards" :key="item.key">
-        <a-card class="module-card" :title="item.title">
-          <template #extra>
-            <a-button v-if="pageAllowed(item.path)" type="link" size="small" @click="$router.push(item.path)">{{ $t("legacy.58gz2l") }}</a-button>
-          </template>
-          <div class="module-primary">
-            <span class="module-value">{{ item.value }}</span>
-            <span class="module-label">{{ item.label }}</span>
+    <template v-else-if="data">
+      <a-alert v-if="failed" type="warning" show-icon :message="t('dashboard.stale')" class="refresh-warning" />
+      <section v-if="assetItems.length" class="asset-strip surface" :aria-label="t('dashboard.assetsLabel')">
+        <component :is="pageAllowed(item.path) ? 'button' : 'div'" v-for="item in assetItems" :key="item.key" class="asset" @click="navigate(item.path)">
+          <component :is="item.icon" class="asset-icon" /><div><div class="asset-label">{{ t('dashboard.' + item.key) }}</div><strong>{{ item.value }}</strong></div>
+        </component>
+        <a-tooltip :title="t('dashboard.assetHint')"><button class="info-button asset-help" :aria-label="t('dashboard.assetHint')"><InfoCircleOutlined /></button></a-tooltip>
+      </section>
+      <a-empty v-else-if="!todoTypes.length && !hasRuntime && !data.trend && !data.activity_sources.length" :description="t('dashboard.noAccess')" />
+      <div class="work-grid" :class="{ 'single-column': !hasRuntime || !todoTypes.length }">
+        <section v-if="todoTypes.length" class="surface pending-panel" :aria-label="t('dashboard.todos')">
+          <div class="panel-heading"><h2>{{ t('dashboard.todos') }} <span class="count">{{ number(totalTodos) }}</span></h2>
+            <a-button v-if="pageAllowed(activeQueuePath)" type="primary" @click="navigate(activeQueuePath)">{{ t('dashboard.viewTodos') }}</a-button>
           </div>
-          <a-row :gutter="[8, 8]" class="module-substats">
-            <a-col :span="12" v-for="stat in item.stats" :key="stat.label">
-              <div class="substat">
-                <div class="substat-value">{{ stat.value }}</div>
-                <div class="substat-label">{{ stat.label }}</div>
-              </div>
-            </a-col>
-          </a-row>
-          <div class="module-flow">
-            <div class="module-flow-title">{{ $t("legacy.1f4me9o") }}</div>
-            <div class="module-flow-steps">
-              <span v-for="(step, index) in item.flow" :key="step" class="flow-step">
-                {{ step }}<span v-if="index < item.flow.length - 1" class="flow-arrow">→</span>
-              </span>
-            </div>
-          </div>
-        </a-card>
-      </a-col>
-    </a-row>
-
-    <a-row :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :xs="24" :xl="16">
-        <a-card :title="$t('legacy.jsrb0i')">
-          <a-table
-            :data-source="todoRows"
-            :columns="todoColumns"
-            rowKey="id"
-            :pagination="{ pageSize: 8 }"
-            :scroll="{ x: 680 }"
-            :locale="{ emptyText: $t('legacy.ar9qc8') }"
-          >
+          <a-alert v-if="urgentCount" class="urgent-alert" type="warning" show-icon :message="t('dashboard.urgent', { count: number(urgentCount) })" />
+          <a-tabs v-model:activeKey="activeTab" class="todo-tabs">
+            <a-tab-pane key="all" :tab="t('dashboard.all') + ' ' + number(totalTodos)" />
+            <a-tab-pane v-for="type in todoTypes" :key="type" :tab="typeLabel(type) + ' ' + number(data.todos.counts[type])" />
+          </a-tabs>
+          <a-table :key="activeTab" :columns="todoColumns" :data-source="visibleTodos" row-key="id" size="middle" :scroll="{ x: 590 }"
+            :pagination="{ pageSize: 4, size: 'small', hideOnSinglePage: true, showSizeChanger: false }" :locale="{ emptyText: t('dashboard.noTodos') }">
             <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'type'">
-                <a-tag :color="todoTypeColor(record.type)">{{ record.type }}</a-tag>
+              <template v-if="column.key === 'name'">
+                <div class="object-cell"><component :is="record.type === 'skill' ? FileTextOutlined : ApiOutlined" class="object-icon" />
+                  <div><router-link v-if="pageAllowed(todoPath(record).path)" class="object-name" :to="todoPath(record)">{{ record.name }}</router-link><span v-else class="object-name">{{ record.name }}</span>
+                    <div v-if="record.context" class="secondary object-context">{{ record.context }}</div></div>
+                </div>
               </template>
-              <template v-else-if="column.key === 'name'">
-                <a v-if="pageAllowed(record.path)" @click="$router.push(record.path)">{{ record.name }}</a><span v-else>{{ record.name }}</span>
-                <div class="muted-text">{{ record.description }}</div>
-              </template>
-              <template v-else-if="column.key === 'status'">
-                <a-tag :color="statusColor(record.status)">{{ statusDisplay(record.status) }}</a-tag>
-              </template>
-              <template v-else-if="column.key === 'risk'">
-                <a-tag :color="riskColor(record.risk)">{{ riskDisplay(record.risk) }}</a-tag>
-              </template>
-              <template v-else-if="column.key === 'action'">
-                <a-button v-if="pageAllowed(record.path)" type="link" size="small" @click="$router.push(record.path)">{{ $t("legacy.1p3h5cf") }}</a-button>
-              </template>
+              <template v-else-if="column.key === 'type'">{{ typeLabel(record.type) }}</template>
+              <template v-else-if="column.key === 'risk'"><a-tag :color="riskColor(record.risk)">{{ riskLabel(record.risk) }}</a-tag></template>
+              <template v-else-if="column.key === 'waiting'"><a-tooltip :title="formatDateTime(record.created_at)">{{ waiting(record.created_at) }}</a-tooltip></template>
+              <template v-else-if="column.key === 'action'"><a-button v-if="pageAllowed(todoPath(record).path)" type="link" size="small" @click="router.push(todoPath(record))">{{ t('dashboard.view') }}</a-button></template>
             </template>
           </a-table>
-        </a-card>
-      </a-col>
-
-      <a-col v-if="can('skills:view')" :xs="24" :xl="8">
-        <a-card :title="$t('legacy.19kwidw')" class="recent-events-card">
-          <a-list class="recent-events-list" :data-source="pagedRecentEvents" bordered :locale="{ emptyText: $t('legacy.1mta22k') }">
-            <template #renderItem="{ item }">
-              <a-list-item>
-                <a-space direction="vertical" size="small">
-                  <a-space>
-                    <a-tag :color="eventColor(item.event_type)">{{ eventDisplay(item.event_type) }}</a-tag>
-                    <strong>{{ item.skill_name || item.skill_id || $t('legacy.1rbdzwg') }}</strong>
-                  </a-space>
-                  <span class="muted-text">{{ item.actor || 'system' }} · {{ formatDateTime(item.timestamp) }}</span>
-                  <span class="muted-text">{{ formatDetails(item.details, 3) }}</span>
-                </a-space>
-              </a-list-item>
-            </template>
-          </a-list>
-          <a-pagination
-            v-model:current="recentEventsPage"
-            class="recent-events-pagination"
-            :total="recentEvents.length"
-            :page-size="recentEventsPageSize"
-            :show-size-changer="false"
-            :show-less-items="true"
-          />
-        </a-card>
-      </a-col>
-    </a-row>
-
-    <a-row :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :xs="24" :xl="8">
-        <a-card :title="$t('legacy.1kyn3wu')">
-          <Chart :options="governanceStatusChartOptions" height="300px" />
-        </a-card>
-      </a-col>
-      <a-col :xs="24" :xl="8">
-        <a-card :title="$t('legacy.1blmte3')">
-          <Chart :options="riskChartOptions" height="300px" />
-        </a-card>
-      </a-col>
-      <a-col :xs="24" :xl="8">
-        <a-card :title="$t('legacy.1pp4tl3')">
-          <Chart :options="riskSourceChartOptions" height="300px" />
-        </a-card>
-      </a-col>
-    </a-row>
-
-    <a-row v-if="can('privacy_audit:view')" :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :xs="24" :xl="14">
-        <a-card :title="$t('legacy.zoebks')">
-          <Chart :options="gatewayTrendChartOptions" height="320px" />
-        </a-card>
-      </a-col>
-      <a-col :xs="24" :xl="10">
-        <a-card :title="$t('legacy.dc6gel')">
-          <Chart :options="gatewayModelChartOptions" height="320px" />
-        </a-card>
-      </a-col>
-    </a-row>
-
+          <p class="table-note">{{ t('dashboard.todoScope', { limit: data.todos.limit_per_type }) }}</p>
+        </section>
+        <section v-if="hasRuntime" class="surface runtime-panel" :aria-label="t('dashboard.runtime')">
+          <div class="panel-heading"><h2>{{ t('dashboard.runtime') }}</h2><a-tooltip :title="t('dashboard.utcHint')"><button class="info-button" :aria-label="t('dashboard.utcHint')"><InfoCircleOutlined /></button></a-tooltip></div>
+          <component :is="pageAllowed(item.path) ? 'button' : 'div'" v-for="item in runtimeItems" :key="item.key" class="runtime-row" @click="navigate(item.path)">
+            <span class="runtime-icon"><component :is="item.icon" /></span>
+            <span class="runtime-copy"><span>{{ t('dashboard.' + item.key) }}</span><strong>{{ number(item.value) }}</strong></span><RightOutlined v-if="pageAllowed(item.path)" class="row-arrow" />
+          </component>
+          <div v-if="data.runtime.aidr" class="aidr-section">
+            <div class="aidr-heading"><span class="runtime-icon"><DatabaseOutlined /></span><h3>{{ t('dashboard.aidr') }}</h3><a-tag color="blue">{{ t('dashboard.testing') }}</a-tag></div>
+            <div class="aidr-content">
+              <div class="aidr-clients"><strong>{{ number(data.runtime.aidr.reporting_clients) }}</strong><span>{{ t('dashboard.reportingClients') }}</span></div>
+              <div class="record-summary"><span>{{ t('dashboard.records') }} <a-tooltip :title="t('dashboard.aidrHint')"><button class="info-button" :aria-label="t('dashboard.aidrHint')"><InfoCircleOutlined /></button></a-tooltip></span><strong>{{ number(data.runtime.aidr.records) }}</strong></div>
+              <a-button v-if="pageAllowed('/clients')" block @click="navigate('/clients')">{{ t('dashboard.viewEvidence') }}</a-button>
+            </div>
+          </div>
+        </section>
+      </div>
+      <section v-if="data.activity_sources.length" class="surface activity-panel" :aria-label="t('dashboard.recent')">
+        <div class="panel-heading"><h2>{{ t('dashboard.recent') }}</h2><a-tooltip :title="t('dashboard.activityHint')"><button class="info-button" :aria-label="t('dashboard.activityHint')"><InfoCircleOutlined /></button></a-tooltip></div>
+        <a-table :columns="activityColumns" :data-source="data.activity" row-key="id" size="small" :scroll="{ x: 640 }"
+          :pagination="{ pageSize: 3, size: 'small', hideOnSinglePage: true, showSizeChanger: false }" :locale="{ emptyText: t('dashboard.noActivity') }">
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'time'"><span class="secondary">{{ formatDateTime(record.created_at) }}</span></template>
+            <template v-else-if="column.key === 'event'"><span class="event-cell"><component :is="eventIcon(record)" :class="['event-icon', eventTone(record)]" />{{ eventLabel(record) }}</span></template>
+            <template v-else-if="column.key === 'source'"><a-tag>{{ t('dashboard.' + record.source + 'Source') }}</a-tag></template>
+            <template v-else-if="column.key === 'name'"><router-link v-if="pageAllowed(activityPath(record).path)" class="object-name" :to="activityPath(record)">{{ record.name || '—' }}</router-link><span v-else>{{ record.name || '—' }}</span></template>
+          </template>
+        </a-table>
+      </section>
+      <section v-if="data.trend || data.skills" class="analytics-section" :aria-label="t('dashboard.analytics')">
+        <header class="analytics-heading"><h2>{{ t('dashboard.analytics') }}</h2><p>{{ t('dashboard.analyticsHint') }}</p></header>
+        <div class="charts-grid" :class="{ 'single-column': !data.trend || !data.skills }">
+          <section v-if="data.trend" class="surface chart-panel">
+            <div class="panel-heading"><h2>{{ t('dashboard.trend') }}</h2><a-radio-group :value="days" button-style="solid" :disabled="loading" @change="load($event.target.value)">
+              <a-radio-button :value="7">{{ t('dashboard.sevenDays') }}</a-radio-button><a-radio-button :value="30">{{ t('dashboard.thirtyDays') }}</a-radio-button>
+            </a-radio-group></div>
+            <div class="chart-metric"><span class="secondary">{{ t('dashboard.todayRequests') }} <a-tooltip :title="t('dashboard.trendHint')"><button class="info-button" :aria-label="t('dashboard.trendHint')"><InfoCircleOutlined /></button></a-tooltip></span><strong>{{ number(todayRequests) }}</strong></div>
+            <div role="img" :aria-label="t('dashboard.trend')"><Chart :options="trendOptions" height="250px" /></div>
+            <p v-if="!trendTotal" class="chart-empty-note">{{ t('dashboard.noRequests') }}</p>
+            <footer v-if="pageAllowed('/model-gateway/stats')" class="chart-footer"><a-button type="link" @click="navigate('/model-gateway/stats')">{{ t('dashboard.viewModelStats') }}<ArrowRightOutlined /></a-button></footer>
+          </section>
+          <section v-if="data.skills" class="surface chart-panel risk-panel">
+            <div class="panel-heading"><h2>{{ t('dashboard.riskDistribution') }}</h2><span class="secondary">{{ t('dashboard.snapshot') }}</span></div>
+            <div v-if="data.skills.total" role="img" :aria-label="t('dashboard.riskDistribution')"><Chart :options="riskOptions" height="275px" /></div>
+            <a-empty v-else class="risk-empty" :description="t('dashboard.noSkills')" />
+            <ul class="risk-legend"><li v-for="item in riskItems" :key="item.key"><span class="legend-dot" :style="{ background: item.color }" /><span>{{ item.name }}</span><strong>{{ number(item.value) }}</strong></li></ul>
+            <footer v-if="pageAllowed('/skills')" class="chart-footer"><a-button type="link" @click="navigate('/skills')">{{ t('dashboard.viewSkills') }}<ArrowRightOutlined /></a-button></footer>
+          </section>
+        </div>
+      </section>
     </template>
-    </a-card>
-
-    <a-modal v-model:open="guideVisible" :title="$t('legacy.8y18tl')" width="980px" :footer="null">
-      <a-row :gutter="[16, 16]">
-        <a-col :xs="24" :lg="12">
-          <a-card size="small" :title="$t('legacy.xlet5m')">
-            <a-steps size="small" direction="vertical" :current="3">
-              <a-step :title="$t('legacy.17yp2z2')" :description="$t('legacy.15814ra')" />
-              <a-step :title="$t('legacy.b3qxcp')" :description="$t('legacy.1tj0nfa')" />
-              <a-step :title="$t('legacy.mxm4hl')" :description="$t('legacy.tby29q')" />
-              <a-step :title="$t('legacy.ubr5hi')" :description="$t('legacy.16w5dv8')" />
-            </a-steps>
-            <a-space class="guide-actions" wrap>
-              <a-button v-if="pageAllowed('/submit')" @click="$router.push('/submit')">{{ $t("legacy.knj41c") }}</a-button>
-              <a-button v-if="pageAllowed('/skills')" @click="$router.push('/skills')">{{ $t("legacy.zg4apj") }}</a-button>
-            </a-space>
-          </a-card>
-        </a-col>
-        <a-col :xs="24" :lg="12">
-          <a-card size="small" :title="$t('legacy.ypga3u')">
-            <a-steps size="small" direction="vertical" :current="4">
-              <a-step :title="$t('legacy.15vaur7')" :description="$t('legacy.19o7rej')" />
-              <a-step :title="$t('legacy.1sye9u7')" :description="$t('legacy.1oytr3a')" />
-              <a-step :title="$t('legacy.1odwfha')" :description="$t('legacy.e0nfzo')" />
-              <a-step :title="$t('legacy.1y6ts4k')" :description="$t('legacy.c6ttxt')" />
-              <a-step :title="$t('legacy.13omz3w')" :description="$t('legacy.y0e5jz')" />
-            </a-steps>
-            <a-space class="guide-actions" wrap>
-              <a-button v-if="pageAllowed('/agents')" @click="$router.push('/agents')">{{ $t("legacy.1dq96hb") }}</a-button>
-              <a-button v-if="pageAllowed('/credentials')" @click="$router.push('/credentials')">{{ $t("legacy.xm5sv6") }}</a-button>
-              <a-button type="primary" v-if="pageAllowed('/runtime')" @click="$router.push('/runtime')">{{ $t("legacy.ppwp4v") }}</a-button>
-            </a-space>
-          </a-card>
-        </a-col>
-      </a-row>
-    </a-modal>
-
   </div>
 </template>
 
 <script setup>
-import { translateLegacy as phrase } from '../i18n'
-
-import { computed, onMounted, ref } from 'vue'
-import { can, pageAllowed } from '../access'
-
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
+import { ApiOutlined, AppstoreOutlined, ArrowRightOutlined, BookOutlined, CheckCircleFilled, ClockCircleOutlined, CloudServerOutlined, DatabaseOutlined, DesktopOutlined, ExclamationCircleFilled, FileTextOutlined, InfoCircleOutlined, ReloadOutlined, RightOutlined, RobotOutlined, SafetyCertificateOutlined } from '@ant-design/icons-vue'
 import Chart from '../components/Chart.vue'
-import {
-  getAudit,
-  getDashboardRiskSourceStats,
-  getLlmStatsByModel,
-  getLlmStatsDaily,
-  getPrivacyStats,
-  listAgents,
-  listModelEndpoints,
-  listModelProviders,
-} from '../api'
-import { useLocaleText } from '../i18n/useLocaleText'
-import { formatDateTime, formatDetails } from '../utils/format'
+import { getDashboardOverview } from '../api'
+import { pageAllowed } from '../access'
+import { formatDateTime } from '../utils/format'
 
-const { text, t } = useLocaleText()
-const loading = ref(true)
-const loadFailed = ref(false)
-let dashboardInFlight = false
-const skillSummary = ref({ total: 0, status_counts: {}, risk_counts: {}, todos: [] })
-const agentRows = ref([])
-const providerRows = ref([])
-const modelRows = ref([])
-const auditRows = ref([])
-const recentEventsPage = ref(1)
-const recentEventsPageSize = 5
-const riskSourceRows = ref([])
-const privacyStats = ref({})
-const gatewayDailyRows = ref([])
-const gatewayModelRows = ref([])
-const guideVisible = ref(false)
-
-const safeRequest = async (request, fallback) => {
-  try {
-    return await request()
-  } catch {
-    loadFailed.value = true
-    return fallback
-  }
+const { t, te, locale } = useI18n()
+const router = useRouter()
+const data = ref(null)
+const loading = ref(false)
+const failed = ref(false)
+const days = ref(7)
+const activeTab = ref('all')
+let disposed = false
+const number = value => new Intl.NumberFormat(locale.value).format(value)
+const navigate = path => { if (pageAllowed(path)) router.push(path) }
+const assetItems = computed(() => [
+  { key: 'agents', icon: RobotOutlined, path: '/agents' },
+  { key: 'skills', icon: AppstoreOutlined, path: '/skills' },
+  { key: 'mcp', icon: ApiOutlined, path: '/mcp-governance/servers' },
+  { key: 'models', icon: CloudServerOutlined, path: '/model-gateway/providers' },
+  { key: 'clients', icon: DesktopOutlined, path: '/clients' },
+].filter(item => data.value?.assets[item.key] !== undefined).map(item => ({ ...item,
+  value: item.key === 'clients' ? number(data.value.assets.clients.online) + ' / ' + number(data.value.assets.clients.total) : number(data.value.assets[item.key]),
+})))
+const todoTypes = computed(() => Object.keys(data.value?.todos.counts || {}))
+const totalTodos = computed(() => Object.values(data.value?.todos.counts || {}).reduce((sum, n) => sum + n, 0))
+const visibleTodos = computed(() => (data.value?.todos.items || []).filter(row => activeTab.value === 'all' || row.type === activeTab.value))
+const urgentCount = computed(() => visibleTodos.value.filter(row => ['malicious', 'high', 'critical'].includes(row.risk)).length)
+const queuePath = type => type === 'skill' ? '/review' : '/mcp-governance/approvals'
+const activeQueuePath = computed(() => queuePath(activeTab.value === 'all'
+  ? todoTypes.value.find(type => data.value.todos.counts[type] > 0) || todoTypes.value[0] : activeTab.value))
+const typeLabel = type => t(type === 'skill' ? 'dashboard.skill' : 'dashboard.mcpApproval')
+const todoPath = row => row.type === 'skill'
+  ? { path: '/skills/' + encodeURIComponent(row.target_id) }
+  : { path: '/mcp-governance/approvals', query: { request_id: row.target_id } }
+const todoColumns = computed(() => [
+  { title: t('dashboard.object'), key: 'name', width: 200 }, { title: t('dashboard.type'), key: 'type', width: 115 },
+  { title: t('dashboard.risk'), key: 'risk', width: 100 }, { title: t('dashboard.waiting'), key: 'waiting', width: 100 },
+  { title: t('dashboard.action'), key: 'action', width: 75, fixed: 'right' },
+])
+const activityColumns = computed(() => [
+  { title: t('dashboard.time'), key: 'time', width: 185 }, { title: t('dashboard.source'), key: 'source', width: 90 },
+  { title: t('dashboard.event'), key: 'event', width: 230 }, { title: t('dashboard.name'), key: 'name' },
+])
+const riskColor = risk => ({ benign: 'green', low: 'green', suspicious: 'orange', medium: 'orange', malicious: 'red', high: 'red', critical: 'red' }[risk] || 'default')
+const riskLabel = risk => te('domain.risk.' + risk) ? t('domain.risk.' + risk) : t('dashboard.unknown')
+const waiting = value => {
+  const elapsed = Math.max(0, (Date.parse(data.value.as_of) - Date.parse(value)) / 60000)
+  if (!Number.isFinite(elapsed)) return '—'
+  if (elapsed < 1) return t('dashboard.justNow')
+  if (elapsed < 60) return t('dashboard.minutes', { count: Math.floor(elapsed) })
+  if (elapsed < 1440) return t('dashboard.hours', { count: Math.floor(elapsed / 60) })
+  return t('dashboard.days', { count: Math.floor(elapsed / 1440) })
 }
-
-const toArray = (value, key = 'items') => {
-  if (Array.isArray(value)) return value
-  if (Array.isArray(value?.[key])) return value[key]
-  return []
+const runtimeItems = computed(() => [
+  { key: 'modelBlocked', field: 'model_blocked_today', icon: SafetyCertificateOutlined, path: '/model-gateway/audit' },
+  { key: 'mcpDenied', field: 'mcp_denied_today', icon: ApiOutlined, path: '/mcp-governance/audit' },
+].filter(item => data.value?.runtime[item.field] !== undefined).map(item => ({ ...item, value: data.value.runtime[item.field] })))
+const hasRuntime = computed(() => runtimeItems.value.length > 0 || Boolean(data.value?.runtime.aidr))
+const eventLabel = row => {
+  const key = row.source === 'skill' ? 'domain.auditEvent.' + row.event : 'dashboard.' + row.source + 'Events.' + row.event
+  return te(key) ? t(key) : row.event
 }
-
-const countByStatus = (rows, statuses) => {
-  const values = Array.isArray(statuses) ? statuses : [statuses]
-  return rows.filter((item) => values.includes(item.status)).length
-}
-
-const skillStatusCount = (statuses) =>
-  (Array.isArray(statuses) ? statuses : [statuses])
-    .reduce((sum, status) => sum + (skillSummary.value.status_counts?.[status] || 0), 0)
-
-const skillRiskCount = (risks) =>
-  (Array.isArray(risks) ? risks : [risks])
-    .reduce((sum, risk) => sum + (skillSummary.value.risk_counts?.[risk] || 0), 0)
-
-const moduleCards = computed(() => [
-  {
-    key: 'skills',
-    title: phrase('legacy.1meon5z'),
-    path: '/submit',
-    value: skillSummary.value.total,
-    label: phrase('legacy.36m4ao'),
-    flow: [phrase('legacy.ybr38x'), phrase('legacy.1myljr3'), phrase('legacy.1ws11do'), phrase('legacy.jhvfft')],
-    stats: [
-      { label: phrase('legacy.a2uv9t'), value: skillStatusCount('VETTED') },
-      { label: phrase('legacy.f2p4bp'), value: skillStatusCount(['APPROVED', 'DEPLOYED']) },
-      { label: phrase('legacy.197bn2e'), value: skillRiskCount(['suspicious', 'malicious']) },
-      { label: phrase('legacy.16h1qdk'), value: skillStatusCount('REJECTED') },
-    ],
-  },
-  {
-    key: 'agents',
-    title: phrase('legacy.5chjsa'),
-    path: '/agents',
-    value: agentRows.value.length,
-    label: phrase('legacy.g72beo'),
-    flow: [phrase('legacy.61qni9'), phrase('legacy.rvmkwi'), phrase('legacy.qiw836'), phrase('legacy.1xi4mpm')],
-    stats: [
-      { label: phrase('legacy.1w2s4cy'), value: countByStatus(agentRows.value, 'active') },
-      { label: phrase('legacy.17bfydg'), value: agentRows.value.filter((item) => item.runtime_token_id || item.runtime_token_name).length },
-      { label: phrase('legacy.1nwtm7'), value: agentRows.value.reduce((sum, item) => sum + (item.skill_names?.length || 0), 0) },
-      { label: phrase('legacy.9tnz09'), value: agentRows.value.filter((item) => item.default_model).length },
-    ],
-  },
-  {
-    key: 'gateway',
-    title: phrase('legacy.mfpzot'),
-    path: '/model-gateway/providers',
-    value: modelRows.value.length,
-    label: phrase('legacy.1aglluu'),
-    flow: [phrase('legacy.15teb0h'), phrase('legacy.17lmhaa'), phrase('legacy.qiw836'), phrase('legacy.5h548n')],
-    stats: [
-      { label: phrase('legacy.103n846'), value: modelRows.value.filter((item) => item.enabled).length },
-      { label: phrase('legacy.1x7qpl0'), value: providerRows.value.length },
-      { label: phrase('legacy.tcjr24'), value: can('privacy_audit:view') ? privacyStats.value.prompt_guard_events || 0 : '—' },
-      { label: phrase('legacy.1fsazit'), value: can('privacy_audit:view') ? privacyStats.value.prompt_guard_blocked || 0 : '—' },
-    ],
-  },
-].filter(item => item.key === 'skills' || (item.key === 'agents' ? can('agents:view') : can('models:view') && can('providers:view'))))
-
-const todoRows = computed(() => {
-  const skillTodos = skillSummary.value.todos
-    .map((item) => ({
-      id: `skill-${item.skill_id}`,
-      type: 'Skill',
-      name: item.name,
-      description: phrase('legacy.1rgqqjv'),
-      status: item.status,
-      risk: item.risk_level,
-      time: item.submitted_at,
-      path: `/skills/${item.skill_id}`,
-    }))
-  return skillTodos
-    .sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0))
-    .slice(0, 20)
+const eventTone = row => ['denied', 'error', 'failed', 'timed_out', 'blocked', 'skill_rejected', 'skill_load_blocked', 'tool_blocked', 'skill_tamper_detected'].includes(row.event) ? 'danger'
+  : ['success', 'succeeded', 'skill_approved', 'skill_deployed', 'skill_load_allowed', 'skill_signature_verified'].includes(row.event) ? 'success' : 'neutral'
+const eventIcon = row => ({ danger: ExclamationCircleFilled, success: CheckCircleFilled, neutral: ClockCircleOutlined }[eventTone(row)])
+const activityPath = row => row.source === 'scan'
+  ? { path: '/agent-security/scans', query: { stage: 'tasks', task_id: row.target_id } }
+  : { path: row.source === 'mcp' ? '/mcp-governance/audit' : '/audit' }
+const todayRequests = computed(() => data.value?.trend?.series.at(-1)?.requests || 0)
+const trendTotal = computed(() => data.value?.trend?.series.reduce((sum, row) => sum + row.requests, 0) || 0)
+const trendOptions = computed(() => ({
+  aria: { enabled: true }, tooltip: { trigger: 'axis', renderMode: 'richText' },
+  grid: { left: 12, right: 18, top: 35, bottom: 12, containLabel: true },
+  xAxis: { type: 'category', boundaryGap: false, data: data.value.trend.series.map(row => row.date.slice(5).replace('-', '/')),
+    axisTick: { show: false }, axisLine: { lineStyle: { color: '#e5eaf1' } }, axisLabel: { color: '#667085', hideOverlap: true } },
+  yAxis: { type: 'value', name: t('dashboard.requests'), minInterval: 1, nameTextStyle: { color: '#667085', align: 'left' },
+    splitLine: { lineStyle: { color: '#eef1f6' } }, axisLabel: { color: '#667085' } },
+  series: [{ name: t('dashboard.requests'), type: 'line', data: data.value.trend.series.map(row => row.requests),
+    symbol: 'circle', symbolSize: 6, showSymbol: days.value === 7, itemStyle: { color: '#2563eb' },
+    lineStyle: { width: 2 }, areaStyle: { color: 'rgba(37,99,235,0.08)' } }],
+}))
+const riskItems = computed(() => {
+  const summary = data.value?.skills
+  if (!summary) return []
+  const items = [
+    { key: 'benign', color: '#16b65c' }, { key: 'suspicious', color: '#faad14' }, { key: 'malicious', color: '#ef4444' },
+  ].map(item => ({ ...item, name: riskLabel(item.key), value: summary.risk_counts[item.key] || 0 }))
+  const unknown = Math.max(0, summary.total - items.reduce((sum, row) => sum + row.value, 0))
+  if (unknown) items.push({ key: 'unknown', name: t('dashboard.unknown'), value: unknown, color: '#94a3b8' })
+  return items
 })
-
-const recentEvents = computed(() =>
-  auditRows.value
-    .filter((item) => ['skill_load_blocked', 'skill_tamper_detected', 'tool_blocked', 'skill_rejected'].includes(item.event_type))
-    .reverse(),
-)
-const pagedRecentEvents = computed(() =>
-  recentEvents.value.slice(
-    (recentEventsPage.value - 1) * recentEventsPageSize,
-    recentEventsPage.value * recentEventsPageSize,
-  ),
-)
-
-const todoColumns = [
-  { title: phrase('legacy.anh4cj'), dataIndex: 'type', key: 'type', width: 100 },
-  { title: phrase('legacy.1hptjin'), dataIndex: 'name', key: 'name' },
-  { title: phrase('legacy.1ccx4t4'), dataIndex: 'status', key: 'status', width: 110 },
-  { title: phrase('legacy.1qgsa3s'), dataIndex: 'risk', key: 'risk', width: 100 },
-  { title: phrase('legacy.1f90xvr'), dataIndex: 'time', key: 'time', width: 180, customRender: ({ text }) => formatDateTime(text) },
-  { title: phrase('legacy.501w24'), key: 'action', width: 80, fixed: 'right' },
-]
-
-const buildBarChart = (title, items, color) => ({
-  tooltip: { trigger: 'axis' },
-  xAxis: {
-    type: 'category',
-    data: items.map((item) => item.label),
-    axisTick: { show: false },
-  },
-  yAxis: { type: 'value', minInterval: 1 },
-  series: [
-    {
-      name: title,
-      type: 'bar',
-      data: items.map((item) => item.value),
-      itemStyle: { color, borderRadius: [6, 6, 0, 0] },
-      label: { show: true, position: 'top' },
-    },
-  ],
-  grid: { left: 32, right: 16, top: 28, bottom: 24, containLabel: true },
-})
-
-const governanceStatusChartOptions = computed(() => {
-  const statuses = ['VETTED', 'APPROVED', 'REJECTED']
-  return {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    legend: { top: 0 },
-    xAxis: { type: 'category', data: statuses.map(statusDisplay), axisTick: { show: false }, axisLabel: { interval: 0 } },
-    yAxis: { type: 'value', minInterval: 1 },
-    series: [
-      {
-        name: 'Skill',
-        type: 'bar',
-        data: statuses.map(skillStatusCount),
-        itemStyle: { color: '#2563eb', borderRadius: [4, 4, 0, 0] },
-      },
-    ],
-    grid: { left: 32, right: 16, top: 40, bottom: 24, containLabel: true },
-  }
-})
-
-const riskChartOptions = computed(() => {
-  const rows = [
-    { label: text('安全', 'Safe'), value: skillRiskCount('benign') },
-    { label: text('可疑', 'Suspicious'), value: skillRiskCount('suspicious') },
-    { label: text('恶意', 'Malicious'), value: skillRiskCount('malicious') },
-  ]
-  return buildBarChart(text('风险对象', 'Risk Objects'), rows, '#d97706')
-})
-
-const riskSourceChartOptions = computed(() => {
-  const fallback = [
-    { key: 'rule', label: text('规则分析', 'Rule Analysis'), count: 0, skills: 0 },
-    { key: 'llm', label: text('大模型分析', 'LLM Analysis'), count: 0, skills: 0 },
-    { key: 'sandbox', label: 'Sandbox', count: 0, skills: 0 },
-    { key: 'skillspector', label: text('深度分析', 'Deep Analysis'), count: 0, skills: 0 },
-  ]
-  const rows = riskSourceRows.value.length ? riskSourceRows.value.map((item) => ({
-    ...item,
-    label: ({
-      rule: text('规则分析', 'Rule Analysis'),
-      llm: text('大模型分析', 'LLM Analysis'),
-      sandbox: 'Sandbox',
-      skillspector: text('深度分析', 'Deep Analysis'),
-    }[item.key] || item.label),
-  })) : fallback
-  const colors = {
-    rule: '#2563eb',
-    llm: '#16a34a',
-    sandbox: '#ea580c',
-    skillspector: '#0891b2',
-  }
-  return {
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-      formatter: (params) => {
-        const row = rows[params?.[0]?.dataIndex] || {}
-        return [
-          `<strong>${row.label}</strong>`,
-          `${text('发现项', 'Findings')}: ${row.count || 0}`,
-          `${text('涉及 Skill', 'Affected Skills')}: ${row.skills || 0}`,
-          `${text('严重/高/中/低', 'Critical/High/Medium/Low')}: ${row.critical || 0}/${row.high || 0}/${row.medium || 0}/${row.low || 0}`,
-        ].join('<br/>')
-      },
-    },
-    xAxis: { type: 'category', data: rows.map((item) => item.label), axisTick: { show: false }, axisLabel: { interval: 0 } },
-    yAxis: { type: 'value', minInterval: 1 },
-    series: [
-      {
-        name: text('发现项', 'Findings'),
-        type: 'bar',
-        data: rows.map((item) => ({
-          value: item.count || 0,
-          itemStyle: { color: colors[item.key] || '#64748b', borderRadius: [6, 6, 0, 0] },
-        })),
-        label: { show: true, position: 'top' },
-      },
-    ],
-    grid: { left: 32, right: 16, top: 28, bottom: 24, containLabel: true },
-  }
-})
-
-const gatewayTrendChartOptions = computed(() => {
-  const rows = gatewayDailyRows.value
-  return {
-    tooltip: { trigger: 'axis' },
-    legend: { top: 0 },
-    xAxis: { type: 'category', data: rows.map((item) => item.date), axisTick: { show: false } },
-    yAxis: { type: 'value', minInterval: 1 },
-    series: [
-      {
-        name: text('调用次数', 'Requests'),
-        type: 'line',
-        smooth: true,
-        data: rows.map((item) => item.requests || 0),
-        itemStyle: { color: '#2563eb' },
-        areaStyle: { color: 'rgba(37, 99, 235, 0.12)' },
-      },
-      {
-        name: text('节省 Token', 'Tokens Saved'),
-        type: 'line',
-        smooth: true,
-        data: rows.map((item) => item.tokens_saved || 0),
-        itemStyle: { color: '#16a34a' },
-      },
-    ],
-    grid: { left: 40, right: 20, top: 44, bottom: 28, containLabel: true },
-  }
-})
-
-const gatewayModelChartOptions = computed(() => {
-  const rows = gatewayModelRows.value.slice(0, 8)
-  return buildBarChart(
-    text('调用次数', 'Requests'),
-    rows.map((item) => ({ label: item.model || 'unknown', value: item.requests || 0 })),
-    '#7c3aed',
-  )
-})
-
-const fetchDashboard = async () => {
-  if (dashboardInFlight) return
-  dashboardInFlight = true
+const riskOptions = computed(() => ({
+  aria: { enabled: true }, tooltip: { trigger: 'item', renderMode: 'richText' },
+  title: [{ text: number(data.value.skills.total), left: 'center', top: '40%', textStyle: { fontSize: 30, fontWeight: 600, color: '#17223b' } },
+    { text: t('dashboard.skillTotal'), left: 'center', top: '54%', textStyle: { fontSize: 14, fontWeight: 400, color: '#667085' } }],
+  series: [{ type: 'pie', radius: ['60%', '79%'], center: ['50%', '50%'], label: { show: false },
+    data: riskItems.value.map(row => ({ name: row.name, value: row.value, itemStyle: { color: row.color, borderWidth: 2, borderColor: '#fff' } })) }],
+}))
+async function load(requestedDays) {
+  if (loading.value) return
   loading.value = true
-  loadFailed.value = false
+  failed.value = false
   try {
-    const [
-      agents,
-      providers,
-      models,
-      audit,
-      riskSourceStats,
-      gatewayPrivacy,
-      llmDaily,
-      llmByModel,
-    ] = await Promise.all([
-      can('agents:view') ? safeRequest(() => listAgents(), []) : null,
-      can('providers:view') ? safeRequest(() => listModelProviders(), []) : null,
-      can('models:view') ? safeRequest(() => listModelEndpoints(), []) : null,
-      can('skills:view') ? safeRequest(() => getAudit({ since_hours: 168, limit: 300 }), []) : null,
-      safeRequest(() => getDashboardRiskSourceStats(), { items: [] }),
-      can('privacy_audit:view') ? safeRequest(() => getPrivacyStats(), {}) : null,
-      can('privacy_audit:view') ? safeRequest(() => getLlmStatsDaily({ days: 7 }), { series: [] }) : null,
-      can('privacy_audit:view') ? safeRequest(() => getLlmStatsByModel({ days: 7 }), { models: [] }) : null,
-    ])
-
-    agentRows.value = toArray(agents)
-    providerRows.value = toArray(providers)
-    modelRows.value = toArray(models)
-    auditRows.value = toArray(audit)
-    riskSourceRows.value = toArray(riskSourceStats)
-    skillSummary.value = riskSourceStats?.skill_summary || skillSummary.value
-    privacyStats.value = gatewayPrivacy || {}
-    gatewayDailyRows.value = toArray(llmDaily, 'series')
-    gatewayModelRows.value = toArray(llmByModel, 'models')
-  } catch (error) {
-    loadFailed.value = true
+    const result = await getDashboardOverview({ days: requestedDays })
+    if (disposed) return
+    data.value = result
+    days.value = requestedDays
+    if (activeTab.value !== 'all' && !(activeTab.value in result.todos.counts)) activeTab.value = 'all'
+  } catch {
+    if (!disposed) failed.value = true
   } finally {
-    loading.value = false
-    dashboardInFlight = false
+    if (!disposed) loading.value = false
   }
 }
-
-const todoTypeColor = (value) =>
-  ({
-    Skill: 'blue',
-    智能体: 'purple',
-    模型网关: 'cyan',
-    凭证: 'orange',
-  }[value] || 'default')
-
-const statusColor = (value) =>
-  ({
-    PENDING: 'gold',
-    VETTED: 'orange',
-    APPROVED: 'green',
-    DEPLOYED: 'blue',
-    REJECTED: 'red',
-    active: 'green',
-    inactive: 'default',
-    revoked: 'red',
-    未接入: 'orange',
-    未启用: 'default',
-  }[value] || 'default')
-
-const statusDisplay = (value) =>
-  ({
-    PENDING: text('分析中', 'Analyzing'),
-    VETTED: text('待审核', 'Pending Review'),
-    APPROVED: text('已批准', 'Approved'),
-    DEPLOYED: text('已启用', 'Enabled'),
-    REJECTED: text('已拒绝', 'Rejected'),
-    active: text('已启用', 'Enabled'),
-    inactive: text('未启用', 'Disabled'),
-    revoked: text('已吊销', 'Revoked'),
-  }[value] || value || '-')
-
-const riskColor = (value) =>
-  ({
-    benign: 'green',
-    suspicious: 'orange',
-    malicious: 'red',
-  }[value] || 'default')
-
-const riskDisplay = (value) =>
-  ({
-    benign: text('安全', 'Safe'),
-    suspicious: text('可疑', 'Suspicious'),
-    malicious: text('恶意', 'Malicious'),
-  }[value] || '-')
-
-const eventColor = (value) =>
-  ({
-    skill_load_blocked: 'red',
-    skill_tamper_detected: 'red',
-    tool_blocked: 'orange',
-    skill_rejected: 'volcano',
-  }[value] || 'default')
-
-const eventDisplay = (value) =>
-  ({
-    skill_load_blocked: phrase('legacy.fxy726'),
-    skill_tamper_detected: phrase('legacy.v734gz'),
-    tool_blocked: phrase('legacy.uehlgl'),
-    skill_rejected: phrase('legacy.qwkmdx'),
-  }[value] || value)
-
-onMounted(fetchDashboard)
+onMounted(() => load(days.value))
+onBeforeUnmount(() => { disposed = true })
 </script>
 
 <style scoped>
-.recent-events-card {
-  display: flex;
-  flex-direction: column;
-  max-height: 70vh;
-}
-
-.recent-events-card :deep(.ant-card-head) {
-  flex-shrink: 0;
-}
-
-.recent-events-card :deep(.ant-card-body) {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  flex: 1;
-}
-
-.recent-events-list {
-  min-height: 0;
-  overflow-y: auto;
-  overflow-wrap: anywhere;
-}
-
-.recent-events-pagination {
-  flex-shrink: 0;
-  margin-top: auto;
-  padding-top: 16px;
-  text-align: right;
-}
-
-@media (min-width: 1200px) {
-  .recent-events-card {
-    position: absolute;
-    inset: 0 8px;
-    max-height: none;
-  }
-}
-
-.module-card {
-  height: 100%;
-}
-.module-card :deep(.ant-card-head) { min-height: 48px; padding-inline: 16px; }
-.module-card :deep(.ant-card-body) { padding: 16px; }
-.module-card :deep(.ant-card-head-title) {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.module-primary {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.module-value {
-  color: #111827;
-  font-size: 32px;
-  font-weight: 650;
-  line-height: 1;
-}
-
-.module-label {
-  color: #6b7280;
-  font-size: 13px;
-}
-
-.module-substats {
-  border-top: 1px solid #eef2f7;
-  padding-top: 12px;
-}
-
-.module-flow {
-  border-top: 1px solid #eef2f7;
-  margin-top: 12px;
-  padding-top: 10px;
-}
-
-.module-flow-title {
-  color: #6b7280;
-  font-size: 12px;
-  margin-bottom: 6px;
-}
-
-.module-flow-steps {
-  color: #374151;
-  font-size: 12px;
-  line-height: 1.8;
-}
-
-.flow-step {
-  display: inline-block;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-
-.flow-arrow {
-  color: #9ca3af;
-  margin: 0 5px;
-}
-
-.substat {
-  padding: 4px 0;
-}
-
-.substat-value {
-  color: #111827;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.substat-label {
-  color: #6b7280;
-  font-size: 12px;
-  margin-top: 2px;
-}
-
-.guide-actions {
-  margin-top: 16px;
-}
-
-.muted-text {
-  color: #6b7280;
-  font-size: 12px;
-}
-
+.dashboard { color: #17223b; min-width: 0; }
+.dashboard-heading, .heading-actions, .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.dashboard-heading { margin-bottom: 22px; }
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: 28px; font-weight: 650; line-height: 1.4; letter-spacing: -.5px; }
+h2 { font-size: 18px; font-weight: 600; line-height: 1.5; }
+h3 { font-size: 14px; font-weight: 500; }
+.dashboard-heading p, .analytics-heading p { color: #667085; margin-top: 5px; }
+.heading-actions { gap: 10px; justify-content: flex-end; }
+.updated { font-size: 12px; color: #667085; }
+.surface { background: #fff; border: 1px solid #e6eaf0; border-radius: 9px; min-width: 0; }
+.asset-strip { display: flex; flex-wrap: wrap; position: relative; padding: 24px 20px; margin-bottom: 18px; }
+.asset { flex: 1 1 150px; display: flex; align-items: center; gap: 16px; text-align: start; padding: 8px 20px; background: transparent; border: 0; border-inline-end: 1px solid #eef1f5; color: inherit; font: inherit; min-width: 0; }
+.asset:last-of-type { border-inline-end: 0; }
+button.asset, button.runtime-row { cursor: pointer; }
+button.asset:hover, button.runtime-row:hover { background: #f8faff; }
+.asset-icon { font-size: 30px; color: #2563eb; flex-shrink: 0; }
+.asset-label { color: #667085; font-size: 14px; margin-bottom: 5px; }
+.asset strong { font-size: 28px; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.asset-help { position: absolute; right: 8px; top: 6px; }
+.info-button { border: 0; background: transparent; padding: 2px; color: #78869f; line-height: 1; cursor: help; font-size: 13px; }
+.work-grid { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(290px, 1fr); gap: 18px; align-items: stretch; margin-bottom: 18px; }
+.pending-panel, .runtime-panel, .activity-panel, .chart-panel { padding: 22px; }
+.panel-heading { margin-bottom: 18px; gap: 12px; }
+.panel-heading h2 { display: flex; align-items: center; gap: 12px; }
+.count { color: #2563eb; font-size: 24px; font-variant-numeric: tabular-nums; }
+.urgent-alert { margin-bottom: 10px; border: 0; }
+.todo-tabs :deep(.ant-tabs-nav) { margin-bottom: 12px; }
+.todo-tabs :deep(.ant-tabs-content-holder) { display: none; }
+.todo-tabs :deep(.ant-tabs-tab) { padding-block: 14px; }
+.dashboard :deep(.ant-table-thead > tr > th) { color: #475467; font-weight: 500; background: #f7f8fb; }
+.dashboard :deep(.ant-table-cell) { overflow-wrap: anywhere; }
+.dashboard :deep(.ant-tag) { margin-inline-end: 0; white-space: normal; }
+.object-cell { display: flex; gap: 12px; align-items: center; }
+.object-icon { color: #2563eb; font-size: 23px; flex-shrink: 0; }
+.object-name { font-weight: 500; color: #17223b; overflow-wrap: anywhere; }
+a.object-name:hover { color: #2563eb; }
+.secondary, .table-note { color: #667085; font-size: 12px; }
+.object-context { margin-top: 4px; word-break: break-word; }
+.table-note { margin-top: 14px; line-height: 1.7; }
+.runtime-row { width: 100%; text-align: start; font: inherit; color: inherit; background: transparent; border: 0; border-top: 1px solid #eef1f5; padding: 22px 0; display: flex; align-items: center; gap: 14px; }
+.runtime-icon { width: 48px; height: 48px; border-radius: 50%; background: #f3f7ff; color: #2563eb; display: inline-flex; align-items: center; justify-content: center; font-size: 25px; flex-shrink: 0; }
+.runtime-copy { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.runtime-copy strong, .aidr-clients strong { font-size: 28px; font-weight: 600; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.row-arrow { font-size: 12px; color: #72809a; }
+.aidr-section { padding-top: 20px; border-top: 1px solid #eef1f5; }
+.aidr-heading { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.aidr-heading .ant-tag { font-size: 11px; }
+.aidr-content { margin-left: 62px; }
+.aidr-clients { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; font-size: 13px; }
+.record-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 6px; background: #f7f8fb; padding: 10px; font-size: 12px; margin-bottom: 12px; }
+.record-summary strong { font-size: 16px; }
+.aidr-content > .ant-btn { color: #2563eb; border-color: #b7cdfb; height: auto; min-height: 32px; white-space: normal; }
+.event-cell { display: flex; gap: 10px; align-items: center; }
+.event-icon { font-size: 16px; flex-shrink: 0; }
+.success { color: #16a34a; }.danger { color: #e5484d; }.neutral { color: #d99000; }
+.activity-panel { margin-bottom: 26px; }
+.analytics-heading { margin-bottom: 16px; }
+.analytics-heading h2 { font-size: 23px; }
+.analytics-heading p { font-size: 13px; }
+.charts-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 18px; }
+.chart-panel { display: flex; flex-direction: column; }
+.chart-panel .panel-heading { align-items: flex-start; }
+.chart-metric { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.chart-metric strong { font-size: 30px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.chart-footer { display: flex; justify-content: flex-end; border-top: 1px solid #eef1f5; padding-top: 10px; margin-top: auto; }
+.chart-empty-note { font-size: 12px; color: #667085; text-align: center; margin-bottom: 12px; }
+.risk-legend { padding: 0; margin: 8px 0 24px; display: flex; justify-content: center; flex-wrap: wrap; gap: 12px 18px; list-style: none; }
+.risk-legend li { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.risk-legend strong { font-weight: 500; }
+.legend-dot { height: 9px; width: 9px; border-radius: 50%; flex-shrink: 0; }
+.risk-empty { margin-block: auto; padding-block: 60px; }
+.work-grid.single-column, .charts-grid.single-column { grid-template-columns: minmax(0, 1fr); }
+.refresh-warning { margin-bottom: 16px; }
+.dashboard button:focus-visible, .dashboard a:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+@media (max-width: 1200px) { .asset { padding-inline: 12px; gap: 10px; flex-basis: 130px; }.asset strong { font-size: 24px; }.asset-icon { font-size: 26px; }.work-grid { grid-template-columns: minmax(0, 1.65fr) minmax(260px, 1fr); }.pending-panel, .runtime-panel, .activity-panel, .chart-panel { padding: 18px; }.aidr-content { margin-left: 0; margin-top: 12px; } }
+@media (max-width: 1000px) { .work-grid, .charts-grid { grid-template-columns: minmax(0, 1fr); }.asset { flex-basis: 180px; }.asset-strip { gap: 14px 0; }.updated { flex-basis: 100%; }.heading-actions { justify-content: flex-start; }.runtime-row { padding-block: 16px; }.aidr-content { margin-left: 62px; } }
+@media (max-width: 600px) { h1 { font-size: 24px; }.dashboard-heading { gap: 12px; }.asset-strip { padding: 16px 8px; }.asset { flex-basis: 45%; padding: 8px; }.asset:nth-child(even) { border-inline-end: 0; }.asset-label { font-size: 12px; }.asset strong { font-size: 23px; }.asset-icon { font-size: 24px; }.pending-panel, .runtime-panel, .activity-panel, .chart-panel { padding: 16px; }.panel-heading h2 { font-size: 17px; }.aidr-content { margin-left: 0; }.dashboard-heading p { font-size: 14px; }.chart-panel :deep(.ant-radio-button-wrapper) { padding-inline: 12px; }.risk-legend { gap: 10px; } }
 </style>

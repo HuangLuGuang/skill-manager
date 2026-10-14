@@ -268,8 +268,10 @@
                     <a-alert v-if="!boundAgent" type="info" :message="$t('agentMcp.agentRequired')" />
                     <a-alert v-else-if="!boundAgent.allowed_mcp_gateways?.length" type="info" :message="$t('agentMcp.agentEmpty')" />
                     <AgentMcpGateways v-else v-model="form.allowed_mcp_gateways" :allowed-gateways="boundAgent.allowed_mcp_gateways" :disabled="creating" />
-                    <a v-if="boundAgent?.origin_type === 'platform' && hasAccess('agents:update') && pageAllowed('/agents')" :href="router.resolve({ path: '/agents', query: { edit: boundAgent.agent_id } }).href" target="_blank" rel="noopener">{{ $t('agentMcp.editAgent') }}</a>
-                    <a-button size="small" :loading="optionsLoading" :disabled="optionsLoading || creating" @click="fetchOptions">{{ $t('agentIntegration.refresh') }}</a-button>
+                    <div class="mcp-config-actions">
+                      <a v-if="boundAgent?.origin_type === 'platform' && hasAccess('agents:update') && pageAllowed('/agents')" :href="router.resolve({ path: '/agents', query: { edit: boundAgent.agent_id } }).href" target="_blank" rel="noopener">{{ $t('agentMcp.editAgent') }}</a>
+                      <a-button size="small" :loading="optionsLoading" :disabled="optionsLoading || creating" @click="fetchOptions">{{ $t('agentIntegration.refresh') }}</a-button>
+                    </div>
                   </template>
                   <a-select v-else :get-popup-container="trigger => trigger.parentElement" v-model:value="form.allowed_mcp_gateways" mode="multiple" allow-clear :placeholder="$t('credentials.allowedGatewaysPlaceholder')">
                     <a-select-option v-for="gateway in mcpGateways" :key="gateway.slug" :value="gateway.slug">
@@ -854,6 +856,9 @@ onMounted(async () => {
 
 <style scoped>
 .credential-page :deep(.ant-page-header-heading) { flex-wrap: wrap; gap: 12px; }
+.mcp-config-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; min-width: 0; margin: 12px 0 16px; }
+.mcp-config-actions > a { min-width: 0; line-height: 1.6; overflow-wrap: anywhere; }
+.mcp-config-actions :deep(.ant-btn) { height: auto; min-height: 24px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .integration-return { margin: 0 0 18px; }
 .integration-return :deep(.ant-btn) { height: auto; white-space: normal; }
 .one-time-secret ~ .integration-return { margin: 18px 0 0; }

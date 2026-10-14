@@ -29,7 +29,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, ValidationError, model_validator
-from starlette.concurrency import run_in_threadpool
+from agent_manager.api.import_work import import_endpoint, run_import_work
 from backend.api_errors import ApiError
 from agent_manager.api.upload_progress import stream_upload_progress
 
@@ -59,6 +59,9 @@ runtime_router = APIRouter(tags=["agent-manager-runtime"])
 _manager: AgentManager | None = None
 _upload_jobs: dict[Path, UploadImportJobs] = {}
 _upload_jobs_lock = threading.Lock()
+# Admission must finish deduplication and create the pending scan before a
+# concurrent import resolves the same content. This lock never guards API reads.
+_submission_lock = threading.Lock()
 
 
 def _get_upload_jobs(mgr):
@@ -352,15 +355,16 @@ def _submit_directory_for_processing(
     judgement_mode: str | None = None,
     entry_prepared: Callable[[RegistryEntry], None] | None = None,
 ) -> SubmitResponse:
-    entry, should_process, resolution = mgr.prepare_submission(
-        skill_dir,
-        source=source,
-        use_behavioral=use_behavioral,
-        use_llm=use_llm,
-        use_sandbox=use_sandbox,
-        use_skillspector=use_skillspector,
-        judgement_mode=judgement_mode,
-    )
+    with _submission_lock:
+        entry, should_process, resolution = mgr.prepare_submission(
+            skill_dir,
+            source=source,
+            use_behavioral=use_behavioral,
+            use_llm=use_llm,
+            use_sandbox=use_sandbox,
+            use_skillspector=use_skillspector,
+            judgement_mode=judgement_mode,
+        )
     if entry_prepared is not None:
         entry_prepared(entry)
     runs = mgr.list_scan_runs(entry.skill_id)
@@ -427,7 +431,7 @@ async def _download_remote_archive(url: str, tmp_dir: Path) -> tuple[Path, str]:
             guessed = mimetypes.guess_type(normalized_url)[0] or ""
             if "zip" not in guessed.lower():
                 raise HTTPException(status_code=400, detail="Only ZIP downloads are currently supported")
-        download_path.write_bytes(response.content)
+        await run_import_work(download_path.write_bytes, response.content)
     return download_path, detected_origin
 
 
@@ -1095,7 +1099,8 @@ def get_system_status(mgr: AgentManager = Depends(get_manager)):
 # --------------------------------------------------------------------------- #
 
 @router.post("/skills/submit-zip", response_model=SubmitResponse)
-async def submit_skill_zip(
+@import_endpoint
+def submit_skill_zip(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     author: str | None = Query(None),
@@ -1119,7 +1124,7 @@ async def submit_skill_zip(
     try:
         zip_path = tmp_dir / "skill.zip"
         with open(zip_path, "wb") as f:
-            content = await file.read()
+            content = file.file.read()
             f.write(content)
 
         extract_dir = tmp_dir / "skill"
@@ -1161,11 +1166,10 @@ async def prepare_upload_zip(
     if file.size and file.size > 100 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large (max 100 MiB)")
 
-    content = await file.read()
-    work = lambda progress: _prepare_uploaded_zip(content, file.filename or "skill.zip", skip_symlinks, mgr, progress)
+    work = lambda progress: _prepare_uploaded_zip(file.file.read(), file.filename or "skill.zip", skip_symlinks, mgr, progress)
     if stream:
         return stream_upload_progress(work)
-    return await run_in_threadpool(work, None)
+    return await run_import_work(work, None)
 
 
 def _prepare_uploaded_zip(content, filename, skip_symlinks, mgr, progress=None):
@@ -1212,7 +1216,7 @@ async def confirm_upload_zip(body: UploadZipConfirmationRequest, stream: bool = 
     work = lambda progress: _confirm_uploaded_zip(body, mgr, progress)
     if stream:
         return stream_upload_progress(work, initial_stage="discovering")
-    return await run_in_threadpool(work, None)
+    return await run_import_work(work, None)
 
 
 def _confirm_uploaded_zip(body, mgr, progress=None):
@@ -1237,6 +1241,7 @@ def _confirm_uploaded_zip(body, mgr, progress=None):
 
 
 @router.get("/skills/import-candidates", response_model=LocalImportCandidatesResponse)
+@import_endpoint
 def list_import_candidates():
     root = _import_root()
     items = [LocalImportCandidate(**item) for item in _collect_import_candidates(root)]
@@ -1244,6 +1249,7 @@ def list_import_candidates():
 
 
 @router.post("/skills/submit-local", response_model=BatchSubmitResponse)
+@import_endpoint
 def submit_local_skills(
     body: LocalImportSubmitRequest,
     background_tasks: BackgroundTasks,
@@ -1286,33 +1292,36 @@ async def submit_skill_url(
     try:
         download_path, detected_origin = await _download_remote_archive(body.url, tmp_dir)
 
-        extract_dir = tmp_dir / "skill"
-        _extract_zip_with_nested_archives(download_path, extract_dir)
+        def prepare():
+            extract_dir = tmp_dir / "skill"
+            _extract_zip_with_nested_archives(download_path, extract_dir)
 
-        skill_root = _resolve_skill_root(extract_dir)
-        persistent_dir = mgr.registry.data_dir / "downloaded_skills" / uuid.uuid4().hex
-        persistent_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(skill_root, persistent_dir)
-        origin_value = body.origin
-        if origin_value == "unknown" and detected_origin == "github":
-            origin_value = "github"
-        channel = "github" if origin_value == "github" else "remote_download"
-        source = SourceInfo(origin=SkillOrigin(origin_value), author=body.author, channel=channel, url=body.url)
-        return _submit_directory_for_processing(
-            mgr,
-            background_tasks,
-            persistent_dir,
-            source,
-            body.use_behavioral,
-            body.use_llm,
-            body.use_sandbox,
-            body.use_skillspector,
-            body.judgement_mode,
-        )
+            skill_root = _resolve_skill_root(extract_dir)
+            persistent_dir = mgr.registry.data_dir / "downloaded_skills" / uuid.uuid4().hex
+            persistent_dir.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(skill_root, persistent_dir)
+            origin_value = body.origin
+            if origin_value == "unknown" and detected_origin == "github":
+                origin_value = "github"
+            channel = "github" if origin_value == "github" else "remote_download"
+            source = SourceInfo(origin=SkillOrigin(origin_value), author=body.author, channel=channel, url=body.url)
+            return _submit_directory_for_processing(
+                mgr,
+                background_tasks,
+                persistent_dir,
+                source,
+                body.use_behavioral,
+                body.use_llm,
+                body.use_sandbox,
+                body.use_skillspector,
+                body.judgement_mode,
+            )
+
+        return await run_import_work(prepare)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=400, detail=f"Failed to download skill: {exc}") from exc
     finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        await run_import_work(shutil.rmtree, tmp_dir, ignore_errors=True)
 
 
 @router.post("/skills/prepare-remote-import", response_model=RemoteImportPrepareResponse)
@@ -1323,29 +1332,33 @@ async def prepare_remote_import(
     tmp_dir = Path(tempfile.mkdtemp(prefix="agent-manager-prepare-remote-"))
     try:
         download_path, detected_origin = await _download_remote_archive(body.url, tmp_dir)
-        extract_dir = tmp_dir / "skill"
-        _extract_zip_with_nested_archives(download_path, extract_dir)
+        def prepare():
+            extract_dir = tmp_dir / "skill"
+            _extract_zip_with_nested_archives(download_path, extract_dir)
 
-        session_id = uuid.uuid4().hex
-        session_root = mgr.registry.data_dir / "remote_import_sessions" / session_id
-        session_root.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(extract_dir, session_root)
-        items = [LocalImportCandidate(**item) for item in _collect_import_candidates(session_root)]
-        return RemoteImportPrepareResponse(
-            session_id=session_id,
-            source_url=body.url,
-            detected_origin=detected_origin,
-            root_path=str(session_root),
-            count=len(items),
-            items=items,
-        )
+            session_id = uuid.uuid4().hex
+            session_root = mgr.registry.data_dir / "remote_import_sessions" / session_id
+            session_root.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(extract_dir, session_root)
+            items = [LocalImportCandidate(**item) for item in _collect_import_candidates(session_root)]
+            return RemoteImportPrepareResponse(
+                session_id=session_id,
+                source_url=body.url,
+                detected_origin=detected_origin,
+                root_path=str(session_root),
+                count=len(items),
+                items=items,
+            )
+
+        return await run_import_work(prepare)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=400, detail=f"Failed to download skill: {exc}") from exc
     finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        await run_import_work(shutil.rmtree, tmp_dir, ignore_errors=True)
 
 
 @router.post("/skills/submit-remote-selected", response_model=BatchSubmitResponse)
+@import_endpoint
 def submit_remote_selected(
     body: RemoteImportSubmitRequest,
     background_tasks: BackgroundTasks,
@@ -1454,7 +1467,7 @@ async def submit_skill_clawhub(
             final_url = str(response.url)
 
             if "zip" in content_type.lower() or final_url.lower().endswith(".zip"):
-                download_path.write_bytes(response.content)
+                await run_import_work(download_path.write_bytes, response.content)
             else:
                 zip_url = _extract_zip_link_from_html(final_url, response.text)
                 if not zip_url:
@@ -1464,37 +1477,40 @@ async def submit_skill_clawhub(
                     )
                 zip_response = await client.get(zip_url, headers=headers)
                 zip_response.raise_for_status()
-                download_path.write_bytes(zip_response.content)
+                await run_import_work(download_path.write_bytes, zip_response.content)
 
-        extract_dir = tmp_dir / "skill"
-        _extract_zip_with_nested_archives(download_path, extract_dir)
+        def prepare():
+            extract_dir = tmp_dir / "skill"
+            _extract_zip_with_nested_archives(download_path, extract_dir)
 
-        skill_root = _resolve_skill_root(extract_dir)
-        persistent_dir = mgr.registry.data_dir / "clawhub_skills" / uuid.uuid4().hex
-        persistent_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(skill_root, persistent_dir)
-        source = SourceInfo(
-            origin=SkillOrigin.CLAWHUB,
-            author=body.author,
-            channel="clawhub",
-            url=body.url,
-            version=body.version,
-        )
-        return _submit_directory_for_processing(
-            mgr,
-            background_tasks,
-            persistent_dir,
-            source,
-            body.use_behavioral,
-            body.use_llm,
-            body.use_sandbox,
-            body.use_skillspector,
-            body.judgement_mode,
-        )
+            skill_root = _resolve_skill_root(extract_dir)
+            persistent_dir = mgr.registry.data_dir / "clawhub_skills" / uuid.uuid4().hex
+            persistent_dir.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(skill_root, persistent_dir)
+            source = SourceInfo(
+                origin=SkillOrigin.CLAWHUB,
+                author=body.author,
+                channel="clawhub",
+                url=body.url,
+                version=body.version,
+            )
+            return _submit_directory_for_processing(
+                mgr,
+                background_tasks,
+                persistent_dir,
+                source,
+                body.use_behavioral,
+                body.use_llm,
+                body.use_sandbox,
+                body.use_skillspector,
+                body.judgement_mode,
+            )
+
+        return await run_import_work(prepare)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=400, detail=f"Failed to download from ClawHub: {exc}") from exc
     finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        await run_import_work(shutil.rmtree, tmp_dir, ignore_errors=True)
 
 
 # --------------------------------------------------------------------------- #

@@ -10,6 +10,21 @@ remain shared governance services. See the integration guide for TeleAgent's evi
 
 ## Overview
 
+宿主事件采集与工具策略默认按[客户端 AIDR 插件 Hook](hook-integration.md)接入；同步加载校验及手工脚本见[开发者：加载前验签](developer-skill-verification.md)。
+
+**English:** Start host audit and tool policies with [Client AIDR plugin Hooks](hook-integration.md). For synchronous loading checks and manual scripts, use [Developer: pre-load verification](developer-skill-verification.md).
+
+### 验签请求与检测负载 / Verification and scan load
+
+验签与加载检查仅查询 Registry 状态、签名和授权所需元数据，不加载完整扫描报告；每次调用仍读取当前已提交状态，
+并同步保存审计。只读查询使用独立 SQLite WAL 快照，减少扫描写锁造成的读取排队；审计写入仍受 SQLite 单写者约束。
+导入解压与摘要准备采用独立并发额度。具体配置、复现测试与现场验收边界见
+[API 响应说明](project-guide.md#114-skill-检测期间的-api-响应--api-responsiveness-during-skill-scans)。
+
+**English:** Runtime checks read committed registry metadata without loading full scan reports and still persist audits
+synchronously. WAL snapshots reduce read contention; audit writes still share SQLite's writer. Import preparation has
+separate bounded capacity. These changes require deployed mixed-load validation for latency guarantees.
+
 ### 异步使用审计与加载前验签
 
 本文下述主动调用验签接口的加载前集成，与“Skill 使用审计”的异步观察是两个调用时点。使用审计由后台日志采集器计算或复用本地 SHA-256 摘要，平台核对已签名批准摘要及当前批准、撤销和授权状态；同步 Hook 路径不读取整个 Skill 目录。审计结果不代表宿主实际加载成功，也不证明加载瞬间内容。

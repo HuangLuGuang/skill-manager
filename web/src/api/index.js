@@ -182,6 +182,7 @@ export const retireSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/re
 export const rescanSkill = (skillId, options = {}) => api.post(`/v1/skills/${skillId}/rescan`, null, { params: options })
 export const deleteSkill = (skillId) => api.delete(`/v1/skills/${skillId}`)
 export const getDashboardRiskSourceStats = () => api.get('/v1/dashboard/risk-source-stats')
+export const getDashboardOverview = (params = {}) => api.get('/v1/dashboard/overview', { params })
 export const getAudit = (params = {}) => api.get('/v1/audit', { params })
 export const getAuditPaged = (params = {}) => api.get('/v1/audit', { params: { ...params, page: params.page || 1, page_size: params.page_size || 10 } })
 export const getPolicy = () => api.get('/v1/policy')

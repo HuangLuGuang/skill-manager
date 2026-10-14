@@ -10,6 +10,7 @@ from ..sqlite_db import get_db
 from ..external_ai_gateway import binding_models, delete_binding_remote, ensure_binding
 from .clients import _client_managed_agent_id
 from ..agent_mcp import MCP_SCOPES, gateway_names, validate_agent_gateways
+from ..client_assets import asset_inventory
 
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -169,6 +170,7 @@ def _asset_instance(
         skills_path=agent.skills_path,
         skill_management_supported=agent.skill_management_supported,
         capabilities=_load_dict(agent.capabilities_json),
+        asset_inventory=asset_inventory(_load_dict(agent.capabilities_json)),
         desired_model=agent.desired_model,
         applied_model=agent.applied_model,
         model_config_status=agent.model_config_status,
@@ -299,6 +301,9 @@ def _asset_rows(db: Session, current_user: models.User) -> list[schemas.AgentAss
                 skill_names=response.skill_names,
                 allowed_mcp_gateways=response.allowed_mcp_gateways,
                 discovered_skill_count=sum(len(instance.skills) for instance in instances),
+                discovered_mcp_count=sum(len(instance.asset_inventory.mcp_servers) + sum(len(plugin.mcp_servers) for plugin in instance.asset_inventory.plugins) for instance in instances if instance.asset_inventory),
+                discovered_plugin_count=sum(len(instance.asset_inventory.plugins) for instance in instances if instance.asset_inventory),
+                plugin_skill_count=sum(len(plugin.skills) for instance in instances if instance.asset_inventory for plugin in instance.asset_inventory.plugins),
                 prompt_names=response.prompt_names,
                 runtime_token_id=response.runtime_token_id,
                 runtime_token_name=response.runtime_token_name,
