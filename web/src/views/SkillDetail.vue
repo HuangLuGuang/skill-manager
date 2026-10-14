@@ -502,6 +502,10 @@
                           <a-descriptions-item :label="$t('legacy.181sskz')">{{ sandboxAnalysis.timed_out ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
                           <a-descriptions-item><template #label><SandboxDebugHelp field="duration" :value="sandboxAnalysis.duration_ms" label>{{ $t('legacy.12sj4tc') }}</SandboxDebugHelp></template><SandboxDebugHelp field="duration" :value="sandboxAnalysis.duration_ms ?? '-'" /> ms</a-descriptions-item>
                           <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ $t('skillDetail.networkAttempts', { count: sandboxAnalysis.network_attempts ?? 0 }) }}</a-descriptions-item>
+                          <a-descriptions-item :label="$t('skillDetail.sandboxErrorOutput')" :span="2">
+                            <!-- 保留 stderr 原文，方便查看执行异常；未记录时留空。 -->
+                            <pre v-if="sandboxAnalysis.stderr" class="sandbox-error-output">{{ sandboxAnalysis.stderr }}</pre>
+                          </a-descriptions-item>
                           <a-descriptions-item v-if="sandboxAnalysis.reason" :label="$t('legacy.1mi4vdj')" :span="2">
                             {{ platformResultText(sandboxAnalysis.reason) }}
                           </a-descriptions-item>
@@ -601,6 +605,10 @@
                           <a-descriptions-item><template #label><SandboxDebugHelp field="runtime" :value="record.runtime || sandboxAnalysis.runtime" label>{{ $t('legacy.1sdwzrx') }}</SandboxDebugHelp></template><SandboxDebugHelp field="runtime" :value="record.runtime || sandboxAnalysis.runtime || '-'" /></a-descriptions-item>
                           <a-descriptions-item><template #label><SandboxDebugHelp field="duration" :value="record.duration_ms" label>{{ $t('legacy.12sj4tc') }}</SandboxDebugHelp></template><SandboxDebugHelp field="duration" :value="record.duration_ms ?? '-'" /> ms</a-descriptions-item>
                           <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ $t('skillDetail.networkAttempts', { count: record.network_attempts ?? 0 }) }}</a-descriptions-item>
+                          <a-descriptions-item :label="$t('skillDetail.sandboxErrorOutput')" :span="2">
+                            <!-- 每条 Probe 展示自身 stderr，方便核对该次执行异常。 -->
+                            <pre v-if="record.stderr" class="sandbox-error-output">{{ record.stderr }}</pre>
+                          </a-descriptions-item>
                           <a-descriptions-item :label="$t('legacy.1suldox')" :span="2">
                             {{ sandboxProbeResultText(record) }}
                           </a-descriptions-item>
@@ -3136,6 +3144,14 @@ watch(
   word-break: break-word;
   background: #0f172a;
   border-radius: 8px;
+}
+
+.sandbox-error-output {
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .evidence-box {

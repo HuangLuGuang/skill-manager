@@ -1,5 +1,6 @@
 export const skillDetailMessages = {
   'zh-CN': {
+    sandboxErrorOutput: '错误输出',
     suppressed: {
       title: '已过滤噪声明细（{count}）',
       reason: '过滤原因',
@@ -54,6 +55,7 @@ export const skillDetailMessages = {
     autoApproval: '策略自动批准', cachedAutoApproval: '复用结果 · 策略自动批准', pendingReview: '待审核',
   },
   'en-US': {
+    sandboxErrorOutput: 'Error output',
     suppressed: {
       title: 'Filtered noise details ({count})',
       reason: 'Filter reason',

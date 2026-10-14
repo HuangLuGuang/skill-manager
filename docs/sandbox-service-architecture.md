@@ -108,6 +108,8 @@ sequenceDiagram
 
 其中 `probe_results` 会保留每个 case 的 stdout、stderr、exit code、风险信号和耗时。
 
+Skill 详情的 Sandbox 调试信息在“说明”之前展示整行“错误输出”，读取汇总报告的 `sandbox_analysis.stderr`；每条 Probe 展开详情在“执行结果”之前展示自身 `stderr`。均以纯文本保留原文及换行，长行换行、内容最高显示 280px 并滚动。标签通过 `skillDetail.sandboxErrorOutput` 提供中英文；stderr 为空、null 或缺失时内容留空。复用已有报告字段，无需数据库迁移或新增部署配置。
+
 ## RemoteSandboxRunner 设计
 
 `RemoteSandboxRunner` 的目标不是替代治理逻辑，而是把高风险 skill 的试跑从主服务进程中拆出去。

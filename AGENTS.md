@@ -142,6 +142,8 @@ make sandbox-runtime-build
 
 - Skill 详情的远程 Sandbox 服务地址按报告原因编码展示：`no_executable_script` 对应“未调用 / Not called”。
 
+- Skill 详情 Sandbox 调试信息的“错误输出”使用 `skillDetail.sandboxErrorOutput` 双语标签，汇总区在“说明”前展示 `sandbox_analysis.stderr`，每条 Probe 在“执行结果”前展示自身 `stderr`；按纯文本保留原文及换行，长内容可滚动，空值或字段缺失时内容留空。
+
 - Sandbox 的风险等级只代表运行时 probe 观察到的行为，不等同于静态扫描或 LLM 的最终风险。
 - 默认 probe 可能覆盖不足；启用 LLM 时可以生成测试参数，但不要让 LLM 生成要执行的代码。
 - 本地 Docker runtime 镜像建议使用 `agent-manager-sandbox-runtime:latest`，避免运行时缺少常见依赖。
