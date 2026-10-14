@@ -8,7 +8,7 @@ import (
 )
 
 // SocketIdentity reports the instance created by Listen, not a later path lookup.
-// Desktop supervision receives this only through its own child's stdout pipe.
+// The managed daemon journals this identity for recovery of its own listener.
 func (r *Receiver) SocketIdentity() (map[string]string, error) {
 	stat, ok := r.file.Sys().(*syscall.Stat_t)
 	if !ok {

@@ -10,12 +10,21 @@ from agent_manager.core.dify_console_client import DifyConsoleClient, DifyConsol
 from backend import models
 from backend.asset_lifecycle_schemas import SourceConfig
 from backend.routers import asset_lifecycle, security_scans
-from backend.security_scan_controls import json_dumps, new_resource_id
+from backend.security_scan_controls import json_dumps, new_resource_id, unprotect_secret
 from backend.services import agent_risk, asset_sync
 from backend.services.dify_inventory import persist_inventory_snapshot
 from tests.test_agent_security_p1 import _create_policy, _create_target, p1_api  # noqa: F401
 
 ROOT = "/api/v1/agent-security"
+
+
+def add_evaluator(factory):
+    with factory() as db:
+        provider = models.ModelProvider(name="asset-judge-provider", base_url="https://judge.example/v1")
+        db.add(provider)
+        db.flush()
+        db.add(models.ModelEndpoint(provider_id=provider.id, name="asset-judge"))
+        db.commit()
 
 
 @pytest.fixture()
@@ -384,12 +393,14 @@ def test_discovery_reuses_identity_and_inherits_only_workspace_credentials(lifec
 
 def test_event_rescan_is_idempotent_and_rule_failure_remains_actionable(lifecycle, monkeypatch):
     _, factory, _, _, target, policy, source, _ = lifecycle
+    add_evaluator(factory)
     with factory() as db:
         _, agent = inventory(db, target["target_id"], policy["policy_id"])
         agent.source_id = source["source_id"]
         row = db.get(models.AssetSource, source["source_id"])
         config = json.loads(row.config_json)
         config["auto_scan_policy_id"] = policy["policy_id"]
+        config["evaluation_model"] = "asset-judge"
         row.config_json = json_dumps(config)
         db.commit()
     from backend.api_errors import ApiError
@@ -412,8 +423,66 @@ def test_event_rescan_is_idempotent_and_rule_failure_remains_actionable(lifecycl
     asset_sync.process_events(factory)
     asset_sync.process_events(factory)
     with factory() as db:
-        assert db.query(models.SecurityScanTask).filter_by(scan_kind="agent_risk_scan").count() == 1
-        assert db.query(models.AssetLifecycleEvent).one().processed_at is not None
+        task = db.query(models.SecurityScanTask).filter_by(scan_kind="agent_risk_scan").one()
+        assert json.loads(unprotect_secret(task.scan_options_encrypted))["evaluation_model"] == "asset-judge"
+        event = db.query(models.AssetLifecycleEvent).one()
+        assert event.processed_at is not None
+        assert event.error_code is None
+        assert event.next_attempt_at is None
+
+
+@pytest.mark.parametrize("model_name, provider_enabled, model_enabled, error", [
+    (None, True, True, "agent_security.evaluation_model_required"),
+    ("missing-model", True, True, "agent_security.evaluation_model_invalid"),
+    ("asset-judge", False, True, "agent_security.evaluation_model_invalid"),
+    ("asset-judge", True, False, "agent_security.evaluation_model_invalid"),
+    ("asset-judge", True, True, None),
+])
+@pytest.mark.parametrize("operation", ["create", "update"])
+def test_source_auto_scan_validates_evaluator(lifecycle, model_name, provider_enabled, model_enabled, error, operation):
+    client, factory, _, _, _, policy, source, body = lifecycle
+    add_evaluator(factory)
+    with factory() as db:
+        db.query(models.ModelProvider).one().enabled = provider_enabled
+        db.query(models.ModelEndpoint).one().enabled = model_enabled
+        if operation == "create":
+            db.delete(db.get(models.AssetSource, source["source_id"]))
+        db.commit()
+    body["config"].update(auto_scan_policy_id=policy["policy_id"], evaluation_model=model_name)
+    if operation == "create":
+        response = client.post(f"{ROOT}/asset-sources", json=body)
+    else:
+        body.pop("template_target_id")
+        response = client.put(f"{ROOT}/asset-sources/{source['source_id']}", json={**body, "version": source["version"]})
+    assert response.status_code == (422 if error else 200), response.text
+    if error:
+        assert response.json()["error_code"] == error
+    else:
+        assert response.json()["config"]["evaluation_model"] == "asset-judge"
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_auto_scan_preserves_pending_event_when_evaluator_unavailable(lifecycle, configured):
+    _, factory, _, _, target, policy, source, _ = lifecycle
+    add_evaluator(factory)
+    with factory() as db:
+        _, agent = inventory(db, target["target_id"], policy["policy_id"])
+        agent.source_id = source["source_id"]
+        row = db.get(models.AssetSource, source["source_id"])
+        config = json.loads(row.config_json)
+        config["auto_scan_policy_id"] = policy["policy_id"]
+        if configured:
+            config["evaluation_model"] = "asset-judge"
+            db.query(models.ModelEndpoint).one().enabled = False
+        row.config_json = json_dumps(config)
+        db.commit()
+    asset_sync.process_events(factory)
+    with factory() as db:
+        event = db.query(models.AssetLifecycleEvent).one()
+        assert event.processed_at is None
+        assert event.next_attempt_at > datetime.utcnow()
+        assert event.error_code == ("agent_security.evaluation_model_invalid" if configured else "agent_security.evaluation_model_required")
+        assert db.query(models.SecurityScanTask).filter_by(scan_kind="agent_risk_scan").count() == 0
 
 
 def test_shared_mcp_risk_requires_explicit_same_owner_link(lifecycle):

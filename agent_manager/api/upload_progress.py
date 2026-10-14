@@ -4,8 +4,9 @@ import asyncio
 import json
 import time
 
+import anyio
 from fastapi.responses import StreamingResponse
-from starlette.concurrency import run_in_threadpool
+from agent_manager.api.import_work import run_import_work
 
 
 def stream_upload_progress(work, initial_stage="extracting"):
@@ -34,7 +35,7 @@ def stream_upload_progress(work, initial_stage="extracting"):
             except Exception:
                 emit({"type": "error", "error_code": "upload.parse_failed"})
 
-        task = asyncio.create_task(run_in_threadpool(run))
+        task = asyncio.create_task(run_import_work(run))
         try:
             yield json.dumps({"type": "progress", "stage": initial_stage, "completed": 0, "total": 0}) + "\n"
             while True:
@@ -45,7 +46,8 @@ def stream_upload_progress(work, initial_stage="extracting"):
         finally:
             active = False
             # The thread finishes its filesystem cleanup even if the client disconnects.
-            await asyncio.shield(task)
+            with anyio.CancelScope(shield=True):
+                await asyncio.shield(task)
 
     return StreamingResponse(events(), media_type="application/x-ndjson", headers={
         "Cache-Control": "no-cache", "X-Accel-Buffering": "no",

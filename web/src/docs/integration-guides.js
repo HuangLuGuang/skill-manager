@@ -1,9 +1,12 @@
+import { integrationChoiceSections } from './integration-choice.js'
+
 const zh = {
   'scenario-selection': {
     eyebrow: '开始使用',
     title: '按产品和运行方式选择接入方案',
     summary: '先判断治理对象在哪里运行、能否安装客户端、是否能修改运行时，再选择客户端托管、Runtime API、Dify API 或 Scanner。',
     sections: [
+      integrationChoiceSections['zh-CN'],
       {
         id: 'decision-table',
         title: '不同产品使用不同方案',
@@ -11,14 +14,14 @@ const zh = {
         table: {
           columns: ['场景 / 产品', '首选方案', '主要解决的问题', '还需要什么'],
           rows: [
-            ['Codex、Claude Code、Gemini CLI、OpenCode、Hermes 等本地工具', { path: '/docs/client-management', label: 'Agent Manager Client' }, '发现本地 Agent 和 Skill、模型配置、安装、隔离、恢复与巡检', '需要加载前或 Tool 前强制阻断时，再接目标产品真实支持的 Hook'],
+            ['Codex、Claude Code、Gemini CLI、OpenCode、Hermes 等本地工具', { path: '/docs/client-management', label: 'Agent Manager Client' }, '发现本地 Agent 和 Skill、模型配置、安装、隔离、恢复与巡检', '启用客户端 AIDR 插件 Hook 并完成宿主信任；同步加载前验签走开发者指南'],
             ['自研 Agent Runtime、服务端 Agent', { path: '/docs/runtime-integration', label: 'Agent 运行凭证 + Runtime API/SDK' }, '在真实 Skill Loader、Tool 调用和 Turn/Step 中执行校验与上报', '在代码中接入验签、can-load、check-tool 和 Runtime Trace'],
             ['Dify Chatflow / Workflow', { path: '/docs/dify-security-access', label: 'Dify API 资产纳管' }, '采集应用、DSL、节点、Prompt、Tool、MCP 与知识库引用并执行安全扫描', '按用途配置 Console、App 和 Knowledge API 权限'],
             ['客户主机、共享目录或 CI 中只有 Skill 文件', { path: '/docs/scanner-access', label: '二进制 Scanner' }, '批量发现、预检并提交 Skill 扫描', 'Scanner 只负责提交和读取自己的结果，不代表 Agent 运行身份'],
             ['只能修改模型或 MCP 地址的第三方应用', { path: '/docs/credential-management', label: '模型/MCP 数据面接入' }, '通过受限凭证调用允许的模型或 MCP Gateway', '只能形成网关侧证据，不能伪造成完整 Agent 运行轨迹'],
           ],
         },
-        callout: { type: 'note', title: '客户端和 Hook 可以同时使用', body: '客户端负责本地目录、配置与持续巡检；Hook 只在产品真实触发的事件点执行运行时检查。需要两类边界时应组合部署，不要把其中一个描述为另一个的替代品。' },
+        callout: { type: 'note', title: 'Hook 默认通过客户端 AIDR 接入', body: '客户端按策略管理受支持产品的插件、Hook 配置和后台接收器。完成原生信任后，用真实事件验收采集和工具策略；同步 Skill 加载前验签按开发者指南接入真实 Loader 或受支持事件。' },
       },
       {
         id: 'local-tools',
@@ -27,7 +30,7 @@ const zh = {
           { title: '创建客户端接入凭证并安装客户端', body: '客户端凭证只负责主机注册、心跳、策略和任务，不直接调用模型或 MCP。' },
           { title: '发现本地 Agent 和 Skill 目录', body: '核对 Agent 类型、实际目录和客户端能力，不把共享目录强行归属给单一 Agent。' },
           { title: '自动登记并下发配置', body: '客户端上报后平台自动登记本机 Agent 身份；客户端执行模型配置、Skill 安装、隔离与恢复任务。' },
-          { title: '按需增加 Hook', body: '只有目标产品提供并真实触发相应事件时，才能把加载前或 Tool 前检查放入 Hook。' },
+          { title: '启用 AIDR 插件 Hook 并验收', body: '在客户端策略选择产品和 Hook 通道，核对安装、启用、原生信任及新会话事件。工具拦截按模式和受支持执行点验收。' },
         ],
       },
       {
@@ -189,17 +192,18 @@ const en = {
     title: 'Choose an integration by product and runtime',
     summary: 'Identify where the governed product runs, whether a Client can be installed, and whether its runtime can be changed before choosing Client management, Runtime APIs, Dify APIs, or Scanner.',
     sections: [
+      integrationChoiceSections['en-US'],
       {
         id: 'decision-table', title: 'Use a different path for each product',
         paragraphs: ['Creating an Agent establishes a platform identity and authorization record. It does not start or take over the actual product. The product shape and controllable execution points determine the integration.'],
         table: { columns: ['Scenario / product', 'Primary path', 'What it solves', 'What else is needed'], rows: [
-          ['Local Codex, Claude Code, Gemini CLI, OpenCode, or Hermes', { path: '/docs/client-management', label: 'Agent Manager Client' }, 'Discover local Agents and Skills; configure models; install, quarantine, restore, and inspect', 'Add a real product Hook when pre-load or pre-Tool enforcement is required'],
+          ['Local Codex, Claude Code, Gemini CLI, OpenCode, or Hermes', { path: '/docs/client-management', label: 'Agent Manager Client' }, 'Discover local Agents and Skills; configure models; install, quarantine, restore, and inspect', 'Enable Client AIDR plugin Hooks and complete native trust; use the developer guide for synchronous pre-load verification'],
           ['Custom Agent Runtime or server-side Agent', { path: '/docs/runtime-integration', label: 'Agent runtime credential + Runtime API/SDK' }, 'Check the real Skill loader and Tool path and report Turn/Step events', 'Integrate signature, can-load, check-tool, and Runtime Trace calls in code'],
           ['Dify Chatflow / Workflow', { path: '/docs/dify-security-access', label: 'Dify API asset governance' }, 'Collect apps, DSL, nodes, prompts, tools, MCP, and knowledge references and run security scans', 'Configure Console, App, and Knowledge API access by purpose'],
           ['Skill files on a customer host, shared directory, or CI', { path: '/docs/scanner-access', label: 'Binary Scanner' }, 'Discover, precheck, and submit Skills in batches', 'Scanner identity only submits and reads its own results; it is not an Agent runtime identity'],
           ['Third-party app where only a model or MCP URL can change', { path: '/docs/credential-management', label: 'Model/MCP data-plane integration' }, 'Call authorized models or MCP gateways with scoped credentials', 'Gateway evidence is partial and cannot be presented as a full Agent trace'],
         ] },
-        callout: { type: 'note', title: 'Client and Hook can be combined', body: 'The Client manages local directories, configuration, and continuous inspection. A Hook checks only events the product really emits. Deploy both when both boundaries matter.' },
+        callout: { type: 'note', title: 'Use Client AIDR for Hook integration by default', body: 'The Client manages supported plugins, Hook configuration and the background receiver according to policy. Complete native trust and verify actual events and tool decisions. For synchronous Skill verification, follow the developer guide at the real Loader or a supported event.' },
       },
       {
         id: 'local-tools', title: 'Scenario 1: prefer the Client for local packaged tools',
@@ -207,7 +211,7 @@ const en = {
           { title: 'Create a Client credential and install the Client', body: 'A Client credential handles host registration, heartbeat, policy, and tasks. It cannot call a model or MCP directly.' },
           { title: 'Discover local Agents and Skill roots', body: 'Verify Agent type, real directories, and reported capabilities. Do not assign a shared directory to one Agent without evidence.' },
           { title: 'Register automatically and deliver configuration', body: 'The platform registers each local Agent automatically after Client reporting. The Client executes model configuration and Skill install, quarantine, and restore tasks.' },
-          { title: 'Add a Hook only when needed', body: 'Pre-load or pre-Tool checks are enforceable only when the target product exposes and triggers the required events.' },
+          { title: 'Enable and verify AIDR plugin Hooks', body: 'Select products and the Hook channel in Client policy. Verify installation, enablement, native trust and new-session events. Test tool interception by mode and supported execution point.' },
         ],
       },
       {

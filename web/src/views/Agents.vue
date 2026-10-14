@@ -1,12 +1,12 @@
 <template>
   <div :class="{ 'agent-workspace-page': workspaceAsset }">
     <AgentDiscoveredWorkspace v-if="workspaceAsset" :key="workspaceAsset.asset_key" :asset="workspaceAsset" :initial-client="route.query.client" :initial-local-id="route.query.local" @back="closeWorkspace" />
-    <a-card v-else class="page-card">
+    <a-card v-else class="page-card agent-list-card">
       <template #title>
         <a-page-header :title="$t('legacy.5chjsa')" :sub-title="$t('agentAssets.subtitle')">
           <template #extra>
-            <a-button @click="flowVisible = true">{{ $t("legacy.udb4df") }}</a-button>
-            <a-button v-if="hasAccess('agents:create')" type="primary" @click="openAgent()">{{ $t("legacy.1krdxw3") }}</a-button>
+            <a-button v-if="pageAllowed('/runtime')" @click="router.push('/runtime')">{{ $t('agentIntegration.choose') }}</a-button>
+            <a-button v-if="hasAccess('agents:create')" type="primary" @click="openAgent()">{{ $t('agentIntegration.register') }}</a-button>
           </template>
         </a-page-header>
       </template>
@@ -31,6 +31,7 @@
           <a-tab-pane key="platform" :tab="tabLabel('platform', assetStats.platform)" />
           <a-tab-pane key="client_discovery" :tab="tabLabel('discovered', assetStats.client_discovery)" />
         </a-tabs>
+        <a-alert class="source-help" type="info" show-icon :message="$t(`agentIntegration.sources.${filters.origin}`)" />
         <div class="asset-toolbar">
           <a-select v-if="filters.origin !== 'client_discovery'" v-model:value="filters.department_group_id" allow-clear :placeholder="$t('legacy.1qbe72t')" class="department-filter" @change="fetchAgentAssets">
             <a-select-option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</a-select-option>
@@ -48,8 +49,23 @@
           <a-button @click="resetFilters" :disabled="loading">{{ $t("legacy.1wq9feq") }}</a-button>
         </div>
 
-        <a-table :data-source="agents" :columns="columns" :scroll="{ x: 1180 }" rowKey="asset_key" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }">
-          <template #emptyText>{{ $t('agentAssets.empty') }}</template>
+        <a-table class="agent-asset-table" :data-source="agents" :columns="columns" :show-sorter-tooltip="false" :scroll="{ x: 1480 }" rowKey="asset_key" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }">
+          <template #headerCell="{ column }">
+            <span v-if="column.sortHelp" class="asset-sort-heading">
+              {{ column.title }}
+              <a-popover :trigger="['hover', 'focus', 'click']" placement="topRight" :overlay-style="{ maxWidth: 'calc(100vw - 32px)' }">
+                <template #content><div class="asset-sort-help"><strong>{{ $t('agentAssets.sorting.basis') }}</strong><p>{{ $t(column.sortHelp) }}</p><p>{{ $t('agentAssets.sorting.cycle') }}</p></div></template>
+                <button class="asset-sort-info" type="button" :aria-label="$t('agentAssets.sorting.helpLabel', { column: column.title })" @click.stop @keydown.stop><InfoCircleOutlined /></button>
+              </a-popover>
+            </span>
+          </template>
+          <template #emptyText>
+            <div class="source-empty">
+              <p>{{ $t(sourceEmptyKey) }}</p>
+              <a-button v-if="sourceEmptyKey === 'agentIntegration.emptyPlatform' && hasAccess('agents:create')" type="primary" @click="openAgent()">{{ $t('agentIntegration.register') }}</a-button>
+              <a-button v-if="sourceEmptyKey === 'agentIntegration.emptyClient' && pageAllowed('/clients')" type="primary" @click="router.push('/clients')">{{ $t('agentIntegration.client.open') }}</a-button>
+            </div>
+          </template>
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'agent'">
               <div class="agent-cell">
@@ -73,12 +89,14 @@
                 <div class="muted">{{ instanceLocation(record) }}</div>
               </template>
               <template v-else>
-                <div>{{ $t('agentAssets.platformRuntime') }}</div>
+                <div>{{ $t('agentAssets.locationUnknown') }}</div>
               </template>
             </template>
             <template v-else-if="column.key === 'assets'">
               <div>{{ assetModelText(record) }}</div>
               <div class="muted">{{ record.origin_type === 'platform' ? $t('agentAssets.assignedSkillSummary', { count: record.skill_names?.length || 0 }) : record.client_status === 'not_detected' ? $t('agentAssets.inventoryUnavailable') : $t('agentAssets.discoveredSkillSummary', { count: record.discovered_skill_count || 0 }) }}</div>
+              <div v-if="record.instances?.some(instance => instance.asset_inventory)" class="muted">{{ $t('localAssets.summary', { mcp: record.discovered_mcp_count, plugins: record.discovered_plugin_count }) }}</div>
+              <div v-if="record.plugin_skill_count" class="muted">{{ $t('localAssets.pluginSkills', { count: record.plugin_skill_count }) }}</div>
             </template>
             <template v-else-if="column.key === 'status'">
               <a-space direction="vertical" size="small">
@@ -91,6 +109,7 @@
             <template v-else-if="column.key === 'actions'">
               <a-space wrap>
                 <a @click="openAsset(record)">{{ $t('agentAssets.detail') }}</a>
+                <a v-if="record.origin_type === 'platform' && pageAllowed('/runtime')" @click="openGuide(record)">{{ $t('agentIntegration.guide') }}</a>
                 <a v-if="record.origin_type === 'platform' && hasAccess('agents:update')" @click="openAgent(record)">{{ $t('agentAssets.edit') }}</a>
                 <a-popconfirm v-if="record.origin_type === 'platform' && hasAccess('agents:delete')" :title="$t('legacy.17y5gsa')" @confirm="handleDelete(record)">
                   <a danger>{{ $t("legacy.1t2vi4h") }}</a>
@@ -104,7 +123,8 @@
 
     <a-drawer v-model:open="assetVisible" :width="760" :title="selectedAsset?.name || $t('agentAssets.detail')">
       <template #extra>
-        <a-space>
+        <a-space wrap>
+          <a-button v-if="selectedAsset?.origin_type === 'platform' && pageAllowed('/runtime')" @click="openGuide(selectedAsset)">{{ $t('agentIntegration.guide') }}</a-button>
           <a-button v-if="selectedAsset?.origin_type === 'platform' && hasAccess('agents:update')" type="primary" @click="editSelectedAsset">{{ $t('agentAssets.edit') }}</a-button>
         </a-space>
       </template>
@@ -118,7 +138,7 @@
             <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.agentStatus') }}</span><strong>{{ statusText(selectedAsset.status) }}</strong></div></a-col>
             <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.assignedSkillCount') }}</span><strong>{{ selectedAsset.skill_names?.length || 0 }}</strong></div></a-col>
             <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.defaultModel') }}</span><strong>{{ selectedAsset.default_model || $t('agentAssets.drawer.notConfigured') }}</strong></div></a-col>
-            <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.runtimeCredential') }}</span><strong>{{ selectedAsset.runtime_token_id ? $t('agentAssets.drawer.configured') : $t('agentAssets.drawer.notConfigured') }}</strong></div></a-col>
+            <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.runtimeCredential') }}</span><strong>{{ selectedAsset.runtime_token_id ? $t('agentIntegration.linkedCredential') : $t('agentAssets.drawer.notConfigured') }}</strong></div></a-col>
           </a-row>
           <a-tabs v-model:activeKey="assetDetailTab">
             <a-tab-pane key="overview" :tab="$t('agentAssets.drawer.platformOverview')">
@@ -148,11 +168,20 @@
                 </template>
               </a-list>
             </a-tab-pane>
+            <a-tab-pane key="mcp" :tab="$t('agentMcp.count', { count: selectedAsset.allowed_mcp_gateways?.length || 0 })">
+              <AgentMcpAccess :key="selectedAsset.agent_id" :agent-pk="selectedAsset.managed_agent_pk" />
+            </a-tab-pane>
+            <a-tab-pane v-if="selectedAsset.instances?.length" key="local-assets" :tab="$t('localAssets.instances')">
+              <section v-for="instance in selectedAsset.instances" :key="`${instance.client_id}:${instance.local_agent_id}`" class="detail-section">
+                <h3>{{ instance.client_name }} · {{ instance.local_agent_id }}</h3>
+                <AgentLocalAssets :inventory="instance.asset_inventory" :skills="instance.skills" />
+              </section>
+            </a-tab-pane>
             <a-tab-pane key="model" :tab="$t('agentAssets.drawer.modelAccess')">
               <a-descriptions bordered size="small" :column="2">
                 <a-descriptions-item :label="$t('agentAssets.drawer.defaultModel')">{{ selectedAsset.default_model || $t('agentAssets.drawer.notConfigured') }}</a-descriptions-item>
                 <a-descriptions-item :label="$t('agentAssets.drawer.gatewaySource')">{{ gatewaySourceText(selectedAsset) }}</a-descriptions-item>
-                <a-descriptions-item :label="$t('agentAssets.drawer.runtimeCredential')" :span="2">{{ selectedAsset.runtime_token_id ? `${$t('agentAssets.drawer.configured')} · ${selectedAsset.runtime_token_name || selectedAsset.runtime_token_id}` : $t('agentAssets.drawer.notConfigured') }}</a-descriptions-item>
+                <a-descriptions-item :label="$t('agentAssets.drawer.runtimeCredential')" :span="2">{{ selectedAsset.runtime_token_id ? `${$t('agentIntegration.linkedCredential')} · ${selectedAsset.runtime_token_name || selectedAsset.runtime_token_id}` : $t('agentAssets.drawer.notConfigured') }}</a-descriptions-item>
               </a-descriptions>
             </a-tab-pane>
           </a-tabs>
@@ -161,11 +190,14 @@
       </template>
     </a-drawer>
 
-    <a-modal v-model:open="agentVisible" :title="editingAgentId && !createdDraft ? $t('legacy.1k1efeu') : $t('legacy.1krdxw3')" width="760px" :mask-closable="!createdDraft" @ok="saveAgent" @cancel="cancelAgentModal" :confirm-loading="submitting">
-      <a-form layout="vertical" :model="agentForm">
+    <a-modal v-model:open="agentVisible" wrap-class-name="agent-registration-modal" :title="editingAgentId && !createdDraft ? $t('legacy.1k1efeu') : $t('agentIntegration.registerTitle')" width="760px" :mask-closable="!createdDraft && !submitting && !preparingExternal" :closable="!submitting && !preparingExternal" :keyboard="!submitting && !preparingExternal" :cancel-button-props="{ disabled: submitting || preparingExternal }" :ok-button-props="{ disabled: submitting || preparingExternal }" :ok-text="pageAllowed('/runtime') ? $t('agentIntegration.saveAndGuide') : undefined" @ok="saveAgent" @cancel="cancelAgentModal" :confirm-loading="submitting">
+      <a-alert type="info" show-icon :message="$t('agentIntegration.form.intro')" />
+      <a-button v-if="pageAllowed('/runtime')" type="link" class="local-guide-link" @click="openClientGuide">{{ $t('agentIntegration.form.local') }}</a-button>
+      <a-form layout="vertical" :model="agentForm" :disabled="submitting || preparingExternal">
+        <h3>{{ $t('agentIntegration.form.basic') }}</h3>
         <a-row :gutter="16">
           <a-col :xs="24" :md="12">
-            <a-form-item label="Agent ID" required>
+            <a-form-item label="Agent ID" required :extra="$t('agentIntegration.form.idHelp')">
               <a-input v-model:value="agentForm.agent_id" placeholder="risk-screening-agent" :disabled="editingOriginType === 'client_discovery'" />
             </a-form-item>
           </a-col>
@@ -184,7 +216,7 @@
             </a-form-item>
           </a-col>
           <a-col :xs="24" :md="12">
-            <a-form-item :label="$t('legacy.1ccx4t4')">
+            <a-form-item :label="$t('legacy.1ccx4t4')" :extra="$t('agentIntegration.form.statusHelp')">
               <a-select v-model:value="agentForm.status">
                 <a-select-option value="active">{{ $t("legacy.5pm2ma") }}</a-select-option>
                 <a-select-option value="disabled">{{ $t("legacy.1dcdrxo") }}</a-select-option>
@@ -215,6 +247,9 @@
             </a-form-item>
           </a-col>
         </a-row>
+        <a-divider />
+        <h3>{{ $t('agentIntegration.form.model') }}</h3>
+        <p class="field-hint">{{ $t('agentIntegration.form.modelHelp') }}</p>
         <a-form-item :label="$t('externalModel.source')">
           <a-radio-group v-model:value="agentForm.default_model_source" button-style="solid" @change="handleModelSourceChange">
             <a-radio-button value="internal">{{ $t('externalModel.internal') }}</a-radio-button>
@@ -242,6 +277,8 @@
             </a-select-option>
           </a-select>
         </a-form-item>
+        <a-divider />
+        <h3>{{ $t('agentIntegration.form.skills') }}</h3>
         <a-form-item :label="$t('legacy.zdumf2')">
           <a-select
             v-model:value="agentForm.skill_refs"
@@ -261,83 +298,40 @@
               {{ skillOptionLabel(skill) }}
             </a-select-option>
           </a-select>
-          <div class="field-hint">{{ $t("legacy.1ienetp") }}</div>
+          <div class="field-hint">{{ $t('agentIntegration.form.skillHelp') }}</div>
         </a-form-item>
-        <a-alert
-          type="info"
-          show-icon
-          :message="$t('legacy.ybzs30')"
-          style="margin-bottom: 16px"
-        />
+        <h3>{{ $t('agentMcp.optional') }}</h3>
+        <p class="field-hint">{{ $t('agentMcp.intro') }}</p>
+        <a-form-item :label="$t('agentMcp.gateways')">
+          <AgentMcpGateways v-model="agentForm.allowed_mcp_gateways" :disabled="submitting || preparingExternal" />
+          <p class="field-hint">{{ $t('agentMcp.scope') }}</p>
+        </a-form-item>
         <a-form-item :label="$t('legacy.1kxyax6')">
           <a-textarea v-model:value="agentForm.description" :rows="3" :placeholder="$t('legacy.1zcrx6')" />
         </a-form-item>
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="flowVisible" :title="$t('legacy.10eib88')" width="980px" :footer="null">
-      <a-row :gutter="[16, 16]">
-        <a-col :xs="24" :lg="12">
-          <a-card size="small" :title="$t('legacy.1laqeus')">
-            <a-steps size="small" direction="vertical" :current="3">
-              <a-step :title="$t('legacy.knj41c')" :description="$t('legacy.1ecffk1')" />
-              <a-step :title="$t('legacy.5zetdq')" :description="$t('legacy.ggcbgt')" />
-              <a-step :title="$t('legacy.mxm4hl')" :description="$t('legacy.wfusa5')" />
-              <a-step :title="$t('legacy.hkysa4')" :description="$t('legacy.3hftou')" />
-            </a-steps>
-          </a-card>
-        </a-col>
-        <a-col :xs="24" :lg="12">
-          <a-card size="small" :title="$t('legacy.1fz7t0k')">
-            <a-steps size="small" direction="vertical" :current="4">
-              <a-step :title="$t('legacy.61qni9')" :description="$t('legacy.16rumca')" />
-              <a-step :title="$t('legacy.1hfbt5h')" :description="$t('legacy.ybnv0i')" />
-              <a-step :title="$t('legacy.1odwfha')" :description="$t('legacy.1giz277')" />
-              <a-step :title="$t('legacy.1a7xapv')" :description="$t('legacy.1noips3')" />
-              <a-step :title="$t('legacy.13omz3w')" :description="$t('legacy.1vl9n7k')" />
-            </a-steps>
-          </a-card>
-        </a-col>
-      </a-row>
-      <a-alert
-        type="info"
-        show-icon
-        class="flow-note"
-        :message="$t('legacy.2lwr8u')"
-        :description="$t('legacy.1lk2300')"
-      />
-      <a-card size="small" :title="$t('legacy.3ct5nb')" class="flow-gateway-card">
-        <a-steps size="small" :current="4">
-          <a-step :title="$t('legacy.15teb0h')" :description="$t('legacy.1bobpp0')" />
-          <a-step :title="$t('legacy.17lmhaa')" :description="$t('legacy.1yydulr')" />
-          <a-step :title="$t('legacy.ua7bgb')" :description="$t('legacy.19qufvh')" />
-          <a-step :title="$t('legacy.qiw836')" :description="$t('legacy.1vcdl0n')" />
-          <a-step :title="$t('legacy.46x8kr')" :description="$t('legacy.lw1t0f')" />
-        </a-steps>
-      </a-card>
-      <a-space class="flow-actions" wrap>
-        <a-button @click="router.push('/submit')">{{ $t("legacy.knj41c") }}</a-button>
-        <a-button @click="router.push('/agents')">{{ $t("legacy.61qni9") }}</a-button>
-        <a-button @click="router.push('/credentials')">{{ $t("legacy.qiw836") }}</a-button>
-        <a-button @click="router.push('/model-gateway/models')">{{ $t("legacy.1jabg1u") }}</a-button>
-        <a-button type="primary" @click="router.push('/runtime')">{{ $t("legacy.t46zf7") }}</a-button>
-      </a-space>
-    </a-modal>
+
   </div>
 </template>
 
 <script setup>
 import { modelLabel } from '../utils/modelLabels'
 import { formatDateTime } from '../utils/format'
-import { can as hasAccess } from '../access'
+import { can as hasAccess, pageAllowed } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import AgentDiscoveredWorkspace from '../components/AgentDiscoveredWorkspace.vue'
 import AgentProductLogo from '../components/AgentProductLogo.vue'
+import AgentMcpGateways from '../components/AgentMcpGateways.vue'
+import AgentMcpAccess from '../components/AgentMcpAccess.vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
-import { message, Modal } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
+import { InfoCircleOutlined } from '@ant-design/icons-vue'
+import AgentLocalAssets from '../components/AgentLocalAssets.vue'
 
 import {
   createAgent,
@@ -356,11 +350,11 @@ const router = useRouter(), route = useRoute()
 const workspaceAsset = ref(null)
 const closeWorkspace = () => { workspaceAsset.value = null; const query = { ...route.query }; delete query.agent; delete query.client; delete query.local; router.replace({ query }) }
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const loading = ref(false)
+const assetsLoadFailed = ref(false)
 const submitting = ref(false)
 const agentVisible = ref(false)
-const flowVisible = ref(false)
 const assetVisible = ref(false)
 const selectedAsset = ref(null)
 const assetDetailTab = ref('overview')
@@ -378,7 +372,21 @@ const externalModels = ref([])
 const externalCatalogInfo = ref(null)
 const preparingExternal = ref(false)
 const skills = ref([])
-const filters = reactive({ origin: 'all', department_group_id: null, status: undefined, q: '' })
+const filters = reactive({ origin: ['platform', 'client_discovery'].includes(route.query.origin) ? route.query.origin : 'all', department_group_id: null, status: undefined, q: '' })
+const sourceEmptyKey = computed(() => {
+  if (assetsLoadFailed.value) return 'agentAssets.loadFailed'
+  if (filters.q || filters.status || filters.department_group_id) return 'agentAssets.empty'
+  if (filters.origin === 'platform' && !assetStats.platform) return 'agentIntegration.emptyPlatform'
+  if (filters.origin === 'client_discovery' && !assetStats.client_discovery) return 'agentIntegration.emptyClient'
+  return 'agentAssets.empty'
+})
+const openGuide = record => { assetVisible.value = false; router.push({ path: '/runtime', query: { scenario: 'custom', agent_id: record.agent_id } }) }
+const openClientGuide = async () => {
+  if (submitting.value || preparingExternal.value) return
+  if (await cancelAgentModal() === false) return
+  agentVisible.value = false
+  router.push({ path: '/runtime', query: { scenario: 'client' } })
+}
 const agentForm = reactive({
   agent_id: '',
   name: '',
@@ -390,16 +398,26 @@ const agentForm = reactive({
   default_model_source: 'internal',
   external_gateway_id: undefined,
   skill_refs: [],
+  allowed_mcp_gateways: [],
   prompt_names: [],
 })
+const compareAssetText = (a, b) => String(a || '').localeCompare(String(b || ''), locale.value, { numeric: true, sensitivity: 'base' })
+const assetSkillCount = record => record.origin_type === 'platform' ? record.skill_names?.length || 0 : record.client_status === 'not_detected' ? -1 : record.discovered_skill_count || 0
+const assetTimestamp = record => {
+  const value = record.last_seen_at || record.updated_at
+  if (!value) return 0
+  return Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`) || 0
+}
+const assetStatusRank = record => ({ draft: 0, active: 1, disabled: 2 }[record.status] ?? 3)
+const assetDepartment = record => record.origin_type === 'client_discovery' ? ownerDepartmentText(record) : record.department_name || ''
 const columns = computed(() => [
-  { title: t('agentAssets.columns.agent'), key: 'agent', width: 210 },
-  { title: t('agentAssets.columns.source'), key: 'source', width: 170 },
-  { title: t('agentAssets.columns.owner'), key: 'owner', width: 160 },
-  { title: t('agentAssets.columns.location'), key: 'location', width: 220 },
-  { title: t('agentAssets.columns.assets'), key: 'assets', width: 220 },
-  { title: t('agentAssets.columns.status'), key: 'status', width: 180 },
-  { title: t('agentAssets.columns.lastSeen'), key: 'lastSeen', width: 170 },
+  { title: t('agentAssets.columns.agent'), key: 'agent', width: 210, sorter: (a, b) => compareAssetText(a.name, b.name) },
+  { title: t('agentAssets.columns.source'), key: 'source', width: 170, sorter: (a, b) => Number(a.origin_type !== 'platform') - Number(b.origin_type !== 'platform') },
+  { title: t('agentAssets.columns.owner'), key: 'owner', width: 180, sorter: (a, b) => compareAssetText(assetDepartment(a), assetDepartment(b)) || compareAssetText(a.owner, b.owner) },
+  { title: t('agentAssets.columns.location'), key: 'location', width: 220, sorter: (a, b) => compareAssetText(a.instances?.[0]?.client_name, b.instances?.[0]?.client_name) },
+  { title: t('agentAssets.columns.assets'), key: 'assets', width: 220, sorter: (a, b) => assetSkillCount(a) - assetSkillCount(b), sortHelp: 'agentAssets.sorting.assets' },
+  { title: t('agentAssets.columns.status'), key: 'status', width: 180, sorter: (a, b) => assetStatusRank(a) - assetStatusRank(b), sortHelp: 'agentAssets.sorting.status' },
+  { title: t('agentAssets.columns.lastSeen'), key: 'lastSeen', width: 190, sorter: (a, b) => assetTimestamp(a) - assetTimestamp(b) },
   { title: t('agentAssets.columns.actions'), key: 'actions', width: 110, fixed: 'right' },
 ])
 const activeUsers = computed(() => users.value.filter(item => item.is_active !== false))
@@ -440,7 +458,7 @@ const instanceLocation = record => {
 }
 const reportedModelState = record => record?.instances?.[0]?.capabilities?.model_config_state || {}
 const currentModelText = record => {
-  if (record?.origin_type === 'platform') return record.default_model || t('agentAssets.modelUnknown')
+  if (record?.origin_type === 'platform') return record.default_model || t('agentIntegration.unset')
   const instance = record?.instances?.[0]
   return reportedModelState(record).model || instance?.applied_model || instance?.desired_model || record?.default_model || t('agentAssets.modelUnknown')
 }
@@ -498,6 +516,7 @@ const skillIdsFromRefs = (options, refs = []) =>
   }).filter(Boolean)
 const fetchAgentAssets = async () => {
   loading.value = true
+  assetsLoadFailed.value = false
   try {
     const result = await listAgentAssets({
       origin: filters.origin === 'all' ? undefined : filters.origin,
@@ -508,6 +527,7 @@ const fetchAgentAssets = async () => {
     agents.value = result.items || []
     Object.assign(assetStats, result.stats || { total: 0, platform: 0, client_discovery: 0 })
   } catch (error) {
+    assetsLoadFailed.value = true
     message.error(error.response?.data?.detail || t('agentAssets.loadFailed'))
   } finally {
     loading.value = false
@@ -516,8 +536,17 @@ const fetchAgentAssets = async () => {
 
 const handleOriginChange = async (origin) => {
   if (origin === 'client_discovery') filters.department_group_id = null
+  await router.replace({ query: { ...route.query, origin } })
   await fetchAgentAssets()
 }
+
+watch(() => route.query.origin, origin => {
+  const next = ['platform', 'client_discovery'].includes(origin) ? origin : 'all'
+  if (filters.origin === next) return
+  filters.origin = next
+  if (next === 'client_discovery') filters.department_group_id = null
+  fetchAgentAssets()
+})
 
 const loadOptions = async () => {
   const [groupRes, userRes, modelRes, skillRes] = await Promise.all([
@@ -542,6 +571,8 @@ const loadExternalGateways = async () => {
 
 const resetFilters = async () => {
   Object.assign(filters, { origin: 'all', department_group_id: null, status: undefined, q: '' })
+  const query = { ...route.query }; delete query.origin
+  await router.replace({ query })
   await fetchAgentAssets()
 }
 
@@ -575,6 +606,7 @@ const openAgent = (record = null) => {
     default_model_source: record?.default_model_source || 'internal',
     external_gateway_id: record?.external_gateway_id || undefined,
     skill_refs: findRefsByNames(skillOptions.value, record?.skill_names || []),
+    allowed_mcp_gateways: [...(record?.allowed_mcp_gateways || [])],
     prompt_names: record?.prompt_names || [],
   })
   agentVisible.value = true
@@ -591,6 +623,7 @@ const baseAgentPayload = (status = agentForm.status) => ({
   default_model_source: agentForm.default_model_source,
   external_gateway_id: agentForm.default_model_source === 'external_gateway' ? agentForm.external_gateway_id : null,
   skill_names: skillIdsFromRefs(skillOptions.value, agentForm.skill_refs),
+  allowed_mcp_gateways: [...agentForm.allowed_mcp_gateways],
   prompt_names: agentForm.prompt_names || [],
 })
 
@@ -616,7 +649,7 @@ const handleGatewayChange = () => {
 }
 
 const prepareExternalModels = async () => {
-  if (preparingExternal.value || !validateAgentIdentity()) return
+  if (preparingExternal.value || submitting.value || !validateAgentIdentity()) return
   if (!agentForm.external_gateway_id) return message.warning(t('externalModel.gatewayRequired'))
   preparingExternal.value = true
   try {
@@ -638,18 +671,21 @@ const prepareExternalModels = async () => {
 }
 
 const cancelAgentModal = async () => {
+  if (submitting.value || preparingExternal.value) return false
   if (!createdDraft.value || !editingAgentId.value) return
   try {
     await deleteAgent(editingAgentId.value)
     createdDraft.value = false
     editingAgentId.value = null
   } catch (error) {
+    agentVisible.value = true
     message.error(error.response?.data?.detail || t('externalModel.draftCleanupFailed'))
+    return false
   }
 }
 
 const saveAgent = async () => {
-  if (submitting.value) return
+  if (submitting.value || preparingExternal.value) return
   if (!validateAgentIdentity()) return
   if (agentForm.default_model_source === 'external_gateway') {
     if (!agentForm.external_gateway_id) return message.warning(t('externalModel.gatewayRequired'))
@@ -659,28 +695,21 @@ const saveAgent = async () => {
   submitting.value = true
   try {
     const payload = baseAgentPayload()
-    const wasNew = !editingAgentId.value || createdDraft.value
     let savedAgent
     if (editingAgentId.value) savedAgent = await updateAgent(editingAgentId.value, payload)
     else savedAgent = await createAgent(payload)
     createdDraft.value = false
     agentVisible.value = false
     await fetchAgentAssets()
-    if (wasNew) {
-      Modal.confirm({
-        title: phrase('legacy.x1jtt8'),
-        content: phrase('legacy.cpvopf'),
-        okText: phrase('legacy.1xo7ne1'),
-        cancelText: phrase('legacy.4uzegb'),
-        onOk: () => router.push({
-          name: 'credentials',
-          query: {
-            create: 'agent_runtime',
-            agent_id: savedAgent.agent_id,
-          },
-        }),
-      })
+    if (pageAllowed('/runtime')) {
+      const scenario = ['custom', 'model', 'mcp', 'verifier'].includes(route.query.scenario) ? route.query.scenario : 'custom'
+      const query = { scenario, agent_id: savedAgent.agent_id }
+      if (typeof route.query.capabilities === 'string' && route.query.capabilities) {
+        query.capabilities = [...new Set([...route.query.capabilities.split(','), ...(savedAgent.allowed_mcp_gateways?.length ? ['mcp'] : [])])].join(',')
+      }
+      router.push({ path: '/runtime', query })
     }
+
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.1b0loi0'))
   } finally {
@@ -696,10 +725,41 @@ const handleDelete = async (record) => {
 
 onMounted(async () => {
   await Promise.all([loadOptions(), loadExternalGateways(), fetchAgentAssets()])
+  if (typeof route.query.detail === 'string') {
+    const record = agents.value.find(item => item.agent_id === route.query.detail && item.origin_type === 'platform')
+    if (record) { openAsset(record); assetDetailTab.value = route.query.detail_tab === 'mcp' ? 'mcp' : 'overview' }
+  }
+  if (route.query.create === '1' && hasAccess('agents:create')) {
+    openAgent()
+    const query = { ...route.query }; delete query.create
+    await router.replace({ query })
+  } else if (typeof route.query.edit === 'string' && hasAccess('agents:update')) {
+    const record = agents.value.find(item => item.agent_id === route.query.edit && item.origin_type === 'platform')
+    if (record) openAgent(record)
+    const query = { ...route.query }; delete query.edit
+    await router.replace({ query })
+  }
 })
 </script>
 
 <style scoped>
+.agent-asset-table :deep(th) { white-space: normal; word-break: normal; }
+.asset-sort-heading { display: inline-flex; align-items: center; gap: 6px; }
+.asset-sort-info { display: inline-flex; align-items: center; justify-content: center; padding: 3px; border: 0; border-radius: 4px; background: transparent; color: #626b78; cursor: help; }
+.asset-sort-info:hover { color: #245eea; background: #eef4ff; }
+.asset-sort-info:focus-visible { outline: 2px solid #245eea; outline-offset: 2px; }
+.asset-sort-help { width: 300px; max-width: calc(100vw - 64px); font-size: 13px; line-height: 1.65; white-space: normal; color: #526078; }
+.asset-sort-help strong { color: #253248; }
+.asset-sort-help p { margin: 6px 0 0; }
+.asset-sort-help p:last-child { border-top: 1px solid #e8edf3; margin-top: 12px; padding-top: 10px; }
+.agent-list-card :deep(.ant-page-header-heading) { flex-wrap: wrap; gap: 12px; }
+:global(.agent-registration-modal .ant-modal-footer) { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+:global(.agent-registration-modal .ant-modal-footer .ant-btn) { margin-inline-start: 0; height: auto; min-height: 32px; white-space: normal; }
+
+.source-help { margin: 16px 18px 0; }
+.source-empty { padding: 20px; }
+.local-guide-link { height: auto; white-space: normal; margin: 8px 0 16px; padding-left: 0; }
+
 .agent-workspace-page { height: 100%; min-height: 0; overflow: hidden; }
 .agent-name {
   font-weight: 600;
@@ -813,41 +873,6 @@ onMounted(async () => {
 .detail-section h3 {
   margin-bottom: 10px;
   font-size: 14px;
-}
-
-.flow-card {
-  margin-top: 8px;
-}
-
-.flow-section {
-  min-height: 118px;
-}
-
-.flow-title {
-  font-weight: 600;
-  margin-bottom: 12px;
-}
-
-.flow-inline-steps :deep(.ant-steps-item-description) {
-  max-width: 120px;
-}
-
-.flow-summary {
-  color: #5f6b7a;
-  font-size: 13px;
-  margin-top: 14px;
-}
-
-.flow-note {
-  margin-top: 16px;
-}
-
-.flow-gateway-card {
-  margin-top: 16px;
-}
-
-.flow-actions {
-  margin-top: 16px;
 }
 
 .external-ready {

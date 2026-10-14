@@ -302,6 +302,13 @@ guide('dify-security-access', ['Dify 应用纳管、三种凭据与资产清单'
 
 guide('security-operations', ['定时扫描与风险处置', 'Schedules and risk disposition'],
   ['配置周期扫描，理解风险分、覆盖有效期、人工审核与修复验证，并排查 Worker 执行问题。', 'Configure scheduled scans; understand scoring, coverage validity, review, remediation, and Worker diagnostics.'], [
+    ['asset-sources', {
+      title: '资产来源：同步后按变更触发扫描',
+      paragraphs: ['在扫描目标中打开资产来源，配置 Dify 工作空间、应用范围与同步周期。启用“变更后扫描策略”时，还必须选择“自动扫描评估模型”；模型及其供应商均需启用，保存和每次派发都会检查。', '旧来源需编辑补充评估模型。模型停用、目标凭据缺失或审批未满足时，变更事件保留失败原因，修正后由后续重试继续处理。每个新应用需配置自己的调用凭据；同一资产版本的重复事件只创建一次扫描任务。'],
+    }, {
+      title: 'Asset sources: scan changes after synchronization',
+      paragraphs: ['Open asset sources from scan targets and configure the Dify workspace, application scope, and synchronization schedule. Selecting a scan policy after changes also requires an automatic scan evaluator model. The model and provider must be enabled; both are checked on save and on every dispatch.', 'Edit older sources to add the evaluator. A disabled model, missing target credentials, or pending approval keeps the event failure reason available for retry after correction. Each new application needs its own runtime credentials. Repeated events for the same asset revision create only one scan task.'],
+    }],
     ['schedules', {
       title: '定时计划：把已验证的扫描重复执行',
       steps: [

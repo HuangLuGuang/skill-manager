@@ -4,7 +4,7 @@ import "context"
 
 // UninstallPlugin uses the host's user-scope removal command and verifies the
 // resulting inventory. The bridge binds ownership to this device connection.
-func UninstallPlugin(ctx context.Context, agent, binary, home, connection string) (PluginStatus, error) {
+func uninstallNativePlugin(ctx context.Context, agent, binary, home, connection string) (PluginStatus, error) {
 	before, err := InspectPlugin(ctx, agent, binary, home, "")
 	if err != nil {
 		return before, err

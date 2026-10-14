@@ -78,6 +78,38 @@ def test_native_call_pairing_requires_source_user_namespace_and_unique_evidence(
     assert client.get(f'{BASE}/{2**63}/related').status_code==422
 
 
+def test_related_lookup_seeks_native_call_without_scanning_client_history(service):
+    from sqlalchemy import event as sql_event
+    from backend.aidr_hook_queries import related
+    _, factory = service
+    identity = dict(agent='codex', session_id='s', turn_id='t', native_call_id='selected', tool='Bash')
+    pre = insert(factory, 1, event={**identity, 'kind': 'tool.pre'})
+    post = insert(factory, 2, event={**identity, 'kind': 'tool.post'})
+    with factory() as db:
+        template = json.loads(db.get(AidrHookEvent, pre).payload_json)
+        for i in range(1000):
+            raw = {**template, 'event': {**template['event'], 'native_call_id': f'unrelated-{i}'}}
+            db.add(AidrHookEvent(client_id='one', stream_id='b'*32, event_id=f'{i+100:032x}',
+                                source_seq=i+100, content_hash='a'*64, payload_json=json.dumps(raw)))
+        db.commit()
+        row = db.get(AidrHookEvent, pre)
+        conn = db.connection()
+        statements = []
+        def capture(conn, cursor, statement, parameters, context, many):
+            statements.append((statement, parameters))
+        sql_event.listen(conn, 'before_cursor_execute', capture)
+        try:
+            result = related(db, 'one', row)
+        finally:
+            sql_event.remove(conn, 'before_cursor_execute', capture)
+        assert result['relation'] == 'matched'
+        assert [int(item['id']) for item in result['items']] == [pre, post]
+        sql, params = next((sql, params) for sql, params in statements if 'ORDER BY aidr_hook_events.id' in sql)
+        plan = ' '.join(r[3] for r in conn.exec_driver_sql('EXPLAIN QUERY PLAN ' + sql, params))
+        assert 'ix_aidr_hook_source_call (client_id=? AND stream_id=? AND <expr>=?)' in plan
+        assert 'TEMP B-TREE' not in plan
+
+
 def test_relation_evidence_budget_and_expired_counterpart_do_not_claim_a_pair(service):
     client, factory = service
     identity = {'agent':'claude','session_id':'s','native_call_id':'c','tool':'Bash','kind':'tool.pre','hook_event':'PreToolUse'}

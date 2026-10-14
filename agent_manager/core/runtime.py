@@ -100,9 +100,9 @@ class RuntimeGuard:
             (allowed: bool, entry: RegistryEntry | None, reason: str)
         """
         entry = (
-            self.registry.get_by_id(skill_name)
-            or self.registry.get_trusted_by_name(skill_name)
-            or self.registry.get_by_name(skill_name)
+            self.registry.get_by_id(skill_name, include_scan_report=False)
+            or self.registry.get_trusted_by_name(skill_name, include_scan_report=False)
+            or self.registry.get_by_name(skill_name, include_scan_report=False)
         )
 
         if entry is None:
@@ -143,7 +143,7 @@ class RuntimeGuard:
         authorization is fail-closed: approval of a Skill does not implicitly grant
         every tool capability.
         """
-        entry = self.registry.get_trusted_by_name(skill_name)
+        entry = self.registry.get_trusted_by_name(skill_name, include_scan_report=False)
 
         if entry is None or not entry.is_loadable():
             self._emit_tool_blocked(skill_name, tool_name, agent_id, "skill not loadable", audit_metadata)
@@ -187,13 +187,13 @@ class RuntimeGuard:
         digest embedded in the server-signed registry envelope.
         """
         if skill_id:
-            entry = self.registry.get_by_id(skill_id)
+            entry = self.registry.get_by_id(skill_id, include_scan_report=False)
         else:
             submitted_signature = local_signature.strip()
             entry = next(
                 (
                     candidate
-                    for candidate in self.registry.list_versions(skill_name)
+                    for candidate in self.registry.list_versions(skill_name, include_scan_report=False)
                     if candidate.is_loadable()
                     and candidate.signature
                     and (
@@ -211,7 +211,7 @@ class RuntimeGuard:
                     )
                 ),
                 None,
-            ) or self.registry.get_trusted_by_name(skill_name) or self.registry.get_by_name(skill_name)
+            ) or self.registry.get_trusted_by_name(skill_name, include_scan_report=False) or self.registry.get_by_name(skill_name, include_scan_report=False)
 
         if entry is None:
             reason = f"Skill {skill_name!r} is not in the registry"

@@ -72,6 +72,7 @@ type CallTurn struct {
 	ContentDigest string `json:"content_digest,omitempty"`
 }
 type Cursor struct {
+	ScanComplete             bool          `json:"scan_complete,omitempty"`
 	QoderLinks               []QoderLink   `json:"qoder_links,omitempty"`
 	ModelHeaderRead          bool          `json:"model_header_read,omitempty"`
 	ModelContext             *ModelContext `json:"model_context,omitempty"`
@@ -131,12 +132,32 @@ type Event struct {
 	ProcessRelation    string        `json:"process_relation"`
 }
 type ReadBatch struct {
-	SchemaVersion int      `json:"schema_version"`
-	Source        Source   `json:"source"`
-	Events        []Event  `json:"events"`
-	Cursor        Cursor   `json:"cursor"`
-	Coverage      Coverage `json:"coverage"`
+	TurnLinks     []TurnLink `json:"turn_links,omitempty"`
+	SchemaVersion int        `json:"schema_version"`
+	Source        Source     `json:"source"`
+	Events        []Event    `json:"events"`
+	Cursor        Cursor     `json:"cursor"`
+	Coverage      Coverage   `json:"coverage"`
 }
+
+// TurnLink enriches retained evidence without replaying its captured content.
+type TurnLink struct {
+	LogicalEventID string `json:"logical_event_id"`
+	SessionID      string `json:"session_id"`
+	CallID         string `json:"native_call_id"`
+	TurnID         string `json:"turn_id"`
+	ContentDigest  string `json:"content_digest"`
+}
+
+func ValidateTurnLink(link TurnLink) bool {
+	for _, h := range []string{link.LogicalEventID, link.ContentDigest} {
+		if decoded, err := hex.DecodeString(h); err != nil || len(decoded) != 32 {
+			return false
+		}
+	}
+	return token(link.SessionID) != "" && token(link.CallID) != "" && token(link.TurnID) != ""
+}
+
 type Budget struct {
 	Bytes     int64
 	Events    int

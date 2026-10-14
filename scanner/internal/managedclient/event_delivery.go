@@ -3,70 +3,102 @@ package managedclient
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
 )
 
 var errEventDeferred = errors.New("client_events_backoff")
-var ordinaryEventPacer struct {
-	sync.Mutex
+
+type eventWaitError struct{ error }
+
+func (e eventWaitError) Unwrap() error { return e.error }
+
+type eventPacer struct {
+	gate chan struct{}
 	next time.Time
 }
 
-func waitEventSlot(ctx context.Context, api API) error {
+var ordinaryEventPacers sync.Map
+
+// Serialize dispatch through the receipt, then leave a full interval before
+// the next send. A delayed sender cannot consume an expired reservation and
+// create a catch-up burst. The file lock also covers other local processes;
+// no SQLite transaction is held while waiting or performing network I/O.
+func acquireEventSlot(ctx context.Context, api API) (func(), error) {
+	var release func()
 	var at time.Time
 	if api.eventsStore != nil {
-		tx, err := eventTx(api.eventsStore.db)
+		hash := sha256.Sum256([]byte(api.server))
+		f, err := os.OpenFile(filepath.Join(api.eventsStore.root, fmt.Sprintf("event-send-%x.lock", hash[:12])), os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		defer tx.Rollback()
-		_, err = tx.Exec(`INSERT OR IGNORE INTO client_event_sender(server) VALUES(?)`, api.server)
-		if err != nil {
-			return err
+		for {
+			err = lockClientFile(f)
+			if err == nil {
+				break
+			}
+			if !errors.Is(err, ErrAlreadyRunning) {
+				f.Close()
+				return nil, err
+			}
+			select {
+			case <-ctx.Done():
+				f.Close()
+				return nil, ctx.Err()
+			case <-time.After(10 * time.Millisecond):
+			}
 		}
+		release = func() { _ = unlockClientFile(f); _ = f.Close() }
+		_, err = api.eventsStore.db.ExecContext(ctx, `INSERT OR IGNORE INTO client_event_sender(server) VALUES(?)`, api.server)
 		var next, retry int64
-		if err = tx.QueryRow(`SELECT next_send,retry_at FROM client_event_sender WHERE server=?`, api.server).Scan(&next, &retry); err != nil {
-			return err
+		if err == nil {
+			err = api.eventsStore.db.QueryRowContext(ctx, `SELECT next_send,retry_at FROM client_event_sender WHERE server=?`, api.server).Scan(&next, &retry)
 		}
-		now := time.Now()
-		if retry > now.UnixMilli() {
-			return errEventDeferred
-		}
-		at = now
-		if next > now.UnixMilli() {
-			at = time.UnixMilli(next)
-		}
-		_, err = tx.Exec(`UPDATE client_event_sender SET next_send=? WHERE server=?`, (at.Add(eventInterval).UnixNano()+int64(time.Millisecond)-1)/int64(time.Millisecond), api.server)
 		if err != nil {
-			return err
+			release()
+			return nil, err
 		}
-		if err = tx.Commit(); err != nil {
-			return err
+		if retry > time.Now().UnixMilli() {
+			release()
+			return nil, errEventDeferred
 		}
+		at = time.UnixMilli(next)
 	} else {
-		ordinaryEventPacer.Lock()
-		at = time.Now()
-		if ordinaryEventPacer.next.After(at) {
-			at = ordinaryEventPacer.next
+		value, _ := ordinaryEventPacers.LoadOrStore(api.server, &eventPacer{gate: make(chan struct{}, 1)})
+		p := value.(*eventPacer)
+		select {
+		case p.gate <- struct{}{}:
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
-		ordinaryEventPacer.next = at.Add(eventInterval)
-		ordinaryEventPacer.Unlock()
+		at = p.next
+		release = func() { p.next = time.Now().Add(eventInterval); <-p.gate }
 	}
 	timer := time.NewTimer(time.Until(at))
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		release()
+		return nil, ctx.Err()
 	case <-timer.C:
-		return nil
 	}
+	return func() {
+		if api.eventsStore != nil {
+			// Persist before releasing the OS lock, including after failed sends.
+			_, _ = api.eventsStore.db.Exec(`UPDATE client_event_sender SET next_send=? WHERE server=?`, time.Now().Add(eventInterval).UnixMilli()+1, api.server)
+		}
+		release()
+	}, nil
 }
 func eventRetry(api API, failed bool, after time.Duration) {
 	if api.eventsStore == nil {
@@ -107,9 +139,11 @@ func (api API) sendOrdinaryEvent(ctx context.Context, e QueuedEvent) (err error)
 	if e.Details == nil {
 		e.Details = map[string]any{}
 	}
-	if err = waitEventSlot(ctx, api); err != nil {
-		return err
+	release, err := acquireEventSlot(ctx, api)
+	if err != nil {
+		return eventWaitError{err}
 	}
+	defer release()
 	after := time.Duration(0)
 	defer func() { eventRetry(api, err != nil, after) }()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)

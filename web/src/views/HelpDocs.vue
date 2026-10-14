@@ -91,6 +91,8 @@
             <h2><a :href="`#${section.id}`" @click.prevent="scrollToSection(section.id)">{{ section.title }}</a></h2>
 
             <p v-for="paragraph in section.paragraphs || []" :key="paragraph">{{ paragraph }}</p>
+            <DocsAidrArchitecture v-if="section.diagram === 'aidr'" />
+            <DocsIntegrationFlow v-if="section.diagram === 'integration-choice'" :decision="section.decision" :title="section.title" />
 
             <ul v-if="section.bullets?.length" class="doc-list">
               <li v-for="bullet in section.bullets" :key="bullet">{{ bullet }}</li>
@@ -286,6 +288,12 @@
                     <p>{{ architectureLabels.mcpFlow }}</p>
                     <div class="architecture-domain-output">{{ architectureLabels.mcpOutput }}</div>
                   </div>
+                  <div class="architecture-domain aidr-domain">
+                    <div class="architecture-domain-head"><SafetyCertificateOutlined /><span><small>AIDR</small><strong>{{ t('docsArchitecture.overviewTitle') }}</strong></span></div>
+                    <p>{{ t('docsArchitecture.overviewFlow') }}</p>
+                    <div class="architecture-domain-output">{{ t('docsArchitecture.overviewOutput') }}</div>
+                    <RouterLink to="/docs/aidr-overview#architecture">{{ t('docsArchitecture.overviewLink') }}</RouterLink>
+                  </div>
                 </div>
               </div>
 
@@ -358,6 +366,16 @@
                 </div>
               </div>
 
+              <div class="topology-zone topology-control topology-scan">
+                <div class="topology-zone-label"><span>AIG-CONTROL</span><strong>{{ t('helpDeployment.scanServices') }}</strong></div>
+                <div class="topology-service">
+                  <strong>agent-security-worker</strong><span>{{ t('helpDeployment.workerRole') }}</span>
+                </div>
+                <div class="topology-service">
+                  <strong>aig-scan-service</strong><span>{{ t('helpDeployment.aigRole') }}</span>
+                </div>
+              </div>
+
               <div class="topology-note"><InfoCircleOutlined />{{ dockerLabels.boundaryNote }}</div>
             </div>
 
@@ -376,7 +394,7 @@
               </div>
             </div>
 
-            <div v-if="section.table" class="doc-table-wrap">
+            <div v-if="section.table && section.diagram !== 'integration-choice'" class="doc-table-wrap">
               <table class="doc-table">
                 <thead><tr><th v-for="column in section.table.columns" :key="column">{{ column }}</th></tr></thead>
                 <tbody>
@@ -517,6 +535,8 @@ import {
 import { getDocsAssistantConfig, updateMyLocale } from '../api'
 import { useBranding } from '../branding'
 import DocsAssistantPanel from '../components/DocsAssistantPanel.vue'
+import DocsAidrArchitecture from '../components/DocsAidrArchitecture.vue'
+import DocsIntegrationFlow from '../components/DocsIntegrationFlow.vue'
 import { docsArticleOrder, docsContent } from '../docs/content'
 import { setLocale } from '../i18n'
 import { useLocaleText } from '../i18n/useLocaleText'
@@ -677,7 +697,7 @@ const architectureLabels = computed(() => ({
   agents: text('Agent / 客户端', 'Agents / Clients'),
   modelApps: text('模型应用', 'Model applications'),
   mcpClients: text('MCP Client', 'MCP Clients'),
-  secureTraffic: text('管理 API · 模型 API · MCP 数据面', 'Management API · Model API · MCP data plane'),
+  secureTraffic: t('docsArchitecture.ingress'),
   unifiedEntry: text('统一入口', 'Unified entry'),
   ingressRoles: [
     text('认证与访问入口', 'Authentication and access'),
@@ -695,7 +715,7 @@ const architectureLabels = computed(() => ({
   orchestration: text('任务编排', 'Task orchestration'),
   orchestrationDetail: text('扫描队列、客户端任务和高风险审批', 'Scan queue, Client tasks, and high-risk approvals'),
   policyEnforcement: text('下发策略 · 校验身份 · 记录请求上下文', 'Distribute policy · verify identity · record request context'),
-  runtimePlane: text('四条运行数据面', 'Four runtime data planes'),
+  runtimePlane: t('docsArchitecture.runtimeTitle'),
   runtimeSummary: text('不同流量独立执行控制，共享统一身份、策略和审计', 'Independent enforcement with shared identity, policy, and audit'),
   skillDomain: text('Skill 准入治理', 'Skill admission'),
   skillFlow: text('提交 → 规则 / 深度扫描 → 可选 Sandbox / LLM → 策略判定', 'Submit → rules / deep scan → optional Sandbox / LLM → policy decision'),
@@ -715,7 +735,7 @@ const architectureLabels = computed(() => ({
   registry: text('Registry 与版本', 'Registry and versions'),
   registryDetail: text('内容指纹、状态、签名、报告与策略上下文', 'Digests, states, signatures, reports, and policy context'),
   traces: text('任务、事件与 Trace', 'Tasks, events, and traces'),
-  tracesDetail: text('客户端任务、模型链路、MCP 调用和用量', 'Client tasks, model pipeline, MCP calls, and usage'),
+  tracesDetail: t('docsArchitecture.evidence'),
   audit: text('签名安全审计', 'Signed security audit'),
   auditDetail: text('哈希链、Ed25519 签名和可选 JSONL 导出', 'Hash chain, Ed25519 signatures, and optional JSONL export'),
   dependencies: text('隔离与外部运行依赖', 'Isolation and external runtime dependencies'),
@@ -727,7 +747,7 @@ const dockerLabels = computed(() => ({
   console: text('管理台浏览器', 'Admin browser'),
   agents: text('Agent / Client / Scanner', 'Agent / Client / Scanner'),
   callers: text('模型应用 / MCP Client', 'Model apps / MCP Client'),
-  httpTraffic: text('HTTP / SSE 请求统一进入 80 端口', 'HTTP / SSE traffic enters through port 80'),
+  httpTraffic: t('helpDeployment.httpTraffic'),
   publicIngress: text('统一入口', 'Unified ingress'),
   nginxRole: text('页面、管理 API、模型网关和 MCP 数据面分流', 'Routes console, management API, model gateway, and MCP data plane'),
   routeTraffic: text('按路径转发', 'Route by path'),
@@ -741,10 +761,10 @@ const dockerLabels = computed(() => ({
   sandboxRole: text('受限环境执行动态检测', 'Runs dynamic checks in a restricted environment'),
   dataPlane: text('持久化数据', 'Persistent data'),
   sandboxLink: text('Backend → 动态检测请求', 'Backend → dynamic scan'),
-  volumeLink: text('Backend → 读写持久化数据', 'Backend → persistent reads and writes'),
+  volumeLink: t('helpDeployment.volumeLink'),
   boundaryNote: text('Sandbox 服务同时接入独立的 sandbox-control 网络，8194 只映射到主机回环地址；实际被检测代码仍在 nsjail 的独立网络命名空间中运行，默认无网络。', 'The Sandbox service also joins the separate sandbox-control network, and port 8194 is bound only to host loopback. Analyzed code still runs in an isolated nsjail network namespace with networking disabled by default.'),
 }))
-const dockerVolumes = ['backend_data', 'backend_uploads', 'backend_sqlite', 'agent_manager_registry']
+const dockerVolumes = ['backend_data', 'backend_uploads', 'backend_sqlite', 'agent_manager_registry', 'aig_scan_jobs']
 
 const collectSearchText = value => {
   if (typeof value === 'string' || typeof value === 'number') return String(value)
@@ -829,6 +849,7 @@ watch(currentSlug, async slug => {
   }
   await nextTick()
   articleScroller.value?.scrollTo({ top: 0 })
+  if (route.hash) document.getElementById(route.hash.slice(1))?.scrollIntoView({ block: 'start' })
   document.title = `${article.value.title} · ${t('app.name')}`
 }, { immediate: true })
 
@@ -1127,6 +1148,9 @@ onBeforeUnmount(() => {
 .architecture-domain.client-domain { border-left-color: var(--arch-green); }
 .architecture-domain.model-domain { border-left-color: var(--arch-cyan); }
 .architecture-domain.mcp-domain { border-left-color: var(--arch-amber); }
+.architecture-domain.aidr-domain { grid-column: 1 / -1; min-height: 0; border-left-color: #7c88b9; }
+.aidr-domain .architecture-domain-head > .anticon { background: #7c88b9; }
+.aidr-domain > a { align-self: flex-start; margin-top: 12px; font-size: 12px; line-height: 1.6; }
 .architecture-domain-head { display: flex; min-width: 0; align-items: center; gap: 11px; }
 .architecture-domain-head > .anticon { display: grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; color: #fff; background: var(--arch-blue); border-radius: 8px; font-size: 16px; }
 .client-domain .architecture-domain-head > .anticon { background: var(--arch-green); }
@@ -1167,6 +1191,7 @@ onBeforeUnmount(() => {
 .topology-split { display: grid; height: 43px; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 9px; color: #75889b; font-size: 10px; }
 .topology-split i { height: 1px; background: #9aadc0; }
 .topology-control { display: grid; grid-template-columns: 0.72fr 1.28fr; gap: 12px; border-color: #aebfd2; background: #edf3f9; }
+.topology-scan { margin-top: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow-wrap: anywhere; }
 .topology-service { display: flex; min-height: 92px; flex-direction: column; justify-content: center; gap: 5px; padding: 15px; background: #fff; border: 1px solid #cbd7e2; border-radius: 8px; box-shadow: 0 6px 16px rgba(39, 67, 94, 0.06); }
 .topology-service small { color: #74879a; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; }
 .topology-service strong { color: #22394e; font-size: 16px; }

@@ -1,6 +1,8 @@
 import { formatMcpFieldError } from './mcpServerForm.js'
 import { scanScheduleMessages } from './scanSchedule.js'
 const errorMessages = {
+  'agent.mcp_gateway_unavailable': { 'zh-CN': '请选择已启用的 MCP 网关；已失效的原有选择可保留或移除', 'en-US': 'Select active MCP gateways; existing unavailable selections may be kept or removed' },
+  'agent.mcp_scope_exceeded': { 'zh-CN': 'MCP 网关超出智能体允许范围，请先修改智能体的 MCP 工具访问配置', 'en-US': "MCP gateways exceed the Agent's allowed scope. Update the Agent's MCP tool access first" },
   'mcp.connection_failed': { 'zh-CN': 'MCP Server 连接失败: {reason}', 'en-US': 'MCP Server connection failed: {reason}' },
   'mcp.connection_failed.http_status': {
     'zh-CN': "MCP Server 连接失败：HTTP 请求失败 '{status}'，地址 '{url}'。更多信息请参阅：{info_url}",

@@ -5,13 +5,15 @@ Unknown fields are rejected so raw tool arguments cannot enter default storage.
 """
 from __future__ import annotations
 
+from . import aidr_adapters
+
 from .aidr_products import LogAgentID
 import json
 from .aidr_skill_contract import SkillUse
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, ValidationError, field_validator, model_validator
 
 from .api_errors import ApiError
 from .aidr_behavior import Behavior
@@ -64,7 +66,7 @@ class ModelContext(Contract):
     provider: Token | None = None
     reasoning_effort: Token | None = None
     reasoning_summary: Token | None = None
-    source: Literal['codex.turn_context', 'claude.message.model', 'qoder-cli.message.model', 'workbuddy.providerData.model', 'opencode.message']
+    source: Annotated[str, AfterValidator(aidr_adapters.validate_model_source)]
 
 
 class Event(Contract):
@@ -103,11 +105,9 @@ class Event(Contract):
         if self.model_context:
             if not any(getattr(self.model_context, k) for k in ('model', 'provider', 'reasoning_effort', 'reasoning_summary')):
                 raise ValueError('model_context_empty')
-            expected = {'codex': 'codex.turn_context', 'claude': 'claude.message.model',
-                        'qoder-cli': 'qoder-cli.message.model', 'workbuddy': 'workbuddy.providerData.model', 'opencode': 'opencode.message'}
-            if expected.get(self.agent) != self.model_context.source or not self.session_id:
+            if aidr_adapters.get(self.agent).model_source != self.model_context.source or not self.session_id:
                 raise ValueError('model_context_source_invalid')
-            if self.agent == 'codex' and not self.turn_id:
+            if aidr_adapters.get(self.agent).turn_required and not self.turn_id:
                 raise ValueError('model_context_turn_missing')
         if self.schema_version == 3:
             if not self.message or self.behavior or self.kind != self.message.role + '_message' or self.tool or self.outcome != 'unknown':
@@ -178,13 +178,14 @@ class QoderLink(Contract):
 
 
 class Cursor(Contract):
+    scan_complete: bool | None = None
     # Accept already-frozen development batches; current clients keep this local.
     qoder_links: list[QoderLink] | None = Field(default=None, max_length=512)
     model_context: ModelContext | None = None
     model_provider: Token | None = None
     model_turn: Token | None = None
     model_header_read: bool | None = None
-    context_repair_version: int | None = Field(default=None, ge=0, le=2)
+    context_repair_version: int | None = Field(default=None, ge=0, le=3)
     context_repair: Cursor | None = None
     recovery_gaps: list[Gap] | None = Field(default=None, max_length=32)
     recovery_details_truncated: bool | None = None
@@ -220,7 +221,16 @@ class Cursor(Contract):
         return self
 
 
+class TurnLink(Contract):
+    logical_event_id: Hash
+    session_id: Token
+    native_call_id: Token
+    turn_id: Token
+    content_digest: Hash
+
+
 class CoverageRecord(Contract):
+    turn_links: list[TurnLink] | None = Field(default=None, max_length=128)
     source_id: Hash
     revision: Position
     cursor: Cursor

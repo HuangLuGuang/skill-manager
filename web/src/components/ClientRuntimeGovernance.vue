@@ -82,7 +82,6 @@
       <template #diagnostics="{ agent }">
         <p>{{ t('reported') }}: {{ stamp(state?.reported_at) }}</p>
         <ClientRuntimeCompatibility v-if="['legacy', 'partial'].includes(state?.compatibility?.state)" :state="state" />
-        <details><summary>{{ translate('pluginWorkbench.rawReport') }}</summary><pre class="plugin-report">{{ JSON.stringify(host(agent) || {}, null, 2) }}</pre></details>
         <a-button type="link" @click="historyAgent = agent">{{ translate('pluginWorkbench.taskHistory') }}</a-button>
       </template>
       <template #tasks="{ agent }">
@@ -204,7 +203,6 @@ onBeforeUnmount(() => { generation++; clearTimeout(refreshTimer); clearInterval(
 </script>
 
 <style scoped>
-.plugin-report { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; padding: 12px; background: #f8fafc; margin: 12px 0; font-size: 12px; }
 .runtime-governance { margin: 12px 0 24px; overflow-wrap: anywhere; }
 .runtime-governance.plugin-view { margin: 0; height: 100%; min-height: 0; }
 .runtime-heading { display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 12px; }

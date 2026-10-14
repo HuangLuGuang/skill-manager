@@ -1,6 +1,13 @@
 # Docker 部署
 
-以下命令都在当前项目根目录执行。
+现场安装与升级使用交付包：首次在解压后的 `agent-manager` 目录准备生产 `.env`，执行
+`./start.sh`；自定义 HTTP 端口使用 `./start.sh --port 8088`。后续在原安装目录执行
+`./upgrade.sh /path/to/agent-manager_<版本>_<架构>.tar.gz`。脚本加载包内镜像并检查服务，
+升级保留 `.env`、`HTTP_PORT` 和数据卷；业务数据需另行备份。
+完整步骤见[离线部署现场实施指南](offline-deployment.md)，管理台中英文帮助页对应
+“Docker 部署”和“Docker 运维”。
+
+下文涉及 `build.sh` 的命令用于源码构建环境，在项目根目录执行。
 
 ## 生产环境资源推荐
 
@@ -22,6 +29,15 @@ Skill 总量、日增版本数、平均包体积、报告与审计保留周期�
 数据目录和持久化卷纳入监控与备份范围。
 
 ## 本地开箱启动
+
+Skill 导入准备的并发由 `.env` 中 `AGENT_MANAGER_IMPORT_WORKERS` 控制，默认 `2`，独立于后台检测
+`AGENT_MANAGER_SCAN_WORKERS=2` 和分析器 `AGENT_MANAGER_ANALYZER_WORKERS=8`。导入额度耗尽时请求等待，
+普通同步 API 仍可使用自己的线程额度。更新代码/镜像和 Compose 后重建 Backend 生效；多 API 进程各有自己的额度，
+总并发随进程数增加。这是工作调度限制，CPU、内存和磁盘仍需按混合负载监测。
+
+**English:** `AGENT_MANAGER_IMPORT_WORKERS=2` independently bounds blocking import preparation per API process.
+Recreate Backend after updating the image/configuration. Queued imports preserve ordinary API thread capacity;
+CPU, memory and disk remain shared. See [performance validation](performance-benchmark.md#skill-导入与-api-隔离回归2026-10-14).
 
 ```bash
 ./build.sh --all
@@ -65,7 +81,8 @@ docker compose ps
 ```
 
 生产模式不会接受本地占位密钥，也不会恢复公开固定管理员密码。签名私钥必须在启动
-服务前通过上述显式命令预置；生产副本不会在启动或公钥查询时各自生成身份。多副本
+服务前预置：源码部署执行上述初始化命令，交付包的 `start.sh` 和 `upgrade.sh` 自动初始化
+缺失的密钥并沿用已有密钥；生产副本不会在启动或公钥查询时各自生成身份。多副本
 部署必须挂载同一份只读私钥或由统一密钥管理系统下发。
 
 ### 管理员初始密码与升级
@@ -301,6 +318,10 @@ Backend 启动时会检查旧版 Skill 数据。首次升级到版本化模型�
 P1 安全配置默认使用 SQLite，不新增数据库服务。`request_leases` 表协调共享同一 SQLite 文件的多 Worker 并发额度；它不支持多个主机各自使用独立 SQLite 文件时共享额度。MCP 上游默认只允许 HTTPS，可用 `MCP_OUTBOUND_ALLOWLIST` 配置允许的域名、通配域名或 CIDR。审计签名密钥通过 `AUDIT_SIGNING_PRIVATE_KEY_PATH` 持久化，`SECURITY_AUDIT_EXPORT_PATH` 是可选的追加式 JSONL 导出位置。
 
 ## 构建脚本
+
+Backend 镜像通过 `uv pip install --system -e ".[scanner,compression]" -r backend/pyproject.toml python-frontmatter` 安装核心包和管理后端运行依赖。新增后端依赖需维护 `backend/pyproject.toml`；镜像构建直接读取该文件。构建阶段会实际解析一条复合 Shell 命令，确认 `tree-sitter` 与 Bash 语法库可用；CI 继续在切换运行容器前验证应用启动和 `/health`。
+
+The backend image installs the core package and backend runtime dependencies directly from `backend/pyproject.toml`. Update that manifest when adding backend dependencies. The image build parses a compound Shell command to verify the tree-sitter runtime and Bash grammar; CI then checks application startup and `/health` before replacing running containers.
 
 Backend 镜像中的 SkillSpector 固定为 **2.2.3**，源码提交为
 `a5092dd9b9521ff57a9b53612bb129ce78019002`。升级时更新 `backend/Dockerfile`

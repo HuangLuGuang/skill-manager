@@ -74,7 +74,9 @@ COPY = {
         "diagrams": {
             "governance": ["提交", "检测", "策略判定", "审核签名", "运行校验", "审计追踪"],
             "skill-scan-logic": ["Skill 内容与扫描选项", "确定性分析器", "策略补跑 Sandbox", "发现项归类", "可选 LLM 研判", "准入决策"],
-            "architecture": ["管理人员、Scanner、Agent 与客户端、模型应用、MCP Client", "统一入口", "治理控制面", "Skill、客户端、模型、MCP 四条数据面", "Registry、报告、Trace 与安全审计"],
+            "architecture": ["管理人员、Scanner、Agent 与客户端、模型应用、MCP Client", "统一入口", "治理控制面", "Skill、客户端、模型、MCP 与 AIDR", "Registry、报告、Trace、AIDR 证据与安全审计"],
+            "aidr": ["Agent 日志 / Hook / 系统事件", "客户端处理与持久化队列", "设备凭证认证与批次上报", "平台去重、关联与审计"],
+            "integration-choice": ["实际产品与治理目标", "运行位置与接入条件", "选择客户端、Runtime API、Dify、Scanner 或网关", "按需组合 Hook、Verifier 与 AIDR"],
             "docker": ["浏览器、Agent、客户端、Scanner、模型应用与 MCP Client", "Nginx 统一入口", "Frontend 与 Backend", "Sandbox 隔离执行", "持久化数据卷"],
         },
     },
@@ -94,7 +96,9 @@ COPY = {
         "diagrams": {
             "governance": ["Submit", "Scan", "Policy decision", "Review and sign", "Runtime verification", "Audit trail"],
             "skill-scan-logic": ["Skill content and scan options", "Deterministic analyzers", "Policy-triggered Sandbox", "Finding classification", "Optional LLM judgement", "Admission decision"],
-            "architecture": ["Administrators, Scanner, Agents and Clients, model applications, and MCP Clients", "Unified ingress", "Governance control plane", "Skill, Client, model, and MCP data planes", "Registry, reports, traces, and security audit"],
+            "architecture": ["Administrators, Scanner, Agents and Clients, model applications, and MCP Clients", "Unified ingress", "Governance control plane", "Skill, Client, model, MCP and AIDR", "Registry, reports, traces, AIDR evidence and security audit"],
+            "aidr": ["Agent logs / Hooks / system events", "Client processing and durable outbox", "Device credential and batch upload", "Platform deduplication, correlation and audit"],
+            "integration-choice": ["Actual product and governance goal", "Runtime location and integration prerequisites", "Choose Client, Runtime APIs, Dify, Scanner or gateways", "Add supported Hooks, Verifier or AIDR"],
             "docker": ["Browsers, Agents, Clients, Scanner, model applications, and MCP Clients", "Nginx unified ingress", "Frontend and Backend", "Sandbox isolation", "Persistent volumes"],
         },
     },

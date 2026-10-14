@@ -2,8 +2,10 @@ import { skillUseMessages } from './aidr-skill-use.js'
 import { enforcementMessages } from './aidr-enforcement.js'
 import { hookMessages } from './aidr-hooks.js'
 import { sessionMessages } from './aidr-sessions.js'
+import { commandParsingMessages } from './aidr-command-parsing.js'
 export const aidrMessages = {
   'zh-CN': {
+    commandParsing: commandParsingMessages['zh-CN'],
     skillUse: skillUseMessages['zh-CN'],
     sessions: sessionMessages['zh-CN'],
     detail: {"request": "请求内容", "noArguments": "此工具未提供可展示的命令或目标参数。", "subagent": "子代理", "recordInfo": "记录信息", "recordId": "记录 ID", "relatedHooks": "相关 Hook 记录", "relatedNote": "来自同一调用身份的独立记录，各自保留原有结果。", "loadingRelated": "正在读取相关记录…", "logSource": "Agent 日志", "wrapper": "以下是脚本中识别出的工具请求；结果状态属于整次脚本调用。", "prompt": "用户输入", "input": "输入内容", "output": "输出内容", "beforeEdit": "修改前", "afterEdit": "修改后", "partialContent": "已截断", "redactedContent": "已脱敏"},
@@ -86,7 +88,6 @@ export const aidrMessages = {
     "exitCode": "宿主报告退出码",
     "commandExitCode": "命令退出码 {code}",
     "diagnostics": "来源覆盖与采集诊断",
-    "projectionJSON": "投影 JSON 与原始证据字段",
     "detailTitle": "Agent 行为审计详情",
     "turn": "回合 ID",
     "legacyNote": "此记录没有可读参数，或缺少调用。旧事件保留原样，不自动回读补写。",
@@ -171,6 +172,7 @@ export const aidrMessages = {
     health: '采集与上传状态码', loadingError: '无法读取 Agent 日志状态', saveError: '无法更新上报设置',
   },
   'en-US': {
+    commandParsing: commandParsingMessages['en-US'],
     skillUse: skillUseMessages['en-US'],
     sessions: sessionMessages['en-US'],
     detail: {"request": "Request", "noArguments": "No displayable command or target arguments were provided for this tool.", "subagent": "Subagent", "recordInfo": "Record information", "recordId": "Record ID", "relatedHooks": "Related Hook records", "relatedNote": "Independent records with the same call identity retain their own reported outcomes.", "loadingRelated": "Loading related records…", "logSource": "Agent log", "wrapper": "These requests were extracted from a script. The reported outcome applies to the whole script call.", "prompt": "User input", "input": "Input content", "output": "Output content", "beforeEdit": "Before edit", "afterEdit": "After edit", "partialContent": "Truncated", "redactedContent": "Redacted"},
@@ -253,7 +255,6 @@ export const aidrMessages = {
     "exitCode": "Host-reported exit code",
     "commandExitCode": "Command exit code {code}",
     "diagnostics": "Source coverage and collection diagnostics",
-    "projectionJSON": "Projection JSON and source evidence fields",
     "detailTitle": "Agent behavior audit details",
     "turn": "Turn ID",
     "legacyNote": "Readable parameters or the call are unavailable. Existing events are preserved; logs are not automatically reread to enrich them.",

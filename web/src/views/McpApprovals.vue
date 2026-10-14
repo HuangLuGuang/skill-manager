@@ -179,6 +179,7 @@
 <script setup>
 import { can as hasAccess } from '../access'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 
@@ -193,6 +194,7 @@ import {
 import { formatBeijingDateTime as formatDateTime } from '../utils/format'
 
 const { t } = useI18n()
+const route = useRoute()
 const loading = ref(false)
 const refreshing = ref(false)
 const detailLoading = ref(false)
@@ -397,6 +399,11 @@ const submitReject = async () => {
   }
 }
 
+const openRequestedDetails = () => {
+  const requestId = route.query.request_id
+  if (typeof requestId === 'string' && requestId) openDetails({ request_id: requestId })
+}
+watch(() => route.query.request_id, openRequestedDetails)
 onMounted(async () => {
   try {
     gateways.value = await listMcpGateways()
@@ -404,6 +411,7 @@ onMounted(async () => {
     gateways.value = []
   }
   await fetchRows()
+  openRequestedDetails()
 })
 
 onUnmounted(() => {

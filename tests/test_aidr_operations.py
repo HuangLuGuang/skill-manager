@@ -51,7 +51,8 @@ def test_readable_contract_privacy_and_results(service):
     result=event('tool_result',schema_version=2,behavior=dict(version=1,category='unknown',method='result_fields',actions=[],status='reported_error',exit_code=7,result_basis=['structured_exit_code'],redacted=False,truncated=False,uncertainty=[]))
     assert upload(client,call,result).status_code==200
     row=operations(client)['items'][0]
-    assert row['status']=='reported_error' and row['call']['behavior']['actions'][0]['command']=='/bin/true'
+    assert row['status']=='reported_error' and 'command' not in row['call']['behavior']['actions'][0]
+    assert row['call']['behavior']['contents'][0]['source_field']=='behavior.actions.command'
     assert row['result']['behavior']['exit_code']==7
     secret='SyntheticSensitive'*3
     for raw in ('TOKEN='+secret, 'curl --password '+secret, 'curl -H "Authorization: Bearer '+secret+'"','-----BEGIN PRIVATE KEY-----\n'+secret):

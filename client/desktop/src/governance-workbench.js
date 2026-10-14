@@ -64,8 +64,8 @@
     const enabled = target?.enabled && target.channels?.hooks !== false && target.hosts?.includes(product.id) && data.snapshot?.enabled
     const requested = data.collection?.user_hook_hosts?.includes(product.id)
     const hooks = !product.hooks ? 'unsupported' : !host ? 'unchecked' : host.error || !current ? 'unknown'
-      : installed == null ? 'unknown' : !installed ? 'notInstalled' : product.hook_setup?.host_authorization !== false && host.hook_trust === 'needs_review' ? 'needsAuth'
-      : !enabled ? requested ? 'pendingPolicy' : 'notEnabled' : product.hook_setup?.host_enablement !== false && plugin.enabled === false ? 'hostDisabled' : 'configured'
+      : plugin?.source_code === 'aidr_teleagent_configuration_changed' ? 'configurationChanged' : installed == null ? 'unknown' : !installed ? 'notInstalled' : product.hook_setup?.host_authorization !== false && host.hook_trust === 'needs_review' ? 'needsAuth'
+      : plugin.receiver_code === 'aidr_teleagent_bridge_unavailable' ? 'bridgeUnavailable' : !enabled ? requested ? 'pendingPolicy' : 'notEnabled' : product.hook_setup?.host_enablement !== false && plugin.enabled === false ? 'hostDisabled' : 'configured'
     return { logs, hooks, installed, trusted, enabled, current, host, plugin, logProduct }
   }
   function render(data) {
@@ -109,7 +109,7 @@
     for (const actions of actionGroups.values()) $('aidr-host-status').append(actions)
     channels.replaceChildren()
     for (const kind of ['logs', 'hooks']) {
-      const card = node('section', 'governance-channel-card'), title = node('h3', '', t(kind === 'hooks' && product.hooks && product.hooks !== 'native-plugin' ? 'hookConfiguration' : kind)), status = node('strong', `governance-channel-state state-${state[kind]}`, t(state[kind]))
+      const card = node('section', 'governance-channel-card'), title = node('h3', '', t(kind === 'hooks' && product.hooks === 'native-review-http' ? 'nativeReview' : kind === 'hooks' && product.hooks && product.hooks !== 'native-plugin' ? 'hookConfiguration' : kind)), status = node('strong', `governance-channel-state state-${state[kind]}`, t(state[kind]))
       card.append(title, status)
       if (kind === 'logs') {
         card.append(node('p', '', t(state.logProduct.logs ? 'logScope' : 'logUnsupported')))
@@ -117,11 +117,16 @@
           card.append(node('p', 'governance-channel-meta', `${t('sharedLogChannel')} · ${fresh ? hostText(`channel_state_${report.state}`) : t('unknown')}`))
         }
       } else {
-        if (product.hooks) card.append(node('p', 'governance-channel-meta', t(product.hooks === 'native-plugin' ? 'nativeName' : 'hookName')))
+        if (product.hooks) card.append(node('p', 'governance-channel-meta', t(product.hooks === 'native-review-http' ? 'nativeReviewName' : product.hooks === 'native-plugin' ? 'nativeName' : 'hookName')))
         const configurationOnly = product.hook_setup?.host_authorization === false && product.hook_setup?.host_enablement === false
-        const hint = configurationOnly ? state.hooks === 'configured' ? 'configurationEnabledHint' : 'configurationHint'
+        const hint = product.hooks === 'native-review-http' ? 'nativeReviewHint' : configurationOnly ? state.hooks === 'configured' ? 'configurationEnabledHint' : 'configurationHint'
           : state.hooks === 'needsAuth' ? 'authHint' : state.hooks === 'configured' ? 'hookEnabledHint' : product.hooks ? 'hookHint' : 'hookUnsupported'
         card.append(node('p', '', t(hint)))
+        if (state.hooks === 'pendingPolicy') {
+          const syncCode = state.host?.enrollment_sync_code
+          const message = ['aidr_enrollment_sync_retrying', 'aidr_enrollment_submitted'].includes(syncCode) ? `code.${syncCode}` : 'enrollment_pending'
+          card.append(node('p', 'governance-enrollment-progress', hostText(message)))
+        }
         if (actionGroups.has(selected)) card.append(actionGroups.get(selected))
       }
       channels.append(card)

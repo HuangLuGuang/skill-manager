@@ -17,6 +17,7 @@ from .. import auth, models, aidr_policy
 from ..aidr_products import BY_ID, LogAgentID
 from .. import aidr_hook_queries
 from .. import aidr_sessions
+from ..aidr_turns import present as present_log
 from .. import aidr_overview
 from .. import aidr_hooks
 from .. import aidr_hook_runtime
@@ -92,13 +93,14 @@ def audit_overview_entry(client_id: str, source: str = Query('hooks', pattern='^
 def audit_overview_details(client_id: str, source: str = Query('hooks', pattern='^(hooks|logs)$'),
                            agent: str = Query('', pattern='^(|qoder|' + '|'.join(BY_ID) + ')$'),
                            since: int = Query(ge=0), until: int = Query(ge=0),
-                           dimension: str = Query('', pattern='^(|commands|tools|agents|failures|sessions)$'),
-                           value: str = Query('', max_length=256), cursor: str = Query('', pattern='^([0-9]{1,12}:[a-f0-9]{64})?$'),
+                           dimension: str = Query('', pattern='^(|commands|command_occurrences|tools|agents|failures|sessions)$'),
+                           value: str = Query('', max_length=256), page: int = Query(1, ge=1),
+                           page_size: int = Query(30, ge=1, le=100),
                            db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     device_for_user(db, client_id, user)
     if not 0 < until - since <= 720 * 3600:
         fail(422, 'overview_range_invalid', '统计时间范围无效', 'Invalid statistics time range')
-    return aidr_overview.details(db, client_id, source, since, until, agent, dimension, value, cursor)
+    return aidr_overview.details(db, client_id, source, since, until, agent, dimension, value, page, page_size)
 
 
 @router.post("/hooks:batch")
@@ -233,6 +235,11 @@ def audit_content(client_id: str, response: Response, source: str = Query(patter
         fail(410, 'content_expired', '正文已按审计保留策略淘汰', 'Content expired under the audit retention policy')
     # Access audit records only identity and count, never the selected text.
     values = record_contents(json.loads(row.payload_json))
+    from ..aidr_commands import content_commands
+    for item in values:
+        parsed = content_commands(item)
+        if parsed is not None:
+            item['command_analysis'] = parsed
     _operation(db, user, 'aidr.content_view', client_id, dump({'source': source, 'record_id': record_id, 'count': len(values)}))
     db.commit()
     response.headers['Cache-Control'] = 'no-store'
@@ -429,6 +436,8 @@ def save_batch(db, device, stream_id, batch_id, raw):
                     from ..aidr_skill_usage import merge as merge_skill_use
                     merge_skill_use(db, "log", existing)
             else:
+                from ..aidr_turns import apply as apply_turn_links
+                apply_turn_links(db, device.client_id, value)
                 content_hash = digest(payload)
                 db.execute(insert(models.AidrCoverageRecord).values(client_id=device.client_id, stream_id=stream_id, record_id=record.record_id, payload_json=payload, content_hash=content_hash).on_conflict_do_nothing(index_elements=["client_id", "stream_id", "record_id"]))
                 existing = db.query(models.AidrCoverageRecord).filter_by(client_id=device.client_id, stream_id=stream_id, record_id=record.record_id).one()
@@ -501,7 +510,7 @@ def events(client_id: str, after: int = Query(0, ge=0, le=2**63-1), limit: int =
     if not device:
         return {"items": [], "next_after": str(after), "has_more": False}
     rows = db.query(models.AidrEvent).filter(models.AidrEvent.client_id == client_id, models.AidrEvent.expired_at.is_(None), models.AidrEvent.id > after).order_by(models.AidrEvent.id).limit(limit + 1).all()
-    return {"items": [{"id": str(row.id), "server_received_at": row.received_at, "event": metadata_view(json.loads(row.payload_json))} for row in rows[:limit]], "next_after": str(rows[min(len(rows), limit) - 1].id) if rows else str(after), "has_more": len(rows) > limit}
+    return {"items": [{"id": str(row.id), "server_received_at": row.received_at, "event": metadata_view(present_log(db, row))} for row in rows[:limit]], "next_after": str(rows[min(len(rows), limit) - 1].id) if rows else str(after), "has_more": len(rows) > limit}
 
 
 @router.get("/sources")
@@ -662,7 +671,7 @@ def hook_approval_detail(client_id: str, approval_id: str, db: Session = Depends
         fail(404, "hook_approval_missing", "审批不存在", "Approval not found")
     event = db.query(AidrHookEvent).filter_by(client_id=client_id, stream_id=row.stream_id, event_id=row.event_id).first()
     report = db.query(hook_control.HookAttemptReportRow).filter_by(client_id=client_id, stream_id=row.stream_id, event_id=row.event_id).first()
-    return {"approval": hook_control.approval_view(row), "evidence": metadata_view(json.loads(event.payload_json)) if event and event.expired_at is None else None, "evidence_code": 'aidr_audit_history_retention' if event and event.expired_at is not None else '', "client_report": {"record": json.loads(report.payload), "received_at": str(report.received_at), "evidence_type": "client_report"} if report else None}
+    return {"approval": hook_control.approval_view(row), "evidence_record_id": str(event.id) if event else None, "evidence": metadata_view(json.loads(event.payload_json)) if event and event.expired_at is None else None, "evidence_code": 'aidr_audit_history_retention' if event and event.expired_at is not None else '', "client_report": {"record": json.loads(report.payload), "received_at": str(report.received_at), "evidence_type": "client_report"} if report else None}
 
 
 @router.post("/hook-attempt-reports")

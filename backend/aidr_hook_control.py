@@ -1,4 +1,5 @@
 """Plugin tool control; signed authorities are scoped to one receiver attempt."""
+from . import aidr_adapters
 import hashlib
 import json
 import time
@@ -237,7 +238,7 @@ def request_approval(db, client_id, body):
     evidence = record["event"]
     if not BY_ID[evidence["agent"]]["approval"]:
         reject("aidr_hook_approval_unsupported", "此产品未接入工具审批", "Tool approval is not available for this product", 422)
-    if record.get("receiver_instance") != body.receiver_instance or evidence["kind"] != "tool.pre" or not evidence.get("input_digest") or not evidence.get("native_call_id") or (evidence["agent"] == "codex" and not evidence.get("turn_id")):
+    if record.get("receiver_instance") != body.receiver_instance or evidence["kind"] != "tool.pre" or not evidence.get("input_digest") or not evidence.get("native_call_id") or (aidr_adapters.get(evidence["agent"]).turn_required and not evidence.get("turn_id")):
         reject("hook_scope_unverified", "调用身份不足以建立审批范围", "Call identity is insufficient for an approval scope", 422)
     policy_row = latest_policy(db, client_id)
     now = int(time.time())

@@ -34,6 +34,7 @@ from .routers import (
     asset_lifecycle,
     auth,
     clients,
+    dashboard,
     external_ai_gateways,
     iam,
     config,
@@ -173,6 +174,7 @@ app.include_router(runtime_traces.router, prefix=settings.API_PREFIX)
 app.include_router(mcp_gateway.admin_router, prefix=f"{settings.API_PREFIX}/v1", dependencies=[Depends(get_current_admin_user)])
 app.include_router(mcp_gateway.runtime_router)
 app.include_router(clients.router, prefix=settings.API_PREFIX)
+app.include_router(dashboard.router, prefix=settings.API_PREFIX)
 app.include_router(aidr.router, prefix=settings.API_PREFIX)
 app.include_router(aidr.global_tool_router, prefix=settings.API_PREFIX)
 app.include_router(aidr_enforcement.router, prefix=settings.API_PREFIX)
@@ -622,6 +624,9 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql("ALTER TABLE client_skill_installs ADD COLUMN version_no INTEGER")
         if client_skill_columns and "source_version" not in client_skill_columns:
             conn.exec_driver_sql("ALTER TABLE client_skill_installs ADD COLUMN source_version VARCHAR(128)")
+
+    from .agent_mcp import migrate_agent_mcp_scope
+    migrate_agent_mcp_scope(engine)
 
     # Headroom 压缩字段 migration
     from backend.migrate_compression import migrate as migrate_compression

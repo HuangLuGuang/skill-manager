@@ -177,7 +177,7 @@ func applyPlatformScanEvents(store *Store, events []PlatformScanEvent, currentRe
 
 // RunDaemon separates liveness, task receipt, discovery and file work. Only
 // the worker executes actions, while network synchronization keeps running.
-func RunDaemon(ctx context.Context, home string, api API, store *Store, interval time.Duration, watcher *SkillWatcher) error {
+func RunDaemon(ctx context.Context, home string, api API, store *Store, interval time.Duration, watcher SkillMonitor) error {
 	api = api.WithDiagnostics(store)
 	if interval <= 0 {
 		interval = 5 * time.Minute
@@ -200,6 +200,14 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var workers sync.WaitGroup
+	defer func() { cancel(); workers.Wait() }()
+	if AIDRHookRunner != nil {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			AIDRHookRunner(ctx, home)
+		}()
+	}
 	if AIDRLogRunner != nil {
 		workers.Add(1)
 		go func() {
@@ -437,7 +445,12 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 			select {
 			case <-ctx.Done():
 				return
-			case paths := <-changes:
+			case paths, ok := <-changes:
+				if !ok {
+					changes = nil
+					due = time.Now()
+					continue
+				}
 				store.LogDiagnostic("info", "watcher", "change_detected", map[string]any{
 					"debounce_ms": skillWatchDebounce.Milliseconds(), "path_count": len(paths),
 				})
@@ -468,8 +481,12 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		return err
 	}
 	_, _ = store.db.Exec(`UPDATE client_tasks SET status='pending' WHERE status='running'`)
-	defer workers.Wait()
-	defer cancel()
+	periodic(time.Second, "daemon_health", func(ctx context.Context) error {
+		if AIDRHookReady != nil && !AIDRHookReady(ctx, home) {
+			return errors.New("client_hook_not_ready")
+		}
+		return writeDaemonHealth(home)
+	})
 	for {
 		var changedPaths []string
 		select {

@@ -65,7 +65,7 @@
         <h4>{{ t('aidr.sourceCapabilityReport') }}</h4><a-tag v-for="cap in state.capabilities || []" :key="`${cap.agent}:${cap.version}`">{{ cap.agent }} {{ cap.version }} · {{ statusLabel(cap.status) }}</a-tag>
         <h4>{{ t('aidr.discovery') }}</h4><div v-for="item in state.health?.discovery || []" :key="item.source_id || item.agent">{{ item.agent }} · {{ statusLabel(item.status) }} <code v-for="code in item.reason_codes" :key="code">{{ reasonLabel(code) }}</code></div>
         <h4>{{ t('aidr.sources') }}</h4><p v-if="!sources.items.length">{{ t('aidr.emptySources') }}</p>
-        <div v-for="item in sources.items" :key="item.id" class="aidr-source"><strong>{{ statusLabel(item.coverage.status) }}</strong><code>{{ item.source_id }}</code><div>{{ t('aidr.revision') }} {{ item.revision }}</div><code v-for="reason in item.coverage.reason_codes" :key="reason">{{ reasonLabel(reason) }}</code><details><summary>{{ t('aidr.projectionJSON') }}</summary><pre>{{ JSON.stringify(item, null, 2) }}</pre></details></div>
+        <div v-for="item in sources.items" :key="item.id" class="aidr-source"><strong>{{ statusLabel(item.coverage.status) }}</strong><code>{{ item.source_id }}</code><div>{{ t('aidr.revision') }} {{ item.revision }}</div><code v-for="reason in item.coverage.reason_codes" :key="reason">{{ reasonLabel(reason) }}</code></div>
         <div class="aidr-actions"><a-button :disabled="loading || sourceAfter === '0'" @click="pageSources('0')">{{ t('aidr.first') }}</a-button><a-button :disabled="loading || !sources.has_more" @click="pageSources(sources.next_after)">{{ t('aidr.next') }}</a-button></div>
       </details>
     </template>
@@ -217,7 +217,6 @@ summary { cursor: pointer; }
 .aidr-preview { max-height: 5em; overflow: auto; white-space: pre-wrap; margin: 6px 0; }
 .aidr-source { padding: 12px 0; border-bottom: 1px solid #edf0f2; overflow-wrap: anywhere; }
 .aidr-source code { display: inline-block; max-width: 100%; margin: 4px 0; }
-pre { max-height: 45vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .aidr-panel :deep(.ant-tag) { white-space: normal; }
 @media (max-width: 600px) { .aidr-panel { padding: 12px; } .aidr-filters label { width: 100%; } }
 </style>

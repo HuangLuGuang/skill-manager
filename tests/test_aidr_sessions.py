@@ -448,6 +448,44 @@ def test_session_list_counts_use_indexes_and_prompts_respect_page_ceiling(servic
         assert next(i for i in refreshed['items'] if i['session_id'] == remaining)['question_preview']
 
 
+def test_product_session_queries_seek_product_snapshot_and_prompt_indexes(service):
+    from sqlalchemy import event as sql_event
+    from backend.aidr_sessions import sessions
+    _, factory = service
+    insert(factory, 1, event={'agent': 'codex', 'session_id': 'selected', 'kind': 'turn.submit'})
+    insert(factory, 2, event={'agent': 'codex', 'session_id': 'selected', 'kind': 'tool.pre'})
+    insert(factory, 3, event={'agent': 'claude', 'session_id': 'other-product', 'kind': 'turn.submit'})
+    insert(factory, 4, event={'agent': 'codex', 'session_id': 'other-device'}, client='two')
+    insert(factory, 5, event={'agent': 'codex', 'session_id': 'expired'}, expired=True)
+    with factory() as db:
+        conn = db.connection()
+        statements = []
+        def capture(conn, cursor, statement, parameters, context, many):
+            statements.append((statement, parameters))
+        sql_event.listen(conn, 'before_cursor_execute', capture)
+        try:
+            result = sessions(db, 'one', agent='codex', include_questions=True)
+        finally:
+            sql_event.remove(conn, 'before_cursor_execute', capture)
+        assert len(result['items']) == 1
+        assert result['items'][0]['session_id'] == 'selected'
+        assert result['items'][0]['hook_count'] == 2
+        assert result['items'][0]['question_preview']
+        plans = {
+            sql: ' '.join(row[3] for row in conn.exec_driver_sql('EXPLAIN QUERY PLAN ' + sql, params))
+            for sql, params in statements
+        }
+        aggregate = next(plan for sql, plan in plans.items() if sql.lstrip().startswith('WITH evidence'))
+        assert 'ix_aidr_operation_product_sessions (client_id=? AND expired_at=? AND agent=? AND id<?)' in aggregate
+        assert 'ix_aidr_hook_session_list (client_id=? AND expired_at=? AND <expr>=?)' in aggregate
+        assert 'ix_aidr_message_session_list (client_id=? AND expired_at=? AND agent=?)' in aggregate
+        ceiling = next(plan for sql, plan in plans.items() if sql.startswith('SELECT max(aidr_operations.id)'))
+        assert 'ix_aidr_operation_device_page (client_id=?)' in ceiling
+        prompt = next(plan for sql, plan in plans.items() if 'aidr_hook_events.id IN (' in sql)
+        assert ('ix_aidr_hook_active_page (client_id=? AND expired_at=? AND id=?' in prompt
+                or 'USING INTEGER PRIMARY KEY (rowid=?)' in prompt)
+
+
 def test_turn_query_scopes_indexes_to_selected_session(service):
     from sqlalchemy import event as sql_event
     from backend.aidr_sessions import turns

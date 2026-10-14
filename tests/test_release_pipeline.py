@@ -177,6 +177,10 @@ def test_release_publishes_one_archive_and_download_link(release_run, arch):
     packages = [cmd for cmd in commands if cmd[0] == 'package-release.sh']
     assert len(packages) == 1
     assert packages[0][packages[0].index('-p') + 1] == ('linux/arm64' if arch == 'arm' else 'linux/amd64')
+    version = '1.0.6_arm' if arch == 'arm' else '1.0.6'
+    image_arch = 'arm64' if arch == 'arm' else 'amd64'
+    for component in ('agent-security-worker', 'aig-scan-service'):
+        assert [f'verify-{component}-image.sh', f'agent-manager-{component.removeprefix("agent-")}:{version}', image_arch] in commands
     uploads = [cmd for cmd in commands if cmd[:3] == ['aws', 's3', 'cp']]
     assert len(uploads) == 1
     assert uploads[0][3].endswith(f'agent-manager_1.0.6_{arch}.tar.gz')

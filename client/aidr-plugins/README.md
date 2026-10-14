@@ -206,7 +206,9 @@ Codex 0.159.0 / 0.159.2 / 0.160.0 / 0.160.1 自检使用原生 App Server 的本
 
 插件包现为 **0.1.1**。更新调用宿主原生机制并核对文件，保留已有停用状态；重复安装及更新不自动开启停用接收器。已有手动桥接存在时显示迁移/冲突，不接管进程或重置队列。普通 Codex 插件由用户在原生 `/hooks` 审阅；受管方式由宿主认可的系统管理配置提供信任，仍须核对实际加载。新配置需新会话生效。普通接入兼容目标为 Claude 2.1.220、Codex 0.158.0-alpha.2.1、0.159.0和0.159.2；0.159.0 普通客户流程已通过原生信任、真实审计和包升级后的队列保留，系统级受管加载另验。此次6种审计事件不替代该版本全部事件载荷或控制验收。
 
-接收器随桌面生命周期运行。切页、最小化和后台持续接收；关闭窗口/退出回收自有实例与 socket，保留 SQLite、冻结批次和 ACK。父管道关闭也使接收器结束，崩溃恢复按平台重试策略执行；默认首次启动加两次重试，支持不重试或持续有界退避。页面可见时两秒读取快照，健康每五秒更新、15 秒过期，平台显示最后报告时间，超过30秒标为历史。页面刷新不进行宿主扫描；原生后台每5分钟及显式自检读取有界宿主来源。
+接收器随桌面进程生命周期运行。切页、最小化、关闭窗口后持续接收；关闭窗口隐藏界面并保留监督器，通过托盘或 macOS Dock 恢复原窗口。显式退出回收自有实例与 socket，保留 SQLite、冻结批次和 ACK。父管道关闭也使接收器结束，崩溃恢复按平台重试策略执行；默认首次启动加两次重试，支持不重试或持续有界退避。页面可见时两秒读取快照，健康每五秒更新、15 秒过期，平台显示最后报告时间，超过30秒标为历史。页面刷新不进行宿主扫描；原生后台每5分钟及显式自检读取有界宿主来源。
+
+TeleAgent 的模型转发器独立运行于用户级 LaunchAgent，桌面退出、重启及更新不停止它；它通过 socket 请求上述接收器完成工具审核。模型请求不依赖接收器，审核不可用时仍返回既有失败决策。独立程序在 `~/.agent-manager/aidr/teleagent-proxy/`，启动自检只暂存程序更新而不重启代理。English: TeleAgent model forwarding runs in a separate user LaunchAgent and survives desktop quit, restart and update. Tool review still uses receiver IPC and retains its existing unavailable-decision behavior. Reconciliation stages the next executable without interrupting the running proxy.
 
 **English:** Platform automatic installation requires no per-device Connect click. The dedicated desktop sidebar and device-detail Agent Runtime Governance panel expose actual state and any necessary native authorization. The existing authenticated client worker performs bounded installation/update/inspection tasks; remote management prevents local target overrides. Package 0.1.1 updates through native host commands, preserves disabled states and queues, and does not grant trust. Receiver execution follows the desktop lifetime, including background operation and parent-pipe cleanup. Recovery follows the platform retry target: none, a fixed number of retries (default two after the initial launch), or continuous capped backoff with jitter. Visible pages read snapshots; status reports retain their timestamps. Ordinary installation targets are Claude 2.1.220 and Codex 0.158.0-alpha.2.1 / 0.159.0 / 0.159.2. Codex 0.159.0 has customer-flow audit evidence for six event types; 0.159.2 native installation, trust inspection and automatic coordination passed, and fresh native tool runs with durable ACKs passed after refreshing isolated authentication. Managed Codex access remains limited to 0.159.0 pending dedicated-system acceptance.
 
@@ -250,7 +252,7 @@ Codex 0.159.0 / 0.159.2 / 0.160.0 / 0.160.1 自检使用原生 App Server 的本
 
 原生后台每秒检查启用偏好和设备配置，页面不消费或不渲染时仍工作。专用私有 root 的桌面锁和 Go 状态锁共同防止竞争，遇到已有 socket/旧手动连接显示冲突，不杀外部进程、不移除旧 socket。凭证变化重启自有实例，同一平台与设备保留 stream、事件及冻结批次；平台变化选择独立绑定目录，保留旧积压。异常按平台重试策略处理；默认首次启动加两次重试，显式重试重新计数。健康文件过期显示采集未知；平台 ACK、上传错误、待发量与本地运行分开。
 
-切页、最小化及后台运行保留实例；本客户端关闭窗口会退出应用，关闭/正常退出和更新重启回收自有接收器、socket，保留 SQLite。无 launchd 或开机常驻服务。本地 IPC 不依赖网络；平台策略约30秒刷新、事件上传约2秒轮询，按既有缓存策略与 ACK 契约补传。首次未取得脱敏策略仍开启。默认仅审计；已核实的工具控制公钥在受管偏好中显式配置，原控制实例按迁移说明处理，不能用新默认审计冒充旧控制。
+切页、最小化及关闭窗口后的后台运行保留实例和父管道；窗口恢复复用原接收器。显式退出和更新重启回收自有接收器、socket，保留 SQLite。接收器由桌面进程监督。本地 IPC 不依赖网络；平台策略约30秒刷新、事件上传约2秒轮询，按既有缓存策略与 ACK 契约补传。首次未取得脱敏策略仍开启。默认仅审计；已核实的工具控制公钥在受管偏好中显式配置，原控制实例按迁移说明处理，不能用新默认审计冒充旧控制。
 
 迁移：确认旧实例的平台、设备与状态目录，恢复原连接并排空积压，保留状态；由原进程管理者停止它，再通过原生宿主移除旧 AIDR 插件。重新点击客户端接入并审阅新定义。无法读取来源时不按“未安装”覆盖；安装器保持用户停用状态。没有自动转换旧手动队列，也没有删除历史或冻结批次。
 
@@ -260,7 +262,7 @@ macOS 实际 `.app` 已验证 Claude 按钮首装/重复安装与独立新会话
 
 **Manual UI checks / 人工复验：**核对安装/启用/信任/接收器/传输分别显示；以新会话执行临时目录内一次工具调用，在上述网页匹配session/call；中英文检查长路径和详情关闭。关闭后确认接收器结束，重新打开确认同一stream恢复；停用不删除待发。新客户仍须原生审阅 `/hooks` 后独立触发；本轮0.159.0已完成该步骤。205条分页、加载失败与重试已有真实页面证据；正式签名升级、长期负载及其他平台仍需验收。
 
-**English:** Customers use Agent Runtime Governance after device authentication. The bundled Go receiver runs under desktop supervision; the generated bridge contains stable paths and no tokens, so independent terminals require no AIDR environment. Native trust and actual delivery remain separate. Collection survives navigation/minimization/background operation; closing or quitting stops owned processes without deleting queues. Platform-configured crash recovery retains attempts, recent failure and next retry time; correction-required faults suspend recovery. Existing sockets/manual installations require explicit conflict resolution. Immutable package hashes, platform/device-bound queues, credential rotation and strict ACKs preserve pending data. The default is audit-only; existing control requires an independently verified pinned key and explicit migration. Codex 0.159.0 installation, persistent trust, eight native audit events and bilingual details passed; broader payload/control and distribution acceptance remain separate.
+**English:** Customers use Agent Runtime Governance after device authentication. The bundled Go receiver runs under desktop supervision; the generated bridge contains stable paths and no tokens, so independent terminals require no AIDR environment. Native trust and actual delivery remain separate. Collection survives navigation, minimization and window closure; the desktop supervisor and receiver stay alive in the background. Reopen from the tray or macOS Dock. Explicit quit and update restart stop owned processes without deleting queues. Platform-configured crash recovery retains attempts, recent failure and next retry time; correction-required faults suspend recovery. Existing sockets/manual installations require explicit conflict resolution. Immutable package hashes, platform/device-bound queues, credential rotation and strict ACKs preserve pending data. The default is audit-only; existing control requires an independently verified pinned key and explicit migration. Codex 0.159.0 installation, persistent trust, eight native audit events and bilingual details passed; broader payload/control and distribution acceptance remain separate.
 
 ## 开发与独立 CLI 接收器
 
@@ -617,3 +619,10 @@ and exit-code-2 denial contract. Cursor uses `permission: allow/deny` for generi
 pre-tool hooks, including in audit-only mode. Approval is not exposed for
 Cursor, WorkBuddy or QoderWork. See the product matrix and acceptance inventory
 in `docs/external-agent-integration.md` and `experiments/aidr-agentlog/ACCEPTANCE.md`.
+
+
+## Hook 后台生命周期 / Background lifetime
+
+Hook 接收器由主守护服务 `agent-manager-client run` 在同一进程中运行，与日志采集共用服务；桌面只观察状态和提交重试请求。关闭窗口、完全退出及重启桌面均不停止接收、工具审核或上传。TeleAgent 模型代理独立运行，接入后共 2 个常驻后台进程（不含 GUI 和可选系统采集器）。服务重启恢复原队列与持久化重试额度，健康接收器不会因界面“重试”被打断。审核决策仍遵循当前策略。
+
+The main daemon hosts Hook reception in the same process as log collection. Desktop closure, quit and restart leave reception, tool review and upload running. The TeleAgent proxy remains independent, yielding two persistent background processes when enabled, excluding the GUI and optional system collector. Service restarts retain queues and retry budgets; UI retry requests leave healthy receivers running. Effective review policy continues to apply.

@@ -2,55 +2,19 @@
   <div>
     <a-card class="page-card">
       <template #title>
-        <a-page-header :title="$t('legacy.ppwp4v')" :sub-title="$t('aidr.policyNavigation.description')" />
+        <a-page-header :title="$t('agentIntegration.title')" :sub-title="$t('agentIntegration.subtitle')" />
       </template>
 
 
-    <a-card :title="$t('legacy.1b4zqhb')">
-      <template #extra>
-        <a-button v-if="hasAccess('credentials:view')" type="primary" :loading="guardDownloading" @click="handleSkillGuardDownload">{{ $t("legacy.ayz2ay") }}</a-button>
-      </template>
-      <a-alert
-        type="info"
-        show-icon
-        :message="$t('legacy.8z0qky')"
-        :description="$t('legacy.17ymjuz')"
-        style="margin-bottom: 16px"
-      />
-      <a-row :gutter="[16, 16]">
-        <a-col :xs="24" :lg="8">
-          <div class="guard-panel">
-            <div class="guard-panel-title">{{ $t("legacy.bgbtdd") }}</div>
-            <p class="hint">{{ $t("legacy.tj8mcw") }}</p>
-            <a-space wrap>
-              <a-tag v-for="scope in skillGuardScopes" :key="scope" color="blue">{{ scope }}</a-tag>
-            </a-space>
-          </div>
-        </a-col>
-        <a-col :xs="24" :lg="8">
-          <div class="guard-panel">
-            <div class="guard-panel-title">{{ $t("legacy.1qkyade") }}</div>
-            <p class="hint">{{ $t("legacy.45l7xs") }}</p>
-            <a-tabs size="small">
-              <a-tab-pane key="codex" tab="Codex">
-                <pre class="code-block compact">{{ codexGuardInstallCommand }}</pre>
-              </a-tab-pane>
-              <a-tab-pane key="claude" tab="Claude Code">
-                <pre class="code-block compact">{{ claudeGuardInstallCommand }}</pre>
-              </a-tab-pane>
-            </a-tabs>
-          </div>
-        </a-col>
-        <a-col :xs="24" :lg="8">
-          <div class="guard-panel">
-            <div class="guard-panel-title">{{ $t("legacy.vzsacv") }}</div>
-            <p class="hint">{{ $t("legacy.887oam") }}</p>
-            <pre class="code-block compact">{{ guardUsageCommand }}</pre>
-          </div>
-        </a-col>
-      </a-row>
-    </a-card>
-
+    <a-tabs :active-key="activeTab" @change="changeTab">
+      <a-tab-pane key="guide" :tab="$t('agentIntegration.guide')">
+        <AgentIntegrationGuide :trace-enabled="traceEnabled" />
+      </a-tab-pane>
+      <a-tab-pane key="records" :tab="$t('agentIntegration.records')">
+        <a-alert type="info" show-icon :message="$t('agentIntegration.recordsHelp')" />
+        <a-space wrap style="margin-top: 16px">
+          <a-button v-for="item in recordLinks.filter(item => pageAllowed(item.path) && (item.path !== '/runtime-traces' || traceEnabled))" :key="item.path" @click="router.push(item.path)">{{ $t(item.label) }}</a-button>
+        </a-space>
     <a-row v-if="hasAccess('skills:view')" :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24">
         <a-card :title="$t('legacy.wz9nkl')">
@@ -62,7 +26,7 @@
               </a-select-option>
             </a-select>
             <a-input v-model:value="auditKeyword" :placeholder="$t('legacy.5yag5')" style="width: 240px" allow-clear />
-            <a-button type="primary" @click="fetchRuntimeAudit" :loading="loadingAudit">{{ $t("legacy.16mfmhy") }}</a-button>
+            <a-button type="primary" @click="handleAuditFilterChange" :loading="loadingAudit">{{ $t("legacy.16mfmhy") }}</a-button>
             <a-button @click="resetAuditFilters" :disabled="loadingAudit">{{ $t("legacy.1wq9feq") }}</a-button>
           </a-space>
 
@@ -72,6 +36,7 @@
             :data-source="auditRows"
             :columns="auditColumns"
             rowKey="event_id"
+            :scroll="{ x: 1100 }"
             :loading="loadingAudit"
             :pagination="auditPagination"
             :locale="{ emptyText: $t('legacy.1qzv31n') }"
@@ -104,7 +69,8 @@
         </a-card>
       </a-col>
     </a-row>
-
+      </a-tab-pane>
+    </a-tabs>
     </a-card>
 
   </div>
@@ -113,50 +79,36 @@
 <script setup>
 import { translateLegacy as phrase, translateText as text } from '../i18n'
 
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { can as hasAccess } from '../access'
+import { can as hasAccess, pageAllowed } from '../access'
 import { message } from 'ant-design-vue'
 
-import { downloadSkillVerifier, getAuditPaged } from '../api'
+import { getAuditPaged, getSystemCapabilities } from '../api'
+import AgentIntegrationGuide from '../components/AgentIntegrationGuide.vue'
 import { formatDateTime } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
+const activeTab = computed(() => route.query.tab === 'records' ? 'records' : 'guide')
+const changeTab = tab => router.replace({ query: { ...route.query, tab } })
+const recordLinks = [
+  { path: '/pipeline-trace', label: 'agentIntegration.modelRecords' },
+  { path: '/mcp-governance/audit', label: 'agentIntegration.mcpRecords' },
+  { path: '/runtime-traces', label: 'agentIntegration.traceRecords' },
+]
 watch(() => route.query.tab, tab => {
   if (tab === 'audit-policy' && hasAccess('settings:view')) router.replace({ path: '/clients', query: { policy: 'audit' } })
 }, { immediate: true })
 
+const traceEnabled = ref(false)
 const loadingAudit = ref(false)
-const guardDownloading = ref(false)
 
 const auditRows = ref([])
 const auditTotal = ref(0)
 const eventFilter = ref('all')
-const auditKeyword = ref('')
+const auditKeyword = ref(typeof route.query.q === 'string' ? route.query.q : '')
 const auditSortState = ref({ field: 'timestamp', order: 'descend' })
-const skillGuardScopes = ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool']
-const runtimeApiOrigin = (() => {
-  const { protocol, hostname, port } = window.location
-  if ((hostname === 'localhost' || hostname === '127.0.0.1') && (port === '5173' || port === '5174')) {
-    return `${protocol}//${hostname}:8001`
-  }
-  return window.location.origin
-})()
-const codexGuardInstallCommand = `mkdir -p ~/.codex/skills
-unzip agent-manager-skill-verifier.zip -d ~/.codex/skills/
-
-export AGENT_MANAGER_VERIFIER_BASE_URL="${runtimeApiOrigin}"
-export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
-export AGENT_ID="<agent-id>"`
-const claudeGuardInstallCommand = `mkdir -p ~/.claude/skills
-unzip agent-manager-skill-verifier.zip -d ~/.claude/skills/
-
-export AGENT_MANAGER_VERIFIER_BASE_URL="${runtimeApiOrigin}"
-export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
-export AGENT_ID="<agent-id>"`
-const guardUsageCommand = `python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py verify \\
-  --path /path/to/skill`
 const auditPagination = ref({
   current: 1,
   pageSize: 10,
@@ -166,7 +118,7 @@ const auditPagination = ref({
   showTotal: total => text(`共 ${total} 条`, `${total} total`),
 })
 
-const auditColumns = [
+const auditColumns = computed(() => [
   { title: phrase('legacy.1f90xvr'), dataIndex: 'timestamp', key: 'timestamp', width: 220, sorter: true, customRender: ({ text }) => formatDateTime(text) },
   { title: phrase('legacy.q8rrsk'), dataIndex: 'event_type', key: 'event_type', width: 170, sorter: true },
   { title: 'Skill', dataIndex: 'skill_name', key: 'skill_name', width: 180, sorter: true },
@@ -174,37 +126,18 @@ const auditColumns = [
   { title: phrase('legacy.d22rf5'), dataIndex: 'client_ip', key: 'client_ip', width: 140 },
   { title: phrase('legacy.19fsh85'), dataIndex: 'actor', key: 'actor', width: 170, sorter: true },
   { title: phrase('legacy.xc5h04'), dataIndex: 'details', key: 'details' },
-]
+])
 
-const runtimeEventOptions = [
+const runtimeEventOptions = computed(() => [
   { value: 'skill_signature_verified', label: phrase('legacy.niy9wk') },
   { value: 'skill_load_allowed', label: phrase('legacy.1b6ll1m') },
   { value: 'skill_load_blocked', label: phrase('legacy.qn8i26') },
   { value: 'skill_tamper_detected', label: phrase('legacy.1327pp') },
   { value: 'tool_invoked', label: phrase('legacy.1dc2waf') },
   { value: 'tool_blocked', label: phrase('legacy.b0w6ir') },
-]
-const runtimeEventTypes = runtimeEventOptions.map((item) => item.value)
-const runtimeEventLabelMap = Object.fromEntries(runtimeEventOptions.map((item) => [item.value, item.label]))
-
-const handleSkillGuardDownload = async () => {
-  guardDownloading.value = true
-  try {
-    const blob = await downloadSkillVerifier()
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'agent-manager-skill-verifier.zip'
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.URL.revokeObjectURL(url)
-  } catch (error) {
-    message.error(error.response?.data?.detail || phrase('legacy.upa1zl'))
-  } finally {
-    guardDownloading.value = false
-  }
-}
+])
+const runtimeEventTypes = computed(() => runtimeEventOptions.value.map(item => item.value))
+const runtimeEventLabelMap = computed(() => Object.fromEntries(runtimeEventOptions.value.map(item => [item.value, item.label])))
 
 const fetchRuntimeAudit = async () => {
   if (!hasAccess('skills:view')) { auditRows.value = []; auditTotal.value = 0; return }
@@ -213,7 +146,7 @@ const fetchRuntimeAudit = async () => {
     const res = await getAuditPaged({
       since_hours: 168,
       event_type: eventFilter.value === 'all' ? undefined : eventFilter.value,
-      event_types: eventFilter.value === 'all' ? runtimeEventTypes.join(',') : undefined,
+      event_types: eventFilter.value === 'all' ? runtimeEventTypes.value.join(',') : undefined,
       q: auditKeyword.value.trim() || undefined,
       page: auditPagination.value.current,
       page_size: auditPagination.value.pageSize,
@@ -271,7 +204,7 @@ const resetAuditFilters = () => {
   fetchRuntimeAudit()
 }
 
-const runtimeEventLabel = (value) => runtimeEventLabelMap[value] || value || '-'
+const runtimeEventLabel = (value) => runtimeEventLabelMap.value[value] || value || '-'
 const runtimeEventColor = (value) => {
   if (['skill_load_blocked', 'skill_tamper_detected', 'tool_blocked'].includes(value)) return 'red'
   if (['skill_load_allowed', 'skill_signature_verified', 'tool_invoked'].includes(value)) return 'green'
@@ -311,49 +244,23 @@ const formatRuntimeDetails = (details = {}) => {
     .join('；') || '-'
 }
 
-onMounted(() => {
-  fetchRuntimeAudit()
+watch(() => [route.query.tab, route.query.q], () => {
+  if (activeTab.value !== 'records') return
+  auditKeyword.value = typeof route.query.q === 'string' ? route.query.q : ''
+  handleAuditFilterChange()
+})
+onMounted(async () => {
+  if (activeTab.value === 'records') fetchRuntimeAudit()
+  try { traceEnabled.value = (await getSystemCapabilities()).features?.runtime_trace === true } catch { traceEnabled.value = false }
 })
 </script>
 
 <style scoped>
+:deep(.ant-page-header-heading-left) { flex-wrap: wrap; }
+:deep(.ant-page-header-heading-title), :deep(.ant-page-header-heading-sub-title) { white-space: normal; overflow-wrap: anywhere; }
 .table-meta {
   margin-bottom: 12px;
   color: #6b7280;
-  font-size: 12px;
-}
-
-.code-block {
-  margin: 0;
-  padding: 12px;
-  overflow: auto;
-  background: #0f172a;
-  color: #dbeafe;
-  border-radius: 8px;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.code-block.compact {
-  max-height: 220px;
-}
-
-.guard-panel {
-  min-height: 100%;
-  padding: 12px;
-  border: 1px solid #f0f0f0;
-  border-radius: 8px;
-  background: #fafafa;
-}
-
-.guard-panel-title {
-  margin-bottom: 8px;
-  color: #262626;
-  font-weight: 600;
-}
-
-.hint {
-  color: #8c8c8c;
   font-size: 12px;
 }
 </style>

@@ -9,6 +9,8 @@ from ..api_errors import ApiError
 from ..sqlite_db import get_db
 from ..external_ai_gateway import binding_models, delete_binding_remote, ensure_binding
 from .clients import _client_managed_agent_id
+from ..agent_mcp import MCP_SCOPES, gateway_names, validate_agent_gateways
+from ..client_assets import asset_inventory
 
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -61,6 +63,7 @@ def _agent_response(db: Session, row: models.ManagedAgent) -> schemas.ManagedAge
         external_gateway_name=gateway.name if gateway else None,
         origin_type=row.origin_type or "platform",
         skill_names=_json_list(row.skill_names_json),
+        allowed_mcp_gateways=gateway_names(row.allowed_mcp_gateways_json),
         prompt_names=_json_list(row.prompt_names_json),
         runtime_token_id=runtime_token.id if runtime_token else None,
         runtime_token_name=runtime_token.name if runtime_token else None,
@@ -167,6 +170,7 @@ def _asset_instance(
         skills_path=agent.skills_path,
         skill_management_supported=agent.skill_management_supported,
         capabilities=_load_dict(agent.capabilities_json),
+        asset_inventory=asset_inventory(_load_dict(agent.capabilities_json)),
         desired_model=agent.desired_model,
         applied_model=agent.applied_model,
         model_config_status=agent.model_config_status,
@@ -295,7 +299,11 @@ def _asset_rows(db: Session, current_user: models.User) -> list[schemas.AgentAss
                 external_gateway_id=reported_gateway.id if reported_gateway else response.external_gateway_id,
                 external_gateway_name=reported_gateway.name if reported_gateway else response.external_gateway_name,
                 skill_names=response.skill_names,
+                allowed_mcp_gateways=response.allowed_mcp_gateways,
                 discovered_skill_count=sum(len(instance.skills) for instance in instances),
+                discovered_mcp_count=sum(len(instance.asset_inventory.mcp_servers) + sum(len(plugin.mcp_servers) for plugin in instance.asset_inventory.plugins) for instance in instances if instance.asset_inventory),
+                discovered_plugin_count=sum(len(instance.asset_inventory.plugins) for instance in instances if instance.asset_inventory),
+                plugin_skill_count=sum(len(plugin.skills) for instance in instances if instance.asset_inventory for plugin in instance.asset_inventory.plugins),
                 prompt_names=response.prompt_names,
                 runtime_token_id=response.runtime_token_id,
                 runtime_token_name=response.runtime_token_name,
@@ -440,6 +448,68 @@ async def list_agent_assets(
     return schemas.AgentAssetListResponse(items=rows, stats=stats)
 
 
+def _mcp_gateway_options(db: Session) -> list[dict]:
+    from .mcp_gateway import _gateway_tools, _runtime_tool_policy_denial
+
+    return [
+        {
+            "slug": gateway.slug, "name": gateway.name, "description": gateway.description,
+            "status": gateway.status,
+            "tools": [
+                {"name": tool.exposed_name, "description": tool.description,
+                 "server_name": server.name, "requires_approval": tool.requires_approval}
+                for server, tool, approved_hash in _gateway_tools(db, gateway)
+                if gateway.status == "active" and approved_hash == tool.schema_hash
+                and _runtime_tool_policy_denial(gateway, tool) is None
+            ],
+        }
+        for gateway in db.query(models.McpGateway).order_by(models.McpGateway.id).all()
+    ]
+
+
+@router.get("/mcp-options")
+async def agent_mcp_options(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    # Published metadata only; upstream endpoints and credentials stay in MCP administration.
+    return _mcp_gateway_options(db)
+
+
+@router.get("/{agent_pk}/mcp-access")
+async def agent_mcp_access(
+    agent_pk: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    agent = _owned_agents(db, current_user).filter_by(id=agent_pk).first()
+    if not agent:
+        raise ApiError(404, "agent.not_found", "智能体不存在", "Agent not found")
+    names = gateway_names(agent.allowed_mcp_gateways_json)
+    options = {item["slug"]: item for item in _mcp_gateway_options(db)}
+    tokens = db.query(models.AccessToken).filter_by(token_type="agent_runtime", bound_agent_id=agent.agent_id).all()
+    now = datetime.utcnow()
+    covered = set()
+    for token in tokens:
+        if (
+            token.status == "active"
+            and (token.expires_at is None or token.expires_at > now)
+            and MCP_SCOPES.issubset(_json_list(token.scopes_json))
+        ):
+            covered.update(_json_list(token.allowed_mcp_gateways_json))
+    calls = (
+        db.query(models.McpCallAudit)
+        .filter(models.McpCallAudit.bound_agent_id == agent.agent_id)
+        .order_by(models.McpCallAudit.created_at.desc(), models.McpCallAudit.id.desc()).limit(10).all()
+    )
+    return {
+        "gateways": [dict(options.get(name, {"slug": name, "name": name, "status": "missing", "tools": []}),
+                          credential_configured=name in covered) for name in names],
+        "recent_calls": [{"request_id": row.request_id, "gateway_slug": row.gateway_slug,
+                          "tool_name": row.tool_name, "status": row.status, "created_at": row.created_at} for row in calls],
+    }
+
+
 @router.post("", response_model=schemas.ManagedAgentResponse)
 async def create_agent(
     body: schemas.ManagedAgentCreate,
@@ -470,6 +540,7 @@ async def create_agent(
         external_gateway_id=body.external_gateway_id,
         origin_type="platform",
         skill_names_json=_dump_list(body.skill_names),
+        allowed_mcp_gateways_json=_dump_list(validate_agent_gateways(db, body.allowed_mcp_gateways)),
         prompt_names_json=_dump_list(body.prompt_names),
         created_by=current_user.username,
     )
@@ -530,6 +601,10 @@ async def update_agent(
     )
     data.pop("runtime_token_id", None)
     data.pop("runtime_token_name", None)
+    if "allowed_mcp_gateways" in data:
+        row.allowed_mcp_gateways_json = _dump_list(validate_agent_gateways(
+            db, data.pop("allowed_mcp_gateways"), previous=gateway_names(row.allowed_mcp_gateways_json),
+        ))
     if "skill_names" in data:
         row.skill_names_json = _dump_list(data.pop("skill_names"))
     if "prompt_names" in data:

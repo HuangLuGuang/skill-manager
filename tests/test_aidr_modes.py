@@ -33,6 +33,8 @@ def test_modes_inherit_override_restore_and_require_actual_receipt(tmp_path):
 
 def test_legacy_policy_preserved_and_old_clients_do_not_receive_mode_task(tmp_path):
     api, headers = setup_device(tmp_path)
+    legacy = api.get('/api/v1/clients/governance/default').json()['runtime_governance'] | {'modes': None}
+    assert save_runtime_policy(api, legacy).status_code == 200
     target = api.get('/api/v1/clients/governance/default').json()['runtime_governance']
     assert target['modes'] is None
     target |= {'modes': {'hooks': 'audit', 'system': 'audit'}}

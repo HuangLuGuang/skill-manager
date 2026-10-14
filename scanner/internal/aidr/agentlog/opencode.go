@@ -4,32 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
-// SourceFile selects only primary evidence. OpenCode's storage files are
-// mutable JSON snapshots; message/session files supply identity, not events.
-func SourceFile(agent, root, path string) bool {
-	if agent == "opencode" {
-		rel, err := filepath.Rel(root, path)
-		return err == nil && strings.HasPrefix(rel, "part"+string(filepath.Separator)) && strings.HasSuffix(path, ".json")
-	}
-	return strings.HasSuffix(path, ".jsonl")
-}
-func sourceAnchor(s Source, f *os.File, offset int64) (string, error) {
-	if s.Agent != "opencode" {
-		return anchor(f, offset)
-	}
-	if offset > 4<<20 {
-		return "", errors.New("aidr_log_record_too_large")
-	}
-	b := make([]byte, offset)
-	_, err := f.ReadAt(b, 0)
-	return digest(string(b)), err
-}
 func snapshotMetadata(root, path string, v any) error {
 	if _, err := NewSource("opencode", root, path); err != nil {
 		return err

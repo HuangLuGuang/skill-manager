@@ -69,11 +69,25 @@ func TestMacLaunchAgentLifecycle(t *testing.T) {
 			match := pidPattern.FindSubmatch(output)
 			if err == nil && len(match) == 2 && strings.Contains(string(output), "state = running") {
 				pid, _ := strconv.Atoi(string(match[1]))
-				if pid > 0 && pid != previous {
+				if pid > 0 && pid != previous && daemonIsReady(home) {
 					return pid
 				}
 			}
 			time.Sleep(100 * time.Millisecond)
+		}
+		for _, name := range []string{"logs/client.log", "logs/client-error.log", "daemon-health.json", "client.lock"} {
+			body, _ := os.ReadFile(filepath.Join(RuntimeRoot(home), name))
+			if len(body) > 2000 {
+				body = body[len(body)-2000:]
+			}
+			t.Logf("%s: %s", name, body)
+		}
+		if store, err := OpenStore(filepath.Join(RuntimeRoot(home), "client.db")); err == nil {
+			for _, key := range []string{"sync:daemon_health:error", "sync:watcher:error", "diagnostics:daemon"} {
+				value, _, _ := store.State(key)
+				t.Logf("%s: %s", key, value)
+			}
+			store.Close()
 		}
 		t.Fatal("launchd did not start a new running process")
 		return 0

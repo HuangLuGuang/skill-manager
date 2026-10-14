@@ -442,6 +442,8 @@ def test_latest_hook_arrival_survives_idle_window_and_stale_report(tmp_path):
             (2, 'codex', old + timedelta(hours=1), None),
             (3, 'codex', datetime.utcnow(), datetime.utcnow()),
             (4, 'workbuddy', old, None),
+            (5, 'codex', old - timedelta(hours=1), None),
+            (6, 'unknown-product', datetime.utcnow(), None),
         ]:
             db.add(AidrHookEvent(client_id='runtime-test', stream_id='s', event_id=str(seq),
                                  source_seq=seq, content_hash='test', received_at=at, expired_at=expired,
@@ -454,3 +456,43 @@ def test_latest_hook_arrival_survives_idle_window_and_stale_report(tmp_path):
         codex = next(item for item in states if item['agent'] == 'codex')
         assert codex['event_received_at'] == arrivals['codex']
         assert codex['installation'] == codex['authorization'] == codex['receiver'] == 'unknown'
+
+
+def test_latest_hook_arrivals_use_bounded_index_lookups(tmp_path):
+    from sqlalchemy import event
+    from backend.aidr_models import AidrDevice, AidrHookEvent
+    from backend.runtime_governance import latest_product_arrivals
+
+    api, _ = setup_device(tmp_path)
+    with api.app.dependency_overrides[get_db]().__next__() as db:
+        db.add(AidrDevice(client_id='runtime-test', created_by='test'))
+        db.flush()
+        at = datetime.utcnow() - timedelta(days=2)
+        db.execute(AidrHookEvent.__table__.insert(), [
+            dict(client_id='runtime-test', stream_id='s', event_id=str(i), source_seq=i,
+                 content_hash='test', received_at=at + timedelta(seconds=i),
+                 payload_json=json.dumps({'event': {'agent': 'codex'}, 'output': 'x' * 1024}))
+            for i in range(5000)
+        ])
+        db.commit()
+        conn = db.connection()
+        raw = conn.connection.driver_connection
+        queries = []
+        def capture(conn, cursor, statement, parameters, context, executemany):
+            queries.append((statement, parameters))
+        steps = []
+        raw.set_progress_handler(lambda: steps.append(1) or 0, 100)
+        event.listen(conn, 'before_cursor_execute', capture)
+        try:
+            assert latest_product_arrivals(db, 'runtime-test') == {
+                'codex': (at + timedelta(seconds=4999)).isoformat() + 'Z'}
+            assert latest_product_arrivals(db, 'other-device') == {}
+        finally:
+            raw.set_progress_handler(None, 0)
+            event.remove(conn, 'before_cursor_execute', capture)
+        assert len(queries) == 2
+        # A history scan needs thousands of VM steps; indexed product seeks stay bounded.
+        assert len(steps) < 50
+        plan = conn.exec_driver_sql('EXPLAIN QUERY PLAN ' + queries[0][0], queries[0][1]).all()
+        assert any('ix_aidr_hook_product_arrival' in row[3] for row in plan)
+        assert not any('TEMP B-TREE' in row[3] or 'SCAN aidr_hook_events' in row[3] for row in plan)

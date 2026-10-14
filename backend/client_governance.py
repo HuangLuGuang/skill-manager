@@ -228,6 +228,15 @@ def policy_view(db: Session, client_id: str | None = None):
     user_hosts = json.loads(enrollment.hosts_json) if enrollment else []
     if runtime["allow_user_enrollment"] and runtime["access_mode"] == "ordinary" and hook_target(runtime):
         runtime["hosts"] = list(dict.fromkeys([*runtime["hosts"], *user_hosts]))
+        # Products may enroll a paired log source. Channel permission remains
+        # platform-owned; preserve explicitly selected sources and legacy defaults.
+        if (runtime.get("channels") or {}).get("logs"):
+            from .aidr_products import BY_ID
+            paired = [BY_ID[host]["enrollment_log_source"] for host in user_hosts
+                      if host in BY_ID and BY_ID[host].get("enrollment_log_source")]
+            if paired:
+                runtime["log_sources"] = list(dict.fromkeys([*(runtime.get("log_sources") or ["claude", "codex"]), *paired]))
+
     revision = custom.revision if custom else 0
     guard_default = (json.loads(default.prompt_guard_json) if default else None) or PromptGuardConfig().model_dump()
     guard_override = json.loads(custom.prompt_guard_json) if custom else None

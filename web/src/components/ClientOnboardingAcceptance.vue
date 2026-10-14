@@ -19,7 +19,7 @@
         <li v-for="item in current.steps" :key="item.key">
           <div class="acceptance-step-heading"><strong>{{ t('agentRuntimeGovernance.onboarding.steps.' + item.key) }}</strong><a-tag :color="item.status === 'confirmed' ? 'green' : item.status === 'reported' ? 'blue' : item.status === 'attention' ? 'orange' : 'default'">{{ t('agentRuntimeGovernance.onboarding.statuses.' + item.status) }}</a-tag></div>
           <p v-if="item.key === 'host_loading' && item.evidence.hook_event_observed_at">{{ t('agentRuntimeGovernance.onboarding.hookObserved') }}</p>
-          <details v-if="Object.keys(item.evidence).length"><summary>{{ t('agentRuntimeGovernance.onboarding.evidence') }} · {{ item.evidence.at ? stamp(item.evidence.at) : t('agentRuntimeGovernance.unknown') }}</summary><p>{{ t('agentRuntimeGovernance.onboarding.evidenceTypes.' + item.evidence.type) }}</p><pre>{{ JSON.stringify(item.evidence, null, 2) }}</pre></details>
+          <details v-if="Object.keys(item.evidence).length"><summary>{{ t('agentRuntimeGovernance.onboarding.evidence') }} · {{ item.evidence.at ? stamp(item.evidence.at) : t('agentRuntimeGovernance.unknown') }}</summary><p>{{ t('agentRuntimeGovernance.onboarding.evidenceTypes.' + item.evidence.type) }}</p></details>
         </li>
       </ol>
     </template>
@@ -45,5 +45,5 @@ const stamp = value => value ? new Date(value).toLocaleString(locale.value) : t(
 .onboarding-acceptance { border: 1px solid #dce4e8; border-radius: 10px; padding: 16px; margin: 16px 0; overflow-wrap: anywhere; }
 .acceptance-heading, .acceptance-step-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 h4 { margin: 0; } .acceptance-next { background: #f5f7f9; border-radius: 8px; padding: 14px; margin: 14px 0; } .acceptance-next p { margin: 8px 0; line-height: 1.6; }
-.acceptance-steps { padding-left: 24px; } li { padding: 10px 0; border-bottom: 1px solid #e5ebee; } summary { cursor: pointer; color: #627480; font-size: 12px; margin-top: 6px; } pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; } .ant-btn { height: auto; min-height: 32px; white-space: normal; }
+.acceptance-steps { padding-left: 24px; } li { padding: 10px 0; border-bottom: 1px solid #e5ebee; } summary { cursor: pointer; color: #627480; font-size: 12px; margin-top: 6px; } .ant-btn { height: auto; min-height: 32px; white-space: normal; }
 </style>

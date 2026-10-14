@@ -248,15 +248,18 @@ func (p ToolPolicy) observeCommand(e Event, raw []byte) *CommandObservation {
 	if !shellTool(e.Tool) {
 		return o
 	}
-	var input struct {
-		Cwd       string                     `json:"cwd"`
-		ToolInput map[string]json.RawMessage `json:"tool_input"`
+	var fields map[string]json.RawMessage
+	var cwd string
+	if adapter, ok := hookAdapters[e.Agent]; ok {
+		if decoded, err := adapter.Decode(e.Hook, raw); err == nil {
+			_ = json.Unmarshal(decoded.Input, &fields)
+			cwd = decoded.Cwd
+		}
 	}
-	_ = json.Unmarshal(raw, &input)
 	command := ""
 	var c string
 	for _, key := range []string{"command", "cmd"} {
-		if json.Unmarshal(input.ToolInput[key], &c) == nil {
+		if json.Unmarshal(fields[key], &c) == nil {
 			command = c
 			break
 		}
@@ -265,7 +268,7 @@ func (p ToolPolicy) observeCommand(e Event, raw []byte) *CommandObservation {
 		if r.Command == nil || (r.Agent != "*" && r.Agent != e.Agent) || (r.Tool != "*" && r.Tool != e.Tool) {
 			continue
 		}
-		switch commandMatch(r.Command, command, input.Cwd, r.Decision) {
+		switch commandMatch(r.Command, command, cwd, r.Decision) {
 		case "matched":
 			o.Matched = append(o.Matched, r.ID)
 		case "unresolved":

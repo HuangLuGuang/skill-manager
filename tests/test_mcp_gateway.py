@@ -456,6 +456,7 @@ def test_agent_runtime_composite_token_can_use_bound_mcp_gateway(tmp_path, monke
         models.ManagedAgent(
             agent_id="research-agent",
             name="Research Agent",
+            allowed_mcp_gateways_json='["readonly"]',
             status="active",
             skill_names_json="[]",
             prompt_names_json="[]",

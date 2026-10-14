@@ -29,6 +29,11 @@
 #aidr-runtime-summary dt { flex: none; }
 #aidr-runtime-summary > div:first-child dd { color: #246b5c; font-weight: 650; }
 .governance-workbench, .governance-system-layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 16px; min-height: 0; flex: 1; }
+.governance-audit-history { flex: none; margin: 0 0 12px; padding: 10px 14px; border: 1px solid #dde5e9; border-radius: 8px; background: #f6f8f9; font-size: 12px; color: #53616c; max-height: 220px; overflow-y: auto; overflow-wrap: anywhere; }
+.governance-audit-history summary { cursor: pointer; font-weight: 600; }
+.governance-audit-history p { margin: 10px 0; }
+.governance-audit-history .detail-list > div { grid-template-columns: minmax(100px, 1fr) minmax(0, 4fr); }
+.governance-enrollment-progress { padding: 10px; background: #f1f7f4; border-radius: 6px; color: #28745f; }
 .governance-product-rail, .governance-inspector, .governance-system-control, .governance-system-feed { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; background: #fff; border: 1px solid #dde5e9; border-radius: 10px; }
 .governance-product-rail { padding: 18px 0 10px; }
 .governance-product-rail h2 { font-size: 15px; margin: 0 18px 14px; }

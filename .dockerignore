@@ -5,6 +5,11 @@
 node_modules
 web/node_modules
 web/dist
+outputs
+scanner/agent-manager-client
+scanner/agent-manager-client.exe
+scanner/skill-scanner
+scanner/skill-scanner.exe
 backend/.venv
 demo/**/.venv
 services/**/.venv

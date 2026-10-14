@@ -12,13 +12,13 @@
         <p v-if="!isTool && !item.message" class="event-code">{{ event.hook_event }}</p>
         <AidrAuditContent v-if="item.message" :content-mode="contentMode" :show-heading="false" :client-id="clientId" source="log" :record-id="item.message.logical_event_id" :evidence="item.message" />
         <AidrAuditContent v-for="record in promptRecords" :key="record.id" :content-mode="contentMode" :client-id="clientId" source="hook" :record-id="record.id" :evidence="record.record.event" />
-        <code v-if="preview" class="entry-preview">{{ preview }}</code>
+        <code v-if="preview && !expanded" class="entry-preview">{{ preview }}</code>
         <p v-if="allActions.length > 1" class="muted">{{ t('aidr.sessions.moreActions', { count: allActions.length - 1 }) }}</p>
         <p v-if="exitCode != null && exitCode !== 0 && !showLogExitCode" class="exit-code">{{ item.operation ? t('aidr.commandExitCode', { code: exitCode }) : `${t('aidr.exitCode')}: ${exitCode}` }}</p>
         <p v-if="item.operation?.log_elapsed_ms != null" class="muted">{{ t('aidr.sessions.elapsed') }}: {{ item.operation.log_elapsed_ms }} ms</p>
-        <p v-if="records.length > 1" class="muted">{{ t('aidr.sessions.paired', { count: records.length }) }}</p>
+        <p v-if="records.length > 1" class="muted">{{ pairedStages ? t('aidr.sessions.pairedStages') : t('aidr.sessions.paired', { count: records.length }) }}</p>
         <p v-if="resultOnly" class="muted">{{ t('aidr.sessions.resultOnly') }}</p>
-        <details v-if="!item.message" @toggle="expanded = $event.target.open">
+        <details v-if="!item.message" :open="expanded" @toggle="expanded = $event.target.open">
           <summary>{{ t('aidr.sessions.details') }}</summary>
           <div v-if="expanded" class="entry-detail">
             <p v-if="!isTool">{{ t('aidr.hooks.events.meanings.' + (meanings[event.hook_event] || 'other')) }}</p>
@@ -32,7 +32,7 @@
               <p class="muted">{{ t('aidr.sessions.received') }}: {{ timestamp(record.record.received_at) }}</p>
               <template v-if="record.record.event.context">
                 <p v-if="record.record.event.context.model">{{ t('aidr.sessions.model') }}: <code>{{ record.record.event.context.model }}</code></p>
-                <p v-if="record.record.event.context.cwd">{{ t('aidr.sessions.cwd') }}: <code>{{ record.record.event.context.cwd }}</code></p>
+                <p v-if="record.record.event.context.cwd">{{ t(record.record.event.context.cwd_source === 'agent_log' ? 'aidr.sessions.cwdFromLog' : 'aidr.sessions.cwd') }}: <code>{{ record.record.event.context.cwd }}</code></p>
                 <p v-for="root in record.record.event.context.workspace_roots || []" :key="root">{{ t('aidr.sessions.workspace_roots') }}: <code>{{ root }}</code></p>
                 <p v-if="record.record.event.context.redacted || record.record.event.context.truncated" class="muted">{{ t('aidr.sessions.hostContextProcessed') }}</p>
               </template>
@@ -55,14 +55,15 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AidrAuditActions from './AidrAuditActions.vue'
 import AidrAuditContent from './AidrAuditContent.vue'
 const props = defineProps({ contentMode: { type: String, default: 'source' }, item: { type: Object, required: true }, clientId: { type: String, required: true } })
 const { t, locale } = useI18n()
-const expanded = ref(false)
+const expanded = defineModel('expanded', { type: Boolean, default: false })
 const records = computed(() => props.item.records || [])
+const pairedStages = computed(() => records.value.length === 2 && records.value.filter(r => r.record.event.kind === 'tool.pre').length === 1 && records.value.filter(r => ['tool.post', 'tool.failure'].includes(r.record.event.kind)).length === 1)
 const promptRecords = computed(() => records.value.filter(record => record.record.event.kind === 'turn.submit'))
 const event = computed(() => props.item.message || props.item.operation?.call || props.item.operation?.result || records.value.find(r => r.record.event.kind === 'tool.pre')?.record.event || records.value[0]?.record.event || {})
 const result = computed(() => props.item.operation?.result || records.value.find(r => ['tool.post', 'tool.failure'].includes(r.record.event.kind))?.record.event)
@@ -70,7 +71,11 @@ const isTool = computed(() => !!props.item.operation || ['tool.pre', 'tool.post'
 const resultOnly = computed(() => !props.item.operation && !!result.value && !records.value.some(r => r.record.event.kind === 'tool.pre'))
 const allActions = computed(() => event.value.behavior?.actions || [])
 const commandCaptured = computed(() => event.value.behavior?.contents?.some(item => item.kind === 'command_body'))
-const preview = computed(() => commandCaptured.value ? t('aidr.content.commandPreview') : allActions.value[0]?.command || allActions.value[0]?.targets?.[0]?.value || '')
+const preview = computed(() => {
+  const commands = event.value.behavior?.contents?.filter(item => item.kind === 'command_body') || []
+  if (commands.length) return t(commands.every(item => item.command_summary) ? 'aidr.commandParsing.summaryPreview' : 'aidr.content.commandPreview')
+  return allActions.value[0]?.targets?.[0]?.value || ''
+})
 const exitCode = computed(() => result.value?.behavior?.exit_code)
 const control = computed(() => event.value.control_decision)
 const blocked = computed(() => control.value?.decision === 'deny')

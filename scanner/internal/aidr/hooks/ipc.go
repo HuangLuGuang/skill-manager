@@ -96,22 +96,16 @@ func (r *Receiver) Close() {
 }
 
 // Serve limits both active requests and raw in-memory data. Closing the context
-// closes this listener and all active connections before returning.
+// stops accepting and drains already accepted requests under their two-second
+// connection deadline before returning, preserving decisions during upgrades.
 func (r *Receiver) Serve(ctx context.Context) error {
 	var workers sync.WaitGroup
-	var mu sync.Mutex
-	active := map[*net.UnixConn]bool{}
 	slots := make(chan struct{}, 16)
 	done := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
 			r.listener.Close()
-			mu.Lock()
-			for c := range active {
-				c.Close()
-			}
-			mu.Unlock()
 		case <-done:
 		}
 	}()
@@ -140,15 +134,12 @@ func (r *Receiver) Serve(ctx context.Context) error {
 			c.Close()
 			continue
 		}
-		mu.Lock()
-		active[c] = true
-		mu.Unlock()
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			defer func() { c.Close(); mu.Lock(); delete(active, c); mu.Unlock(); <-slots }()
+			defer func() { c.Close(); <-slots }()
 			c.SetDeadline(time.Now().Add(2 * time.Second))
-			response := r.handle(ctx, c)
+			response := r.handle(context.WithoutCancel(ctx), c)
 			if response.Code != "aidr_hook_recorded" && response.Code != "aidr_hook_audit_paused" && response.Code != "aidr_hook_healthy" && response.Code != "aidr_hook_decision" {
 				r.rejected.Add(1)
 			}

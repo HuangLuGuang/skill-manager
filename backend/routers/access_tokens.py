@@ -13,7 +13,7 @@ from .. import auth, models, schemas
 from ..api_errors import ApiError
 from ..sqlite_db import get_db
 from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
-
+from ..agent_mcp import ensure_agent_mcp_scope
 
 router = APIRouter(prefix="/access/tokens", tags=["access-tokens"])
 
@@ -227,6 +227,8 @@ def _validate_subject_bindings(
             "This credential type cannot configure MCP gateway access",
             params={"token_type": token_type},
         )
+    if token_type == "agent_runtime" and uses_mcp:
+        ensure_agent_mcp_scope(db, models.AccessToken(token_type=token_type, bound_agent_id=bound_agent_id), gateways)
     return list(dict.fromkeys(gateways))
 
 
@@ -580,6 +582,10 @@ async def update_access_token(
         if "scopes" in data and data["scopes"] is not None
         else _json_loads(row.scopes_json, [])
     )
+    authorization_changed = (
+        bool({"bound_agent_id", "bound_client_id", "allowed_mcp_gateways", "scopes"}.intersection(data))
+        or data.get("status") == "active"
+    )
     normalized_mcp_gateways = _validate_subject_bindings(
         db,
         token_type=row.token_type,
@@ -587,7 +593,7 @@ async def update_access_token(
         bound_client_id=next_bound_client_id,
         allowed_mcp_gateways=next_allowed_mcp_gateways,
         scopes=next_scopes,
-    )
+    ) if authorization_changed else next_allowed_mcp_gateways
     scopes = next_scopes
     next_agent_issuance = bool(data.get("allow_agent_credential_issuance", row.allow_agent_credential_issuance))
     if "scopes" in data and data["scopes"] is not None:

@@ -13,7 +13,7 @@
       </div>
       </div>
       <button v-if="overflow" type="button" class="rail-scroll" :disabled="!canScrollDown" :aria-label="t('aidr.sessions.laterTurns')" :title="t('aidr.sessions.laterTurns')" @click="scrollMarks(1)">⌄</button>
-      <span v-if="numberedItems.some(item => item.key === active)" class="rail-label">{{ numberedItems.findIndex(item => item.key === active) + 1 }}/{{ numberedItems.length }}{{ hasMore ? '+' : '' }}</span>
+      <span v-if="numberedItems.some(item => item.key === active)" class="rail-label">{{ allNumberedItems.findIndex(item => item.key === active) + 1 }}/{{ allNumberedItems.length }}{{ hasMore ? '+' : '' }}</span>
       <button v-if="unassigned" type="button" class="unassigned-link" :class="{ selected: active === 'unassigned' }" :aria-label="t('aidr.sessions.unassignedTurn')" :title="t('aidr.sessions.unassignedTurn')" :aria-pressed="active === 'unassigned'" @click="$emit('select', 'unassigned')">{{ t('aidr.sessions.unassignedShortcut') }}</button>
     </div>
     <a-button v-if="error || hasMore" size="small" :loading="loading" :disabled="loading" class="more-turns" @click="$emit('more')">{{ t(error ? 'aidr.sessions.retryTurns' : 'aidr.sessions.moreTurns') }}</a-button>
@@ -23,11 +23,12 @@
 <script setup>
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-const props = defineProps({ items: { type: Array, required: true }, active: { type: String, default: '' }, loading: Boolean, hasMore: Boolean, error: Boolean, canRead: Boolean })
+const props = defineProps({ items: { type: Array, required: true }, allItems: { type: Array, required: true }, active: { type: String, default: '' }, loading: Boolean, hasMore: Boolean, error: Boolean, canRead: Boolean })
 defineEmits(['select', 'more'])
 const { t, locale } = useI18n()
 const unassigned = computed(() => props.items.find(item => item.key === 'unassigned'))
 const numberedItems = computed(() => props.items.filter(item => item.key !== 'unassigned'))
+const allNumberedItems = computed(() => props.allItems.filter(item => item.key !== 'unassigned'))
 const marks = ref(null), overflow = ref(false), canScrollUp = ref(false), canScrollDown = ref(false)
 let observer
 function measure() {
@@ -51,7 +52,7 @@ function scrollMarks(direction) {
 watch(() => [props.active, props.items], async () => { await nextTick(); revealActive() })
 onMounted(() => { observer = new ResizeObserver(measure); observer.observe(marks.value); revealActive() })
 onBeforeUnmount(() => observer?.disconnect())
-const label = turn => turn.key === 'unassigned' ? t('aidr.sessions.unassignedTurn') : t('aidr.sessions.round', { n: numberedItems.value.findIndex(item => item.key === turn.key) + 1 })
+const label = turn => turn.key === 'unassigned' ? t('aidr.sessions.unassignedTurn') : t('aidr.sessions.round', { n: allNumberedItems.value.findIndex(item => item.key === turn.key) + 1 })
 const question = turn => turn.key === 'unassigned' ? t('aidr.sessions.unassignedTurnHelp') : !props.canRead ? t('aidr.sessions.questionRestricted') : turn.question?.display_text || t('aidr.sessions.questionMissing')
 const date = value => value ? new Date(value).toLocaleString(locale.value, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
 function moveFocus(event, index) {

@@ -4,10 +4,9 @@
     <p v-if="bodyOmitted && !bodyCaptured" class="audit-muted">{{ t('aidr.redactionSettings.body') }}</p>
     <div v-for="(action, index) in actions" :key="index" class="audit-action">
       <strong v-if="actions.length > 1 || action.tool !== tool">{{ action.tool }}</strong>
-      <pre v-if="action.command && !bodyCaptured">{{ action.command }}</pre>
       <p v-if="action.cwd">{{ t('aidr.cwd') }}: <code>{{ action.cwd }}</code></p>
       <p v-for="(target, targetIndex) in action.targets || []" :key="targetIndex">{{ t('aidr.targetKinds.' + target.kind) }}: <code>{{ target.value }}</code></p>
-      <p v-if="!action.command && !action.cwd && !action.targets?.length" class="audit-muted">{{ t('aidr.detail.noArguments') }}</p>
+      <p v-if="!bodyCaptured && !action.cwd && !action.targets?.length" class="audit-muted">{{ t('aidr.detail.noArguments') }}</p>
     </div>
   </section>
 </template>

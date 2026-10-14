@@ -1,5 +1,9 @@
 # 模型网关与隐私路由
 
+Agent 的模型访问与 MCP 工具访问可使用同一张运行凭证组合授权。模型按允许模型范围校验；MCP 按 Agent 允许网关、凭证权限和网关策略共同校验。创建或编辑智能体时可配置 MCP 网关，再通过接入指引完成凭证授权与运行端连接。详见 [MCP 工具访问](agent-governance.md#mcp-工具访问--mcp-tool-access)。
+
+**English:** One Agent runtime credential can combine model and MCP access. Models use model allowlists; MCP uses Agent gateway grants, credential scopes and gateway policies together. Configure MCP gateways on the Agent, then follow the integration guide to grant credentials and connect the runtime. See [MCP tool access](agent-governance.md#mcp-工具访问--mcp-tool-access).
+
 模型网关把 `rs-router` 的隐私代理能力内置到 Agent Manager 后台中，用于统一代理 OpenAI-compatible Chat Completions 请求，并在请求进入外部模型供应商前做 PII 伪匿名化、Prompt 防护和智能上下文压缩。
 
 客户已经部署独立 AI 网关时，可以让客户端模型流量直接进入客户网关，由 Agent Manager 只负责连接配置、Agent 注册、动态模型目录、策略和任务下发。该模式不经过本章的内置数据面，详见 [外部 AI 网关接入与 Skill 治理](external-ai-gateway-integration.md)。
@@ -11,6 +15,16 @@
 - 真实调用时检测提示词注入、系统提示词泄露、凭据外传等 Prompt 风险，不要求用户额外上传 Prompt 模板。
 
 ---
+
+## 从接入指引配置 / Configure through the integration guide
+
+在“接入与运行”选择“现有应用接入模型网关”。按 Agent 身份治理时选择已登记身份，并创建含 `model:chat` 的运行凭证；普通应用选择模型调用凭证。创建时核对允许模型，保存一次性凭证后返回指引，将平台 `/v1` 地址、凭证和模型名配置到运行端，并按运行端选择 Chat Completions、Responses 或 Anthropic Messages。SDK 的 Base URL 规则可能不同，应按其协议要求使用所展示的完整请求路径。
+
+**English:** In Integration & runtime, choose the model gateway scenario. For Agent governance, select a registered identity and issue an Agent runtime credential with `model:chat`; ordinary apps use model credentials. Confirm allowed models, save the one-time secret and return to configure the endpoint, credential and model. Choose Chat Completions, Responses or Anthropic Messages for the runtime. SDK base URL conventions vary; use the displayed full request path according to the SDK protocol.
+
+内置模型调用在 Pipeline Trace 中核对。使用外部网关模型时，指引展示配置领取接口，运行端使用返回的外部地址和密钥直连；调用审计由外部网关提供。模型配置或调用成功不能证明 Skill 加载前校验已接入，后者需要独立安装文件、验签及授权检查。
+
+**English:** Verify internal model requests in Pipeline Trace. For external gateway models, retrieve configuration through the guide’s endpoint and call the returned external URL with its key; verify calls in that gateway’s audit. Model configuration or successful calls do not establish Skill admission checks, which require file installation, signature verification and authorization at the loading boundary.
 
 ## 客户端模型切换 / Client model switching
 

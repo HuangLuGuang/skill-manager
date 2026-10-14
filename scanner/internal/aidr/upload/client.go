@@ -21,7 +21,16 @@ import (
 
 type Options struct {
 	Server, ClientID, Token string
+	ObserveHTTP             func(HTTPDiagnostic)
 }
+
+// HTTPDiagnostic contains protocol metadata only, never event bodies or credentials.
+type HTTPDiagnostic struct {
+	Method, Resource, Code, ServerCode string
+	StatusCode                         int
+	Retryable                          bool
+}
+
 type Client struct {
 	base, clientID, token string
 	http                  *http.Client
@@ -30,6 +39,7 @@ type Client struct {
 	policyRefreshed       string
 	hookUploadCode        string
 	hookNextUpload        time.Time
+	observeHTTP           func(HTTPDiagnostic)
 }
 type Capability struct {
 	ParserStatus  string `json:"parser_status,omitempty"`
@@ -67,7 +77,7 @@ func New(o Options) (*Client, error) {
 	transport.DisableCompression = true
 	transport.MaxIdleConnsPerHost = 1
 	transport.MaxConnsPerHost = 1
-	return &Client{base: strings.TrimRight(u.String(), "/"), clientID: o.ClientID, token: o.Token, http: &http.Client{Timeout: 10 * time.Second, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	return &Client{base: strings.TrimRight(u.String(), "/"), clientID: o.ClientID, token: o.Token, observeHTTP: o.ObserveHTTP, http: &http.Client{Timeout: 10 * time.Second, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 func (c *Client) Close() { c.http.CloseIdleConnections() }
 func (c *Client) Bind(ctx context.Context, s *localstore.Store) error {
@@ -90,7 +100,9 @@ func (c *Client) Bind(ctx context.Context, s *localstore.Store) error {
 	}
 	return s.BindDestinationWithLegacy(ctx, identity, identity+"\n"+*proof.Suffix)
 }
-func (c *Client) post(ctx context.Context, path string, raw []byte, headers map[string]string) ([]byte, Result) {
+func (c *Client) post(ctx context.Context, path string, raw []byte, headers map[string]string) (body []byte, result Result) {
+	diagnostic := HTTPDiagnostic{Method: http.MethodPost, Resource: path}
+	defer func() { c.reportHTTP(ctx, diagnostic, result) }()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/clients/"+url.PathEscape(c.clientID)+"/aidr/"+path, bytes.NewReader(raw))
 	if err != nil {
 		return nil, Result{Code: "aidr_upload_request_invalid"}
@@ -106,10 +118,12 @@ func (c *Client) post(ctx context.Context, path string, raw []byte, headers map[
 		return nil, Result{Code: "aidr_upload_transport", Retryable: true}
 	}
 	defer response.Body.Close()
+	diagnostic.StatusCode = response.StatusCode
 	data, err := io.ReadAll(io.LimitReader(response.Body, 65537))
 	if err != nil || len(data) > 65536 {
 		return nil, Result{Code: "aidr_upload_response_invalid", Retryable: true}
 	}
+	diagnostic.ServerCode = responseErrorCode(data)
 	if response.StatusCode == 401 || response.StatusCode == 403 {
 		// A device reporting pause is a reversible upload condition, not an
 		// invalid credential. Keep collecting locally and retry the frozen bytes.
@@ -121,7 +135,7 @@ func (c *Client) post(ctx context.Context, path string, raw []byte, headers map[
 		}
 		return nil, Result{Code: "aidr_upload_auth_rejected"}
 	}
-	if response.StatusCode == 429 || response.StatusCode >= 500 {
+	if retryableHTTPStatus(response.StatusCode) {
 		return nil, Result{Code: "aidr_upload_server_unavailable", Retryable: true}
 	}
 	if response.StatusCode != 200 {
@@ -136,6 +150,31 @@ func (c *Client) post(ctx context.Context, path string, raw []byte, headers map[
 		return nil, Result{Code: "aidr_upload_request_rejected"}
 	}
 	return data, Result{}
+}
+
+// A rolling backend or reverse proxy can temporarily expose no route. Keep the
+// frozen upload and local receiver alive until that endpoint becomes available.
+func retryableHTTPStatus(status int) bool {
+	return status == http.StatusNotFound || status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= 500
+}
+
+var serverErrorCode = regexp.MustCompile(`^aidr\.[a-z_]{1,80}$`)
+
+func responseErrorCode(data []byte) string {
+	var problem struct {
+		Code string `json:"error_code"`
+	}
+	if json.Unmarshal(data, &problem) == nil && serverErrorCode.MatchString(problem.Code) {
+		return problem.Code
+	}
+	return ""
+}
+
+func (c *Client) reportHTTP(ctx context.Context, diagnostic HTTPDiagnostic, result Result) {
+	if c.observeHTTP != nil && ctx.Err() == nil {
+		diagnostic.Code, diagnostic.Retryable = result.Code, result.Retryable
+		c.observeHTTP(diagnostic)
+	}
 }
 func decode(data []byte, value any) error {
 	d := json.NewDecoder(bytes.NewReader(data))

@@ -1,4 +1,5 @@
 import { scannerGuideMessages } from './scannerGuide.js'
+import { dashboardMessages } from './dashboard.js'
 import { mcpServerFormMessages } from './mcpServerForm.js'
 import { systemSelectionMessages } from './system-selection.js'
 import { runtimeGovernanceMessages } from './runtime-governance.js'
@@ -27,7 +28,12 @@ import { auditMessages } from './audit.js'
 import { externalAiGatewayMessages } from './externalAiGateway.js'
 import { externalModelMessages } from './externalModel.js'
 import { agentAssetMessages } from './agentAssets.js'
+import { agentIntegrationMessages } from './agentIntegration.js'
+import { skillVerifierMessages } from './skillVerifier.js'
+import { agentMcpMessages } from './agentMcp.js'
+import { docsArchitectureMessages } from './docsArchitecture.js'
 import { agentWorkspaceMessages } from './agent-workspace.js'
+import { localAssetMessages } from './localAssets.js'
 
 import { domainKey, domainMessages } from './domain.js'
 import { legacyKey, legacyMessages } from './legacy.js'
@@ -47,6 +53,16 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      localAssets: localAssetMessages['zh-CN'],
+      dashboard: dashboardMessages['zh-CN'],
+      docsArchitecture: docsArchitectureMessages['zh-CN'],
+      helpDeployment: {
+        httpTraffic: 'HTTP / SSE → HTTP_PORT（默认 80）',
+        volumeLink: 'Backend / 扫描服务 → 持久化数据',
+        scanServices: '扫描 Worker 与内部扫描服务',
+        workerRole: '从 Backend 领取任务，通过私有网络调用内部扫描服务',
+        aigRole: '执行扫描任务，任务数据保存在 aig_scan_jobs；端口不映射到宿主机',
+      },
       systemSelection: systemSelectionMessages['zh-CN'],
       collectionStatus: collectionStatusMessages['zh-CN'],
       pluginWorkbench: pluginWorkbenchMessages['zh-CN'],
@@ -57,6 +73,9 @@ export const i18n = createI18n({
       externalAiGateway: externalAiGatewayMessages['zh-CN'],
       externalModel: externalModelMessages['zh-CN'],
       agentAssets: agentAssetMessages['zh-CN'],
+      agentIntegration: agentIntegrationMessages['zh-CN'],
+      skillVerifier: skillVerifierMessages['zh-CN'],
+      agentMcp: agentMcpMessages['zh-CN'],
       ...agentWorkspaceMessages['zh-CN'],
       iam: iamMessages['zh-CN'],
       branding: {"title": "品牌与系统名称", "nameZh": "系统名称（中文）", "nameEn": "系统名称（英文）", "company": "公司名称", "save": "保存名称", "upload": "上传 Logo", "restore": "恢复默认 Logo", "hint": "名称保存后立即生效。Logo 支持 PNG、JPEG、GIF、WebP，最大 5 MB。", "required": "请输入系统名称", "loadFailed": "品牌配置加载失败，请刷新页面重试", "failed": "保存失败，请重试", "saved": "品牌配置已更新", "tooLarge": "图片大小不能超过 5 MB"},
@@ -1148,6 +1167,16 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      localAssets: localAssetMessages['en-US'],
+      dashboard: dashboardMessages['en-US'],
+      docsArchitecture: docsArchitectureMessages['en-US'],
+      helpDeployment: {
+        httpTraffic: 'HTTP / SSE → HTTP_PORT (default 80)',
+        volumeLink: 'Backend / scan service → persistent data',
+        scanServices: 'Scan Worker and internal scan service',
+        workerRole: 'Claims tasks from Backend and calls the internal scan service over a private network',
+        aigRole: 'Executes scans and stores jobs in aig_scan_jobs; no host port mapping',
+      },
       systemSelection: systemSelectionMessages['en-US'],
       collectionStatus: collectionStatusMessages['en-US'],
       pluginWorkbench: pluginWorkbenchMessages['en-US'],
@@ -1158,6 +1187,9 @@ export const i18n = createI18n({
       externalAiGateway: externalAiGatewayMessages['en-US'],
       externalModel: externalModelMessages['en-US'],
       agentAssets: agentAssetMessages['en-US'],
+      agentIntegration: agentIntegrationMessages['en-US'],
+      skillVerifier: skillVerifierMessages['en-US'],
+      agentMcp: agentMcpMessages['en-US'],
       ...agentWorkspaceMessages['en-US'],
       iam: iamMessages['en-US'],
       branding: {"title": "Branding and system names", "nameZh": "System name (Chinese)", "nameEn": "System name (English)", "company": "Company name", "save": "Save names", "upload": "Upload logo", "restore": "Restore default logo", "hint": "Names take effect immediately after saving. Logo: PNG, JPEG, GIF, or WebP, up to 5 MB.", "required": "Enter a system name", "loadFailed": "Unable to load branding. Refresh the page to retry.", "failed": "Unable to save. Please retry.", "saved": "Branding updated", "tooLarge": "The image must not exceed 5 MB"},

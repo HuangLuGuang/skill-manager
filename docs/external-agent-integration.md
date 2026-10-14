@@ -1,5 +1,198 @@
 # External Agent Integration
 
+Skill 检测期间，Scanner 结果轮询和客户端扫描状态长轮询只读取所需元数据，完整报告保留在详情查询。
+导入准备采用独立并发额度，验签每次读取已提交状态并保存审计。调度配置及混合负载验收见
+[API 响应说明](project-guide.md#114-skill-检测期间的-api-响应--api-responsiveness-during-skill-scans)。
+
+**English:** Scanner result polling and client scan-status long polling read metadata without full reports. Import
+preparation has separate bounded capacity; verification still checks committed state and persists audits on each call.
+See the linked guide for configuration and mixed-load acceptance.
+
+客户端会按所属 Agent 实例上报 MCP 和插件资产；客户端详情及智能体管理使用同一份快照，插件可展开查看内含 Skill 与 MCP。发现依据区分配置、安装记录、本地文件与缓存；启用状态反映配置读取结果，无法确认时保持未知。此资产发现不建立 MCP 网关授权或运行调用证据。升级平台与客户端后随资产同步生效，具体适配范围、只读采集与凭据脱敏边界见[项目指南](project-guide.md#客户端-mcp-与插件资产--client-mcp-and-plugin-inventory)。
+
+**English:** Clients report MCP and plugin inventory per Agent installation. Client details and Agent management share the snapshot, including bundled Skills and MCP entries. Configuration, installation records, local files and caches remain distinct; configured enabled state stays unknown without evidence. Discovery does not establish gateway authorization or runtime calls. Upgrade platform and client, then wait for inventory sync. See the [project guide](project-guide.md#客户端-mcp-与插件资产--client-mcp-and-plugin-inventory) for adapters, read-only discovery and credential redaction.
+
+平台创建的 Agent 可在创建或编辑时配置“允许访问的 MCP 网关”。运行凭证只能选择该范围的子集；接入指引按能力生成步骤，并提供每个 MCP 网关的地址及鉴权模板。使用支持 Streamable HTTP 的运行环境读取工具列表，再按需调用并到智能体详情检查实际记录。移除网关会限制后续请求，新增网关须单独为凭证授权。完整说明见 [MCP 工具访问](agent-governance.md#mcp-工具访问--mcp-tool-access)。
+
+**English:** Platform-created Agents can configure allowed MCP gateways during registration or editing. Runtime credentials may grant only a subset. The guide generates capability-specific steps with gateway URLs and authentication templates. Use a Streamable HTTP runtime to list tools, call appropriate tools as needed and inspect records in Agent details. Removing a gateway limits subsequent requests; additions require a separate credential grant. See [MCP tool access](agent-governance.md#mcp-工具访问--mcp-tool-access).
+
+### 页面入口与下一步 / Onboarding entry and next action
+
+“智能体管理”中的“平台创建”登记外部 Agent 的治理身份；“客户端发现”来自客户端自动上报。登记后通过“保存并查看接入指引”进入当前 Agent 的步骤页，也可从列表或详情重新打开。接入页按自研 Agent、本机 Agent、模型应用和 MCP 应用选择路线，能力可组合；凭证中心继承 Agent 和建议权限，保存一次性明文后返回继续配置。详见[登记与接入](agent-governance.md#登记与接入--registration-and-integration)。
+
+**English:** Platform-created records register governance identities for external Agents; Client-discovered records come from automatic inventory. Save an Agent to open its integration guide, or reopen it from the list or details. Choose custom Agent, local Agent, model app or MCP app, then combine capabilities. Credential Center retains the identity and suggested scopes; save the one-time secret and return to configure the runtime. See [registration and integration](agent-governance.md#登记与接入--registration-and-integration).
+
+
+macOS TeleAgent 代理支持后台自动安全升级：候选程序先自检，等待在途模型/工具审核请求完成，再保留监听端口并原 PID 切换；持续忙碌时延后升级。主守护服务内的 Hook 接收器和独立代理均不随桌面退出。设置页按实际进程显示版本、摘要、健康与待升级状态；本地健康不等同于供应商连通。普通事件在发送完成后间隔至少 300 毫秒，单轮预算在等待期间耗尽则保留记录到下一轮。实现边界和实机证据见[客户端后台可靠性说明](agent-manager-client.md#后台可靠性与更新--background-reliability-and-updates)。
+
+**English:** The macOS TeleAgent proxy preflights staged upgrades, waits for in-flight model/review requests, and switches with its listener and PID preserved. Persistent traffic postpones activation. Both the daemon's Hook receiver and the independent proxy survive desktop exit. Settings displays observed process identity, readiness and pending upgrades; local readiness does not prove vendor connectivity. Ordinary events wait at least 300 ms after delivery completion; records waiting past the round budget remain queued. See the linked client reliability guide for limits and live evidence.
+
+## AIDR 产品适配器与 TeleAgent / Product adapters and TeleAgent
+
+AIDR 的日志与审核入口按产品注册。Go 日志适配器位于
+`scanner/internal/aidr/agentlog/adapter_*.go`，Hook 适配器位于
+`scanner/internal/aidr/hooks/adapter_*.go`；后端身份及证据语义位于
+`backend/aidr_adapters/`。`backend/aidr_products.json` 是能力目录，生成 Go、管理台和桌面客户端的副本。
+产品模块负责原生输入、审核响应、模型来源、Skill 来源和关联语义。JSONL/快照读取预算、标准事件投影、签名策略、队列、脱敏、上传与 ACK 复用公共实现。
+Claude 与 Qoder 共享的 transcript block 语法由协议组件提供，不互相调用另一产品的适配器。
+现有产品 ID、事件 schema、逻辑事件 ID 和历史检查点保持兼容；历史 Qoder 检查点字段继续可读。
+原生插件的安装、升级、卸载与手动诊断也通过产品适配器分发；底层安装协议、托管配置与宿主巡检复用现有宿主实现，保留其安装和授权行为。
+
+```mermaid
+flowchart LR
+  A[各产品日志与原生审核请求] --> B[独立产品适配器]
+  B --> C[统一事件与身份]
+  C --> D[公共采集队列与上传]
+  C --> E[公共签名策略引擎]
+  E --> F[统一审核决策]
+  F --> B
+  B --> G[宿主原生审核响应]
+  D --> H[平台统一存储与关联]
+  I[产品身份与能力定义] --> B
+  I --> H
+```
+
+TeleAgent 的日志适配器只读打开当前用户根目录下的 `teleagent.db`，读取 `session/message/part`。
+由于工具结果和助手消息会原地更新，使用有预算的快照扫描周期，并持久化行位置；后续周期复查已有行，按稳定逻辑 ID 和证据 ID 去重。
+这不是只追踪新增行或更新时间的尾读。大型数据库的周期延迟取决于扫描预算与调度，尚无容量 SLA；WAL 中的变化也依赖周期复查。
+只投影已完成/出错的工具及已完成的助手文本；正在生成的记录在后续周期再读。
+Prompt、回复正文、模型信息是否采集继续受现有采集策略控制。运行诊断日志原文不进入这一结构化采集器。
+
+轮次采用用户消息的原生 `message.id`；助手文本与工具通过同一会话内的 `parentID` 关联到该用户消息。
+采集器在周期扫描中补传 `turn_links` 元数据，覆盖已上传且仍保留的历史记录。公共队列将关联与检查点一起持久化，重复扫描不重复发送已登记的关联；收到 ACK 后已释放的正文不会被恢复或重传。
+平台按设备、来源、会话、工具调用 ID 和内容摘要校验后保存独立轮次映射，原始事件 ID、正文和摘要保持不变，工具视图及消息展示读取补充归属。过期、缺失记录不恢复；父消息缺失、跨会话或冲突时保留未归属。
+Hook 按设备、用户、会话、工具和原生 `caller_id`（日志中的 `callID`）唯一匹配工具记录，再取得轮次，不按时间邻近推断。
+日志先于或晚于 Hook 到达均可关联；尚未完成日志扫描时 Hook 可能暂时显示未归属，刷新后读取最新归属。切换日志与 Hook 时保留会话统一编号，无 Hook 的轮次不会让后续轮次重新编号。
+
+**English:** User message IDs identify turns. Assistant messages and tools follow an explicit `parentID` within the same session. Bounded scans send durable, deduplicated `turn_links` metadata for retained history without replaying captured bodies or changing raw event identities. The platform verifies device, source, session, call and digest before enriching views. Hooks resolve a unique exact device/user/session/tool/call match, regardless of arrival order. Missing, expired or ambiguous evidence remains unlinked. Turn numbering stays consistent across log and Hook views.
+
+2026-10-12 本机实际账号重启验收：103 条已上传历史日志补归属，原有 43,503 条各产品事件原文哈希保持一致，TeleAgent 逻辑事件无重复。独立会话完成 5 轮、10 条消息、4 次工具操作及 8 条 Hook；第 4 轮平台规则拒绝 `touch` 且文件未生成，第 5 轮撤回临时规则后同一命令成功。逐条核对 Hook 调用 ID 与原生数据库的父消息，均进入对应轮次。原有工具规则保留，TeleAgent 接入保持启用。该结果只覆盖当前本机版本和本地平台。
+
+**English:** Real-account acceptance on 2026-10-12 repaired 103 historical events, preserved the raw payload hashes of 43,503 existing events across products, and found no duplicate TeleAgent logical IDs. Five turns produced ten messages, four tool operations and eight Hooks. Turn four was denied with no file created; removing the temporary rule allowed the same command in turn five. Each Hook call ID matched the native parent message. Existing rules and the enabled integration were preserved. These results cover this local version and platform.
+
+轮次界面人工复核 / Turn UI checklist:
+- [ ] 中英文切换日志/Hook，轮次标题、导航悬停与窄屏下拉编号一致；无 Hook 的首轮不改变后续编号。
+- [ ] 已上传历史会话从未归属恢复；刷新及加载更多不重复计数；无可靠身份的记录仍显示未归属。
+- [ ] Claude Code、Codex、WorkBuddy、Qoder 的日志/Hook 切换、未归属入口及正文权限保持正常。
+- [ ] 中英文与窄屏：Hook 页签数按原始事件统计，配对卡片说明执行前/后各一条；目录显示“关联工具日志”来源，缺少可靠匹配时不显示错误目录。/ Verify raw Hook counts, before/after pair captions, linked-log directory provenance and missing-evidence behavior in both languages and narrow layouts.
+
+```sh
+agent-manager-client agent-log-read --agent teleagent \
+  --root "$HOME/.local/share/TeleAgent/users" \
+  --file "$HOME/.local/share/TeleAgent/users/<实际用户ID>/teleagent.db"
+```
+
+审核适配器接收原生 `/security/instruction/review`，普通工具和 MCP 的执行前请求映射为 `tool.pre`，
+执行后请求映射为 `tool.post`；MCP 工具名为 `mcp__<server>__<tool>`。
+原始 MCP 配置和工具描述不进入标准事件。`message_id`、`sub_agent` 分别不是已验证的轮次 ID 和子 Agent 实例 ID，不能据此建立这些身份。
+TeleAgent 审核请求中的 `worktree` 是项目根目录，不能作为工具工作目录；桌面会话可能在其他目录中运行。
+Hook 工作目录从唯一匹配的、仍保留的工具日志补充，校验设备、用户、产品、会话、工具与调用 ID，并标注“关联工具日志”。没有匹配记录、记录冲突或已过期时不补目录，也不从目标文件路径反推。历史 Hook 只修正读取视图，原始审计记录不改写。
+Hook 数量统计原始事件；一次工具调用的执行前、执行后通常产生两条事件，按调用身份合成一张卡片，说明为“执行前 1 条、执行后 1 条”。展开详情可分别查看，两张工具卡片对应四条 Hook 属于正常情况。
+
+**English:** TeleAgent review `worktree` identifies a project root, not the tool working directory. Directory views use a unique retained tool-log match within the device/user/product/session/tool/call scope and label this source explicitly. Missing, conflicting or expired evidence leaves the directory unknown; file targets are not used to infer it. Historical raw Hooks remain unchanged. Counts refer to raw events, while one card groups the before/after events of one tool call and exposes both in its details.
+原生 `filePath` 由适配器映射到公共文件目标字段；审核参数摘要仍绑定原始参数。
+执行后事件只代表已发生操作的报告，不能回滚操作；MCP 执行后请求的稳定到达尚未在宿主验证。
+
+桌面客户端在 TeleAgent 卡片点击“启用日志与审核”即可接入（macOS，已测试 2.7.0）。
+平台须启用日志和 Hook 通道，并允许用户自行接入；不允许自行接入时，管理员须预先选择 TeleAgent 的 Hook 和日志来源。
+客户端写入独立产品适配器配置，随心跳申请接入；平台有效策略追加 TeleAgent 日志来源，保留原有来源。
+TeleAgent 本地模型转发与审核桥由独立 macOS 用户级 LaunchAgent 运行，动态加载本产品配置。模型转发不依赖桌面应用或 Hook 接收器存活；审核请求通过本地 socket 交给共享接收器。其他产品仍使用各自的原有接入方式。
+
+TeleAgent 桌面在启动时注入 NewApi 配置，普通 `TeleAgent.jsonc` 或 `/global/config` 更新会被覆盖。
+桌面适配器只修改 `~/.local/share/TeleAgent/internal-debug.yaml` 的 `llmBaseUrl`，保存原值并保留其他 YAML 字段。
+TeleAgent 启动时追加 `/api/v1`，因此桥同时识别带此前缀的原生审核路径。
+桌面桥使用随机私有 `*.localhost` 主机名校验接入身份，保持原供应商的路径、查询和签名头不变；转发时使用原供应商 Host。macOS 负责将该主机名解析到回环地址，桥仍只监听 `127.0.0.1` 并拒绝带 Origin 的请求。供应商签名包含请求路径，不能给桌面模型请求增加私有路径前缀。
+**启用后必须完全退出并重新打开 TeleAgent**。启用接入和客户端启动自检会注册独立代理；关闭、退出或重启 Agent Manager 客户端不会停止该代理。“代理已就绪”只证明本地 HTTP 可达，工具审核和事件上传仍须核对 Hook 接收器与平台回执。
+移除接入恢复原值、撤回自助申请；仍在运行的宿主在重启前使用旧地址，因此保留转发器承接已有请求。
+
+独立服务使用 `com.agent-manager.teleagent-proxy.<home摘要>` LaunchAgent，配置位于当前用户 `~/Library/LaunchAgents/`，程序副本和诊断位于 `~/.agent-manager/aidr/teleagent-proxy/`。只监听既有回环端口，沿用私有主机名、原供应商地址及签名路径。登录时自动启动，进程异常退出由 launchd 恢复；机器关机、用户退出登录、供应商或网络故障仍会影响访问。客户端重复启动和更新只原子暂存新版程序，保持已运行代理及流式响应，代理下次自身启动时使用暂存版本。首次迁移须更新并重启旧 Hook 接收器一次以释放它持有的端口，之后由独立代理持有。
+
+Hook 接收器运行在主后台服务进程内，与日志采集共享进程。关闭窗口、完全退出或重启桌面应用时，模型代理和 Hook 审核均持续运行。工具仍按有效策略审核；后台服务本身不可用时，模型可访问不代表工具已获授权。
+
+后台目录监听和展示状态写入故障与 Hook 隔离。自动更新先下载验签，将后台程序保存在应用目录外，再安装桌面；后台自身切换验证进程及 Hook 就绪，失败时尝试恢复原版本。升级协调先更新命令桥，再建立 30 秒失效、完成即清除的私有升级标记；新版桥和代理在窗口内最多等待 8 秒连接恢复，已接收请求按原期限完成审核。有效拒绝和结果不明的已发送请求不重放，宿主取消/超时仍生效。TeleAgent 模型代理不参与主服务重启。首次部署须在空闲时加载新版常驻代理；本机已完成加载及真实升级期间 20 次工具调用、40 条 Hook ACK 验收。详情见[客户端可靠性说明](agent-manager-client.md#后台可靠性与更新--background-reliability-and-updates)。
+
+**English:** Watcher and telemetry-file failures are isolated from Hook intake. Updates verify downloads and preserve the worker outside the application bundle before desktop installation. Reconciliation updates the command bridge and publishes a private upgrade marker expiring after 30 seconds and removed on completion. Updated bridges and proxies wait up to eight seconds for failed connections during that window; accepted requests finish within existing deadlines. Explicit denials and ambiguous sent requests are not replayed, and host cancellation/timeouts remain effective. Worker switching checks readiness and attempts rollback; the proxy is not restarted. Initial deployment requires loading the updated persistent proxy while idle. This was completed locally, followed by 20 successful native tool calls and 40 acknowledged Hooks across a real upgrade.
+
+2026-10-13 本机已应用新版日常守护服务，并在开发客户端进程完全退出后，用 TeleAgent 2.7.0 验证真实模型响应和一次 `bash` 文件写入/读取（退出码 0）；对应执行前后 Hook 与平台记录及本地 ACK 一致。退出方式为 SIGTERM，未改变审核策略。迁移重启时观察到一次接收器不可用拦截；正式安装包升级与菜单退出需另验。证据与边界见[客户端验收记录](agent-manager-client.md#后台可靠性与更新--background-reliability-and-updates)。
+
+**English:** On 2026-10-13 the updated everyday daemon was applied locally. After terminating the development GUI with SIGTERM, TeleAgent 2.7.0 returned a real model response and completed a native `bash` file write/read with exit code 0; both Hooks matched platform records and local ACKs. Review policy was unchanged. Migration briefly rejected one command while the receiver restarted; packaged upgrades and menu-driven quit remain separate checks. See the client acceptance record for evidence and boundaries.
+
+**English:** The main background service hosts the Hook receiver alongside log collection. Closing, quitting or restarting the desktop keeps model forwarding and Hook review running. Tool decisions still follow effective policy; model availability alone does not grant tool authorization when the background service is unavailable.
+
+**English:** The TeleAgent proxy is a separate per-user macOS LaunchAgent with a private executable copy. Closing, quitting, restarting or updating the desktop client does not stop model forwarding or active streams. Reconciliation stages updated code atomically for the proxy's next start without restarting the current process. launchd starts it at login and recovers process exits. Initial migration requires restarting the old receiver once to release its listener. Model forwarding survives receiver loss; enabled tool review still requires a valid receiver decision. Proxy health does not prove upstream model success or event delivery.
+
+2026-10-13 本机验证：已将既有 `50920` 监听迁移到独立 LaunchAgent，TeleAgent 配置与私有地址原文件摘要保持一致。真实 TeleAgent 2.7.0 新会话返回“独立代理连通正常”。随后停止并恢复 Hook 接收器，代理 PID 保持 `46364`，连续 26 次代理健康检查全部成功；接收器不可用期间，经代理发出的无凭据模型列表探针收到上游 HTTP 401，证明转发通路仍可达，不将该探针视为模型生成成功。隔离 LaunchAgent 测试验证启动命令退出后仍转发、接收器缺失时仍转发、重复自检不打断流式响应，以及移除接入后的旧地址仍可转发。开发客户端进程仍正常运行，未通过此次结果声称已完成原生菜单退出、操作系统注销或正式签名发行包验收。
+
+**English:** Local verification on October 13, 2026 migrated port 50920 to the independent LaunchAgent without changing TeleAgent configuration or its private endpoint. A real TeleAgent 2.7.0 session returned the expected model reply. During receiver stop/recovery, proxy PID 46364 stayed unchanged and all 26 health probes succeeded; an unauthenticated model-list probe received upstream HTTP 401 while the receiver was unavailable. This proves transport reachability, not model generation for that probe. Isolated launchd tests also covered launcher exit, missing receiver, uninterrupted streaming across repeated reconciliation, and retained forwarding after disconnect. Native-menu quit, OS logout and signed release-package acceptance remain separate checks.
+
+人工 UI 验收 Todo（中英文）：检查服务启动失败提示与帮助中心生命周期说明；从托盘退出客户端，在 TeleAgent 发起只需模型回复的问答，再重开客户端检查模型与 Hook 的各自状态；检查退出菜单和最小窗口布局。Manual UI checks: service-failure copy and lifecycle help in both languages; tray quit, a model-only TeleAgent request, desktop reopening, separate model/Hook health, and minimum-window layout.
+如果地址被其他程序修改，适配器报告配置冲突，不覆盖外部改动。配置和私有接入地址仅写入当前用户可读文件。
+平台关闭本产品采集后，审核恢复转发至原服务；平台显式配置的日志来源不会因撤回自助申请而移除。
+
+需要手动启动原生后台的测试或集成也可使用 CLI，复用已启动的 Hook 接收器、签名工具策略和上传队列：
+
+```sh
+# 私有目录和文件；此处生成访问前缀，不使用平台凭据作为 URL。
+mkdir -p "$HOME/.agent-manager"
+chmod 700 "$HOME/.agent-manager"
+(umask 077; openssl rand -hex 32 > "$HOME/.agent-manager/teleagent-review.secret")
+
+agent-manager-client aidr-teleagent-serve \
+  --socket '<现有Hook接收器的绝对socket路径>' \
+  --listen 127.0.0.1:49179 \
+  --secret-file "$HOME/.agent-manager/teleagent-review.secret" \
+  --upstream 'https://provider.example'
+```
+
+`--upstream` 应替换为原来的 NewApi 基础地址。将 TeleAgent 的
+`provider.NewApi.options.baseURL` 显式配置为 `http://127.0.0.1:49179/<secret文件中的64位hex>` 后重启对应后台。
+该值是私有访问地址，不写入普通日志；包含它的 TeleAgent 配置应仅允许当前用户读取。桥仅监听回环地址，校验私有路径前缀，并拒绝浏览器 Origin 请求。
+审核路径交给本地策略；其他路径去掉前缀后转发至固定上游，不进行模型内容审核。
+由于 NewApi 共用基础地址，原供应商的鉴权、签名和模型请求必须在接入现场验证。
+CLI 不会自动改写 TeleAgent 配置。此方式的 `baseURL` 必须进入后台实际加载的配置；桌面应用应使用上述一键接入。平台人工审批尚未接通此 HTTP 入口。
+
+接收器处于 `audit` 时采集并放行；`intercept` 时执行公共策略，`allow/deny` 分别编码为原生 `result=1/2`。
+平台审批能力声明为 false，`ask` 不能作为已接通的审批流程；现有公共控制逻辑对此返回拒绝。
+桥在运行且收到合法请求时，对接收器异常、缺失决策及超时返回拒绝。代理普通工具审核等待预算为 4 秒，与命令 Hook 对齐；接收器连接处理期限仍为 2 秒，宿主取消继续生效；明确的主服务升级窗口内，连接失败最多等待 8 秒恢复，仍需取得接收器决定，宿主自身超时可能更短。
+MCP 审核继续使用原有 1 秒预算，包含升级等待，不能套用普通工具的 4/8 秒预算；本轮真实升级验收覆盖终端工具，MCP 在较长切换窗口可能失败，需要单独验收。
+桥进程不可达、宿主 HTTP 请求失败或宿主绕开此配置时，TeleAgent 仍可能放行，因此这不是强制防绕过的系统隔离。
+上线顺序为先更新平台能力/事件校验，再更新客户端并配置 TeleAgent。
+
+2026-10-12 本机 2.7.0 原生后台的隔离测试通过：新 HTTP 适配器 → 真实 IPC 接收器 → 签名公共策略，
+允许时写入测试文件，拒绝时未写入；在 HTTP 适配器到接收器之间注入异常和超时时未执行，旧版超时案例约 1.1 秒返回；当前等待期限以本节的 4 秒代理预算和 2 秒接收器期限为准。
+同一测试数据库采集到 4 个会话的 8 条工具事件并通过后端契约校验。
+同日补充本地平台端到端验收：连接运行中的管理 API 与管理台，以独立客户端
+`teleagent-e2e-20261012` 注册设备凭据，通过平台接口发布规则、下载平台签名策略，
+由真实客户端接收器和 HTTP 桥对接安装的 TeleAgent 后台。允许、拒绝、撤回拒绝规则三个会话中，
+测试文件分别为写入、未写入、写入。日志采集器上传 12 条事件，Hook 上传 6 条事件，平台归并为 3 个会话；
+管理台实际展开查看了日志命令、原生拒绝原因，以及 Hook 的“已拦截”、命中规则和平台拒绝决定。
+采集器重启后事件数仍为 12；6 类既有 Hook 协议使用重构前后客户端向真实接收器回放，响应一致，
+均未命中 TeleAgent 专用拒绝规则。Go AIDR 与客户端测试全部通过；后端 AIDR 测试 323 通过、1 项默认模式旧断言失败，
+使用 HEAD 的原实现复现同一失败。全局工具策略未改，测试进程停止、测试设备凭据吊销，平台审计历史保留。
+桌面一键流程同日使用独立客户端 `amc_3cc9d371e2b8d1d39c94f24c` 完成实际点击：按钮从可用变为等待平台同步，随后日志纳入策略、原生审核已配置接收。
+使用按钮生成的配置，安装的 TeleAgent 原生后台在允许/拒绝/撤回规则后分别写入/未写入/写入临时文件；桌面自动采集器上传 12 条日志和 6 条 Hook，归并为 3 个会话。
+桌面按钮移除及再次启用通过；撤回后保留原有 Claude 日志来源，重新启用及接收器重启后日志数仍为 12。六类既有 Hook 协议再次与重构前客户端对比一致。相关后端回归 47 项、桌面双语检查 29 项及 Go AIDR/客户端检查通过。
+上述隔离用例使用模拟模型和原生工具。另于同日使用本机实际账号、TeleAgent 2.7.0 完全退出并重启，完成原供应商 NewApi / chat-flash 验收：100 行回复由部分内容持续输出到完成，平台保存请求和回复；平台临时规则命中指定 `touch` 命令，原生工具被拒绝、文件未生成，日志及执行前后审核入库；撤回规则后同一命令执行成功。原生目录授权仍要求单次确认。
+移除接入并重启后，原账号直连模型、工具创建临时文件及 40 行流式回复均通过；原日志来源、Hook 产品选择及工具规则恢复，全局策略未改。六类既有 Hook 协议通过实际接收器与重构前客户端回放结果一致。此结果限定本机版本与网络环境，不代表其他版本、代理配置或生产部署验收。
+可重复的自动检查覆盖适配器边界、SQLite 原地更新/重启/去重、原生请求转换、HTTP 异常以及签名策略与队列。
+
+**English:** AIDR routes product protocols through dedicated log and Hook adapters and backend identity descriptors.
+Common code owns event projection, policy evaluation and durable delivery. TeleAgent uses read-only, bounded SQLite
+snapshot cycles and an independent user-service loopback native-review bridge. The desktop enable button requests both log and Hook collection under platform policy, preserves other sources, and writes only the vendor llmBaseUrl override. Quit and reopen TeleAgent after enabling or removing the integration. Existing products keep their wire identities
+and checkpoints. The bridge maps allow/deny decisions to native results and rejects receiver errors within its review
+deadline. Local-platform end-to-end testing on 2026-10-12 confirmed platform-issued signed policies, native
+allow/deny/re-enable behavior, durable upload of 12 log and 6 Hook events, and their display in the management UI.
+The isolated model was simulated while native tools executed. A separate real-account test restarted TeleAgent 2.7.0 and confirmed the original NewApi / chat-flash provider, incremental streaming, uploaded logs, a platform-issued denial and successful execution after rule removal. Removing the integration and restarting restored direct provider and tool operation. The desktop bridge authenticates a private localhost hostname while preserving signed paths and headers. Host-side failures remain fail-open; platform approvals, other host versions, proxy configurations and production acceptance remain unverified. The Agent Manager desktop button, policy synchronization and automatic collection were tested with an isolated client and the installed native runtime.
+
+受影响 UI 人工验收 / Manual UI checks：
+
+- [ ] 中英文的产品筛选、日志来源及工具策略列表显示 TeleAgent，已有产品名称与选择保持一致。
+- [ ] TeleAgent 展示原生审核接入、日志与审核启用按钮和重启提示；平台禁止日志时按钮给出双语原因。
+- [x] 本机 TeleAgent 2.7.0 实际账号重启后原供应商、流式响应、日志与工具拒绝；移除接入后重启恢复。其他目标环境需复验。
+- [ ] TeleAgent 不显示已具备平台审批或系统托管能力；配置安装不等于事件已送达。
+- [ ] 已有产品的会话、轮次、工具调用及审批记录关联保持一致，未知身份继续保持未关联。
+- [ ] TeleAgent 工具调用、结果、策略拒绝分别展示；原生角色名不被显示成已确认的子 Agent 实例。
+
 客户端托管接入的图文操作入口为平台帮助中心 `/docs/aidr-client`；三通道对比见 `/docs/aidr-overview`，平台策略与审批见 `/docs/aidr-policies`。自研 Agent 的加载前同步校验与客户端基于日志的后台 Skill 内容观察有不同证据边界，详见 `/docs/aidr-skill-audit`。
 
 For illustrated managed-client onboarding, use `/docs/aidr-client` in the platform Help Center. See `/docs/aidr-overview` for channel comparison and `/docs/aidr-policies` for policies/approvals. Synchronous pre-load verification in custom Agents and log-driven background Skill observation have different evidence boundaries, explained in `/docs/aidr-skill-audit`.
@@ -139,6 +332,7 @@ flowchart LR
 
 - `智能体管理`
 - `接入与运行`
+- `Agent Skill Verifier 接入`
 - `下载 Skill Verifier`
 
 后端下载接口：
@@ -153,6 +347,30 @@ GET /api/v1/scanner/skill-verifier/download
 - `runtime:can-load`
 
 如果运行时还会在每次 Tool 调用前执行权限检查，再增加 `runtime:check-tool`。`submit` 和 `status` 使用独立的 Scanner 接入凭证，不应与 Agent 运行凭证混用。
+
+`submit` 上传的 manifest 包含从 `SKILL.md` 读取的名称及文件指纹，服务端重新计算并验证内容。`submit --no-cache` 对当前 Scanner 凭证有权访问的同内容版本发起重新检测；`status --skill-id` 查看扫描状态。完整本地 HTTP 验收命令、证据和宿主执行边界见 [Verifier README](../demo/agent-manager-skill-verifier/README.md#http-全链路回归--http-end-to-end-regression)。
+
+**English:** `submit` includes the name read from `SKILL.md` and a file fingerprint, which the server recomputes and validates. `submit --no-cache` requests a new scan of the same content version accessible to the Scanner credential; `status --skill-id` reports scan status. See the [Verifier README](../demo/agent-manager-skill-verifier/README.md#http-全链路回归--http-end-to-end-regression) for the local HTTP acceptance command, evidence and host enforcement boundaries.
+
+接入步骤：
+
+1. 选择运行身份；客户端已发现的 Agent 复用现有身份，其他运行端可登记新身份。启用身份，绑定已批准的 Skill，并在本地准备同一版本。
+2. 从指引创建绑定当前 Agent 的运行凭证，默认仅建议以上两项权限。保存一次性明文后返回指引。
+3. 下载 ZIP，在实际运行机器准备 Python 3，安装到宿主实际使用的 Skill 目录。页面提供 Codex、Claude Code 默认目录及自定义目录；命令模板使用 Bash / zsh。Windows 手动解压并配置同名环境变量。
+4. 配置 `AGENT_MANAGER_VERIFIER_BASE_URL`、`AGENT_MANAGER_AGENT_RUNTIME_TOKEN`、`AGENT_ID` 和 `AGENT_MANAGER_VERIFIER_LANG`。跨机器将 localhost 换成可达地址；终端 export 不会传给已经启动的桌面应用，须在宿主启动环境配置并重启。
+5. `verify --path` 指向包含 SKILL.md 的单个 Skill。仅退出码 0 可继续，其他情况停止加载；按 Agent ID、时间与 Skill 核对运行审计，并确认实际 Agent 会话每次使用前调用了脚本。
+
+安装、复制配置、凭证关联或一次终端验证均不能证明后续强制执行。Verifier 依赖 Agent 遵循指令；强制拦截应接入 Loader / Hook / SDK。`verify` 不自动执行工具权限检查，也不需要 Scanner 凭证、模型或 MCP 绑定。
+
+宿主验收时，应保留真实会话的工具调用与结果。使用带引号的 Verifier 脚本绝对路径，独立执行验证，依据该工具调用的 Python 退出码继续或停止；不要附加 `echo` 等会覆盖退出码的命令。连续多次使用与失败后停止须分别核对，Claude Code 整个会话退出码为 0 也可能表示已正常报告拒绝。可复用的六场景实际宿主验收见 [Verifier README](../demo/agent-manager-skill-verifier/README.md#真实-claude-code-宿主验收--real-claude-code-acceptance)。
+
+**English:** Retain real host tool calls and results. Use a quoted absolute Verifier script path, verify in a separate call, and use that call's Python exit status. Do not append commands such as echo that replace the exit status. Check repeated use and stopping after failure separately; Claude Code's overall exit code 0 can mean it correctly reported refusal. See the [six-case real host acceptance](../demo/agent-manager-skill-verifier/README.md#真实-claude-code-宿主验收--real-claude-code-acceptance).
+
+Codex 宿主通过 `exec_command` 校验时显式设置 `login: false`，保持本次启动环境中的平台地址和凭证；登录 Shell 的执行路径可能改变环境。检查 Skill 发现、重复使用前重新校验，以及篡改、缺少凭证和吊销后停止读取/执行，见 [Codex 实际验收](../demo/agent-manager-skill-verifier/README.md#真实-codex-宿主验收--real-codex-acceptance)。模型拒绝过旧 CLI 时先更换兼容版本，不应记作平台校验结果。
+
+**English:** Set `login: false` explicitly for Codex `exec_command` verification to retain the current launch environment's URL and credential; login-shell execution may change the environment. See [real Codex acceptance](../demo/agent-manager-skill-verifier/README.md#真实-codex-宿主验收--real-codex-acceptance) for discovery, fresh verification before repeated use, and stopping after tampering, missing credentials or revocation. A model rejecting an outdated CLI is not a platform verification result.
+
+**English:** Choose **Integration & Runtime → Agent Skill Verifier**, reuse a discovered identity or register one, enable it and authorize an approved Skill. Create an Agent-bound credential with only the two verification scopes, save its one-time secret and return. Install the ZIP on the runtime machine using Python 3 and the host's real Skill directory; the guide provides Bash / zsh templates, with manual extraction and launch-environment configuration on Windows. Configure the four variables listed above in the actual Agent environment, using a reachable service address and matching Agent ID. Run `verify --path` for one Skill directory containing SKILL.md, require exit code 0, and match audit records by Agent, time and Skill. Confirm the real Agent invokes it on each use. Installation or a terminal check does not establish mandatory enforcement; use a Loader / Hook / SDK for that. `verify` needs no Scanner credential, model or MCP binding, and does not call `check-tool`.
 
 ## Unified Runtime Trace
 
@@ -279,9 +497,15 @@ python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_ver
 
 这类接法依赖 Agent 遵循 Skill 指令和脚本退出码。需要事件自动触发时，在具体 Agent 的生命周期事件上接 Hook 或 runtime adapter。
 
-### Event Hook
+### 客户端 AIDR 插件 Hook（默认）
 
-完整的 Claude Code、TraeCode、Codex 和 OpenClaw 配置、凭证权限、验收及排查步骤见 [hook-integration.md](hook-integration.md)。其中 TraeCode 部分是基于官方协议的待验证适配，不是已通过实机验收的集成。本节只保留运行时检查顺序和关键边界。
+日常宿主事件采集和工具策略默认通过客户端接入：连接设备，在客户端策略选择产品和 Hook 通道，完成原生信任后用新会话核对事件与 ACK。客户端按策略管理插件或 Hook 配置，接收器运行在主后台服务中。完整步骤见[客户端 AIDR 插件 Hook](hook-integration.md)。
+
+**English:** Use Client AIDR plugin Hooks by default for host audit and tool policies. Connect the device, select products and the Hook channel, complete native trust, then verify new-session events and ACKs. The Client manages integration components and runs reception in its main background service. See the [Client Hook guide](hook-integration.md).
+
+### 开发者：加载前验签与手工 Event Hook
+
+同步 Skill 内容与授权校验应接到真实 Loader 或受支持的加载事件。完整的 Claude Code、TraeCode、Codex 和 OpenClaw 手工脚本、凭证权限、验收及排查步骤见[开发者：加载前验签](developer-skill-verification.md)。其中 TraeCode 部分是基于官方协议的待验证适配，不是已通过实机验收的集成。本节只保留运行时检查顺序和关键边界。
 
 Hook 的接入点应与检查目标一一对应：
 
@@ -290,39 +514,9 @@ Hook 的接入点应与检查目标一一对应：
 | Skill 读取或加载前 | 本地计算内容摘要，依次调用 `verify-skill-signature` 和 `can-load` | 两个接口均返回 `allowed=true`，状态为可加载状态 |
 | Tool 执行前 | 调用 `check-tool`，传入 Skill 名称、Tool 名称和稳定的 Agent ID | 接口返回 `allowed=true` |
 
-Claude Code 可参考 `demo/claude-code-api-hook/agent_guard_hook.py`，在 `PreToolUse` 中使用绝对路径启动脚本：
+手工脚本配置与产品适配边界统一维护在[开发者指南](developer-skill-verification.md)。推广前至少演练平台不可达、凭证过期、Skill 路径缺失、内容变化和 Tool 未授权，并同时核对 Agent 侧结果、脚本日志与平台运行审计。
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-该示例读取 `AGENT_MANAGER_BASE_URL`、`AGENT_MANAGER_API_TOKEN` 和 `AGENT_ID`。`AGENT_MANAGER_API_TOKEN` 的值必须是绑定该 Agent 的运行凭证。对于能识别出的 Skill 调用，内容不一致、未授权、API 错误或网络错误会以退出码 `2` 阻止；成功时返回 `0`。诊断日志位于 `~/.agent-manager/logs/agent_guard_hook.log`。无法解析的输入和非 Skill 调用不进入 Skill 校验，因此上线前必须用目标 Agent 的真实事件验证 Skill 名称与目录提取结果。
-
-TraeCode 官方已支持 `PreToolUse` 和命令退出码 `2` 拒绝，但 Agent Manager 尚未完成真实 TraeCode 端到端验证。其项目级配置位置是 `.trae/hooks.json`，macOS / Linux 用户级配置才是 `~/.trae-cn/hooks.json`；具体配置、官方来源和待验证项见 [Hook 接入指南](hook-integration.md#4-traecode--trae-cn-接入状态)。
-
-Codex 使用独立示例 `demo/codex-agent-manager-hook/`。把环境文件保存在仓库外，复制或合并 `hooks.json.example` 到项目 `.codex/hooks.json` 或用户级 `~/.codex/hooks.json`，将脚本和环境文件改成绝对路径；重启后在 Codex CLI 运行 `/hooks` 并信任该 Hook。当前示例在受支持的 `PreToolUse` 路径前校验全部受治理 Skill，但尚未覆盖所有 Shell、WebSearch 和其他 Tool，不能解释为全路径强制拦截。
-
-OpenClaw 示例位于 `demo/openclaw-agent-manager-hook/`：
-
-- `agent:bootstrap` 内部 Hook 枚举可见 Skill，执行签名和加载许可检查。
-- `before_tool_call` 通过插件 Hook 调用 `check-tool`，必须接入实际 OpenClaw 插件工程。
-- 事件中的会话身份必须稳定映射到平台登记的 Agent ID，不能直接假设任意 session key 就是 Agent ID。
-
-推广前至少演练平台不可达、凭证过期、Skill 路径缺失、内容变化和 Tool 未授权五类场景，并同时核对 Agent 侧结果、Hook 日志与平台运行审计。
+**English:** Integrate synchronous Skill content and authorization checks at the real Loader or a supported load event. Manual scripts, runtime credentials, host configuration and product-specific coverage are maintained in the [developer guide](developer-skill-verification.md). Validate failures and actual host outcomes alongside script logs and platform audits.
 
 ## Registry As Artifact Catalog
 
@@ -713,7 +907,20 @@ WorkBuddy 的 Agent Manager 接入使用用户 `settings.json` 中的 Hook 命�
 
 ### 客户端一键启用 Hook
 
-普通模式默认允许用户自行接入（`allow_user_enrollment=true`）。客户端安装器仍按各宿主协议增量合并配置；安装完成后通过认证心跳上报所选产品，等待平台有效策略应用。WorkBuddy/Cursor/Qoder 等设置型适配器卸载时撤回对应本机选择，不影响用户已有配置。宿主原生授权及新会话生效要求不变；用真实新事件及平台记录验收，不能以安装成功或配置保存替代采集成功。该路径不自动添加日志来源，也不启用系统采集。
+普通模式默认允许用户自行接入（`allow_user_enrollment=true`）。客户端安装器仍按各宿主协议增量合并配置；安装完成并保存本机申请后立即通过认证心跳上报所选产品，等待平台有效策略应用。单次提交最多等待 3 秒；服务异常或超时不会丢弃申请，后台正常心跳继续重试。提交成功与正在重试分别显示，页面自动刷新平台启用状态。WorkBuddy/Cursor/Qoder 等设置型适配器卸载时撤回对应本机选择，不影响用户已有配置。宿主原生授权及新会话生效要求不变；用真实新事件及平台记录验收，不能以安装成功或配置保存替代采集成功。普通 Hook 入口不自动添加日志来源；TeleAgent 的配对入口同时申请本产品日志，均不启用系统采集。
+
+共享接收器的历史采集问题移至产品列表上方折叠展示，保留来源产品和发生时间。超大记录显示“该次工具记录超过单条大小限制，未能保存”；展开后查看影响和技术编码。当前操作错误单独显示。TeleAgent 启用后的本地审核桥在 30 秒启动窗口内自动复查，防止页面一直保留安装瞬间的“未就绪”。
+
+2026-10-12 使用隔离设备身份连接本地平台，紧接一次常规心跳提交 WorkBuddy 启用申请，申请至本地有效策略应用的单次对照为旧版 10.04 秒、新版 0.36 秒；新版申请返回耗时 0.31 秒。结果验证立即提交消除了该次心跳等待，不构成固定时延保证。自动测试覆盖平台接收、503 和取消/超时，均确认提交本身不扩大本机策略范围。
+
+**English:** Enrollment now persists the request and immediately sends an authenticated heartbeat, bounded to three seconds. Failures retain the request for regular retries; effective scope still arrives through platform tasks. The UI distinguishes submitted requests from retries, separates shared historical diagnostics from current action errors, and rechecks the TeleAgent bridge during its 30-second startup window. An isolated local-platform comparison measured 10.04 seconds before and 0.36 seconds after for one WorkBuddy enrollment; this is not a latency guarantee.
+
+受影响 UI 与人工复验 / Affected UI and manual checks:
+
+- [ ] 中英文运行治理页：历史问题显示真实产品和时间，切换 TeleAgent 不应误认为 TeleAgent 当前故障。
+- [ ] 展开历史详情：原因可读，技术编码独立，长英文不横向溢出。
+- [ ] Hook 启用：申请期间防重复点击，策略下发后自动显示已配置；平台断开时显示重试，恢复后生效。
+- [ ] TeleAgent 启用：审核桥启动后自动更新；按提示重启宿主并以新事件确认采集。
 
 
 ### Skill 使用识别与认证审计

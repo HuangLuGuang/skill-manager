@@ -190,8 +190,7 @@
       if (record.cwd) row(fields, t('cwd'), record.cwd)
       row(fields, t('monitor'), record.monitor_id)
       row(fields, t('sequence'), record.sequence)
-      const raw = document.createElement('pre'); raw.textContent = JSON.stringify(record, null, 2)
-      diagnostics.append(title, fields, raw)
+      diagnostics.append(title, fields)
       const content = document.createElement('div'); content.className = 'governance-event-content'
       content.append(heading, detail, attribution, diagnostics)
       item.append(time, content); events.append(item)

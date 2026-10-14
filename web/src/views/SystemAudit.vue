@@ -58,11 +58,13 @@
       <a-alert v-if="detail && ['update', 'put', 'patch'].includes(detail.action) && !detail.details?.before && !detail.details?.after" type="info" show-icon :message="t('iam.changeUnavailable')" class="audit-original" />
       <a-alert v-if="detail?.details?.config_changed" type="info" show-icon :message="t('iam.configChanged')" class="audit-original" />
       <a-alert v-if="detail?.details?.endpoint_changed" type="info" show-icon :message="t('iam.endpointChanged')" class="audit-original" />
-      <a-collapse class="audit-original"><a-collapse-panel key="original" :header="t('iam.technicalDetails')"><pre data-no-i18n>{{ JSON.stringify(detail, null, 2) }}</pre></a-collapse-panel></a-collapse>
     </a-drawer>
     <a-modal v-model:open="verifyOpen" :title="t('iam.verify')" :footer="null">
       <a-alert v-if="verification" show-icon :type="verification.valid ? 'success' : 'error'" :message="t(verification.valid ? 'iam.chainValid' : 'iam.chainInvalid', { count: verification.checked })" />
-      <pre data-no-i18n>{{ JSON.stringify(verification, null, 2) }}</pre>
+      <a-descriptions v-if="verification && !verification.valid" :column="1" size="small">
+        <a-descriptions-item :label="t('iam.eventId')">{{ verification.broken_event_id || '—' }}</a-descriptions-item>
+        <a-descriptions-item :label="t('iam.reason')">{{ t(`iam.chainReasons.${verification.reason}`) }}</a-descriptions-item>
+      </a-descriptions>
     </a-modal>
   </div>
 </template>

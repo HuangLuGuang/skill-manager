@@ -73,6 +73,9 @@ CREATE TABLE IF NOT EXISTS evidence(
  id TEXT PRIMARY KEY, logical_id TEXT NOT NULL REFERENCES logical_events(id),
  content_hash TEXT NOT NULL, payload TEXT, created_ns INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS event_turn_links(
+ id TEXT PRIMARY KEY REFERENCES logical_events(id) ON DELETE CASCADE, turn_id TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS evidence_logical ON evidence(logical_id);
 CREATE TABLE IF NOT EXISTS coverage_history(
  id TEXT PRIMARY KEY, source_id TEXT NOT NULL, payload TEXT NOT NULL,
@@ -268,6 +271,9 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 	if err != nil || expected.ID != b.Source.ID || b.SchemaVersion != 1 || len(b.Events) > 4096 {
 		return zero, ErrInvalid
 	}
+	if len(b.TurnLinks) > 128 || (len(b.TurnLinks) > 0 && b.Source.Agent != "teleagent") {
+		return zero, ErrInvalid
+	}
 	if b.Cursor.SchemaVersion != 0 {
 		if agentlog.ValidateCursor(b.Cursor, b.Source) != nil {
 			return zero, ErrInvalid
@@ -285,6 +291,11 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 	}
 	for _, e := range b.Events {
 		if agentlog.ValidateEvent(e) != nil || e.SourceID != b.Source.ID {
+			return zero, ErrInvalid
+		}
+	}
+	for _, link := range b.TurnLinks {
+		if !agentlog.ValidateTurnLink(link) {
 			return zero, ErrInvalid
 		}
 	}
@@ -402,7 +413,28 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return zero, err
 	}
-	if oldCoverage != string(coverage) || oldCursor != string(cursor) {
+	var newLinks []agentlog.TurnLink
+	for _, link := range b.TurnLinks {
+		res, err := tx.ExecContext(ctx, `INSERT INTO event_turn_links(id,turn_id) SELECT id,? FROM logical_events WHERE id=? AND source_id=? ON CONFLICT(id) DO NOTHING`, link.TurnID, link.LogicalEventID, b.Source.ID)
+		if err != nil {
+			return zero, err
+		}
+		var turn string
+		err = tx.QueryRowContext(ctx, `SELECT turn_id FROM event_turn_links WHERE id=?`, link.LogicalEventID).Scan(&turn)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return zero, err
+		}
+		if turn != link.TurnID {
+			return zero, ErrBatchConflict
+		}
+		if count, _ := res.RowsAffected(); count == 1 {
+			newLinks = append(newLinks, link)
+		}
+	}
+	if oldCoverage != string(coverage) || oldCursor != string(cursor) || len(newLinks) > 0 {
 		// Repair progress is local scheduling state, not part of the wire cursor.
 		wireCursor := b.Cursor
 		wireCursor.ContextRepair = nil
@@ -415,11 +447,12 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 		wireCursor.ModelTurn = ""
 		wireCursor.ModelHeaderRead = false
 		envelope, _ := json.Marshal(struct {
-			SourceID string            `json:"source_id"`
-			Revision int64             `json:"revision,string"`
-			Cursor   agentlog.Cursor   `json:"cursor"`
-			Coverage agentlog.Coverage `json:"coverage"`
-		}{b.Source.ID, nextRevision, wireCursor, b.Coverage})
+			SourceID  string              `json:"source_id"`
+			Revision  int64               `json:"revision,string"`
+			Cursor    agentlog.Cursor     `json:"cursor"`
+			Coverage  agentlog.Coverage   `json:"coverage"`
+			TurnLinks []agentlog.TurnLink `json:"turn_links,omitempty"`
+		}{b.Source.ID, nextRevision, wireCursor, b.Coverage, newLinks})
 		coverageID := fmt.Sprintf("%s:%d", b.Source.ID, nextRevision)
 		stored, encoding, err := encodeCoverage(envelope)
 		if err != nil {

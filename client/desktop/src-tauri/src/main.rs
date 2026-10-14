@@ -32,6 +32,8 @@ const BUILD_VERSION: &str = match option_env!("AGENT_MANAGER_RELEASE_VERSION") {
 };
 const UI_STATE_SIGNAL_NAME: &str = "ui-state-revision.json";
 mod aidr_manager;
+mod background;
+mod update_lifecycle;
 mod system_collector;
 mod runtime_watch;
 #[cfg(target_os = "windows")]
@@ -212,7 +214,7 @@ fn display_release_version(version: &str) -> String {
 fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, String> {
     // An alternate desktop home owns its AIDR child but must not replace the
     // per-user base service, whose launchd/systemd identity is shared.
-    if command == "reconcile-service" && alternate_client_home() {
+    if ["reconcile-service", "stage-update"].contains(&command.as_str()) && alternate_client_home() {
         return Ok(serde_json::json!({"restarted": false, "reason": "client_service_alternate_home", "state": {"installed": false, "running": false}}).to_string());
     }
     const ALLOWED: &[&str] = &[
@@ -255,6 +257,7 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "run-once",
         "service-status",
         "prepare-update",
+        "stage-update",
         "reconcile-service",
         "local-status",
         "read-notifications",
@@ -780,6 +783,7 @@ async fn check_client_update(
         notes: update.body.clone(),
     };
     if install {
+        let installed_binary = client_binary()?;
         app.emit(
             "client-update-progress",
             UpdateProgress {
@@ -789,13 +793,11 @@ async fn check_client_update(
             },
         )
         .map_err(|error| format!("更新进度通知失败: {error}"))?;
-        execute_client_sync("prepare-update".to_string(), vec![])
-            .map_err(|error| format!("暂停后台服务失败: {error}"))?;
         let progress_app = app.clone();
         let finish_app = app.clone();
         let mut downloaded = 0_u64;
-        let install_result = update
-            .download_and_install(
+        let download = async { update
+            .download(
                 move |chunk_length, content_length| {
                     downloaded += chunk_length as u64;
                     let _ = progress_app.emit(
@@ -807,7 +809,16 @@ async fn check_client_update(
                         },
                     );
                 },
-                move || {
+                || {},
+            )
+            .await.map_err(|error| error.to_string()) };
+        update_lifecycle::apply(download,
+            || {
+                let result = execute_client_sync("stage-update".to_string(), vec![])?;
+                let value: serde_json::Value = serde_json::from_str(&result).map_err(|e| e.to_string())?;
+                Ok(value.get("recovery_executable").and_then(|v| v.as_str()).map(str::to_owned))
+            },
+            |bytes| {
                     let _ = finish_app.emit(
                         "client-update-progress",
                         UpdateProgress {
@@ -816,13 +827,10 @@ async fn check_client_update(
                             total: None,
                         },
                     );
-                },
-            )
-            .await;
-        if let Err(error) = install_result {
-            let _ = execute_client_sync("reconcile-service".to_string(), vec![]);
-            return Err(format!("安装更新失败，原后台服务已恢复: {error}"));
-        }
+                update.install(bytes).map_err(|error| error.to_string())
+            },
+            |recovery| reconcile_updated_service(recovery, &installed_binary),
+        ).await?;
         let _ = app.emit(
             "client-update-progress",
             UpdateProgress {
@@ -835,6 +843,21 @@ async fn check_client_update(
         app.restart();
     }
     Ok(result)
+}
+
+fn reconcile_updated_service(recovery: Option<&str>, installed_binary: &Path) -> Result<(), String> {
+    if alternate_client_home() { return Ok(()); }
+    let binary = recovery.map(Path::new).unwrap_or(installed_binary);
+    let output = {
+        let result = Command::new(binary).arg("reconcile-service").output().map_err(|e| e.to_string())?;
+        if !result.status.success() { return Err(String::from_utf8_lossy(&result.stderr).into_owned()); }
+        String::from_utf8_lossy(&result.stdout).into_owned()
+    };
+    let value: serde_json::Value = serde_json::from_str(&output).map_err(|e| e.to_string())?;
+    if value.pointer("/state/running").and_then(|v| v.as_bool()) == Some(true)
+        || matches!(value.get("reason").and_then(|v| v.as_str()), Some("not_configured" | "client_service_alternate_home")) {
+        Ok(())
+    } else { Err("client_service_not_ready".into()) }
 }
 
 fn load_client_config() -> Result<ClientConfig, String> {
@@ -1046,6 +1069,7 @@ fn client_binary() -> Result<PathBuf, String> {
 
 fn main() {
     tauri::Builder::default()
+        .manage(background::BackgroundMenu::default())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             if let Err(error) = notify_rust::set_application(&app.config().identifier) {
@@ -1060,15 +1084,7 @@ fn main() {
                 window.on_window_event(move |event| {
                     if let WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
-                        if runtime_watch::begin_shutdown() {
-                            let window = closing_window.clone();
-                            thread::spawn(move || {
-                                aidr_manager::shutdown();
-                                if runtime_watch::shutdown().is_ok() {
-                                    let _ = window.destroy();
-                                }
-                            });
-                        }
+                        background::close_to_background(&closing_window);
                     }
                 });
             }
@@ -1081,6 +1097,7 @@ fn main() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
+            background::sync_background_menu,
             execute_client,
             aidr_receiver_status,
             aidr_collection_status,
@@ -1108,6 +1125,10 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("failed to build Agent Manager Client desktop")
         .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                background::show_main_window(app);
+            }
             // Native macOS Quit can go directly through applicationWillTerminate
             // to Exit, without ExitRequested. Cleanup is idempotent and must
             // finish before that native callback returns.

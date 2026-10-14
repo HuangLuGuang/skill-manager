@@ -9,10 +9,17 @@ import pytest
 class TestCompressMessages:
     """compress_messages 核心逻辑测试"""
 
-    @pytest.mark.skip(reason="monkeypatching __import__ causes pytest recursion; fallback verified manually")
-    def test_fallback_when_headroom_unavailable(self):
+    def test_fallback_when_headroom_unavailable(self, monkeypatch):
         """headroom 不可用时返回原始 messages"""
-        pass
+        from backend.compression import compress_messages
+
+        monkeypatch.setitem(sys.modules, "headroom", None)
+        messages = [{"role": "user", "content": "Keep the complete request"}]
+        result = compress_messages(messages, model="mock-model")
+        assert result.messages == messages
+        assert result.tokens_saved == 0
+        assert result.applied is False
+        assert result.transforms_applied == []
 
     def test_invalid_level_falls_back_to_auto(self):
         """无效压缩级别应回退到 auto"""
@@ -151,12 +158,54 @@ class TestCompressMessages:
 class TestCompressionIntegration:
     """网关集成测试 — 验证压缩流程不破坏请求链路"""
 
-    @pytest.mark.skip(reason="integration placeholder; covered by tests/test_llm_gateway.py")
-    def test_chat_completion_with_compression_disabled(self):
+    def test_chat_completion_with_compression_disabled(self, tmp_path, monkeypatch):
         """未开启压缩的请求与原来行为一致"""
-        pass
+        from backend.routers import llm_gateway
+        from tests.test_llm_gateway import _client
 
-    @pytest.mark.skip(reason="integration placeholder; covered by tests/test_llm_gateway.py")
-    def test_chat_completion_headers_include_compression_info(self):
+        client, token, _ = _client(tmp_path, monkeypatch)
+
+        def unexpected_compression(*args, **kwargs):
+            pytest.fail("Disabled credentials must not invoke compression")
+
+        monkeypatch.setattr(llm_gateway, "compress_messages", unexpected_compression)
+        content = "Keep all details for jane@example.com"
+        response = client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {token}"},
+                               json={"model": "mock-model", "messages": [{"role": "user", "content": content}]})
+        assert response.status_code == 200, response.text
+        assert response.json()["choices"][0]["message"]["content"].splitlines()[-1] == content
+        assert response.headers["x-compression"] == "off"
+        assert "x-compression-saved-tokens" not in response.headers
+
+    def test_chat_completion_headers_include_compression_info(self, tmp_path, monkeypatch):
         """响应头应包含压缩相关信息"""
-        pass
+        from backend import models
+        from tests.test_llm_gateway import _client
+
+        client, token, factory = _client(tmp_path, monkeypatch)
+        with factory() as db:
+            key = db.query(models.LlmApiKey).one()
+            key.enable_compression = True
+            key.compression_level = "conservative"
+            db.commit()
+        calls = []
+
+        def compress(messages, **kwargs):
+            calls.append(kwargs)
+            assert "jane@example.com" not in messages[-1]["content"]
+            assert "<EMAIL_ADDRESS:" in messages[-1]["content"]
+            compressed = [{**message, "content": message["content"].replace("repeated detail " * 20, "summary ")} for message in messages]
+            return types.SimpleNamespace(messages=compressed, tokens_before=100, tokens_after=40,
+                                         tokens_saved=60, compression_ratio=0.6, transforms_applied=["test-summary"])
+
+        monkeypatch.setitem(sys.modules, "headroom", types.SimpleNamespace(compress=compress))
+        response = client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {token}"},
+                               json={"model": "mock-model", "messages": [{"role": "user", "content": "repeated detail " * 20 + "jane@example.com"}]})
+        assert response.status_code == 200, response.text
+        assert len(calls) == 1
+        assert response.json()["choices"][0]["message"]["content"].splitlines()[-1] == "summary jane@example.com"
+        assert response.headers["x-compression"] == "on"
+        assert response.headers["x-compression-saved-tokens"] == "60"
+        assert response.headers["x-compression-ratio"] == "60.0"
+        assert response.headers["x-compression-transforms"] == "test-summary"
+        assert float(response.headers["x-compression-ms"]) >= 0

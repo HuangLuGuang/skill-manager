@@ -305,6 +305,7 @@ func flushEventsLimit(ctx context.Context, api API, s *Store, limit int) (result
 			syncError(s, "events", nil)
 		}
 	}()
+	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, 6*time.Second)
 	defer cancel()
 	api.eventsStore = s
@@ -329,7 +330,10 @@ func flushEventsLimit(ctx context.Context, api API, s *Store, limit int) (result
 	defer s.db.Exec(`UPDATE client_event_sender SET owner='',lease_until=0 WHERE server=? AND owner=?`, server, owner)
 	for i := 0; i < limit; i++ {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			if parent.Err() == nil {
+				return nil
+			}
+			return parent.Err()
 		}
 		tx, err := eventTx(s.db)
 		if err != nil {
@@ -393,6 +397,10 @@ func flushEventsLimit(ctx context.Context, api API, s *Store, limit int) (result
 			return err
 		}
 		if err = api.sendOrdinaryEvent(ctx, e); err != nil {
+			var waiting eventWaitError
+			if errors.As(err, &waiting) && errors.Is(err, context.DeadlineExceeded) && parent.Err() == nil {
+				return nil
+			}
 			return err
 		}
 		// New observations use a separate unsealed row; only this immutable delivery

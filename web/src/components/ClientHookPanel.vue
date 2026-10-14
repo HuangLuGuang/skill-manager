@@ -21,7 +21,6 @@
             <p>{{ t('aidr.hooks.receivedAt') }}: {{ stamp(item.received_at) }} · {{ t(item.stale ? 'aidr.hooks.plugins.stale' : 'aidr.hooks.plugins.recent') }}</p>
             <p>{{ t('aidr.hooks.plugins.change') }}: {{ t('aidr.hooks.plugins.' + item.change.code) }} · {{ item.change.received_at ? stamp(item.change.received_at) : t('aidr.hooks.unknown') }}</p>
             <p v-for="field in item.change.fields" :key="field">{{ t('aidr.hooks.plugins.' + field) }}</p>
-            <details><summary>{{ t('aidr.hooks.projection') }}</summary><pre class="hook-json">{{ JSON.stringify(item, null, 2) }}</pre></details>
           </div>
         </details>
         <details v-if="view === 'runtime'" class="hook-analysis" open>
@@ -190,11 +189,11 @@
           <p v-if="action.command">{{ t('aidr.hooks.command') }}<pre>{{ action.command }}</pre></p><p v-if="action.cwd">{{ t('aidr.hooks.cwd') }}: <code>{{ action.cwd }}</code></p>
           <p v-for="(target, i) in action.targets || []" :key="i">{{ t('aidr.hooks.targets') }}: <code>{{ target.value }}</code></p>
         </div>
+        <AidrAuditContent v-if="detail.evidence?.event && detail.evidence_record_id" :client-id="clientId" source="hook" :record-id="detail.evidence_record_id" :evidence="detail.evidence.event" />
         <p v-if="!actionAllowed">{{ t('aidr.hooks.unavailable') }}</p>
         <div class="hook-heading">
           <a-popconfirm v-for="action in availableActions" :key="action.value" :title="t('aidr.hooks.confirmDecision')" :ok-text="t('aidr.hooks.confirm')" :cancel-text="t('aidr.hooks.cancel')" :disabled="!actionAllowed || deciding" @confirm="decide(action.value)"><a-button :danger="action.value !== 'allow'" :loading="deciding" :disabled="!actionAllowed || deciding">{{ t(`aidr.hooks.${action.label}`) }}</a-button></a-popconfirm>
         </div>
-        <details><summary>{{ t('aidr.hooks.projection') }}</summary><pre class="hook-json">{{ JSON.stringify(detail, null, 2) }}</pre></details>
       </template>
       <a-button @click="detailOpen = false">{{ t('aidr.hooks.close') }}</a-button>
     </a-modal>
@@ -508,7 +507,6 @@ input, select { padding: 6px; max-width: 100%; }
 code, dd { overflow-wrap: anywhere; word-break: break-word; }
 dd { margin: 0 0 12px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
-.hook-json { background: #f5f5f5; padding: 12px; }
 .hook-analysis { margin: 12px 0; overflow-wrap: anywhere; }
 .hook-drift-entry { border-top: 1px solid #ddd; padding: 10px 0; }
 .hook-panel h3 { font-size: 18px; margin: 0 0 12px; }

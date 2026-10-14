@@ -30,9 +30,10 @@ type ServiceState struct {
 }
 
 type ServiceReconcileResult struct {
-	Restarted bool         `json:"restarted"`
-	Reason    string       `json:"reason"`
-	State     ServiceState `json:"state"`
+	Restarted          bool         `json:"restarted"`
+	Reason             string       `json:"reason"`
+	State              ServiceState `json:"state"`
+	RecoveryExecutable string       `json:"recovery_executable,omitempty"`
 }
 
 type serviceRegistration struct {
@@ -100,6 +101,10 @@ func InstallService(home, executable string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	executable, err = stageServiceBinary(home, executable)
+	if err != nil {
+		return "", err
+	}
 	if runtime.GOOS == "windows" {
 		if err := os.MkdirAll(filepath.Join(home, ".agent-manager", "logs"), 0o700); err != nil {
 			return "", err
@@ -132,20 +137,14 @@ func InstallService(home, executable string) (string, error) {
 	switch runtime.GOOS {
 	case "darwin":
 		domain := fmt.Sprintf("gui/%d", os.Getuid())
-		stopped := exec.Command("launchctl", "bootout", domain, path).Run() == nil
-		if !stopped {
-			stopped = exec.Command("launchctl", "bootout", domain+"/com.agent-manager.client").Run() == nil
-		}
-		if stopped {
-			_ = os.Remove(filepath.Join(home, ".agent-manager", "client.lock"))
+		if exec.Command("launchctl", "bootout", domain, path).Run() != nil {
+			_ = exec.Command("launchctl", "bootout", domain+"/com.agent-manager.client").Run()
 		}
 		if output, err := exec.Command("launchctl", "bootstrap", domain, path).CombinedOutput(); err != nil {
 			return "", fmt.Errorf("launchctl bootstrap failed: %s", output)
 		}
 	case "linux":
-		if exec.Command("systemctl", "--user", "stop", "agent-manager-client.service").Run() == nil {
-			_ = os.Remove(filepath.Join(home, ".agent-manager", "client.lock"))
-		}
+		_ = exec.Command("systemctl", "--user", "stop", "agent-manager-client.service").Run()
 		if output, err := exec.Command("systemctl", "--user", "daemon-reload").CombinedOutput(); err != nil {
 			return "", fmt.Errorf("systemctl daemon-reload failed: %s", output)
 		}
@@ -247,7 +246,6 @@ func installWindowsService(home, executable string) error {
 	if err := runWindowsPowerShellWithElevation(register, "windows_service_registration_failed"); err != nil {
 		return err
 	}
-	_ = os.Remove(filepath.Join(home, ".agent-manager", "client.lock"))
 	start := fmt.Sprintf(
 		`[Console]::OutputEncoding = [Text.Encoding]::UTF8; $ErrorActionPreference = 'Stop'; Start-ScheduledTask -TaskName %s`,
 		powershellLiteral(windowsServiceTaskName),
@@ -313,16 +311,12 @@ func UninstallService(home string) error {
 		if stopErr != nil {
 			output, stopErr = exec.Command("launchctl", "bootout", domain+"/com.agent-manager.client").CombinedOutput()
 		}
-		if stopErr == nil {
-			_ = os.Remove(filepath.Join(home, ".agent-manager", "client.lock"))
-		} else if ServiceStatus(home).Running {
+		if stopErr != nil && ServiceStatus(home).Running {
 			return fmt.Errorf("launchctl bootout failed: %s", strings.TrimSpace(string(output)))
 		}
 	case "linux":
 		output, stopErr := exec.Command("systemctl", "--user", "disable", "--now", "agent-manager-client.service").CombinedOutput()
-		if stopErr == nil {
-			_ = os.Remove(filepath.Join(home, ".agent-manager", "client.lock"))
-		} else if ServiceStatus(home).Running {
+		if stopErr != nil && ServiceStatus(home).Running {
 			return fmt.Errorf("systemctl disable failed: %s", strings.TrimSpace(string(output)))
 		}
 		_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
@@ -330,9 +324,7 @@ func UninstallService(home string) error {
 		output, stopErr := windowsPowerShellCommand(fmt.Sprintf(
 			`Stop-ScheduledTask -TaskName %s -ErrorAction Stop`, powershellLiteral(windowsServiceTaskName),
 		)).CombinedOutput()
-		if stopErr == nil {
-			_ = os.Remove(filepath.Join(home, ".agent-manager", "client.lock"))
-		} else if ServiceStatus(home).Running {
+		if stopErr != nil && ServiceStatus(home).Running {
 			return fmt.Errorf("windows_service_stop_failed: %s", strings.TrimSpace(string(output)))
 		}
 		if err := removeWindowsService(); err != nil {
@@ -348,8 +340,8 @@ func UninstallService(home string) error {
 	return nil
 }
 
-// StopServiceForUpdate stops the running sidecar without removing its service
-// definition. The updated desktop app can then reconcile and restart it.
+// StopServiceForUpdate is the explicit maintenance stop used for connection
+// changes. Desktop installation uses stage-update to keep the worker running.
 func StopServiceForUpdate(home string) (ServiceState, error) {
 	state := ServiceStatus(home)
 	if !state.Installed || !state.Running {
@@ -380,7 +372,6 @@ func StopServiceForUpdate(home string) (ServiceState, error) {
 			return state, fmt.Errorf("windows_service_stop_failed: %s", strings.TrimSpace(string(output)))
 		}
 	}
-	_ = os.Remove(filepath.Join(home, ".agent-manager", "client.lock"))
 	stopped := ServiceStatus(home)
 	if stopped.Running {
 		return stopped, fmt.Errorf("后台服务未能停止")
@@ -407,6 +398,17 @@ func ReconcileService(home, executable string, force bool) (ServiceReconcileResu
 	if err != nil {
 		return result, err
 	}
+	// Stage before stopping anything, including during the first migration from
+	// a desktop-bundle service. A failed download/copy leaves the worker intact.
+	executable, err = stageServiceBinary(home, executable)
+	if err != nil {
+		return result, err
+	}
+	result.RecoveryExecutable = executable
+	var previous serviceRegistration
+	if body, e := os.ReadFile(serviceRegistrationPath(home)); e == nil {
+		_ = json.Unmarshal(body, &previous)
+	}
 	matches, err := serviceRegistrationMatches(home, executable)
 	if err != nil {
 		return result, err
@@ -418,15 +420,39 @@ func ReconcileService(home, executable string, force bool) (ServiceReconcileResu
 	restart, reason := serviceReconcileDecision(state, matches, force, recent)
 	result.Reason = reason
 	if !restart {
+		result.State = waitForServiceRunning(home, 10*time.Second)
+		if !result.State.Running {
+			return result, fmt.Errorf("client_service_not_ready: %s", result.State.Detail)
+		}
 		return result, nil
 	}
-	if _, err := InstallService(home, executable); err != nil {
-		return result, err
+	if AIDRPrepareServiceUpgrade != nil {
+		finish, err := AIDRPrepareServiceUpgrade(home)
+		if err != nil {
+			return result, err
+		}
+		defer finish()
 	}
-	result.Restarted = true
-	result.State = waitForServiceRunning(home, 5*time.Second)
-	if !result.State.Running {
-		return result, fmt.Errorf("后台服务重启后未进入运行状态: %s", result.State.Detail)
+	_, startErr := InstallService(home, executable)
+	if startErr == nil {
+		result.Restarted = true
+		result.State = waitForServiceRunning(home, 10*time.Second)
+		if !result.State.Running {
+			startErr = fmt.Errorf("client_service_not_ready: %s", result.State.Detail)
+		}
+	}
+	if startErr != nil {
+		if previous.Executable != "" {
+			if digest, e := executableSHA256(previous.Executable); e == nil && digest == previous.SHA256 {
+				if _, e = InstallService(home, previous.Executable); e == nil {
+					result.State = waitForServiceRunning(home, 10*time.Second)
+					if result.State.Running {
+						return result, fmt.Errorf("client_service_update_rolled_back: %w", startErr)
+					}
+				}
+			}
+		}
+		return result, fmt.Errorf("client_service_recovery_failed: %w", startErr)
 	}
 	// A new or recovered binary gets one full validation pass. Routine desktop
 	// launches already run an immediate light patrol when the daemon starts, so
@@ -461,33 +487,26 @@ func serviceReconcileDecision(state ServiceState, matches, force, recentlyRestar
 func waitForServiceRunning(home string, timeout time.Duration) ServiceState {
 	deadline := time.Now().Add(timeout)
 	state := ServiceStatus(home)
-	for !state.Running && time.Now().Before(deadline) {
+	for (!state.Running || !daemonIsReady(home)) && time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
 		state = ServiceStatus(home)
+	}
+	if state.Running && !daemonIsReady(home) {
+		state.Running = false
+		state.Detail = "client_service_not_ready"
 	}
 	return state
 }
 
 func acquireServiceReconcileLock(home string) (func(), error) {
-	root := filepath.Join(home, ".agent-manager")
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		return nil, err
-	}
-	path := filepath.Join(root, "service-reconcile.lock")
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		release, err := acquireClientLock(home, "service-reconcile.lock")
 		if err == nil {
-			_, _ = fmt.Fprintf(file, "%d\n", os.Getpid())
-			_ = file.Close()
-			return func() { _ = os.Remove(path) }, nil
+			return release, nil
 		}
-		if !os.IsExist(err) {
+		if !errors.Is(err, ErrAlreadyRunning) {
 			return nil, err
-		}
-		if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > 30*time.Second {
-			_ = os.Remove(path)
-			continue
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

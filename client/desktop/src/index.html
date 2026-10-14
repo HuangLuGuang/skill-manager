@@ -264,6 +264,11 @@
             </div>
             <div id="aidr-plugin-settings" role="tabpanel" aria-labelledby="governance-collection-tab">
             <div class="governance-receiver-bar"><dl id="aidr-runtime-summary" class="governance-summary" aria-live="polite"></dl><button type="button" class="icon-button icon-check" data-aidr-action="inspect" data-i18n="ui.aidrDesktop.inspect">发现与自检</button></div>
+            <details id="aidr-audit-history" class="governance-audit-history" hidden>
+              <summary id="aidr-audit-history-summary"></summary>
+              <p id="aidr-audit-history-explanation"></p>
+              <dl id="aidr-audit-history-fields" class="detail-list"></dl>
+            </details>
             <div class="governance-workbench">
               <aside class="governance-product-rail"><h2 data-i18n="ui.governanceDesign.products">Agent 产品</h2><div id="aidr-product-navigation"></div></aside>
               <div id="aidr-product-inspector" class="governance-inspector">
@@ -380,7 +385,7 @@
           <section class="settings-section">
             <div class="settings-section-heading"><h2>后台运行</h2><p data-i18n="ui.background.description">连接后自动启动，登录系统和关闭窗口后持续运行。</p></div>
             <div class="settings-rows">
-              <div class="settings-row"><span><strong data-i18n="ui.background.title">后台服务状态</strong><small id="settings-service-detail">正在读取后台服务状态。</small></span></div>
+              <div class="settings-row"><span><strong data-i18n="ui.background.title">后台服务状态</strong><small id="settings-service-detail">正在读取后台服务状态。</small><small id="settings-runtime-detail" style="white-space: pre-line; overflow-wrap: anywhere"></small></span></div>
             </div>
             <details class="runtime-diagnostics"><summary data-i18n="ui.settings.runtime_diagnostics">查看运行诊断</summary>
           <section class="status-hero">

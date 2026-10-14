@@ -883,9 +883,13 @@ class AgentManager:
     def dashboard_stats(self) -> dict[str, Any]:
         return self.registry.dashboard_stats()
 
-    def get_skill(self, skill_id_or_name: str) -> RegistryEntry | None:
-        entry = self.registry.get_by_id(skill_id_or_name)
-        return entry or self.registry.get_by_family_id(skill_id_or_name) or self.registry.get_by_name(skill_id_or_name)
+    def get_skill(self, skill_id_or_name: str, *, include_scan_report: bool = True) -> RegistryEntry | None:
+        entry = self.registry.get_by_id(skill_id_or_name, include_scan_report=include_scan_report)
+        return (
+            entry
+            or self.registry.get_by_family_id(skill_id_or_name, include_scan_report=include_scan_report)
+            or self.registry.get_by_name(skill_id_or_name, include_scan_report=include_scan_report)
+        )
 
     def get_trusted_skill(self, skill_id_or_name: str) -> RegistryEntry | None:
         entry = self.registry.get_by_id(skill_id_or_name)

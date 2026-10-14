@@ -28,7 +28,7 @@ func TestWorkBuddyStructuredResults(t *testing.T) {
 		{"foreign tool field", "Read", `{"exitCode":0}`, "unknown", "host_result_not_provided", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			b := projectBehaviorPolicy(draft{Kind: "tool_result", ResultTool: tc.tool, WorkBuddyResult: true, ResultMeta: json.RawMessage(tc.raw), Content: json.RawMessage(`"{\"exit_code\":0}"`)}, 2, nil)
+			b := projectBehaviorPolicy(draft{Kind: "tool_result", ResultTool: tc.tool, ResultProjection: projectWorkBuddyResult, ResultMeta: json.RawMessage(tc.raw), Content: json.RawMessage(`"{\"exit_code\":0}"`)}, 2, nil)
 			if b.Status != tc.status || (b.ExitCode == nil) != (tc.exit == nil) || tc.exit != nil && *b.ExitCode != *tc.exit {
 				t.Fatalf("%+v", b)
 			}

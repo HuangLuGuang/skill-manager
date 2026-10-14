@@ -5,8 +5,31 @@ import { BlobReader, TextWriter, ZipReader } from '@zip.js/zip.js'
 
 import { capabilityCatalog, capabilityModules } from '../src/docs/capabilityCatalog.js'
 import { docsArticleOrder, docsContent } from '../src/docs/content.js'
+import { integrationChoiceSections } from '../src/docs/integration-choice.js'
 import { buildCapabilityWorkbookBlob } from '../src/utils/capabilityWorkbook.js'
 import { buildDocsPdfExportPayload, docsPdfFilename } from '../src/utils/docsPdfExport.js'
+
+test('integration flowchart links resolve in both languages and retain routes in PDF export', () => {
+  const pathsByLocale = []
+  for (const locale of ['zh-CN', 'en-US']) {
+    const section = integrationChoiceSections[locale]
+    const decision = section.decision
+    const links = [...decision.routes.flatMap(route => route.links), ...decision.additional, decision.identity]
+    pathsByLocale.push(links.map(link => link.path))
+    for (const link of links) {
+      const [slug, anchor] = link.path.replace('/docs/', '').split('#')
+      const target = docsContent[locale].articles[slug]
+      assert.ok(target, `${locale}: missing ${link.path}`)
+      if (anchor) assert.ok(target.sections.some(item => item.id === anchor), `${locale}: missing anchor ${link.path}`)
+    }
+    const payload = buildDocsPdfExportPayload({ locale, selectedArticleKeys: ['scenario-selection'] })
+    const exported = payload.articles[0].sections.find(item => item.id === section.id)
+    assert.equal(exported.diagram, 'integration-choice')
+    assert.equal(exported.table.rows.length, decision.routes.reduce((count, route) => count + route.links.length, 0) + decision.additional.length)
+    for (const route of decision.routes) assert.ok(exported.table.rows.some(row => row.includes(route.condition)))
+  }
+  assert.deepEqual(...pathsByLocale)
+})
 
 test('capability catalog is bilingual, complete, and points to current help articles', () => {
   const zh = capabilityCatalog['zh-CN']
@@ -30,12 +53,12 @@ test('PDF export source covers every current help article in both languages', ()
   for (const locale of ['zh-CN', 'en-US']) {
     const navigationSlugs = docsContent[locale].groups.flatMap(group => group.items.map(item => item.slug))
     assert.deepEqual(navigationSlugs, docsArticleOrder)
-    assert.equal(navigationSlugs.length, 40)
+    assert.equal(navigationSlugs.length, 41)
     const payload = buildDocsPdfExportPayload({
       locale,
       selectedArticleKeys: navigationSlugs.map(slug => slug || '__home__'),
     })
-    assert.equal(payload.articles.length, 40)
+    assert.equal(payload.articles.length, 41)
     assert.deepEqual(payload.articles.map(article => article.slug), docsArticleOrder)
     assert.ok(payload.articles.every(article => article.group_title && article.title && article.sections.length))
   }

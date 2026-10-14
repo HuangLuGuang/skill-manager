@@ -231,16 +231,7 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 		}
 		req = hooks.IPCRequest{Version: 1, Method: "SubmitEvent", EventID: id, Agent: *agent, Hook: *hook, Raw: raw}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-	defer cancel()
-	var response hooks.IPCResponse
-	var err error
-	for attempt := 0; attempt < 2; attempt++ {
-		response, err = hooks.Exchange(ctx, *socket, req)
-		if err == nil {
-			break
-		}
-	}
+	response, err := hooks.ExchangeForHost(context.Background(), *socket, req, 4*time.Second)
 	if err != nil {
 		failureCode = err.Error()
 		return err
@@ -295,6 +286,13 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 }
 
 func aidrHookServe(args []string, out io.Writer) (resultErr error) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return aidrHookServeContext(ctx, args, out)
+}
+
+// The managed daemon calls the receiver directly, sharing its process lifetime.
+func aidrHookServeContext(parent context.Context, args []string, out io.Writer) (resultErr error) {
 	fs := flag.NewFlagSet("aidr-hook-serve", flag.ContinueOnError)
 	state := fs.String("state-dir", "", "dedicated private hook state directory")
 	socket := fs.String("socket", os.Getenv("AIDR_HOOK_SOCKET"), "private receiver Unix socket")
@@ -374,7 +372,7 @@ func aidrHookServe(args []string, out io.Writer) (resultErr error) {
 	if *managedHome != "" {
 		token = managedToken
 	}
-	c, err := upload.New(upload.Options{Server: *server, ClientID: *device, Token: token})
+	c, err := upload.New(upload.Options{Server: *server, ClientID: *device, Token: token, ObserveHTTP: aidrHTTPObserver(*managedHome)})
 	if err != nil {
 		return err
 	}
@@ -406,11 +404,25 @@ func aidrHookServe(args []string, out io.Writer) (resultErr error) {
 			return err
 		}
 	}
+	if parent.Value(managedHookContextKey{}) == true {
+		if err = recoverManagedHookSocket(*socket); err != nil {
+			return err
+		}
+	}
 	r, err := hooks.Listen(*socket, s)
 	if err != nil {
 		return err
 	}
 	defer r.Close()
+	if parent.Value(managedHookContextKey{}) == true {
+		identity, e := r.SocketIdentity()
+		if e != nil {
+			return e
+		}
+		if e = writeDesktopJSON(*socket+".owner.json", identity); e != nil {
+			return e
+		}
+	}
 	if *managedHome != "" {
 		identity, e := r.SocketIdentity()
 		if e != nil {
@@ -422,9 +434,7 @@ func aidrHookServe(args []string, out io.Writer) (resultErr error) {
 			return errors.New("aidr_desktop_parent_unavailable")
 		}
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	if *parentStdin {
 		go func() { _, _ = io.Copy(io.Discard, io.LimitReader(os.Stdin, 1)); cancel() }()
@@ -439,7 +449,7 @@ func aidrHookServe(args []string, out io.Writer) (resultErr error) {
 	lastReport := ""
 	runtimeCode := "aidr_hook_runtime_not_reported"
 	pluginCode := "aidr_plugin_not_checked"
-	done := make(chan error, 4)
+	done := make(chan error, 6)
 	go func() { done <- r.Serve(ctx) }()
 	go func() {
 		done <- c.RunHooks(ctx, s, func(p, u, control string) {
@@ -480,17 +490,27 @@ func aidrHookServe(args []string, out io.Writer) (resultErr error) {
 		go func() {
 			ticker := time.NewTicker(5 * time.Second)
 			defer ticker.Stop()
+			statusFailed := false
 			for {
 				st, e := s.Status(ctx)
+				if e != nil && ctx.Err() == nil {
+					// Audit storage is part of the enforcement contract.
+					done <- e
+					return
+				}
 				if e == nil {
 					mu.Lock()
 					telemetry := map[string]any{"state": st, "policy_code": policyCode, "upload_code": uploadCode, "control_code": controlCode, "runtime_code": runtimeCode, "last_report": lastReport, "updated_at": time.Now().UTC().Format(time.RFC3339Nano)}
 					mu.Unlock()
 					e = writeDesktopJSON(*statusFile, telemetry)
 				}
-				if e != nil && ctx.Err() == nil {
-					done <- errors.New("aidr_desktop_status_failed")
-					return
+				if ctx.Err() == nil && (e != nil) != statusFailed {
+					statusFailed = e != nil
+					if statusFailed {
+						fmt.Fprintln(os.Stderr, "aidr_desktop_status_failed")
+					} else {
+						fmt.Fprintln(os.Stderr, "aidr_desktop_status_recovered")
+					}
 				}
 				select {
 				case <-ctx.Done():

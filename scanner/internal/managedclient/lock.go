@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -67,35 +70,33 @@ func acquireClientLock(home, name string) (func(), error) {
 		return nil, err
 	}
 	path := filepath.Join(root, name)
-	for attempt := 0; attempt < 2; attempt++ {
-		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		if err == nil {
-			_, _ = fmt.Fprintf(file, "%d\n", os.Getpid())
-			_ = file.Close()
-			stop := make(chan struct{})
-			go func() {
-				ticker := time.NewTicker(time.Minute)
-				defer ticker.Stop()
-				for {
-					select {
-					case <-ticker.C:
-						now := time.Now()
-						_ = os.Chtimes(path, now, now)
-					case <-stop:
-						return
-					}
-				}
-			}()
-			return func() { close(stop); _ = os.Remove(path) }, nil
-		}
-		info, statErr := os.Stat(path)
-		if statErr == nil && time.Since(info.ModTime()) > 10*time.Minute {
-			_ = os.Remove(path)
-			continue
-		}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err = lockClientFile(file); err != nil {
+		file.Close()
+		return nil, err
+	}
+	var once sync.Once
+	// Keep the inode: unlinking a locked file lets another process lock a new one.
+	release := func() { once.Do(func() { _ = unlockClientFile(file); _ = file.Close() }) }
+	buf := make([]byte, 128)
+	n, _ := file.ReadAt(buf, 0)
+	// Older clients only wrote a PID and never took an OS lock. Wait for that
+	// owner to exit before migrating; timestamps cannot prove process death.
+	if pid, e := strconv.Atoi(strings.TrimSpace(string(buf[:n]))); e == nil && pid > 0 && clientProcessAlive(pid) {
+		release()
 		return nil, ErrAlreadyRunning
 	}
-	return nil, fmt.Errorf("无法获取客户端运行锁")
+	if err = file.Truncate(0); err == nil {
+		_, err = file.WriteAt([]byte(fmt.Sprintf("v2 %d\n", os.Getpid())), 0)
+	}
+	if err != nil {
+		release()
+		return nil, err
+	}
+	return release, nil
 }
 
 func RequestFullScan(home string) error {

@@ -56,7 +56,7 @@ Agent Guard Hook (`agent_guard_hook.py`) 仅使用 verify 功能，逻辑与 `ag
 }
 ```
 
-TraeCode 的项目级配置位置是 `.trae/hooks.json`，macOS / Linux 用户级配置是 `~/.trae-cn/hooks.json`，且原生配置需要 `"version": 1`。待验证配置和官方来源见 [`docs/hook-integration.md`](../../docs/hook-integration.md#4-traecode--trae-cn-接入状态)。
+TraeCode 的项目级配置位置是 `.trae/hooks.json`，macOS / Linux 用户级配置是 `~/.trae-cn/hooks.json`，且原生配置需要 `"version": 1`。待验证配置和官方来源见 [开发者：加载前验签](../../docs/developer-skill-verification.md#4-traecode--trae-cn-接入状态)。
 
 ## 环境变量
 

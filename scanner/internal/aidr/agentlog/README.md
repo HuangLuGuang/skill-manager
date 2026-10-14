@@ -1,5 +1,28 @@
 # Agent log ingestion / Agent 日志增量读取
 
+## Product adapters / 产品适配器
+
+`adapters.go` registers product implementations in `adapter_*.go`. Each product owns parsing, metadata,
+identity recovery, source selection and Skill evidence semantics. `read.go` and `projection.go` share
+budgets, checkpoints and event projection; the local store owns deduplication and delivery.
+TeleAgent selects its own read-only SQLite snapshot reader, revisiting mutable rows in bounded cycles.
+Unchanged snapshots preserve event identities across cycles and restarts. Completed assistant text and
+tool results use the same capture policy as existing products. Pending rows are revisited in later cycles.
+User messages identify turns by native message ID; assistant records follow only a same-session user parent.
+Each read batch may carry up to 128 `turn_links` beside unchanged events. The store atomically queues new
+links with the checkpoint, including links to acknowledged event tombstones whose bodies were released.
+The platform verifies identity/digest and enriches retained views without changing raw evidence. Hook
+correlation uses the exact native tool call ID and identity scope; ambiguous or missing parents remain unlinked.
+The native review bridge and deployment boundaries are documented in
+[external integration](../../../../docs/external-agent-integration.md#aidr-产品适配器与-teleagent--product-adapters-and-teleagent).
+
+各产品通过注册表提供原生格式与身份语义；公共层复用预算、检查点和事件投影。
+TeleAgent 的 SQLite 记录会原地更新，使用有界周期复查和稳定身份去重，不能按 JSONL 字节追加读取。
+用户消息 ID 标识轮次，助手记录只沿同会话内的用户父消息归属；每批最多补传 128 条轮次关联元数据。
+关联与检查点、上传队列原子落盘；历史正文已收到 ACK 并释放后仍可补关联，不恢复正文或生成重复事件。
+平台校验身份与摘要后补充保留记录的展示，Hook 按原生工具调用 ID 精确关联；缺失、冲突与过期记录不猜测归属。
+现有 JSONL/快照产品的检查点与逻辑事件身份保留兼容。
+
 P1-01 provides a read-only Go adapter and `agent-manager-client agent-log-read` CLI. It does not start or send messages to Agents. This is local log evidence; process association remains `unknown`.
 
 P1-01 提供只读 Go 适配器和 CLI。P1 可读审计补强输出工具名、调用/会话/轮次、时间、来源证据及经过白名单、平台脱敏策略和长度限制的 `behavior`。命令、工作目录和明确的文件/URL 目标可读；Prompt、文件正文、完整结果和未知参数结构不复制。日志结果分别表示明确退出码、错误标记、取消或未知，不能作为系统成功或阻断证明。详见 [可读审计验收](../../../../experiments/aidr-agentlog/READABLE_ACCEPTANCE.md)。

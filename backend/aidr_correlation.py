@@ -4,6 +4,7 @@ Legacy log records lack OS user/subagent provenance. Matching native call keys
 can therefore provide an inferred evidence link, not a confirmed process link.
 All original events, operation identities and frozen uploads remain unchanged.
 """
+from . import aidr_adapters
 import json
 
 from sqlalchemy import literal_column, select
@@ -82,7 +83,7 @@ def operation_identity_filter(client_id, event):
         AidrOperation.session_id == event["session_id"],
         literal_column("coalesce(json_extract(payload_json,'$.call.native_call_id'),json_extract(payload_json,'$.result.native_call_id'))") == event["native_call_id"],
     ]
-    if event["agent"] != "claude" or event["turn_id"]:
+    if not aidr_adapters.get(event["agent"]).session_call_identity or event["turn_id"]:
         filters.append(literal_column("coalesce(json_extract(payload_json,'$.call.turn_id'),json_extract(payload_json,'$.result.turn_id'))") == event["turn_id"])
     return filters
 
@@ -91,7 +92,7 @@ def hook_evidence(db, client_id, operation):
     result = {"relation": "unknown", "code": "aidr_link_identity_missing", "items": [],
               "process_relation": "unknown", "truncated": False}
     event = operation.get("call") or operation.get("result")
-    if not event or not event.get("session_id") or not event.get("native_call_id") or (event["agent"] == "codex" and not event.get("turn_id")):
+    if not event or not event.get("session_id") or not event.get("native_call_id") or (aidr_adapters.get(event["agent"]).turn_required and not event.get("turn_id")):
         return result
     if operation.get("conflicting_evidence") or operation.get("evidence_truncated"):
         result["code"] = "aidr_link_log_conflict"
@@ -104,7 +105,7 @@ def hook_evidence(db, client_id, operation):
     filters = [AidrHookEvent.client_id == client_id]
     # Claude's tool-use ID is session-scoped; current logs omit the prompt ID
     # supplied by hooks. Codex call IDs require the turn namespace.
-    fields = [field for field in HOOK_FIELDS if field != "turn_id" or event["agent"] != "claude" or event.get("turn_id")]
+    fields = [field for field in HOOK_FIELDS if field != "turn_id" or not aidr_adapters.get(event["agent"]).session_call_identity or event.get("turn_id")]
     filters.extend(literal_column(f"json_extract(payload_json,'$.event.{field}')") == event.get(field, "") for field in fields)
     rows = db.execute(select(AidrHookEvent).where(*filters).order_by(AidrHookEvent.id).limit(17)).scalars().all()
     if not rows:

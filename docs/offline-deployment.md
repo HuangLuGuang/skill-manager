@@ -182,7 +182,8 @@ docker compose logs --tail=100 backend
 浏览器访问：
 
 ```text
-http://<服务器IP>
+http://<服务器IP>            # HTTP_PORT=80
+http://<服务器IP>:8088       # 示例：使用 start.sh --port 8088
 ```
 
 ### 管理员初始密码
@@ -245,6 +246,7 @@ docker compose logs -f sandbox
 
 - 版本以包内 `docker-compose.yaml` 的镜像引用和 `release-provenance.json` 为准。
 - ARM 和 x86 安装包不要混用。
-- 当前交付的 `docker-compose.yaml` 固定使用宿主机 80 端口，并用五个 Docker 命名卷保存后端数据、上传文件、SQLite、Registry 和内部扫描任务数据；这些配置不是 `.env` 变量。现场确需调整时，应修改 `docker-compose.yaml`，记录现场差异后再启动。
+- HTTP 入口由安装目录 `.env` 的 `HTTP_PORT` 控制，首次默认 80；通过 `./start.sh --port <端口>` 保存并应用，升级继续沿用。
+- 五个 Docker 命名卷 `backend_data`、`backend_uploads`、`backend_sqlite`、`agent_manager_registry` 和 `aig_scan_jobs` 保存后端数据、上传文件、SQLite、Registry 和内部扫描任务数据。卷配置位于 `docker-compose.yaml`，现场确需修改时应记录差异，并在升级后核对。
 - 域名、TLS 证书和外部负载均衡属于 Compose 入口之外的现场网络配置，不要只修改 `.env` 后假定已经生效。
 - 脚本自动加载 `.tar.xz` 镜像；手动加载时可使用 `xz -dc ... | docker load`。

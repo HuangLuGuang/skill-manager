@@ -48,18 +48,10 @@ COPY deploy/agent-security ./deploy/agent-security
 COPY demo/agent-manager-skill-verifier ./demo/agent-manager-skill-verifier
 COPY demo/mcp-customer-operations ./demo/mcp-customer-operations
 
-RUN UV_DEFAULT_INDEX="$PYPI_INDEX" uv pip install --system -e ".[scanner,compression]" && \
-    UV_DEFAULT_INDEX="$PYPI_INDEX" uv pip install --system \
-      sqlalchemy \
-      pydantic[email] \
-      pydantic-settings \
-      python-jose[cryptography] \
-      passlib[bcrypt] \
-      "bcrypt<4" \
-      captcha \
-      psutil \
-      croniter \
-      python-frontmatter
+RUN UV_DEFAULT_INDEX="$PYPI_INDEX" uv pip install --system \
+      -e ".[scanner,compression]" -r backend/pyproject.toml python-frontmatter
+
+RUN python -c "from backend.aidr_commands import command_counts; assert command_counts({'actions': [{'category': 'command', 'command': 'echo ready && pwd'}]}) == {'echo': 1, 'pwd': 1}"
 
 # Pre-download tiktoken encoding files (downloaded from Azure CDN on first use, ~2MB)
 ENV TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken

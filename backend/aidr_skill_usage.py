@@ -1,4 +1,5 @@
 """Skill evidence and fresh registry checks; never participates in tool decisions."""
+from . import aidr_adapters
 import asyncio
 import hashlib
 import json
@@ -22,7 +23,7 @@ def dump(value):
 def identity(client_id, event, source, record_id):
     # Entry identities stay distinct: shared Qoder Hooks do not identify CLI/IDE.
     parts = [client_id, event.get('user_scope') or ('unscoped:' + source), event.get('agent'), event.get('session_id'), event.get('native_agent_id', ''), event.get('native_call_id')]
-    if event.get('agent') == 'codex':
+    if aidr_adapters.get(event.get('agent')).turn_required:
         # Codex call identity is scoped to its native turn in the log contract.
         parts.append(event.get('turn_id') or ('unscoped:' + source))
     if not event.get('native_call_id') or not event.get('session_id'):
@@ -177,8 +178,8 @@ def certification(db, row, manager):
         return {**result,'reason':'signature_unverified'}
     # Inventory ownership is usable only for a unique product instance whose
     # configured Skill root contains this exact observed source.
-    types = {'claude':'claude-code','codex':'codex','workbuddy':'workbuddy','qoder-cli':'qoder','qoder-work':'qoderwork','cursor':'cursor','opencode':'opencode'}
-    agents = db.query(models.ClientAgent).filter_by(client_id=row.client_id, agent_type=types.get(row.agent,'')).all()
+
+    agents = db.query(models.ClientAgent).filter_by(client_id=row.client_id, agent_type=aidr_adapters.get(row.agent).inventory_type).all()
     agents = [a for a in agents if a.skills_path and PurePosixPath(root).is_relative_to(PurePosixPath(a.skills_path)) and a.local_agent_id]
     if len(agents) != 1 or not agents[0].managed_agent_id or data.get('native_agent_id'):
         return {**result,'reason':'agent_identity_unknown','status':'verified_content'}

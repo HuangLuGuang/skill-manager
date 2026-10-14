@@ -45,3 +45,19 @@ def test_enrollment_cannot_enable_channel_managed_mode_or_unsupported_product(tm
         assert heartbeat(api, headers, data | {'user_hook_hosts': invalid}).status_code == 422
     assert heartbeat(api, headers, data | {'protocol': 4}).status_code == 422
     assert heartbeat(api, {}, data).status_code in (401, 403)
+
+
+def test_teleagent_enrollment_pairs_logs_without_changing_other_sources(tmp_path):
+    api, headers = setup_device(tmp_path)
+    target = default_runtime_governance() | {'log_sources': ['qoder-cli']}
+    assert save_runtime_policy(api, target).status_code == 200
+    data = report() | {'protocol': 5, 'user_hook_hosts': ['teleagent']}
+    value = heartbeat(api, headers, data).json()['policy']['classification']['runtime_governance']
+    assert value['log_sources'] == ['qoder-cli', 'teleagent']
+    assert value['hosts'] == [*target['hosts'], 'teleagent']
+    removed = heartbeat(api, headers, data | {'user_hook_hosts': []}).json()['policy']['classification']['runtime_governance']
+    assert removed['log_sources'] == ['qoder-cli']
+    for changes in [{'allow_user_enrollment': False}, {'channels': {'logs': False, 'hooks': True, 'system': False}}]:
+        assert save_runtime_policy(api, target | changes).status_code == 200
+        value = heartbeat(api, headers, data).json()['policy']['classification']['runtime_governance']
+        assert value['log_sources'] == ['qoder-cli']

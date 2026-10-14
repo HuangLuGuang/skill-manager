@@ -7,7 +7,6 @@ import (
 	"flag"
 	"io"
 	"os"
-	"path/filepath"
 	"time"
 
 	"skill-manager/scanner/internal/aidr/agentlog"
@@ -42,25 +41,12 @@ func readAgentLog(args []string, out io.Writer) error {
 		if err != nil {
 			return errors.New("aidr_log_home_unavailable")
 		}
-		if *agent == "claude" {
-			base := os.Getenv("CLAUDE_CONFIG_DIR")
-			if base == "" {
-				base = filepath.Join(home, ".claude")
-			}
-			*root = filepath.Join(base, "projects")
-		} else if *agent == "codex" {
-			base := os.Getenv("CODEX_HOME")
-			if base == "" {
-				base = filepath.Join(home, ".codex")
-			}
-			*root = filepath.Join(base, "sessions")
-		} else {
-			roots := catalog.LogRoots(*agent, home)
-			if len(roots) == 0 {
-				return errors.New("aidr_log_platform_unverified")
-			}
-			*root = roots[0]
+		roots := agentlog.DefaultRoots(*agent, home)
+		if len(roots) == 0 {
+			return errors.New("aidr_log_platform_unverified")
 		}
+		*root = roots[0]
+
 	}
 	since := time.Now().Add(-24 * time.Hour)
 	if *sinceText != "" {

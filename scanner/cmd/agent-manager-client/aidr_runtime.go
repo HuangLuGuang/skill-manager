@@ -23,6 +23,32 @@ func init() {
 	managedclient.AIDRRuntimeSnapshot = aidrRuntimeSnapshot
 	managedclient.AIDRRuntimeInspect = inspectAIDRTarget
 	managedclient.AIDRLogRunner = runAutomaticLogs
+	managedclient.AIDRHookRunner = runAutomaticHooks
+	managedclient.AIDRHookReady = automaticHookReady
+	managedclient.AIDRPrepareServiceUpgrade = prepareHookUpgrade
+}
+
+func prepareHookUpgrade(home string) (func(), error) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		return func() {}, nil
+	}
+	prefs, err := loadDesktopPreferences(home)
+	if err != nil {
+		return nil, err
+	}
+	if !prefs.Enabled {
+		return func() {}, nil
+	}
+	// Install the new command bridge while the old receiver can still review
+	// calls; callers starting during the switch can then wait for the new worker.
+	if err = aidrDesktopContext(context.Background(), []string{"--home", home, "--action", "prepare"}, io.Discard); err != nil {
+		return nil, err
+	}
+	_, paths, err := desktopBinding(home)
+	if err != nil {
+		return nil, err
+	}
+	return hooks.BeginReceiverUpgrade(paths.Socket)
 }
 
 func inspectAIDRTarget(ctx context.Context, home string, policy managedclient.Policy) error {
@@ -402,7 +428,7 @@ func reconcileAIDRPolicy(ctx context.Context, home string, task managedclient.Ta
 			if json.Unmarshal(observed.Bytes(), &state) != nil {
 				return finish("aidr_desktop_status_invalid", false)
 			}
-			if state.Plugin.VersionStatus != "interface_compatible" && !(hooks.SettingsAdapter(agent) && state.Plugin.VersionStatus == "adapter_available") {
+			if state.Plugin.VersionStatus != "interface_compatible" && !((hooks.SettingsAdapter(agent) || hooks.DesktopAdapter(agent)) && state.Plugin.VersionStatus == "adapter_available") {
 				return finish("aidr_plugin_interface_unavailable", false)
 			}
 			if target.AccessMode == "managed" {

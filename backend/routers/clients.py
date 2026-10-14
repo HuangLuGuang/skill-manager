@@ -13,6 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPExc
 from backend.client_event_delivery import save_delivery
 from backend import client_discovery, client_governance, client_skill_actions, runtime_governance
 from backend.agent_workspace import installation_owns_path
+from backend.client_assets import asset_inventory, inventory_capabilities
 from backend.model_switch import AGENTS as MODEL_ADAPTERS, validate_options as validate_model_options, validate_parameter_version, contract_for_version, validate_effective_parameters, reported_model_parameters
 from backend.client_task_notifications import task_hub
 from backend.external_ai_gateway import binding_models, ensure_binding
@@ -247,6 +248,7 @@ def _agent_gateway_names(db: Session, agent: models.ManagedAgent) -> list[str]:
     if not token or not any(scope.startswith("mcp:") for scope in _load(token.scopes_json, [])):
         return []
     allowed = {str(item) for item in _load(token.allowed_mcp_gateways_json, [])}
+    allowed.intersection_update(_load(agent.allowed_mcp_gateways_json, []))
     return [
         row.slug
         for row in db.query(models.McpGateway)
@@ -778,7 +780,7 @@ def _replace_inventory(db: Session, client_id: str, agents: list[schemas.ClientA
                 install_path=agent.install_path,
                 skills_path=agent.skills_path,
                 skill_management_supported=agent.skill_management_supported,
-                capabilities_json=_dump(agent.capabilities),
+                capabilities_json=_dump(inventory_capabilities(agent.capabilities, agent.asset_inventory)),
                 desired_model=previous.desired_model if previous else None,
                 applied_model=previous.applied_model if previous else None,
                 model_config_status=previous.model_config_status if previous else "not_configured",
@@ -880,6 +882,7 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
                 "install_path": agent.install_path,
                 "skills_path": agent.skills_path,
                 "skill_management_supported": agent.skill_management_supported,
+                "asset_inventory": asset_inventory(_load(agent.capabilities_json, {})),
                 "capabilities": {**_load(agent.capabilities_json, {}), **({"model_config_contract": contract_for_version(agent.agent_type, agent.agent_version)} if agent.agent_type in MODEL_ADAPTERS else {})},
                 "desired_model": agent.desired_model,
                 "applied_model": agent.applied_model,
@@ -1598,7 +1601,7 @@ async def poll_tasks(
             if version_id and version_id in requested_scan_ids and version_id not in latest:
                 latest[version_id] = {"revision": row.id, "details": details}
         for version_id in requested_scan_ids:
-            entry = manager.get_skill(version_id)
+            entry = manager.get_skill(version_id, include_scan_report=False)
             if entry is None:
                 continue
             status = entry.status.value
@@ -2488,6 +2491,7 @@ def get_agent_workspace(
         'managed_agent_id': local.managed_agent_id, 'version': local.agent_version,
         'install_path': local.install_path, 'skills_path': local.skills_path,
         'skill_management_supported': local.skill_management_supported,
+        'asset_inventory': asset_inventory(_load(local.capabilities_json, {})),
         'capabilities': {**_load(local.capabilities_json, {}), **({'model_config_contract': contract_for_version(local.agent_type, local.agent_version)} if local.agent_type in MODEL_ADAPTERS else {})},
         'desired_model': local.desired_model, 'applied_model': local.applied_model,
         'model_config_status': local.model_config_status, 'model_config_error': local.model_config_error,

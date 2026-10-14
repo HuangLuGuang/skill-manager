@@ -19,6 +19,7 @@ class SourceConfig(BaseModel):
     cron: str = "0 2 * * *"
     enabled: bool = True
     auto_scan_policy_id: str | None = None
+    evaluation_model: str | None = Field(default=None, max_length=128)
     scan_new_apps: bool = True
     scan_changed_apps: bool = True
     skills: list[str] = Field(default_factory=lambda: list(AGENT_SCAN_SKILLS), min_length=1, max_length=10)

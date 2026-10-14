@@ -16,13 +16,19 @@ import (
 	"syscall"
 	"time"
 
+	"skill-manager/scanner/internal/aidr/hooks"
 	"skill-manager/scanner/internal/managedclient"
+	"skill-manager/scanner/internal/runtimeinfo"
 	"skill-manager/scanner/internal/runtimeobservation"
 )
 
 var interactiveMutationLockTimeout = 5 * time.Second
 
 func main() {
+	runtimeinfo.Version = managedclient.Version
+	if len(os.Args) > 1 && (os.Args[1] == "run" || os.Args[1] == "aidr-teleagent-service") {
+		runtimeinfo.Current()
+	}
 	if err := run(os.Args[1:]); err != nil {
 		if len(os.Args) < 2 || os.Args[1] != "run" {
 			fmt.Fprintln(os.Stderr, "error:", err)
@@ -36,6 +42,12 @@ func main() {
 }
 
 func run(args []string) (runErr error) {
+	if len(args) > 0 && args[0] == "aidr-teleagent-service" {
+		return aidrTeleAgentService(args[1:], os.Stdout)
+	}
+	if len(args) > 0 && args[0] == "aidr-teleagent-serve" {
+		return aidrTeleAgentServe(args[1:], os.Stdout)
+	}
 	if len(args) > 0 && args[0] == "aidr-managed-install" {
 		return aidrManagedInstall(args[1:], os.Stdout)
 	}
@@ -73,7 +85,7 @@ func run(args []string) (runErr error) {
 		return readAgentLog(args[1:], os.Stdout)
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|connections|switch-connection|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|discard-quarantine|available-skills|skill-preview|skill-versions|install-skill|install-skills|quarantine|queue-quarantine|apply-skill-action|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service|runtime-watch|agent-log-read|agent-log-collect|agent-log-state|aidr-sync> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|connections|switch-connection|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|discard-quarantine|available-skills|skill-preview|skill-versions|install-skill|install-skills|quarantine|queue-quarantine|apply-skill-action|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service|runtime-watch|agent-log-read|agent-log-collect|agent-log-state|aidr-sync|aidr-teleagent-serve> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -306,10 +318,23 @@ func run(args []string) (runErr error) {
 		return nil
 	}
 	if args[0] == "service-status" {
-		return json.NewEncoder(os.Stdout).Encode(managedclient.ServiceStatus(*home))
+		status := managedclient.ServiceRuntimeStatus(*home)
+		status["proxy"] = hooks.TeleAgentProxyStatus(context.Background(), *home)
+		return json.NewEncoder(os.Stdout).Encode(status)
 	}
 	if args[0] == "prepare-update" {
 		state, err := managedclient.StopServiceForUpdate(*home)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(state)
+	}
+	if args[0] == "stage-update" {
+		executable, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		state, err := managedclient.ReconcileService(*home, executable, false)
 		if err != nil {
 			return err
 		}
@@ -323,6 +348,9 @@ func run(args []string) (runErr error) {
 		result, err := managedclient.ReconcileService(*home, executable, *forceServiceRestart)
 		if err != nil {
 			return err
+		}
+		if err = hooks.EnsureTeleAgentProxyService(*home, executable); err != nil {
+			fmt.Fprintln(os.Stderr, "client_teleagent_service_degraded:", err)
 		}
 		return json.NewEncoder(os.Stdout).Encode(result)
 	}
@@ -903,25 +931,17 @@ func run(args []string) (runErr error) {
 		if args[0] == "run" {
 			stopCapture, err := managedclient.CaptureDaemonOutput(*home)
 			if err != nil {
-				return err
+				fmt.Fprintln(os.Stderr, "client_output_capture_failed:", err)
+			} else {
+				defer stopCapture()
 			}
-			defer stopCapture()
 		}
 		api := managedclient.NewAPI(*server, *token, 30*time.Second)
-		var watcher *managedclient.SkillWatcher
-		if args[0] == "run" {
-			watcher, err = managedclient.NewSkillWatcher()
-			if err != nil {
-				return fmt.Errorf("无法启动 Skill 文件监控: %w", err)
-			}
-			defer watcher.Close()
-			if err := watcher.Refresh(*home, store); err != nil {
-				return fmt.Errorf("无法监听 Skill 目录: %w", err)
-			}
-		}
 		if args[0] == "run" {
 			runContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			watcher, closeMonitor := managedclient.StartSkillMonitor(runContext, *home, store)
+			defer closeMonitor()
 			return managedclient.RunDaemon(runContext, *home, api, store, *interval, watcher)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)

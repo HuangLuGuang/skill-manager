@@ -38,6 +38,8 @@ def _skill_dir(tmp_path):
 
 @pytest.fixture(autouse=True)
 def _disable_system_llm_by_default(monkeypatch):
+    # These cases isolate SkillSpector findings from the independently optional Cisco scanner.
+    monkeypatch.setattr("agent_manager.core.vetting._run_scanner", lambda *_: {})
     monkeypatch.setattr(
         "agent_manager.core.vetting.LLMConfig.load",
         lambda: LLMConfig(enabled=False),
@@ -59,7 +61,12 @@ def test_skillspector_unavailable_is_recorded_without_blocking_scan(tmp_path, mo
     assert any("深度扫描不可用" in note for note in result.policy_notes)
 
 
-def test_skillspector_json_findings_are_merged_into_vetting(tmp_path, monkeypatch):
+@pytest.mark.parametrize("policy_options, expected_risk", [
+    ({}, RiskLevel.SUSPICIOUS),
+    ({"judgement_mode": "strict"}, RiskLevel.MALICIOUS),
+    ({"risk_classification": {"data_exfiltration": "blocking"}}, RiskLevel.MALICIOUS),
+])
+def test_skillspector_json_findings_are_merged_into_vetting(tmp_path, monkeypatch, policy_options, expected_risk):
     skill_dir = _skill_dir(tmp_path)
     payload = {
         "risk_score": 78,
@@ -95,14 +102,14 @@ def test_skillspector_json_findings_are_merged_into_vetting(tmp_path, monkeypatc
     monkeypatch.setattr("agent_manager.core.skillspector.subprocess.run", fake_run)
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
-        CompanyPolicy({"skillspector_enabled": True})
+        CompanyPolicy({"skillspector_enabled": True, **policy_options})
     ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
-    assert result.risk_level == RiskLevel.MALICIOUS
+    assert result.risk_level == expected_risk
     assert "skillspector:cli" in result.analyzers_used
     assert result.scan_report["skillspector_analysis"]["risk_score"] == 78
     assert result.scan_report["max_severity"] == "HIGH"
-    finding = next(item for item in result.scan_report["findings"] if item["source"] == "skillspector")
+    finding = next(item for item in result.scan_report["findings"] if item.get("source") == "skillspector")
     assert finding["rule"] == "E2"
     assert finding["category"] == "Data Exfiltration"
     assert finding["line"] == 23

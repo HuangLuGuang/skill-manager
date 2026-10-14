@@ -26,10 +26,7 @@
         <template v-if="item.skill.content_digest"><dt>{{ t('aidr.skillUse.digest') }}<a-tooltip :title="t('aidr.skillUse.observation')"><button class="digest-info" :aria-label="t('aidr.skillUse.observation')"><InfoCircleOutlined /></button></a-tooltip></dt><dd><code>{{ item.skill.content_digest }}</code><span v-if="item.skill.content_observed_at" class="observed-at">{{ t('aidr.skillUse.observedAt') }} · {{ time(item.skill.content_observed_at) }}</span></dd></template>
       </dl>
       <p v-if="['computed', 'reused'].includes(item.skill.content_status)" class="muted">{{ t('aidr.skillUse.contentState.' + item.skill.content_status) }}</p>
-      <details class="skill-diagnostics"><summary>{{ t('aidr.skillUse.diagnostics') }}</summary>
-        <p v-if="item.certification?.checked_at" class="muted">{{ t('aidr.skillUse.checkedAt') }} · {{ time(item.certification.checked_at) }}</p>
-        <pre>{{ JSON.stringify(item, null, 2) }}</pre>
-      </details>
+      <p v-if="item.certification?.checked_at" class="muted">{{ t('aidr.skillUse.checkedAt') }} · {{ time(item.certification.checked_at) }}</p>
     </article>
     <a-button v-if="hasMore" :loading="loading" :disabled="loading" @click="load(true)">{{ t('aidr.skillUse.more') }}</a-button>
   </section>
@@ -78,9 +75,9 @@ onBeforeUnmount(() => request++)
 .skill-filters { display:flex; flex-wrap:wrap; gap:8px; }.skill-filters .ant-select { min-width:190px; max-width:100%; }
 .skill-card { border:1px solid #e2e7ed; border-radius:10px; padding:14px; margin:12px 0; overflow-wrap:anywhere; }
 header { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; } time,.muted { color:#68798c; font-size:12px; } .skill-badges { display:flex; flex-wrap:wrap; gap:4px; margin:10px 0; }
-summary { cursor:pointer; color:#68798c; font-size:12px; } dl { display:grid; grid-template-columns:150px minmax(0,1fr); gap:8px; margin:12px 0; } dd { margin:0; min-width:0; } pre { max-height:260px; overflow:auto; white-space:pre-wrap; }
+dl { display:grid; grid-template-columns:150px minmax(0,1fr); gap:8px; margin:12px 0; } dd { margin:0; min-width:0; }
 .skill-origin { display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:8px; color:#68798c; font-size:12px; }
 .meta-label { color:#68798c; margin-right:8px; }.skill-path { margin:12px 0; font-size:13px; }.skill-facts { font-size:12px; }.skill-facts dt { color:#68798c; }.observed-at { display:block; color:#68798c; margin-top:4px; }
-.digest-info { border:0; padding:0 4px; background:none; color:#68798c; cursor:help; }.digest-info:focus-visible { outline:2px solid #315fbd; outline-offset:2px; }.skill-diagnostics { margin-top:12px; }
+.digest-info { border:0; padding:0 4px; background:none; color:#68798c; cursor:help; }.digest-info:focus-visible { outline:2px solid #315fbd; outline-offset:2px; }
 @media(max-width:700px) { dl { grid-template-columns:1fr; } .skill-filters .ant-select { flex:1; min-width:150px; } }
 </style>

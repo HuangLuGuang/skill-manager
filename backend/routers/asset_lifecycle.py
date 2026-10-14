@@ -94,6 +94,7 @@ def validate_source(db, body, user):
                 "自动扫描策略未启用或环境不匹配",
                 "The automatic scan policy is unavailable or has a different environment",
             )
+        scans.validate_evaluation_model(db, body.config.evaluation_model)
 
 
 @router.get("/asset-sources")

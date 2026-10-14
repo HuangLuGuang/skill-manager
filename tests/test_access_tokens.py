@@ -293,6 +293,13 @@ def test_agent_runtime_requires_existing_agent_and_uses_minimum_default_scopes(t
 
 def test_agent_runtime_can_combine_governance_model_and_mcp_scopes(tmp_path):
     client = _client(tmp_path)
+    sessions = client.app.dependency_overrides[get_db]()
+    db = next(sessions)
+    try:
+        db.query(models.ManagedAgent).filter_by(agent_id="risk-agent").one().allowed_mcp_gateways_json = '["readonly"]'
+        db.commit()
+    finally:
+        sessions.close()
 
     created = client.post(
         "/api/v1/access/tokens",

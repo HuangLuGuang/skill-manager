@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
 from ..api_errors import ApiError
+from ..agent_mcp import ensure_agent_mcp_scope
 from ..config import settings
 from ..mcp_validation import field_issue, fields_error
 from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
@@ -682,7 +683,7 @@ async def create_tool_approval(
 ):
     token = db.query(models.AccessToken).filter(
         models.AccessToken.id == body.token_id,
-        models.AccessToken.token_type == "mcp_gateway",
+        models.AccessToken.token_type.in_(["mcp_gateway", "agent_runtime"]),
         models.AccessToken.status == "active",
     ).first()
     if not token:
@@ -702,6 +703,7 @@ async def create_tool_approval(
     allowed_gateways = _json_loads(token.allowed_mcp_gateways_json, [])
     if body.gateway_slug not in allowed_gateways:
         raise HTTPException(status_code=403, detail="凭证未授权访问该 MCP 网关")
+    ensure_agent_mcp_scope(db, token, [body.gateway_slug])
     plain = "mcpap_" + secrets.token_urlsafe(24)
     expires_at = datetime.utcnow() + timedelta(seconds=body.ttl_seconds)
     db.add(models.McpToolApproval(
@@ -942,7 +944,7 @@ async def approve_approval_request(
     row = _reviewable_approval_request(db, request_id)
     token = db.query(models.AccessToken).filter(
         models.AccessToken.id == row.token_id,
-        models.AccessToken.token_type == "mcp_gateway",
+        models.AccessToken.token_type.in_(["mcp_gateway", "agent_runtime"]),
         models.AccessToken.status == "active",
     ).first()
     gateway = db.query(models.McpGateway).filter(
@@ -964,6 +966,7 @@ async def approve_approval_request(
         raise HTTPException(status_code=409, detail="MCP Tool Schema 已变化，需要重新发起调用")
     if row.gateway_slug not in _json_loads(token.allowed_mcp_gateways_json, []):
         raise HTTPException(status_code=409, detail="MCP 接入凭证不再允许访问该网关")
+    ensure_agent_mcp_scope(db, token, [row.gateway_slug])
     now = datetime.utcnow()
     updated = db.query(models.McpToolApproval).filter(
         models.McpToolApproval.id == row.id,
@@ -1196,6 +1199,7 @@ def _record_denied_call(
         models.McpCallAudit(
             request_id=uuid.uuid4().hex,
             token_id=token.id,
+            bound_agent_id=token.bound_agent_id if token.token_type == "agent_runtime" else None,
             gateway_slug=gateway_slug,
             server_slug=server_slug[:128] if server_slug else None,
             tool_name=tool_name[:255] or None,
@@ -1435,6 +1439,7 @@ async def get_runtime_approval_status(
         request=request,
         allowed_token_types={"mcp_gateway", "agent_runtime"},
     )
+    ensure_agent_mcp_scope(db, token, [gateway_slug])
     row = db.query(models.McpToolApproval).filter(
         models.McpToolApproval.request_id == request_id,
         models.McpToolApproval.token_id == token.id,
@@ -1512,6 +1517,14 @@ async def invoke_gateway_with_token(
     allowed_gateways = _json_loads(token.allowed_mcp_gateways_json, [])
     if gateway_slug not in allowed_gateways:
         raise HTTPException(status_code=403, detail="凭证未授权访问该 MCP 网关")
+    try:
+        ensure_agent_mcp_scope(db, token, [gateway_slug])
+    except ApiError as exc:
+        if method == "tools/call":
+            params = body.get("params")
+            tool_name = str(params.get("name") or "") if isinstance(params, dict) else ""
+            _record_denied_call(db, token, gateway_slug, tool_name, exc.code)
+        raise
     gateway = db.query(models.McpGateway).filter(
         models.McpGateway.slug == gateway_slug,
         models.McpGateway.status == "active",
@@ -1689,6 +1702,7 @@ async def invoke_gateway_with_token(
     audit = models.McpCallAudit(
         request_id=uuid.uuid4().hex,
         token_id=token.id,
+        bound_agent_id=token.bound_agent_id if token.token_type == "agent_runtime" else None,
         gateway_slug=gateway.slug,
         server_slug=server.slug,
         tool_name=tool.name,

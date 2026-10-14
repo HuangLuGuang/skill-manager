@@ -70,12 +70,15 @@ def test_p7_cross_architecture_image_gate_checks_offline_restricted_runtime():
     ):
         assert required in script
 
-    pipeline = (ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")
-    assert 'docker_images/x86/agent-manager-images-${CI_COMMIT_TAG}.tar.xz' in pipeline
-    assert 'docker_images/arm/agent-manager-images-${CI_COMMIT_TAG}.tar.xz' in pipeline
-    assert pipeline.count("| docker load >/dev/null") >= 3
-    assert 'verify-agent-security-worker-image.sh "agent-manager-security-worker:${CI_COMMIT_TAG}" amd64' in pipeline
-    assert 'verify-agent-security-worker-image.sh "agent-manager-security-worker:${CI_COMMIT_TAG}" arm64' in pipeline
+    pipeline = yaml.safe_load((ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8"))
+    script = "\n".join(pipeline[".offline-package"]["script"])
+    assert 'docker_images/${PACKAGE_ARCH}/agent-manager-images-${CI_COMMIT_TAG}.tar.xz' in script
+    assert "| docker load >/dev/null" in script
+    assert 'verify-agent-security-worker-image.sh "agent-manager-security-worker:${CI_COMMIT_TAG}" "${PACKAGE_PLATFORM#linux/}"' in script
+    for job, platform, arch in (("offline-package", "linux/amd64", "x86"), ("offline-package-arm", "linux/arm64", "arm")):
+        assert pipeline[job]["extends"] == ".offline-package"
+        assert pipeline[job]["variables"]["PACKAGE_PLATFORM"] == platform
+        assert pipeline[job]["variables"]["PACKAGE_ARCH"] == arch
 
 
 def test_p7_worker_compose_has_safe_defaults_and_tunable_resource_limits():
@@ -220,8 +223,8 @@ def test_offline_pipeline_verifies_both_aig_scan_service_architectures():
     build = (ROOT / "build.sh").read_text(encoding="utf-8")
     pipeline = (ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")
     assert "agent-manager-aig-scan-service:${TAG}" in build
-    assert 'verify-aig-scan-service-image.sh "agent-manager-aig-scan-service:${CI_COMMIT_TAG}" amd64' in pipeline
-    assert 'verify-aig-scan-service-image.sh "agent-manager-aig-scan-service:${CI_COMMIT_TAG}" arm64' in pipeline
+    shared = "\n".join(yaml.safe_load(pipeline)[".offline-package"]["script"])
+    assert 'verify-aig-scan-service-image.sh "agent-manager-aig-scan-service:${CI_COMMIT_TAG}" "${PACKAGE_PLATFORM#linux/}"' in shared
 
 
 def test_backend_bootstraps_builtin_worker_after_database_schema_setup():
@@ -311,11 +314,11 @@ def test_p7_worker_deployment_docs_cover_identity_recovery_upgrade_and_evidence(
         assert required in online
 
     for required in (
-        "### Worker 现场验收、恢复和升级",
-        "页面默认开启，无需增加功能开关",
-        "相同 Token 的已吊销内置身份不会自行复活",
-        "`timed_out`、`retried` 和 `failed` 计数",
-        "没有任务级证据时",
+        "## 业务验收",
+        "Worker 和内部扫描服务状态正常",
+        "先配置评估模型与获得授权的扫描目标",
+        "不能代替实际扫描验收",
+        "[Docker 部署文档](docker-deployment.md)",
     ):
         assert required in offline
 

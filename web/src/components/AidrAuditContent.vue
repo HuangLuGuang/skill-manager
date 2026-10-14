@@ -10,7 +10,11 @@
       <div v-for="(item, index) in contents || []" :key="index" class="audit-content-fragment">
         <p v-if="contents.length > 1 || item.redacted || item.truncated"><strong>{{ fragmentLabel(item, index) }}</strong><span v-if="item.redacted"> · {{ t('aidr.detail.redactedContent') }}</span><span v-if="item.truncated"> · {{ t('aidr.detail.partialContent') }}</span></p>
         <AidrMarkdown v-if="['prompt', 'model_response'].includes(item.kind) && !item.source_field?.endsWith('.context')" :text="item.text" :mode="contentMode" />
-        <pre v-else>{{ item.text }}</pre>
+        <template v-else>
+          <strong v-if="item.command_analysis">{{ t(item.command_summary ? 'aidr.commandParsing.summary' : 'aidr.commandParsing.original') }}</strong>
+          <pre>{{ item.text }}</pre>
+          <AidrParsedCommands :analysis="item.command_analysis" />
+        </template>
         <p v-if="item.truncated" class="audit-content-note">{{ t('aidr.content.truncationSize', { source: item.source_bytes, stored: storedBytes(item.text), fragment: appliedCapture?.max_fragment_bytes ?? 1024, event: appliedCapture?.max_event_bytes ?? 2048 }) }}</p>
       </div>
     </template>
@@ -22,6 +26,7 @@ import { useI18n } from 'vue-i18n'
 import { can, pageAllowed } from '../access'
 import { getClientAidrContent } from '../api'
 import AidrMarkdown from './AidrMarkdown.vue'
+import AidrParsedCommands from './AidrParsedCommands.vue'
 const props = defineProps({ contentMode: { type: String, default: 'source' }, showHeading: { type: Boolean, default: true }, clientId: { type: String, required: true }, source: { type: String, required: true }, recordId: { type: [String, Number], required: true }, evidence: { type: Object, required: true } })
 const { t } = useI18n()
 const busy = ref(false), contents = ref(null), failed = ref(false), errorCode = ref('')

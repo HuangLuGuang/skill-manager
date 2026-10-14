@@ -23,7 +23,7 @@ export const skillUseMessages = {
     source_unknown: '缺少可靠路径或内容摘要', identity_ambiguous: '无法唯一确定 Skill 来源', registry_reference_missing: '安装记录引用的版本不可查询', registry_content_unavailable: '平台版本内容不可读取', signature_unverified: '平台签名尚未验证', agent_identity_unknown: '尚未确定平台智能体身份', query_failed: '认证查询失败，将自动重试',
     empty: '当前条件下暂无 Skill 行为记录', help: '只展示明确的 Skill 工具调用或单文件读取。用户提及、搜索和目录枚举不计为调用。',
     observation: '内容摘要来自采集时的本地文件观察，可能晚于操作；不证明调用时加载的精确内容。读取文件也不代表按 Skill 执行了任务。',
-    path: '来源路径', digest: '观察摘要', checkedAt: '平台核对时间', observedAt: '内容观察时间', identity: '平台智能体 / 本地实例', references: '关联事件', diagnostics: '技术诊断', more: '更多记录', refresh: '重新核对', error: 'Skill 审计读取失败，请重试', unknownName: 'Skill 名称未知',
+    path: '来源路径', digest: '观察摘要', checkedAt: '平台核对时间', observedAt: '内容观察时间', identity: '平台智能体 / 本地实例', references: '关联事件', more: '更多记录', refresh: '重新核对', error: 'Skill 审计读取失败，请重试', unknownName: 'Skill 名称未知',
     policyTitle: 'Skill 使用审计', enabled: '启用认证核对', alerts: '生成告警', policyHelp: '仅审计，不阻断工具。按可靠身份与摘要核对平台当前状态；缺少证据时保持待确认。',
   },
   'en-US': {
@@ -50,7 +50,7 @@ export const skillUseMessages = {
     source_unknown: 'Reliable source path or content digest missing', identity_ambiguous: 'Skill source cannot be uniquely identified', registry_reference_missing: 'Installed version reference unavailable', registry_content_unavailable: 'Registry content unavailable', signature_unverified: 'Registry signature not verified', agent_identity_unknown: 'Platform Agent identity not established', query_failed: 'Certification query failed; retry pending',
     empty: 'No Skill activity matches these filters', help: 'Shows explicit Skill tool invocations and single-file reads. Mentions, searches and directory listings are not invocations.',
     observation: 'The digest is a local content observation made during collection, possibly after the operation. It does not attest to the exact content loaded at invocation. Reading a file does not prove a task followed the Skill.',
-    path: 'Source path', digest: 'Observed digest', checkedAt: 'Registry check time', observedAt: 'Content observation time', identity: 'Platform Agent / local instance', references: 'Linked events', diagnostics: 'Technical diagnostics', more: 'More records', refresh: 'Check again', error: 'Unable to read Skill audit; please retry', unknownName: 'Skill name unavailable',
+    path: 'Source path', digest: 'Observed digest', checkedAt: 'Registry check time', observedAt: 'Content observation time', identity: 'Platform Agent / local instance', references: 'Linked events', more: 'More records', refresh: 'Check again', error: 'Unable to read Skill audit; please retry', unknownName: 'Skill name unavailable',
     policyTitle: 'Skill use audit', enabled: 'Check certification', alerts: 'Generate alerts', policyHelp: 'Audit only. Check current registry status using reliable identity and digests. Missing evidence remains pending and never blocks tools.',
   },
 }

@@ -8,7 +8,7 @@ import (
 // UpdatePlugin changes only the product marketplace and plugin, through native
 // commands. Packages are immutable; replacing the marketplace does not rewrite
 // the package used by an already running Agent session.
-func UpdatePlugin(ctx context.Context, agent, binary, home, market string) (PluginStatus, error) {
+func updateNativePlugin(ctx context.Context, agent, binary, home, market string) (PluginStatus, error) {
 	before, err := InspectPlugin(ctx, agent, binary, home, "")
 	if err != nil {
 		return before, err

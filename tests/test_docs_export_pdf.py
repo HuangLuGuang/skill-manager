@@ -1,5 +1,6 @@
 from io import BytesIO
 
+import pytest
 from pypdf import PdfReader
 
 from backend import schemas
@@ -92,3 +93,31 @@ def test_docs_export_rejects_unsafe_screenshot_names():
     response = client.post("/api/config/docs-export.pdf", json=payload)
 
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("locale", ["zh-CN", "en-US"])
+def test_docs_export_accepts_aidr_architecture_and_retains_control_boundary(locale):
+    payload = _payload(locale)
+    article = payload["articles"][0]
+    article["slug"] = "aidr-overview"
+    boundary = "平台 ACK 只确认接收；阻断由执行点完成。" if locale == "zh-CN" else "Platform ACK confirms receipt; blocking requires an enforcement point."
+    article["sections"] = [{"id": "architecture", "title": "AIDR", "diagram": "aidr", "paragraphs": [boundary]}]
+
+    request = schemas.DocsPdfExportRequest.model_validate(payload)
+    reader = PdfReader(BytesIO(build_docs_export_pdf(request, generated_at="2026-10-13")))
+    text = "".join(page.extract_text() for page in reader.pages)
+    compact = "".join(text.split())
+    assert "".join(boundary.split()) in compact
+    for label in (["Agent 日志", "持久化队列", "批次上报", "关联与审计"] if locale == "zh-CN" else ["Agent logs", "durable outbox", "batch upload", "correlation and audit"]):
+        assert "".join(label.split()) in compact
+
+
+@pytest.mark.parametrize("locale", ["zh-CN", "en-US"])
+def test_docs_export_accepts_integration_choice_diagram(locale):
+    payload = _payload(locale)
+    payload["articles"][0]["sections"] = [{"id": "integration-flow", "title": "Integration", "diagram": "integration-choice"}]
+    request = schemas.DocsPdfExportRequest.model_validate(payload)
+    reader = PdfReader(BytesIO(build_docs_export_pdf(request, generated_at="2026-10-13")))
+    compact = "".join("".join(page.extract_text() for page in reader.pages).split())
+    for label in ("Runtime", "Dify", "Scanner", "Hook", "Verifier", "AIDR"):
+        assert label in compact

@@ -514,6 +514,7 @@ def process_events(factory=SessionLocal) -> None:
                                     policy_id=config["auto_scan_policy_id"],
                                     scan_kind="agent_risk_scan",
                                     skills=config["skills"],
+                                    evaluation_model=config.get("evaluation_model"),
                                     language=config["language"],
                                     conversation_mode="multi_turn",
                                     idempotency_key=scan_key,
@@ -529,6 +530,8 @@ def process_events(factory=SessionLocal) -> None:
                     event.next_attempt_at = datetime.utcnow() + timedelta(minutes=5)
                     db.commit()
                     continue
+            event.error_code = None
+            event.next_attempt_at = None
             db.commit()
 
 

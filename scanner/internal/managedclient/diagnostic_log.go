@@ -333,14 +333,27 @@ var syncDiagnosticMu sync.Mutex
 var syncDiagnosticFailures = map[string]syncDiagnosticFailure{}
 
 func logSyncTransition(store *Store, kind string, err error, contextFields ...map[string]any) {
+	recordSyncTransition(store.root, store.LogDiagnostic, kind, err, contextFields...)
+}
+
+// RecordBackgroundSyncDiagnostic also serves workers that own a separate queue
+// and must not acquire the managed client database's writer lock.
+func RecordBackgroundSyncDiagnostic(home, kind string, err error, fields map[string]any) {
+	root := filepath.Join(home, ".agent-manager")
+	recordSyncTransition(root, func(level, module, event string, fields map[string]any) {
+		_ = writeDiagnostic(root, DiagnosticRecord{Level: level, Module: module, Event: event, Fields: fields})
+	}, kind, err, fields)
+}
+
+func recordSyncTransition(root string, record func(string, string, string, map[string]any), kind string, err error, contextFields ...map[string]any) {
 	syncDiagnosticMu.Lock()
 	defer syncDiagnosticMu.Unlock()
-	key := store.root + ":" + kind
+	key := root + ":" + kind
 	previous, exists := syncDiagnosticFailures[key]
 	now := time.Now()
 	if err == nil {
 		if exists {
-			store.LogDiagnostic("info", kind, "sync_recovered", map[string]any{"first_failed_at": previous.first.Format(time.RFC3339Nano), "failure_count": previous.count, "duration_ms": now.Sub(previous.first).Milliseconds()})
+			record("info", kind, "sync_recovered", map[string]any{"first_failed_at": previous.first.Format(time.RFC3339Nano), "failure_count": previous.count, "duration_ms": now.Sub(previous.first).Milliseconds()})
 			delete(syncDiagnosticFailures, key)
 		}
 		return
@@ -348,7 +361,7 @@ func logSyncTransition(store *Store, kind string, err error, contextFields ...ma
 	message := redactDiagnostic(err.Error())
 	if !exists || previous.message != message {
 		if exists {
-			store.LogDiagnostic("warning", kind, "sync_error_summary", map[string]any{"error": previous.message, "count": previous.count, "first_failed_at": previous.first.Format(time.RFC3339Nano)})
+			record("warning", kind, "sync_error_summary", map[string]any{"error": previous.message, "count": previous.count, "first_failed_at": previous.first.Format(time.RFC3339Nano)})
 		}
 		previous = syncDiagnosticFailure{message: message, first: now, last: now, count: 1}
 		fields := map[string]any{"error": message}
@@ -357,11 +370,11 @@ func logSyncTransition(store *Store, kind string, err error, contextFields ...ma
 				fields[key] = value
 			}
 		}
-		store.LogDiagnostic("error", kind, "sync_failed", fields)
+		record("error", kind, "sync_failed", fields)
 	} else {
 		previous.count++
 		if now.Sub(previous.last) >= time.Minute {
-			store.LogDiagnostic("warning", kind, "sync_error_summary", map[string]any{"error": message, "count": previous.count, "first_failed_at": previous.first.Format(time.RFC3339Nano), "duration_ms": now.Sub(previous.first).Milliseconds()})
+			record("warning", kind, "sync_error_summary", map[string]any{"error": message, "count": previous.count, "first_failed_at": previous.first.Format(time.RFC3339Nano), "duration_ms": now.Sub(previous.first).Milliseconds()})
 			previous.last = now
 		}
 	}
@@ -400,7 +413,7 @@ func addMutationLockDiagnostic(path string, fields map[string]any) {
 	if err != nil || len(body) > 64 {
 		return
 	}
-	if pid, err := strconv.Atoi(strings.TrimSpace(string(body))); err == nil && pid > 0 {
+	if pid, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(string(body)), "v2 ")); err == nil && pid > 0 {
 		fields["lock_owner_pid"] = pid
 	}
 }
