@@ -437,3 +437,6 @@ export const decideHookApproval = (id, approval, body) => api.post(`${hookPath(i
 export const getClientRuntimeGovernance = clientId => api.get(`/v1/clients/${clientId}/runtime-governance`)
 
 export const getClientAidrSkillUses = (clientId, params) => api.get(`${aidrPath(clientId)}/skill-uses`, { params })
+export const getClientAidrSkillUse = (clientId, id, params) => api.get(`${aidrPath(clientId)}/skill-uses/${id}`, { params })
+export const getClientAidrSkillEvidence = (clientId, id, params) => api.get(`${aidrPath(clientId)}/skill-uses/${id}/evidence`, { params })
+export const requestClientSkillObservation = (clientId, id, requestId) => api.post(`${aidrPath(clientId)}/skill-uses/${id}/observations`, { request_id: requestId })

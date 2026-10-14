@@ -41,6 +41,8 @@ type skillFlight struct {
 // One observer is owned by one device-bound collector. Its cache is bounded by
 // both directories and file metadata; concurrent readers share the same job.
 type SkillObserver struct {
+	// ResolvePath only accepts caller-verified managed installation aliases.
+	ResolvePath                   func(string) (string, error)
 	mu                            sync.Mutex
 	cache                         map[skillCacheKey]skillObservation
 	flights                       map[skillCacheKey]*skillFlight
@@ -78,8 +80,22 @@ func (o *SkillObserver) Observe(ctx context.Context, use *SkillUse, policy *Audi
 		}
 		return
 	}
-	key := skillCacheKey{filepath.Dir(filepath.FromSlash(use.Path)), p.CheckMode, p.DigestCacheSeconds, p.MaxFiles, p.MaxFileBytes, p.MaxTotalBytes}
+	path := filepath.FromSlash(use.Path)
+	if o.ResolvePath != nil {
+		resolved, err := o.ResolvePath(path)
+		if err != nil {
+			use.ContentStatus, use.ContentReason = "unavailable", "source_symlink"
+			return
+		}
+		path = resolved
+	}
+	key := skillCacheKey{filepath.Dir(path), p.CheckMode, p.DigestCacheSeconds, p.MaxFiles, p.MaxFileBytes, p.MaxTotalBytes}
 	result := o.observe(ctx, key, p.MaxConcurrency)
+	if o.ResolvePath != nil {
+		if resolved, err := o.ResolvePath(filepath.FromSlash(use.Path)); err != nil || resolved != path {
+			result = unavailable("source_changed")
+		}
+	}
 	use.Digest, use.CheckedAt = result.digest, result.observed
 	if negotiated {
 		use.ContentStatus, use.ContentReason = result.status, result.reason

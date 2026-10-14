@@ -1515,7 +1515,8 @@ const renderTaskHistory = tasks => {
     const payload = task.payload || {}
     const policySync = task.task_type === 'sync_policy' || (task.task_type === 'rescan' && payload.reason === 'policy_changed')
     const aidr = task.task_type === 'aidr_plugin_action'
-    const target = aidr ? aidrTaskSummary(payload) : payload.target_version
+    const target = task.task_type === 'aidr_skill_observe' ? (payload.skill?.path || payload.skill?.name || '-')
+      : aidr ? aidrTaskSummary(payload) : payload.target_version
       ? t('ui.overview.classified_policy')
       : policySync ? tf`处置：${policyLabel(payload.mode)} · 治理：${governanceLabel(payload.governance_mode)}`
       : payload.skill_name || payload.skill_id || (task.task_type === 'rescan' ? t('ui.1agolmk') : '-')
@@ -3266,7 +3267,7 @@ function taskTypeLabel(task) {
   }
   if (value === 'skill_action') return task.payload?.action ? governanceLabelFor('action', task.payload.action) : t('ui.records.skillAction')
   if (value === 'rescan' && task?.payload?.reason === 'policy_changed') return t('ui.q9utgp')
-  return { install_skill: t('ui.14fftle'), remove_skill: t('ui.s2pmon'), repair_skill: t('ui.14oueep'), apply_model_config: t('client.models.task_type'), verify_model_config: t('ui.modelConfig.verify'), restore_model_config: t('ui.modelConfig.restore'), rescan: t('ui.1rnx8gk'), sync_policy: t('ui.q9utgp') }[value] || value || tf`平台任务`
+  return { aidr_skill_observe: t('ui.skillAudit.observeTask'), install_skill: t('ui.14fftle'), remove_skill: t('ui.s2pmon'), repair_skill: t('ui.14oueep'), apply_model_config: t('client.models.task_type'), verify_model_config: t('ui.modelConfig.verify'), restore_model_config: t('ui.modelConfig.restore'), rescan: t('ui.1rnx8gk'), sync_policy: t('ui.q9utgp') }[value] || value || tf`平台任务`
 }
 
 function aidrTaskAgents(payload) {
@@ -3882,9 +3883,11 @@ document.addEventListener('visibilitychange', () => {
 })
 window.addEventListener('agent-manager-client-locale-change', async () => {
   syncSettingsControls()
+  $('#client-build-version').textContent = tf`版本 ${clientBuildVersion}`
   void syncBackgroundMenu()
   const activePanel = document.querySelector('.panel.active')?.id || 'connect'
-  if (activePanel === 'records') void loadRecordHistory()
+  if (connection?.configured) void loadRecordHistory()
+  if (activePanel === 'settings') void refreshLogSettings()
   $('#panel-title').textContent = panelTitle(activePanel)
   if (inventory) renderInventory()
   if (builtinAgentSettings.length) renderBuiltinAgentSettings()

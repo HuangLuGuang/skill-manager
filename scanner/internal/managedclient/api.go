@@ -241,6 +241,9 @@ func (api API) WaitTasksWithUpdatesAndScans(ctx context.Context, clientID string
 
 func (api API) ReportExecutedTask(ctx context.Context, clientID string, task Task, status, taskError string) error {
 	body := map[string]any{"status": status, "error": taskError}
+	if task.TaskType == "aidr_skill_observe" && task.Payload["skill_observation"] != nil {
+		body["skill_observation"] = task.Payload["skill_observation"]
+	}
 	if task.TaskType == "aidr_plugin_action" && task.Payload["aidr_result"] != nil {
 		body["aidr_result"] = task.Payload["aidr_result"]
 	}

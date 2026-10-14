@@ -88,3 +88,26 @@ class SkillUse(BaseModel):
             if datetime.fromisoformat(self.content_observed_at.replace('Z', '+00:00')).tzinfo is None:
                 raise ValueError('skill_observation_time_invalid')
         return self
+
+
+class SkillObservationReceipt(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    skill: SkillUse
+    policy_version: str = Field(min_length=1, max_length=128)
+    observed_at: str = Field(min_length=1, max_length=40)
+    resolved_path: str = Field(min_length=1, max_length=1024)
+
+    @model_validator(mode='after')
+    def check_observation(self):
+        from datetime import datetime
+        from pathlib import PurePosixPath, PureWindowsPath
+        from .aidr_redaction import redact_values
+        if datetime.fromisoformat(self.observed_at.replace('Z', '+00:00')).tzinfo is None:
+            raise ValueError('skill_observation_time_invalid')
+        if not (PurePosixPath(self.resolved_path).is_absolute() or PureWindowsPath(self.resolved_path).is_absolute()):
+            raise ValueError('skill_source_invalid')
+        if any(ord(c) < 32 for c in self.resolved_path) or redact_values(self.resolved_path) != self.resolved_path or redact_values(self.skill.path) != self.skill.path:
+            raise ValueError('skill_metadata_secret_rejected')
+        if self.skill.content_status not in {'computed', 'unavailable'}:
+            raise ValueError('skill_observation_status_invalid')
+        return self

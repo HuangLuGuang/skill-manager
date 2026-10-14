@@ -2102,6 +2102,20 @@ def model_verification_evidence(
     return {"requests": probe_evidence(db, client_id, agent.managed_agent_id, body.challenge)}
 
 
+@router.get("/{client_id}/tasks/{task_id}/skill-observation")
+def skill_observation_policy(client_id: str, task_id: int, request: Request,
+                             authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    token = _runtime_token('client:read-tasks', authorization, request, db)
+    _bind_client(token, client_id, db)
+    task = db.query(models.ClientTask).filter_by(id=task_id, client_id=client_id).first()
+    from .. import aidr_skill_review
+    if not task:
+        aidr_skill_review.fail('observation_task_invalid', '采集任务不存在', 'Observation task unavailable', 404)
+    result = aidr_skill_review.observation_policy(db, task)
+    db.commit()
+    return result
+
+
 @router.post("/{client_id}/tasks/{task_id}/result")
 def report_task_result(
     client_id: str,
@@ -2120,6 +2134,33 @@ def report_task_result(
     )
     if not row:
         raise HTTPException(status_code=404, detail="任务不存在")
+    if row.task_type == 'aidr_skill_observe':
+        from .. import aidr_skill_review
+        db.query(models.ClientTask).filter_by(id=row.id).update({'status':models.ClientTask.status}, synchronize_session=False)
+        db.refresh(row)
+        if aidr_skill_review.expire_task(row):
+            db.commit()
+        if row.status in {'succeeded', 'failed', 'cancelled'}:
+            return {'ok':True, 'ignored':True, 'status':row.status}
+        if body.status == 'running':
+            row.status, row.started_at = 'running', datetime.utcnow()
+        else:
+            if row.status != 'running':
+                aidr_skill_review.fail('observation_task_invalid', '采集任务尚未开始', 'Observation task has not started')
+            if body.status == 'succeeded':
+                if body.skill_observation is None:
+                    aidr_skill_review.fail('observation_mismatch', '缺少采集回执', 'Observation receipt is required')
+                try:
+                    aidr_skill_review.complete_observation(db, row, body.skill_observation)
+                except ApiError as exc:
+                    row.status, row.finished_at = 'failed', datetime.utcnow()
+                    row.error = exc.code.replace('aidr.skill_', 'aidr_skill_')
+                    db.commit()
+                    return {'ok':True, 'status':row.status}
+            row.status, row.finished_at = body.status, datetime.utcnow()
+            row.error = body.error if body.error and re.fullmatch(r'aidr_skill_[a-z_]{1,80}', body.error) else ('aidr_skill_observation_failed' if body.status == 'failed' else None)
+        db.commit()
+        return {'ok':True, 'status':row.status}
     if row.task_type == "aidr_plugin_action":
         payload = _load(row.payload_json, {})
         if body.status == "running":
@@ -2651,6 +2692,8 @@ def create_task(
     client = _client_or_404(db, client_id)
     _ensure_visible(client, current_user)
     payload = dict(body.payload)
+    if body.task_type == 'aidr_skill_observe':
+        raise ApiError(422, 'aidr.skill_observation_task_invalid', '请从 Skill 行为记录请求重新采集', 'Request recollection from a Skill activity record')
     if body.task_type == "aidr_plugin_action":
         try:
             task = runtime_governance.create(db, client, payload)
@@ -2946,6 +2989,14 @@ def retry_task(
     if row.status not in {"failed", "cancelled"}:
         raise HTTPException(status_code=400, detail="只有失败或已取消的任务可以重试")
     payload = _load(row.payload_json, {})
+    if row.task_type == 'aidr_skill_observe':
+        from .. import aidr_skill_review
+        iam.check(db, current_user, 'clients:update')
+        usage = aidr_skill_review.usage(db, client_id, payload['usage_id'])
+        retry = aidr_skill_review.create_observation(db, usage, f'retry-task:{task_id}', current_user.username)
+        _operation(db, current_user, 'aidr.skill_observation_requested', client_id, f"usage_id={usage.id}, task_id={retry['id']}")
+        db.commit()
+        return retry
     if row.task_type == "aidr_plugin_action":
         return _retry_runtime_task(db, client, row, current_user)
     if row.task_type in {"apply_model_config", "verify_model_config", "restore_model_config"}:

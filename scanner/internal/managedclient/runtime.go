@@ -214,7 +214,7 @@ func executeTasks(ctx context.Context, home string, inventory Inventory, policy 
 			return err
 		}
 		if completed {
-			if task.TaskType == "aidr_plugin_action" {
+			if task.TaskType == "aidr_plugin_action" || task.TaskType == "aidr_skill_observe" {
 				saved, err := store.StoredTask(task.ID)
 				if err != nil {
 					return err
@@ -391,6 +391,8 @@ func ConfigureAgentModel(ctx context.Context, home string, inventory Inventory, 
 
 func executeTask(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, task Task) error {
 	switch task.TaskType {
+	case "aidr_skill_observe":
+		return executeSkillObservation(ctx, home, inventory, api, task)
 	case "aidr_plugin_action":
 		if AIDRTaskHandler == nil {
 			return fmt.Errorf("aidr_desktop_version_unsupported")

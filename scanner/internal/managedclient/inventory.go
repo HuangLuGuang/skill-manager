@@ -17,7 +17,7 @@ import (
 
 var Version = "dev"
 
-const InventoryCacheVersion = "9"
+const InventoryCacheVersion = "10"
 
 type Skill struct {
 	Governance    *SkillObservation `json:"governance,omitempty"`
@@ -171,7 +171,7 @@ func Discover(home string) (Inventory, error) {
 			DisplayName:              custom.Name,
 			SkillsPath:               custom.SkillsPath,
 			SkillManagementSupported: true,
-			Capabilities:             map[string]any{"skill_management": true, "custom": true, "display_name": custom.Name},
+			Capabilities:             map[string]any{"skill_management": true, "skill_audit_observe": true, "custom": true, "display_name": custom.Name},
 			Skills:                   []Skill{},
 			AssetInventory:           discoverAssets(home, "", nil),
 		}
@@ -233,7 +233,7 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 		LocalAgentID:             spec.agentType,
 		AgentType:                spec.agentType,
 		SkillManagementSupported: spec.supportsSkill,
-		Capabilities:             map[string]any{"skill_management": spec.supportsSkill},
+		Capabilities:             map[string]any{"skill_management": spec.supportsSkill, "skill_audit_observe": true},
 		Skills:                   []Skill{},
 	}
 	if contract, ok := modelAdapters[spec.agentType]; ok && len(modelConfigFiles(spec.agentType)) > 0 {

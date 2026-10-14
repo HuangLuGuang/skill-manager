@@ -1,6 +1,8 @@
+import { skillAuditReview } from './skill-audit-review.js'
 export const skillUseMessages = {
   'zh-CN': {
-    content_source_missing: '采集时文件不存在，认证状态待确认。', content_source_unreadable: '文件不可读取，认证状态待确认。', content_source_symlink: '来源包含软链接，未采集内容摘要。', content_source_changed: '读取过程中内容变化，将在后续使用时重新采集。', content_file_limit: '文件数量超过策略上限，未采集内容摘要。', content_file_size_limit: '单文件大小超过策略上限，未采集内容摘要。', content_total_size_limit: '总读取量超过策略上限，未采集内容摘要。', content_entry_limit: '目录条目超过遍历上限，未采集内容摘要。', content_check_cancelled: '内容采集超时或取消，认证状态待确认。', content_audit_disabled: '客户端采集时认证核对已关闭。',
+    review: skillAuditReview['zh-CN'], denied: '已拒绝',
+    content_source_missing: '采集时文件不存在，认证状态待确认。', content_source_unreadable: '文件不可读取，认证状态待确认。', content_source_symlink: '来源包含未经安装记录确认的软链接，未采集内容摘要。', content_source_changed: '读取过程中内容变化，将在后续使用时重新采集。', content_file_limit: '文件数量超过策略上限，未采集内容摘要。', content_file_size_limit: '单文件大小超过策略上限，未采集内容摘要。', content_total_size_limit: '总读取量超过策略上限，未采集内容摘要。', content_entry_limit: '目录条目超过遍历上限，未采集内容摘要。', content_check_cancelled: '内容采集超时或取消，认证状态待确认。', content_audit_disabled: '客户端采集时认证核对已关闭。',
     contentState: { computed: '本次采集计算', reused: '复用历史观察摘要' },
     policy: {
       on: '开启', off: '关闭', async: '后台异步核对', check_mode: '内容核对方式', on_change: '首次使用、内容变化或缓存到期时计算', every_use: '每次使用时在后台重新计算',
@@ -15,7 +17,7 @@ export const skillUseMessages = {
       previewHelp: '当前已保存配置 → 本次提交配置；告警规则受“生成告警”总开关控制。',
     },
     fileRecord: 'Skill 文件访问记录', outcomeUnconfirmed: '执行结果未确认', content_digest_missing: '已记录来源路径，但尚未采集内容摘要，无法核对批准版本。',
-    entry: '采集入口', tool: '工具', source: { log: 'Agent 日志 · {count} 条', hook: 'Hook · {count} 条' }, managedAgent: '平台智能体', localInstance: '本地实例', version: '平台版本', yes: '是', no: '否', check: { registered: '平台注册', approved: '准入批准', revoked: '已撤销', content_matches: '内容一致', authorized: '实例授权' },
+    hostVersion: '宿主版本', entry: '采集入口', tool: '工具', source: { log: 'Agent 日志 · {count} 条', hook: 'Hook · {count} 条' }, managedAgent: '平台智能体', localInstance: '本地实例', version: '平台版本', yes: '是', no: '否', check: { registered: '平台注册', approved: '准入批准', revoked: '已撤销', content_matches: '内容一致', authorized: '实例授权' },
     inactiveAlert: '历史告警 · 当前核对已更新', invocationAdapter: 'Skill 调用识别已适配', fileAdapter: '仅明确的 Skill 文件读取', unverifiedAdapter: 'Skill 识别未验证',
     audit_disabled: '策略已暂停认证核对', title: 'Skill 行为', allBehaviors: '全部行为', allChecks: '全部认证状态', invocation: 'Skill 调用', file_access: 'Skill 文件访问',
     attempted: '尝试', host_confirmed: '宿主确认完成', loaded: '宿主确认加载', read: '宿主确认读取', failed: '失败', unknown: '结果未知',
@@ -27,7 +29,8 @@ export const skillUseMessages = {
     policyTitle: 'Skill 使用审计', enabled: '启用认证核对', alerts: '生成告警', policyHelp: '仅审计，不阻断工具。按可靠身份与摘要核对平台当前状态；缺少证据时保持待确认。',
   },
   'en-US': {
-    content_source_missing: 'The source was missing during collection; certification remains pending.', content_source_unreadable: 'The source could not be read; certification remains pending.', content_source_symlink: 'The source contains a symbolic link; no digest was collected.', content_source_changed: 'Content changed while being read; collection will retry on a later use.', content_file_limit: 'The file count exceeds the policy limit; no digest was collected.', content_file_size_limit: 'A file exceeds the size limit; no digest was collected.', content_total_size_limit: 'Total content exceeds the read limit; no digest was collected.', content_entry_limit: 'The directory entry limit was reached; no digest was collected.', content_check_cancelled: 'Content collection timed out or was cancelled; certification remains pending.', content_audit_disabled: 'Certification checks were disabled during client collection.',
+    review: skillAuditReview['en-US'], denied: 'Denied',
+    content_source_missing: 'The source was missing during collection; certification remains pending.', content_source_unreadable: 'The source could not be read; certification remains pending.', content_source_symlink: 'The source contains a symbolic link not verified by its installation record; no digest was collected.', content_source_changed: 'Content changed while being read; collection will retry on a later use.', content_file_limit: 'The file count exceeds the policy limit; no digest was collected.', content_file_size_limit: 'A file exceeds the size limit; no digest was collected.', content_total_size_limit: 'Total content exceeds the read limit; no digest was collected.', content_entry_limit: 'The directory entry limit was reached; no digest was collected.', content_check_cancelled: 'Content collection timed out or was cancelled; certification remains pending.', content_audit_disabled: 'Certification checks were disabled during client collection.',
     contentState: { computed: 'Computed during this collection', reused: 'Reused an earlier content observation' },
     policy: {
       on: 'On', off: 'Off', async: 'Background checks', check_mode: 'Content check mode', on_change: 'Compute on first use, change or cache expiry', every_use: 'Recompute in the background on every use',
@@ -42,7 +45,7 @@ export const skillUseMessages = {
       previewHelp: 'Currently saved → proposed configuration. Alert rules are controlled by the Generate alerts switch.',
     },
     fileRecord: 'Skill file access record', outcomeUnconfirmed: 'Execution outcome unconfirmed', content_digest_missing: 'Source path recorded, but no content digest was collected to compare with the approved version.',
-    entry: 'Source entry', tool: 'Tool', source: { log: 'Agent log · {count} records', hook: 'Hook · {count} records' }, managedAgent: 'Platform Agent', localInstance: 'Local instance', version: 'Registry version', yes: 'Yes', no: 'No', check: { registered: 'Registered', approved: 'Admission approved', revoked: 'Revoked', content_matches: 'Content matches', authorized: 'Instance authorized' },
+    hostVersion: 'Host version', entry: 'Source entry', tool: 'Tool', source: { log: 'Agent log · {count} records', hook: 'Hook · {count} records' }, managedAgent: 'Platform Agent', localInstance: 'Local instance', version: 'Registry version', yes: 'Yes', no: 'No', check: { registered: 'Registered', approved: 'Admission approved', revoked: 'Revoked', content_matches: 'Content matches', authorized: 'Instance authorized' },
     inactiveAlert: 'Historical alert · current check updated', invocationAdapter: 'Skill invocation adapter implemented', fileAdapter: 'Explicit Skill file reads only', unverifiedAdapter: 'Skill recognition unverified',
     audit_disabled: 'Certification checks paused by policy', title: 'Skill activity', allBehaviors: 'All behaviors', allChecks: 'All certification states', invocation: 'Skill invocation', file_access: 'Skill file access',
     attempted: 'Attempted', host_confirmed: 'Host confirmed completion', loaded: 'Host confirmed loading', read: 'Host confirmed reading', failed: 'Failed', unknown: 'Outcome unknown',

@@ -2670,19 +2670,31 @@ AIDR 产品入口、日志格式/根目录、Hook 事件及决策能力统一维
 
 摘要计算在后台日志采集中进行。每个采集 Store 的内存缓存最多 128 个目录、合计 8192 份文件元数据，同目录并发请求合并；目录条目遍历上限为 `max_files × 4 + 256`。平台使用到期索引，每批最多核对 50 条，同批复用候选、摘要和验签结果，下批重新读取平台状态。手动“重新核对”仍读取当前状态。关闭认证核对后，新客户端停止计算摘要，平台将结论标记为暂停；旧客户端需要升级才能应用读取参数。
 
-UI 复验清单：中英文与窄屏下检查全局/单机继承、两种核对方式、资源整数边界及单文件不超过总量、关闭认证/告警后的控件状态、保存预览与取消、并发修改冲突、报告缺失/旧报告与目标不同，以及行为卡片的新算/复用时间和超限原因。隔离 HTTP 联调覆盖策略下发、Go 日志采集、缓存、上传 ACK、认证和告警；各宿主真实加载仍需现场验收。
+UI 复验清单：中英文与窄屏下检查全局/单机继承、两种核对方式、资源整数边界及单文件不超过总量、关闭认证/告警后的控件状态、保存预览与取消、并发修改冲突、报告缺失/旧报告与目标不同，以及行为详情的新算/复用时间和超限原因。隔离 HTTP 联调覆盖策略下发、Go 日志采集、缓存、上传 ACK、认证和告警；各宿主真实加载仍需现场验收。
 
 **English — policy and performance:** Global and device policies configure background content checks, a 300-second maximum digest reuse window, and a separate 30-second registry refresh interval. Defaults are one concurrent check, 256 files, 2 MiB per file and 8 MiB total. Metadata is checked before reuse and original observation timestamps are retained. Windows metadata here does not expose change time, so same-size rewrites with restored mtime may wait for full rehash. Cache and refresh batches are bounded; scheduling intervals do not guarantee alert latency. Three alert categories support record-only or record-and-alert under a master switch. Save previews and timestamped client reports distinguish configuration from reported application. Manually verify both languages, narrow layouts, inheritance, invalid limits, preview/cancel, stale reports and observation status.
 
-Skill 行为卡片直接展示采集入口、宿主版本（已上报时）、日志与 Hook 关联记录数、工具、来源路径、行为结果和认证状态。平台版本、实例身份及内容摘要有值时展示；原始事件编号和完整字段保留在技术诊断中。来源记录数用于追溯，不代表独立 Skill 调用次数。
+Skill 行为采用会话列表、行为表格和记录详情三栏结构。点击记录显示按时间排序的证据、内容观察和平台核对；窄屏在列表与详情之间切换。行为结果与认证状态独立展示，明确拒绝为“已拒绝”，成功与拒绝/失败证据冲突时保留“结果未确认”。可按 Skill/路径、行为、操作结果、认证和原生轮次 ID 筛选，关键词采用 300 毫秒防抖，默认最新记录优先。认证和结果筛选在本次核对后执行；单批最多检查 200 条，尚有未查记录时显示“继续查找”，只有游标耗尽才展示最终空结果。
 
-**English — activity cards:** Source entry, reported host version, linked log/Hook record counts, tool, path, outcome and certification are visible on each card. Registry version, instance identity and content digest appear when available. Technical diagnostics retain original event references and full fields. Source record counts are not separate Skill invocations.
+记录详情提供原始证据入口，按设备和原生调用身份校验归属，正文继续遵守 `clients:read-audit-content` 权限、采集范围、脱敏与保留策略。核对结论变化写入 `aidr_skill_checks`，保留当时结论和观察来源；相同结论只更新当前核对时间。历史从升级后的首次核对开始记录，不能还原升级前或调用瞬间的认证状态。
 
-UI 人工验收补充：中文及英文下检查入口和来源统计、完整长路径、已知/待确认认证状态；窄屏检查换行，展开技术诊断确认原始关联仍可追溯。
+待确认时按原因显示处理步骤。“刷新平台状态”只重新查询当前平台状态；“请求重新采集”创建 `aidr_skill_observe` 任务，需要客户端修改权限、在线且心跳新鲜、唯一来源实例和 `skill_audit_observe` 能力。任务读取前获取当前策略，按资源上限在后台只读观察，最长 30 秒；5 分钟内未开始则过期，已启动读取有 30 秒完成宽限。任务支持幂等提交、过期后重试和回执重传；策略变化的旧回执不更新认证。新观察单独保存，原始调用证据不覆盖。旧客户端需升级并同步清单后才能执行重新采集。
+
+受管安装目录软链接只在本机安装记录、Skill ID/版本和实际发布目录精确一致时允许读取；任意外链及 `SKILL.md` 文件自身软链接不放行。正常日志采集和人工重新采集共用路径核验。未经核验、超限或读取失败时保留待确认。
+
+**English — Skill activity review:** Sessions, an activity table and a record detail pane form the main view; narrow layouts switch between list and detail. Outcome and certification remain independent. Explicit denial is terminal; conflicting success and denial/failure evidence stays unconfirmed. Filters include Skill/path, behavior, outcome, certification and native turn ID, with 300 ms keyword debounce and newest-first ordering. Each request checks up to 200 candidates; an empty batch with a remaining cursor offers Continue searching. Evidence drilldown verifies device and native-call identity and preserves content permissions, redaction and retention. Check changes are recorded with their observation source from the first post-upgrade check; unchanged conclusions only update the current check time.
+
+**English — resolving pending checks:** Refresh registry status only rechecks platform state. Request recollection creates an idempotent `aidr_skill_observe` task for a recently online client with a unique source instance and advertised support, requiring client update permission. The worker fetches current policy before a bounded, read-only observation (30-second timeout). Tasks expire after five minutes with a 30-second completion allowance; stale-policy receipts cannot update certification. New observations remain separate from original call evidence. Upgrade older clients and synchronize inventory to enable this action. Managed directory aliases are accepted only when the local installation and actual managed release match exactly; arbitrary or file-level symlinks remain unavailable.
+
+重新采集依据独立的 Skill 认证核对开关判断可用性；敏感信息脱敏开关只决定脱敏处理。历史记录缺少轮次字段时，从同设备、同调用的原始证据补齐后参与轮次筛选；证据缺失或归属冲突时保持未知。
+
+**English:** Recollection availability follows the independent Skill audit switch; the sensitive-data redaction switch controls redaction. Legacy records recover missing native turn IDs from exact evidence for the same device and call before turn filtering. Missing or conflicting attribution remains unknown.
+
+UI 人工复验：中英文分别检查列表/详情切换、长名称路径和窄屏、全部筛选与继续查找、原始证据权限及过期提示、平台刷新与重新采集区别、重复点击/离线/旧客户端/策略变化/失败重试、核对历史及原始证据保留。
 
 会话活动新增 Skill 行为视图。产品适配模块提取可选 `skill_use` 元数据，经原有日志/Hook 持久化和 ACK 链路写入，`aidr_skill_uses` 按可靠原生身份聚合。后台按有效全局/单机策略核对 registry、签名和实例绑定，以 `aidr_skill_alert` 复用客户端事件告警。每次调用一条告警，查询失败和证据不足为待确认，不新增阻断。界面只把明确调用/文件读取作为行为；尝试、宿主确认和未知结果分别展示。来源摘要是采集时观察，不是调用时内容证明。
 
-Skill 行为接口按需读取认证元数据：优先查询设备部署的版本，其次查询所有精确同名候选；名称和部署映射均缺失但有摘要时，仍保留完整候选范围。认证查询不加载扫描报告。空列表、来源或摘要缺失时直接返回对应状态。同一请求内复用候选查询结果，下次请求及后台核对重新读取当前注册、批准和撤销状态；认证筛选仍在核对后执行。
+Skill 行为接口按需读取认证元数据：优先查询设备部署的版本，其次查询所有精确同名候选；名称和部署映射均缺失但有摘要时，仍保留完整候选范围。认证查询不加载扫描报告。空列表、来源或摘要缺失时直接返回对应状态。同一请求内复用相同来源与摘要的认证、候选查询、摘要与验签结果，下次请求及后台核对重新读取当前注册、批准和撤销状态；认证筛选仍在核对后执行。
 
 人工验收：打开有记录和无记录的会话，检查 Skill 行为加载与“重新核对”；切换行为、认证筛选并加载更多，确认记录和游标正常。在隔离测试环境变更批准或撤销状态，下次重新核对应立即反映变化，重复核对不新增重复告警。简体中文及英文界面分别检查。
 

@@ -932,13 +932,17 @@ WorkBuddy 的 Agent Manager 接入使用用户 `settings.json` 中的 Hook 命�
 #### 数据与核对边界
 
 - `skill_use` 是可选元数据：行为、名称、来源路径、提取依据、可选宿主加载阶段、观察摘要及时间。旧事件与逻辑 ID 不变；历史未结构化事件不回填为新调用。
-- 明确的 `Skill` / `skill` 工具输入由产品模块读取。文件访问只识别结构化单文件读取及字面量 `cat …/SKILL.md`；搜索、枚举、提及、复合 shell 表达式不计为调用。Pre 只表示尝试；结果缺失为未知；工具失败独立展示。宿主加载或文件读取不能证明按技能执行了任务。
+- 明确的 `Skill` / `skill` 工具输入由产品模块读取。文件访问只识别结构化单文件读取及字面量 `cat …/SKILL.md`；搜索、枚举、提及、复合 shell 表达式不计为调用。Pre 只表示尝试；结果缺失为未知；工具失败和明确拒绝独立展示，互相冲突的结果保持未知。宿主加载或文件读取不能证明按技能执行了任务。
 - 按设备、用户范围、产品入口、会话、原生智能体与调用 ID 关联，Codex 还要求原生轮次一致。缺少可靠身份保留独立证据；Qoder 共享 Hook 不冒充 CLI。重复前后事件与日志副本聚合为同一调用；独立调用不合并。
-- 有可靠路径时，仅异步日志读取器观察本地目录内容，复用 manifest / `ContentSignature`，不上传正文；默认最多 256 个文件、单文件 2 MiB、合计 8 MiB，可在 Skill 审计策略中调整。无法读取、路径包含符号链接或超限时保留待确认及稳定原因码。Hook 决策路径不做目录哈希，只有 Hook 且缺少日志摘要时认证待确认。摘要是采集时观察，不证明调用瞬间内容；客户端是证据提供方，不是防篡改证明。
+- 有可靠路径时，异步日志读取器或人工请求的后台采集任务观察本地目录内容，复用 manifest / `ContentSignature`，不上传正文；默认最多 256 个文件、单文件 2 MiB、合计 8 MiB，可在 Skill 审计策略中调整。无法读取、路径包含未经安装记录核验的符号链接或超限时保留待确认及稳定原因码。受管目录别名须与本机安装记录、Skill ID/版本及真实发布目录精确一致；文件级软链接不放行。Hook 决策路径不做目录哈希，只有 Hook 且缺少日志摘要时认证待确认。摘要是采集时观察，不证明调用瞬间内容；客户端是证据提供方，不是防篡改证明。
 - 平台优先使用精确安装路径映射的版本 ID；其次用明确的 Skill 名称定位候选，再比较摘要。名称不构成认证；没有名称时需要摘要唯一匹配。同名不同内容不能标为已认证，候选内容不可读时待确认。已签名版本使用签名封套内批准摘要并验签，兼容旧签名校验。
 - 注册、审批、撤销、内容匹配与实例授权分别展示。授权只在现有设备库存中有唯一产品实例、对应 Skill 根、明确平台绑定且非未知子智能体时核对；否则保持未知。授权沿用平台智能体现有 Skill ID / 家族 / 名称绑定语义。
 - 上传沿用设备凭据、持久队列与严格 ACK；客户端不持有管理员凭据做认证查询。认证在服务器后台和页面“重新核对”进行，不进入工具决策。每次有界批次重新读取当前 registry 和策略，没有跨批次长期认证缓存；后台按 `next_check_at` 索引每批最多检查 50 条，批次之间等待 1 秒；单条按策略默认 30 秒后再次到期，大量记录存在排队延迟，页面读取即时重检当前页。
 - 全局与单机“Skill 使用审计”控制认证核对和告警，默认仅审计。查询失败、路径/摘要/身份不足是待确认，不是未认证。明确不通过时写入已有客户端事件 `aidr_skill_alert`，每个调用一个 aggregate key；重传和后续结果更新不重复告警。当前状态变化会更新告警，历史记录仍可追溯。没有新增阻断。
+
+平台详情通过 `/api/v1/clients/{client_id}/aidr/skill-uses/{usage_id}` 读取时间线与核对变更历史，`/evidence?source=hook|log&record_id=...` 只返回同设备、同原生调用的可见元数据。正文仍通过现有受权限控制的内容接口读取。`POST .../{usage_id}/observations` 使用 `request_id` 幂等创建重新采集任务；客户端以原有 `client:read-tasks` 设备凭据领取任务、获取当前有效策略并上报结构化 `skill_observation` 回执。仅原记录的来源路径可被请求，不接受任意文件路径。原始事件与新观察分别保留，回执校验策略版本及调用来源，历史核对记录受审计保留周期约束。
+
+**English — review API:** Skill-use details expose the evidence timeline and changes in registry checks. Evidence references must match the device and exact native call; bodies use the existing permission-controlled content endpoint. The observations endpoint idempotently creates a task from the recorded source using `request_id`. Device credentials with `client:read-tasks` fetch current policy and report structured observations. Receipts are validated against policy version and original source. New observations do not replace original events; retained check history does not attest to call-time state.
 
 #### 逐产品证据矩阵（本次 Skill 识别验收）
 
