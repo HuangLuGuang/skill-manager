@@ -352,6 +352,19 @@ Backend 镜像中的 SkillSpector 固定为 **2.2.3**，源码提交为
 - `agent-manager-security-worker:<tag>`
 - `agent-manager-aig-scan-service:<tag>`
 
+前端镜像以仓库根目录为构建上下文（`docker build -f web/Dockerfile .`）。构建阶段在
+`/app/web` 编译平台，并将两端共用的事件展示模块 `client/desktop/src/event-records.js`
+复制到 `/app/client/desktop/src/`，保留源码相对目录关系。最终 Nginx 镜像只接收
+`/app/web/dist` 静态产物。修改跨目录共享模块时，应验证此 Docker 构建路径。
+构建阶段保留 `npm audit --audit-level=low` 检查；依赖更新同步锁文件，并重新验证安全检查与镜像构建。
+
+**English:** Build the frontend image from the repository root with `docker build -f web/Dockerfile .`.
+The build stage compiles the web app in `/app/web` and copies the shared event presentation module to
+`/app/client/desktop/src/event-records.js`, preserving its source-relative location. The final Nginx
+image receives only the static assets from `/app/web/dist`. Validate this Docker build when changing
+modules shared across directories. The build retains `npm audit --audit-level=low`; dependency updates
+must include the lockfile and pass both the audit and image build again.
+
 安全 Worker 和 AI-Infra-Guard 内部服务已加入 `--all` 和 `--save`，因此 x86/ARM 离线包会包含这两个镜像。联网 CI 在镜像中
 写入锁定的 AI-Infra-Guard Agent Scan/MCP Scan 源码、约束依赖、LICENSE、NOTICE 和 SPDX SBOM；客户
 现场启动时不得访问 GitHub 或 PyPI。构建会先用与测试相同的确定性整树算法校验 Agent Scan 和
