@@ -3,6 +3,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
 from .client_assets import ClientAssetInventory
+from .aidr_skill_contract import SkillObservationReceipt
 
 
 class UserBase(BaseModel):
@@ -259,7 +260,7 @@ class DocsPdfArticle(BaseModel):
 
 class DocsPdfExportRequest(BaseModel):
     locale: str = Field(default="zh-CN", pattern="^(zh-CN|en-US)$")
-    articles: list[DocsPdfArticle] = Field(min_length=1, max_length=40)
+    articles: list[DocsPdfArticle] = Field(min_length=1, max_length=200)
 
 
 class ScheduledTaskBase(BaseModel):
@@ -1044,7 +1045,10 @@ class ClientSkillActionRequest(BaseModel):
     retain_copy: bool = True
 
 
+
+
 class ClientTaskResult(BaseModel):
+    skill_observation: SkillObservationReceipt | None = None
     aidr_result: RuntimeGovernanceReport | None = None
     verification_request_ids: list[str] = Field(default_factory=list, max_length=20)
     restored_after_failure: bool = False

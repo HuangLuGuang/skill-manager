@@ -3,12 +3,14 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from .. import auth, iam, models, schemas
 from ..api_errors import ApiError
 from ..docs_export_pdf import build_docs_export_pdf
+from ..docs_export_stream import stream_docs_export
 from ..sqlite_db import get_db
 
 
@@ -207,6 +209,7 @@ async def update_docs_assistant_config(
 async def export_docs_pdf(
     payload: schemas.DocsPdfExportRequest,
     request: Request,
+    stream: bool = False,
     current_user: models.User = Depends(auth.get_current_active_user),
     db: Session = Depends(get_db),
 ):
@@ -226,7 +229,13 @@ async def export_docs_pdf(
         if payload.locale == "zh-CN"
         else now.strftime("%B %d, %Y %H:%M %Z")
     )
-    document = build_docs_export_pdf(payload, generated_at=generated_at)
+    if stream:
+        return StreamingResponse(
+            stream_docs_export(payload, generated_at=generated_at),
+            media_type="application/x-ndjson",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
+    document = await run_in_threadpool(build_docs_export_pdf, payload, generated_at=generated_at)
     return Response(
         content=document,
         media_type="application/pdf",

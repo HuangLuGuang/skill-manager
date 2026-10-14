@@ -185,30 +185,86 @@ def audit_session_timeline(client_id: str, source: str = Query(pattern='^(logs|h
 def skill_uses(client_id: str, agent: str = Query(max_length=32), session_id: str = Query(max_length=256),
                behavior: str = Query('', pattern='^(|invocation|file_access)$'),
                certification: str = Query('', pattern='^(|pending|verified|verified_content|unregistered|unapproved|content_changed|revoked|unauthorized)$'),
+               keyword: str = Query('', max_length=256), result: str = Query('', pattern='^(|attempted|denied|failed|host_confirmed|unknown)$'),
+               order: str = Query('oldest', pattern='^(oldest|newest)$'), turn_id: str = Query('', max_length=256),
                after: int = Query(0, ge=0), limit: int = Query(30, ge=1, le=100),
                db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     device_for_user(db, client_id, user)
     from ..aidr_models import AidrSkillUse
     from ..aidr_skill_usage import refresh, registry_manager
     entries = ('qoder-hooks', 'qoder-cli') if agent == 'qoder-hooks' else (agent,)
-    query = db.query(AidrSkillUse).filter_by(client_id=client_id, session_id=session_id, expired_at=None).filter(AidrSkillUse.agent.in_(entries), AidrSkillUse.id > after)
+    query = db.query(AidrSkillUse).filter_by(client_id=client_id, session_id=session_id, expired_at=None).filter(AidrSkillUse.agent.in_(entries))
+    if after:
+        query = query.filter(AidrSkillUse.id < after if order == 'newest' else AidrSkillUse.id > after)
     if behavior: query = query.filter_by(behavior=behavior)
+    if keyword.strip():
+        query = query.filter(or_(*(func.coalesce(func.json_extract(AidrSkillUse.payload_json, path), '').contains(keyword.strip(), autoescape=True)
+                                 for path in ('$.skill.name', '$.skill.path', '$.certification.name'))))
+    if turn_id:
+        native_turn = func.json_extract(AidrSkillUse.payload_json, '$.turn_id')
+        query = query.filter(or_(native_turn == turn_id, native_turn.is_(None)))
     # Evaluate the selected state after rechecking, not against a stale cache.
-    rows = query.order_by(AidrSkillUse.id).limit(201).all()
+    rows = query.order_by(AidrSkillUse.id.desc() if order == 'newest' else AidrSkillUse.id).limit(201).all()
     items, cursor = [], after
     manager = registry_manager()
     settings = aidr_policy.current(db, client_id)['skill_audit']
     for row in rows[:200]:
         item = refresh(db, row, manager, settings)
         cursor = row.id
-        if not certification or item.get('certification', {}).get('status') == certification:
+        if (not turn_id or item.get('turn_id') == turn_id) and (not certification or item.get('certification', {}).get('status') == certification) and (not result or item['stage'] == result):
             items.append(item)
         if len(items) == limit:
             break
-    more = bool(rows and cursor < rows[-1].id)
+    more = bool(rows and cursor != rows[-1].id)
     db.commit()
     return {'items':items,'has_more':more,'next_cursor':str(cursor) if more else '',
+            'search_complete':not more, 'checked_count':next((i+1 for i, row in enumerate(rows) if row.id == cursor), 0),
             'checks':'fresh_registry_with_observed_content','mode':'audit'}
+
+
+@router.get('/skill-uses/{usage_id}')
+def skill_use_detail(client_id: str, usage_id: int = Path(ge=1), before: int = Query(0, ge=0),
+                     db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    device_for_user(db, client_id, user)
+    from .. import aidr_skill_review
+    value = aidr_skill_review.detail(db, aidr_skill_review.usage(db, client_id, usage_id), before)
+    db.commit()
+    return value
+
+
+class SkillObservationRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    request_id: str = Field(min_length=1, max_length=128)
+
+
+@router.get('/skill-uses/{usage_id}/evidence')
+def skill_use_evidence(client_id: str, usage_id: int = Path(ge=1), source: str = Query(pattern='^(hook|log)$'),
+                       record_id: int = Query(ge=1), db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    device_for_user(db, client_id, user)
+    from .. import aidr_skill_review
+    from ..aidr_models import AidrEvent
+    from ..aidr_skill_usage import identity
+    row = aidr_skill_review.usage(db, client_id, usage_id)
+    model = AidrHookEvent if source == 'hook' else AidrEvent
+    record = db.query(model).filter_by(id=record_id, client_id=client_id, expired_at=None).first()
+    if not record:
+        fail(404, 'skill_record_unavailable', '证据不存在或已过期', 'Evidence is unavailable or expired')
+    raw = json.loads(record.payload_json)
+    event = {**raw.get('event', {}), 'user_scope':raw.get('user_scope')} if source == 'hook' else raw
+    if identity(client_id, event, source, record_id) != row.call_key:
+        fail(404, 'skill_record_unavailable', '证据不属于此记录', 'Evidence does not belong to this record')
+    return {'source':source, 'record_id':str(record_id), 'event':metadata_view(event)}
+
+
+@router.post('/skill-uses/{usage_id}/observations')
+def request_skill_observation(client_id: str, body: SkillObservationRequest, usage_id: int = Path(ge=1),
+                              db: Session = Depends(get_db), user=Depends(iam.require('clients:update'))):
+    device_for_user(db, client_id, user)
+    from .. import aidr_skill_review
+    value = aidr_skill_review.create_observation(db, aidr_skill_review.usage(db, client_id, usage_id), body.request_id, user.username)
+    _operation(db, user, 'aidr.skill_observation_requested', client_id, dump({'usage_id':usage_id, 'task_id':value['id']}))
+    db.commit()
+    return value
 
 
 @router.get('/hooks/{record_id}/related')

@@ -336,12 +336,14 @@ const showPanel = panel => {
   $('.workspace').dataset.panel = panel
   $('#panel-title').textContent = panelTitle(panel)
   $('.workspace').scrollTop = 0
+  if (previousPanel === 'records' && panel !== 'records') clearTimeout(recordSearchTimer)
   if (panel === 'discover' && connection?.configured) {
     requestAnimationFrame(() => { syncAgentScroll(); revealSelectedAgent() })
   }
   if (panel === 'models' && connection) renderModelSwitcher(connection)
   if (panel === 'records') {
     if (previousPanel !== 'records') recordState.page = 1
+    if (connection?.configured) void loadRecordHistory()
   }
   if (panel === 'runtime-governance' && !$('#aidr-plugin-settings').hidden) void window.aidrGovernance?.refresh()
   if (panel === 'settings') {
@@ -1356,6 +1358,13 @@ const notificationAction = eventType => ({
 }[eventType] || { panel: 'records', label: t('ui.ox3r68') })
 
 const recordState = { kind: 'events', page: 1, pageSize: 10, total: 0, sequence: 0 }
+const eventRecordText = (key, args = {}, fallback = 'unknown') => {
+  const resource = 'ui.eventRecord.' + key
+  const value = t(resource)
+  return (value === resource ? t('ui.eventRecord.' + fallback) : value).replace(/\{(\w+)\}/g, (match, name) => args[name] ?? match)
+}
+let selectedEventRecord = null
+const describeEventRecord = event => window.clientEventRecords.describe(event, eventRecordText)
 let recordSearchTimer
 const recordOptions = (id, values, label) => {
   const control = $(id), selected = control.value
@@ -1363,11 +1372,16 @@ const recordOptions = (id, values, label) => {
   control.value = values.includes(selected) ? selected : ''
 }
 const loadRecordHistory = async ({ strict = false } = {}) => {
-  recordOptions('#records-status', ['pending', 'running', 'succeeded', 'failed', 'cancelled'], taskStatusLabel)
+  clearTimeout(recordSearchTimer)
+  const events = recordState.kind === 'events'
+  $('#records-type-label').textContent = events ? eventRecordText('category') : t('ui.records.type')
+  $('#records-status-label').textContent = events ? eventRecordText('handling') : t('ui.records.status')
+  $('#records-keyword').placeholder = events ? eventRecordText('search') : t('ui.records.search')
+  if (!events) recordOptions('#records-status', ['pending', 'running', 'succeeded', 'failed', 'cancelled'], taskStatusLabel)
   const sequence = ++recordState.sequence
   const filters = { kind: recordState.kind, page: String(recordState.page), page_size: String(recordState.pageSize),
-    keyword: $('#records-keyword').value, agent: $('#records-agent').value, record_type: $('#records-type').value,
-    status: recordState.kind === 'tasks' ? $('#records-status').value : '', days: $('#records-days').value }
+    keyword: $('#records-keyword').value, agent: $('#records-agent').value, record_type: events ? '' : $('#records-type').value,
+    category: events ? $('#records-type').value : '', status: $('#records-status').value, days: $('#records-days').value }
   $('#records-feedback').textContent = t('ui.records.loading')
   $('#records-prev').disabled = $('#records-next').disabled = true
   $('#records').setAttribute('aria-busy', 'true')
@@ -1381,7 +1395,8 @@ const loadRecordHistory = async ({ strict = false } = {}) => {
     recordState.page = result.page
     recordState.total = result.total
     recordOptions('#records-agent', result.agents, agentLabel)
-    recordOptions('#records-type', result.types, value => recordState.kind === 'events' ? eventTypeLabel(value) : taskTypeLabel({ task_type: value, payload: {} }))
+    recordOptions('#records-type', events ? result.categories : result.types, value => events ? eventRecordText('category_' + value) : taskTypeLabel({ task_type: value, payload: {} }))
+    if (events) recordOptions('#records-status', result.states, value => eventRecordText('state_' + value))
     const rows = result.items
     if (recordState.kind === 'events') renderEventHistory(rows)
     else renderTaskHistory(rows)
@@ -1405,7 +1420,7 @@ const loadRecordHistory = async ({ strict = false } = {}) => {
 }
 const filterRecords = () => { recordState.page = 1; void loadRecordHistory() }
 recordOptions('#records-agent', [], agentLabel)
-recordOptions('#records-type', [], value => eventTypeLabel(value))
+recordOptions('#records-type', [], value => eventRecordText('category_' + value))
 $('#records-keyword').addEventListener('input', () => { clearTimeout(recordSearchTimer); recordState.sequence++; recordSearchTimer = setTimeout(filterRecords, 300) })
 for (const id of ['records-agent', 'records-type', 'records-status', 'records-days']) $(`#${id}`).addEventListener('change', filterRecords)
 $('#records-page-size').addEventListener('change', event => { recordState.pageSize = Number(event.target.value); filterRecords() })
@@ -1422,8 +1437,8 @@ document.querySelectorAll('[data-record-kind]').forEach(button => button.addEven
   document.querySelectorAll('[data-record-kind]').forEach(tab => tab.setAttribute('aria-selected', String(tab === button)))
   $('#event-records').hidden = recordState.kind !== 'events'
   $('#task-records').hidden = recordState.kind !== 'tasks'
-  $('#records-status-filter').hidden = recordState.kind !== 'tasks'
   $('#records-type').value = ''
+  $('#records-status').value = ''
   filterRecords()
 }))
 
@@ -1487,26 +1502,51 @@ const localizedNotification = item => {
 const renderEventHistory = events => {
   const element = $('#event-history-list')
   element.classList.toggle('empty', !events.length)
-  element.innerHTML = events.length ? events.map(event => {
-    const details = event.details || {}
-    const type = event.record_type || event.event_type
-    const actionEvent = event.event_type === 'skill_governance_action'
-    const actionFailed = details.status === 'failed' || Boolean(details.error_code)
-    const status = actionEvent ? (actionFailed ? 'failed' : 'completed')
-      : details.action === 'record_only' ? 'completed'
-        : details.trigger === 'malicious' || details.status === 'failed' ? 'failed'
-          : details.trigger ? 'warning' : eventStatus(type)
-    const result = actionEvent ? taskStatusLabel(actionFailed ? 'failed' : 'succeeded')
-      : details.trigger ? governanceLabelFor('trigger', details.trigger) : eventResultLabel(type)
-    return `<div class="takeover-row task-history-row event-history-row">
-    <div><strong>${escapeHtml(event.skill_name || '-')}</strong></div>
-    <span>${escapeHtml(event.agent_type ? agentLabel(event.agent_type) : t('ui.13nfgz7'))}</span>
-    <span>${escapeHtml(eventTypeLabel(type))}</span>
-    <strong class="task-status-${status}">${escapeHtml(result)}</strong>
-    <span>${escapeHtml(formatTime(event.last_seen_at || event.created_at))}${event.observation_count > 1 ? `<small>${escapeHtml(t('ui.agentManagement.observations'))}: ${event.observation_count}</small>` : ''}</span>
-  </div>`
-  }).join('') : t('ui.records.empty')
+  element.innerHTML = events.length ? events.map((event, index) => {
+    const view = describeEventRecord(event)
+    return `<button type="button" data-event-record="${index}" class="takeover-row task-history-row event-history-row">
+      <span><strong>${escapeHtml(event.skill_name || '-')}</strong><small>${escapeHtml(event.agent_type ? agentLabel(event.agent_type) : '-')}</small></span>
+      <span><strong>${escapeHtml(view.title)}</strong><small>${escapeHtml(view.category)} · ${escapeHtml(view.reason)}</small></span>
+      <span><span class="event-state ${view.tone}">${escapeHtml(view.state)}</span>${view.retained ? `<small>${escapeHtml(eventRecordText('retained'))}</small>` : ''}</span>
+      <span>${escapeHtml(formatTime(view.occurred_at))}<small>${escapeHtml(view.timeLabel)}</small>${view.count ? `<small>${escapeHtml(view.count)}</small>` : ''}</span>
+      <span data-ui-icon="chevron-right" aria-hidden="true"></span>
+    </button>`
+  }).join('') : eventRecordText('empty')
+  element.querySelectorAll('[data-event-record]').forEach(button => button.addEventListener('click', () => openEventRecord(events[Number(button.dataset.eventRecord)])))
 }
+const openEventRecord = event => {
+  selectedEventRecord = event
+  renderEventRecordDetail()
+  if (!$('#event-record-dialog').open) $('#event-record-dialog').showModal()
+}
+const renderEventRecordDetail = () => {
+  if (!selectedEventRecord) return
+  const event = selectedEventRecord, view = describeEventRecord(event), esc = escapeHtml
+  const field = (key, value) => `<div><dt>${esc(eventRecordText(key))}</dt><dd>${esc(value || eventRecordText('unknown'))}</dd></div>`
+  const phase = node => eventRecordText('stage_' + (node.stage === 'host_confirmed' ? view.behavior === 'invocation' ? 'loaded' : 'read' : node.stage), {}, 'stage_unknown')
+  $('#event-record-body').innerHTML = `
+    <div class="event-detail-heading"><h2>${esc(view.title)}</h2><span class="event-state ${view.tone}">${esc(view.state)}</span></div>
+    <p class="event-identity"><strong>${esc(event.skill_name || '-')}</strong> / ${esc(agentLabel(event.agent_type))}</p>
+    <section><h3>${esc(eventRecordText('what'))}</h3>${event.presentation?.category === 'audit' ? `<p>${esc(view.stage)}</p>` : ''}<dl class="event-facts">${field('time_' + view.time_kind, formatTime(view.occurred_at))}${field('source', view.category)}${view.count ? field('category_discovery', view.count) : ''}</dl></section>
+    <section><h3>${esc(eventRecordText('why'))}</h3><p>${esc(view.reason)}</p></section>
+    <section><h3>${esc(eventRecordText('handled'))}</h3><p>${esc(view.action)} · ${esc(view.state)}</p><dl class="event-facts">${event.presentation?.category === 'audit' ? field('fileAction', eventRecordText('unknown')) : ''}${view.checked_at ? field('checked', formatTime(view.checked_at)) : ''}${view.error ? field('error', runtimeText(view.error)) : ''}</dl>${view.retained ? `<p>${esc(eventRecordText('retained'))}</p>` : ''}</section>
+    <section><h3>${esc(eventRecordText('evidence'))}</h3>${view.timeline.length ? `<ol class="event-timeline">${view.timeline.map(node => `<li><time>${esc(formatTime(node.at))}</time><strong>${esc(phase(node))}</strong><small>${esc(eventRecordText('source_' + node.source))}${node.arrival ? ' · ' + esc(eventRecordText('arrival')) : ''}</small></li>`).join('')}${view.checked_at ? `<li><time>${esc(formatTime(view.checked_at))}</time><strong>${esc(eventRecordText('checked'))}</strong><small>${esc(eventRecordText('reason_' + view.current_reason, {}, 'reason_unknown'))}</small></li>` : ''}</ol>` : `<p class="muted">${esc(eventRecordText('noEvidence'))}</p>`}${view.usage_id ? `<p class="muted">${esc(eventRecordText('detailsPlatform'))}</p>` : ''}</section>
+    <details class="event-technical"><summary>${esc(eventRecordText('technical'))}</summary><dl>${field('path', view.path)}${field('session', view.session_id)}${field('native', view.native_call_id)}${field('code', event.event_type)}${field('created', formatTime(event.created_at))}</dl></details>`
+  $('#event-record-boundary').hidden = event.presentation?.category !== 'audit'
+  const targets = (inventory?.agents || []).flatMap(agent => agent.agent_type === event.agent_type ? (agent.skills || []).filter(skill => view.path ? skill.path === view.path : skill.name === event.skill_name).map(skill => ({ agent, skill })) : [])
+  const button = $('#event-record-skill')
+  button.hidden = targets.length !== 1
+  button.onclick = () => {
+    const { agent, skill } = targets[0]
+    $('#event-record-dialog').close()
+    $('#agent-skill-search').value = skill.name
+    $('#agent-skill-status').value = ''
+    expandedSkillDetails.add(skillDetailKey(agent, skill))
+    switchAgent(agentKey(agent)); switchAgentView('local'); showPanel('discover')
+  }
+}
+$('#event-record-close').addEventListener('click', () => $('#event-record-dialog').close())
+$('#event-record-dialog').addEventListener('close', () => { selectedEventRecord = null })
 
 const renderTaskHistory = tasks => {
   const element = $('#task-history-list')
@@ -1515,7 +1555,8 @@ const renderTaskHistory = tasks => {
     const payload = task.payload || {}
     const policySync = task.task_type === 'sync_policy' || (task.task_type === 'rescan' && payload.reason === 'policy_changed')
     const aidr = task.task_type === 'aidr_plugin_action'
-    const target = aidr ? aidrTaskSummary(payload) : payload.target_version
+    const target = task.task_type === 'aidr_skill_observe' ? (payload.skill?.path || payload.skill?.name || '-')
+      : aidr ? aidrTaskSummary(payload) : payload.target_version
       ? t('ui.overview.classified_policy')
       : policySync ? tf`处置：${policyLabel(payload.mode)} · 治理：${governanceLabel(payload.governance_mode)}`
       : payload.skill_name || payload.skill_id || (task.task_type === 'rescan' ? t('ui.1agolmk') : '-')
@@ -2629,8 +2670,10 @@ $('#run-once').addEventListener('click', event => runStatusCommand(event.current
 $('#install-service').addEventListener('click', event => runStatusCommand(event.currentTarget, 'reconcile-service', t('ui.1wl6i9a')))
 $('#refresh-records').addEventListener('click', async event => {
   const button = event.currentTarget
-  setBusy(button, true)
-  try { await loadRecordHistory() } finally { setBusy(button, false) }
+  if (button.disabled) return
+  button.disabled = true
+  button.classList.add('is-busy')
+  try { await loadRecordHistory() } finally { button.disabled = false; button.classList.remove('is-busy') }
 })
 
 $('#settings-trigger').addEventListener('click', () => { showPanel('settings'); void refreshLogSettings() })
@@ -3266,7 +3309,7 @@ function taskTypeLabel(task) {
   }
   if (value === 'skill_action') return task.payload?.action ? governanceLabelFor('action', task.payload.action) : t('ui.records.skillAction')
   if (value === 'rescan' && task?.payload?.reason === 'policy_changed') return t('ui.q9utgp')
-  return { install_skill: t('ui.14fftle'), remove_skill: t('ui.s2pmon'), repair_skill: t('ui.14oueep'), apply_model_config: t('client.models.task_type'), verify_model_config: t('ui.modelConfig.verify'), restore_model_config: t('ui.modelConfig.restore'), rescan: t('ui.1rnx8gk'), sync_policy: t('ui.q9utgp') }[value] || value || tf`平台任务`
+  return { aidr_skill_observe: t('ui.skillAudit.observeTask'), install_skill: t('ui.14fftle'), remove_skill: t('ui.s2pmon'), repair_skill: t('ui.14oueep'), apply_model_config: t('client.models.task_type'), verify_model_config: t('ui.modelConfig.verify'), restore_model_config: t('ui.modelConfig.restore'), rescan: t('ui.1rnx8gk'), sync_policy: t('ui.q9utgp') }[value] || value || tf`平台任务`
 }
 
 function aidrTaskAgents(payload) {
@@ -3295,27 +3338,6 @@ function aidrTaskTarget(target) {
 function taskStatusLabel(value) {
   return { pending: t('ui.1yesuc2'), running: t('ui.6svkbt'), succeeded: t('ui.19j4h'), failed: t('ui.12db3qz'), cancelled: t('ui.1d8x36r') }[value] || value || '-'
 }
-
-function eventTypeLabel(value) {
-  return {
-    agent_credential_issued: t('ui.activity.credential_issued'),
-    local_agent_binding_updated: t('ui.activity.binding_updated'),
-    managed_agent_auto_created: t('ui.activity.agent_created'),
-    skill_governance_recorded: t('ui.agentManagement.recorded'), skill_governance_detected: t('ui.agentManagement.alert'), skill_governance_action: t('ui.agentManagement.remediation'), skill_scan_submitted: t('ui.agentManagement.submitted'),
-    client_registered: t('ui.444a0v'), takeover_completed: t('ui.1nk4zrj'), unmanaged_skill_found: t('ui.gawr4f'),
-    unmanaged_skill_verified: t('ui.11fi048'), skill_installed: t('ui.14fftle'), skill_removed: t('ui.s2pmon'),
-    skill_modified: t('ui.grb2re'), skill_repaired: t('ui.1dswesb'), skill_blocked: t('ui.ly2ow4'),
-    skill_quarantined: t('ui.1bc6akl'), skill_quarantine_restored: t('ui.1swl6k'),
-    platform_scan_status: t('ui.records.platform_scan_status'),
-  }[value] || value || t('ui.1l0wfyp')
-}
-
-function eventDetail(value) {
-  return { skill_repaired: t('ui.1nedkoa'), skill_modified: t('ui.111odxs'), skill_blocked: t('ui.l5pb9v'), skill_quarantined: t('ui.1ena7pa') }[value] || '-'
-}
-
-const eventStatus = value => value === 'skill_modified' ? 'running' : ['skill_blocked', 'skill_quarantined'].includes(value) ? 'failed' : 'succeeded'
-const eventResultLabel = value => value === 'skill_modified' ? t('ui.4bymt0') : ['skill_blocked', 'skill_quarantined'].includes(value) ? t('ui.1ltzzrr') : t('ui.19j4h')
 
 function agentKind(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^claude$/, 'claudecode').replace(/^geminicli$/, 'gemini')
@@ -3882,9 +3904,12 @@ document.addEventListener('visibilitychange', () => {
 })
 window.addEventListener('agent-manager-client-locale-change', async () => {
   syncSettingsControls()
+  $('#client-build-version').textContent = tf`版本 ${clientBuildVersion}`
   void syncBackgroundMenu()
   const activePanel = document.querySelector('.panel.active')?.id || 'connect'
-  if (activePanel === 'records') void loadRecordHistory()
+  if (connection?.configured) void loadRecordHistory()
+  if ($('#event-record-dialog').open) renderEventRecordDetail()
+  if (activePanel === 'settings') void refreshLogSettings()
   $('#panel-title').textContent = panelTitle(activePanel)
   if (inventory) renderInventory()
   if (builtinAgentSettings.length) renderBuiltinAgentSettings()

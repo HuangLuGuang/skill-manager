@@ -299,6 +299,7 @@ func runManagedLogWorker(ctx context.Context, home string, plan logRunPlan, enab
 		return err
 	}
 	defer func() { resultErr = errors.Join(resultErr, s.Close()) }()
+	s.SetSkillPathResolver(func(path string) (string, error) { return managedclient.ResolveAuditSkillPath(home, path) })
 	c, err := upload.New(upload.Options{Server: plan.server, ClientID: plan.device, Token: plan.token, ObserveHTTP: aidrHTTPObserver(home)})
 	if err != nil {
 		return err

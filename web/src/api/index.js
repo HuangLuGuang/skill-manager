@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { createUploadProgressReader } from '../utils/uploadProgress'
+import { createDocsPdfProgressReader } from '../utils/docsPdfProgress'
 import { getCurrentLocale } from '../i18n'
 import { getApiErrorCode, localizeApiError } from '../i18n/errors'
 
@@ -121,7 +122,14 @@ export const exportSecurityScanReportPdf = (taskId, language = 'zh-CN') =>
 export const getDocsAssistantConfig = () => api.get('/config/docs-assistant')
 export const updateDocsAssistantConfig = (data) => api.post('/config/docs-assistant', data)
 export const askDocsAssistant = (data) => api.post('/config/docs-assistant/ask', data)
-export const exportDocsPdf = data => api.post('/config/docs-export.pdf', data, { responseType: 'blob' })
+export const exportDocsPdf = async (data, onProgress, signal) => {
+  const reader = createDocsPdfProgressReader(onProgress)
+  const response = await api.post('/config/docs-export.pdf', data, {
+    params: { stream: true }, responseType: 'text', timeout: 0, signal,
+    onDownloadProgress: ({ event }) => reader.feed(event.target.responseText),
+  })
+  return reader.finish(response)
+}
 
 export const listSkills = (params = {}) => api.get('/v1/skills', { params })
 export const listSkillsPaged = (params = {}) => api.get('/v1/skills', { params: { ...params, page: params.page || 1, page_size: params.page_size || 10 } })
@@ -277,6 +285,7 @@ export const getClientGovernance = clientId => api.get(clientGovernancePath(clie
 export const previewClientGovernance = (clientId, data) => api.post(`${clientGovernancePath(clientId)}/preview`, data)
 export const saveClientGovernance = (clientId, data) => api.put(clientGovernancePath(clientId), data)
 export const getClientDetail = (clientId, params) => api.get(`/v1/clients/${clientId}`, { params })
+export const getClientEventRecords = (clientId, params) => api.get(`/v1/clients/${clientId}/event-records`, { params })
 export const getAgentWorkspace = (clientId, params) => api.get(`/v1/clients/${encodeURIComponent(clientId)}/agent-workspace`, { params })
 const aidrPath = clientId => `/v1/clients/${encodeURIComponent(clientId)}/aidr`
 export const getClientAidrOverview = (clientId, params) => api.get(`${aidrPath(clientId)}/overview`, { params })
@@ -429,3 +438,6 @@ export const decideHookApproval = (id, approval, body) => api.post(`${hookPath(i
 export const getClientRuntimeGovernance = clientId => api.get(`/v1/clients/${clientId}/runtime-governance`)
 
 export const getClientAidrSkillUses = (clientId, params) => api.get(`${aidrPath(clientId)}/skill-uses`, { params })
+export const getClientAidrSkillUse = (clientId, id, params) => api.get(`${aidrPath(clientId)}/skill-uses/${id}`, { params })
+export const getClientAidrSkillEvidence = (clientId, id, params) => api.get(`${aidrPath(clientId)}/skill-uses/${id}/evidence`, { params })
+export const requestClientSkillObservation = (clientId, id, requestId) => api.post(`${aidrPath(clientId)}/skill-uses/${id}/observations`, { request_id: requestId })

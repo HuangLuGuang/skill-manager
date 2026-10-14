@@ -37,6 +37,11 @@ func (s *Store) LoadPolicy(ctx context.Context) error {
 	return nil
 }
 func (s *Store) Policy() *agentlog.AuditPolicy { return s.policy }
+
+// Configure before starting intake; source paths remain unchanged in events.
+func (s *Store) SetSkillPathResolver(resolve func(string) (string, error)) {
+	s.skillObserver.ResolvePath = resolve
+}
 func (s *Store) SavePolicy(ctx context.Context, p agentlog.AuditPolicy) error {
 	if !p.Valid() {
 		return ErrInvalid

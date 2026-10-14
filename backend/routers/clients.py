@@ -11,7 +11,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Query, Request, Response
 from backend.client_event_delivery import save_delivery
-from backend import client_discovery, client_governance, client_skill_actions, runtime_governance
+from backend import client_discovery, client_governance, client_skill_actions, runtime_governance, client_event_records
 from backend.agent_workspace import installation_owns_path
 from backend.client_assets import asset_inventory, inventory_capabilities
 from backend.model_switch import AGENTS as MODEL_ADAPTERS, validate_options as validate_model_options, validate_parameter_version, contract_for_version, validate_effective_parameters, reported_model_parameters
@@ -1106,13 +1106,15 @@ def _event_history(db: Session, client_id: str, limit: int = 100, rows=None) -> 
         db.query(models.ClientEvent)
         .filter(models.ClientEvent.client_id == client_id)
         .filter(models.ClientEvent.event_type.notin_(("client_registered", "takeover_completed")))
-        .order_by(func.coalesce(models.ClientEvent.last_seen_at, models.ClientEvent.created_at).desc(), models.ClientEvent.id.desc())
+        .order_by(client_event_records.expressions()[2].desc(), models.ClientEvent.id.desc())
         .limit(limit)
         .all()
     )
+    linked = client_event_records.usages(db, client_id, events)
     result = []
     for event in events:
         details = _load(event.details_json, {})
+        usage_id = str(details.get('usage_id', ''))
         result.append({
             "id": event.id,
             "event_type": event.event_type,
@@ -1123,6 +1125,7 @@ def _event_history(db: Session, client_id: str, limit: int = 100, rows=None) -> 
             "created_at": event.created_at,
             "last_seen_at": event.last_seen_at or event.created_at,
             "observation_count": event.observation_count,
+            "presentation": client_event_records.present(event, details, linked.get(int(usage_id)) if usage_id.isdigit() else None),
         })
     return result
 
@@ -1227,12 +1230,27 @@ def get_client_history(
     page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100),
     keyword: str = Query("", max_length=200), agent: str = Query("", max_length=128),
     record_type: str = Query("", max_length=128), status: str = Query("", max_length=64),
+    category: str = Query("", max_length=32),
     days: int = Query(0, ge=0, le=365),
     authorization: str | None = Header(None), db: Session = Depends(get_db),
 ):
     token = _runtime_token("client:read-policy", authorization, request, db)
     _bind_client(token, client_id, db)
     _client_or_404(db, client_id)
+    return _history_page(db, client_id, kind, page, page_size, keyword, agent, record_type, status, days, category)
+
+
+@router.get("/{client_id}/event-records")
+def get_event_records(client_id: str, page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100),
+                      keyword: str = Query('', max_length=200), agent: str = Query('', max_length=128),
+                      category: str = Query('', max_length=32), status: str = Query('', max_length=64),
+                      days: int = Query(0, ge=0, le=365), db: Session = Depends(get_db),
+                      user=Depends(auth.get_current_admin_user)):
+    _ensure_visible(_client_or_404(db, client_id), user)
+    return _history_page(db, client_id, 'events', page, page_size, keyword, agent, '', status, days, category)
+
+
+def _history_page(db, client_id, kind, page, page_size, keyword, agent, record_type, status, days, category=''):
     is_task = kind == "tasks"
     model = models.ClientTask if is_task else models.ClientEvent
     query = db.query(model).filter(model.client_id == client_id)
@@ -1250,7 +1268,8 @@ def get_client_history(
     else:
         type_column = _event_record_type_expression()
         agent_column = model.agent_type
-    timestamp = func.coalesce(model.finished_at, model.started_at, model.created_at) if is_task else func.coalesce(model.last_seen_at, model.created_at)
+    event_category, event_state, event_time = client_event_records.expressions()
+    timestamp = func.coalesce(model.finished_at, model.started_at, model.created_at) if is_task else event_time
     types = [value for (value,) in query.with_entities(type_column).distinct().all() if value]
     agents = [value for (value,) in query.with_entities(agent_column).distinct().all() if value]
     if is_task:
@@ -1266,13 +1285,18 @@ def get_client_history(
         query = query.filter(model.task_type == record_type if is_task and record_type == 'aidr_plugin_action' else type_column == record_type)
     if status and is_task:
         query = query.filter(model.status == status)
+    elif status:
+        query = query.filter(event_state == status)
+    if category and not is_task:
+        query = query.filter(event_category == category)
     if days:
         query = query.filter(timestamp >= datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days))
     total = query.count()
     page = min(page, max(1, (total + page_size - 1) // page_size))
     rows = query.order_by(timestamp.desc(), model.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return {"items": (_task_history if is_task else _event_history)(db, client_id, rows=rows),
-            "total": total, "page": page, "page_size": page_size, "types": sorted(types), "agents": sorted(agents)}
+            "total": total, "page": page, "page_size": page_size, "types": sorted(types), "agents": sorted(agents),
+            "categories": client_event_records.CATEGORIES, "states": client_event_records.STATES}
 
 
 @router.get("/{client_id}/status")
@@ -2102,6 +2126,20 @@ def model_verification_evidence(
     return {"requests": probe_evidence(db, client_id, agent.managed_agent_id, body.challenge)}
 
 
+@router.get("/{client_id}/tasks/{task_id}/skill-observation")
+def skill_observation_policy(client_id: str, task_id: int, request: Request,
+                             authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    token = _runtime_token('client:read-tasks', authorization, request, db)
+    _bind_client(token, client_id, db)
+    task = db.query(models.ClientTask).filter_by(id=task_id, client_id=client_id).first()
+    from .. import aidr_skill_review
+    if not task:
+        aidr_skill_review.fail('observation_task_invalid', '采集任务不存在', 'Observation task unavailable', 404)
+    result = aidr_skill_review.observation_policy(db, task)
+    db.commit()
+    return result
+
+
 @router.post("/{client_id}/tasks/{task_id}/result")
 def report_task_result(
     client_id: str,
@@ -2120,6 +2158,33 @@ def report_task_result(
     )
     if not row:
         raise HTTPException(status_code=404, detail="任务不存在")
+    if row.task_type == 'aidr_skill_observe':
+        from .. import aidr_skill_review
+        db.query(models.ClientTask).filter_by(id=row.id).update({'status':models.ClientTask.status}, synchronize_session=False)
+        db.refresh(row)
+        if aidr_skill_review.expire_task(row):
+            db.commit()
+        if row.status in {'succeeded', 'failed', 'cancelled'}:
+            return {'ok':True, 'ignored':True, 'status':row.status}
+        if body.status == 'running':
+            row.status, row.started_at = 'running', datetime.utcnow()
+        else:
+            if row.status != 'running':
+                aidr_skill_review.fail('observation_task_invalid', '采集任务尚未开始', 'Observation task has not started')
+            if body.status == 'succeeded':
+                if body.skill_observation is None:
+                    aidr_skill_review.fail('observation_mismatch', '缺少采集回执', 'Observation receipt is required')
+                try:
+                    aidr_skill_review.complete_observation(db, row, body.skill_observation)
+                except ApiError as exc:
+                    row.status, row.finished_at = 'failed', datetime.utcnow()
+                    row.error = exc.code.replace('aidr.skill_', 'aidr_skill_')
+                    db.commit()
+                    return {'ok':True, 'status':row.status}
+            row.status, row.finished_at = body.status, datetime.utcnow()
+            row.error = body.error if body.error and re.fullmatch(r'aidr_skill_[a-z_]{1,80}', body.error) else ('aidr_skill_observation_failed' if body.status == 'failed' else None)
+        db.commit()
+        return {'ok':True, 'status':row.status}
     if row.task_type == "aidr_plugin_action":
         payload = _load(row.payload_json, {})
         if body.status == "running":
@@ -2452,7 +2517,7 @@ def get_client(
     )
     total = events.count()
     event_page = min(event_page, max(1, (total + event_page_size - 1) // event_page_size))
-    rows = events.order_by(func.coalesce(models.ClientEvent.last_seen_at, models.ClientEvent.created_at).desc(), models.ClientEvent.id.desc()).offset((event_page - 1) * event_page_size).limit(event_page_size).all()
+    rows = events.order_by(client_event_records.expressions()[2].desc(), models.ClientEvent.id.desc()).offset((event_page - 1) * event_page_size).limit(event_page_size).all()
     result["events"] = _event_history(db, client_id, rows=rows)
     result["events_total"] = total
     result["event_page"] = event_page
@@ -2651,6 +2716,8 @@ def create_task(
     client = _client_or_404(db, client_id)
     _ensure_visible(client, current_user)
     payload = dict(body.payload)
+    if body.task_type == 'aidr_skill_observe':
+        raise ApiError(422, 'aidr.skill_observation_task_invalid', '请从 Skill 行为记录请求重新采集', 'Request recollection from a Skill activity record')
     if body.task_type == "aidr_plugin_action":
         try:
             task = runtime_governance.create(db, client, payload)
@@ -2946,6 +3013,14 @@ def retry_task(
     if row.status not in {"failed", "cancelled"}:
         raise HTTPException(status_code=400, detail="只有失败或已取消的任务可以重试")
     payload = _load(row.payload_json, {})
+    if row.task_type == 'aidr_skill_observe':
+        from .. import aidr_skill_review
+        iam.check(db, current_user, 'clients:update')
+        usage = aidr_skill_review.usage(db, client_id, payload['usage_id'])
+        retry = aidr_skill_review.create_observation(db, usage, f'retry-task:{task_id}', current_user.username)
+        _operation(db, current_user, 'aidr.skill_observation_requested', client_id, f"usage_id={usage.id}, task_id={retry['id']}")
+        db.commit()
+        return retry
     if row.task_type == "aidr_plugin_action":
         return _retry_runtime_task(db, client, row, current_user)
     if row.task_type in {"apply_model_config", "verify_model_config", "restore_model_config"}:

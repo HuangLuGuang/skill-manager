@@ -47,11 +47,11 @@ const normalizeSection = section => ({
   download: normalizeResource(section.download),
 })
 
-export function buildDocsPdfExportPayload({ locale, selectedArticleKeys }) {
-  const content = docsContent[locale]
+export function buildDocsPdfExportPayload({ locale, selectedArticleKeys, source = { docsContent, docsArticleOrder } }) {
+  const content = source.docsContent[locale]
   const selected = new Set(selectedArticleKeys)
   const groupBySlug = new Map(content.groups.flatMap(group => group.items.map(item => [articleKey(item.slug), group.title])))
-  const articles = docsArticleOrder
+  const articles = source.docsArticleOrder
     .filter(slug => selected.has(articleKey(slug)))
     .map(slug => {
       const article = content.articles[slug]

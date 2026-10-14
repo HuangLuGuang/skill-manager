@@ -570,9 +570,28 @@ visible but are excluded from the Agent count.
 
 桌面“客户端概览”包含总览、运行与同步、检测策略、扫描能力和客户端信息。
 “Agent 管理”按 Agent 切换本地 Skills、检测记录和隔离副本。“执行记录”分为巡检与处置、
-平台任务，支持按 Agent、有效处置类型和时间筛选及分页；巡检与处置列表单独展示 Skill、
-Agent、类型、结果和最近发生时间。切换到执行记录会重新加载第一页，页面打开期间收到新的
-治理通知也会自动刷新第一页。右上角齿轮进入设置，铃铛进入安全通知。
+平台任务。巡检与处置支持按关键词、Agent、事件类别、处理情况和时间筛选及分页；列表展示
+Skill / Agent、事件与原因、处理情况、发生时间。具体标题区分加载、文件读取、巡检发现和
+文件处置。“仅记录”保留本地文件；告警状态与隔离、卸载、恢复等操作结果分别呈现，缺少
+处置结果时保持未确认。点击记录可查看原因、系统处理、证据时间线和技术标识。
+
+使用审计的发生时间取精确关联证据的最早行为时间；缺少行为时间时标为“记录到达”。
+巡检记录显示最近发现时间及累计发现次数。“最近核对”单独展示，定期核对不改变旧行为
+的列表排序和时间筛选。时间以北京时间显示。桌面证据时间线展示来源、阶段和发生/到达时间；
+平台相同列表另有“查看行为证据”入口，进入已有行为详情及重新采集流程。
+切换到执行记录会重新加载第一页，页面打开期间收到新的治理通知也会自动刷新第一页。
+右上角齿轮进入设置，铃铛进入安全通知。
+
+**English:** Activity Records separates inspection/remediation events from platform tasks. Event lists
+show Skill/Agent, specific event and reason, handling and event time. Search, Agent, category, handling,
+time range and pagination use the same semantics on desktop and platform. Record-only findings retain
+local files; alert conditions and file action outcomes are separate. Unrecorded outcomes remain unknown.
+Details show the reason, system handling, evidence timeline and technical identifiers. Usage audit time
+is the earliest explicit occurrence time in exactly linked evidence, falling back to a labeled record
+receipt time. Inspections show the latest finding time and count. Check time is separate; periodic checks
+do not change old activity ordering or date filtering. Times are displayed in Beijing time. The platform
+also links to full Skill activity evidence and recollection. Page entry and new governance notifications
+refresh the first page.
 
 平台任务按实际动作显示，例如“安装 Hook 插件”“检查 Hook 插件接入”“自动应用接入与采集策略”，并显示目标 Agent、任务编号、策略和插件版本。策略任务可展开查看当次保存的通道、模式及自动安装/更新目标；这些是任务目标，执行结果以该行状态和错误为准。类型筛选可直接选择具体 Hook 操作，Agent 筛选包含策略任务中的多个目标。历史记录无需迁移，缺少字段时保留未知，不使用当前策略补写旧任务。
 
@@ -1415,15 +1434,23 @@ Hook 移除人工验收 / Manual Hook removal checks（中文、英文与最小�
 
 2026-10-08 隔离原生验收：Claude Code 2.1.220、Codex 0.162.0-alpha.2 均完成原生安装 → 移除 → 原生清单确认未安装 → 重复移除，隔离配置中的用户设置保留；没有模型调用。Go 回归覆盖所有权不匹配、命令失败、清单仍已安装/不可读，以及成功才撤销本产品申请、保留其他产品和平台策略。实际开发窗口未能由自动化接口定位，中英文、最小窗口布局及按钮点按保留为以上人工验收项。English: Isolated native lifecycle acceptance passed on these exact versions, without model calls. Go regressions cover ownership, command/inventory failures and enrollment preservation. Native window interaction and bilingual/minimum-size layout remain manual checks because the automation interface could not locate the development window.
 
-客户端使用原有设备凭据上传 Skill 元数据，不额外索取管理员 Token、不上传完整 Skill 正文；平台“行为审计 → 会话活动 → Skill 行为”查看名称、尝试/结果、认证与关联证据。全局或单机“审计采集与脱敏 → Skill 使用审计”设置认证核对和告警，默认仅审计。缺少路径、摘要或实例映射时保持待确认；详情分别展示注册、批准、撤销、内容及授权。只有 Hook 的记录目前不执行同步目录摘要计算，避免阻塞宿主工具；等待可关联的日志证据。
+客户端使用原有设备凭据上传 Skill 元数据，不额外索取管理员 Token、不上传完整 Skill 正文；平台“行为审计 → 会话活动 → Skill 行为”查看名称、尝试/结果、认证与关联证据。全局或单机“审计采集与脱敏 → Skill 使用审计”设置认证核对和告警，默认仅审计。缺少路径、摘要或实例映射时保持待确认；详情分别展示注册、批准、撤销、内容及授权。Hook 回调不执行同步目录摘要计算；可等待精确关联的日志观察，或在待确认详情中请求后台重新采集。重新采集需要新版客户端上报 `skill_audit_observe` 能力、近期在线心跳及唯一可信的 Skill 来源；按当前策略只读采集，新观察与原调用证据分别保留。受管安装目录链接需要与本机安装记录和发布版本精确匹配。
 
 人工 UI 验收清单（中文和英文各执行）：
 - 原有插件被识别，Agent Manager / Agent Manager Hook 名称正确，Qoder 单产品与入口详情一致。
 - 同一用户多个产品接入时，接收器只显示共享健康；未授权/等待宿主加载/等待首事件仍分别展示。
-- 在真实会话切换 Skill 行为，改变行为/认证筛选立即生效；重新核对、空状态、失败重试和分页清晰。
+- 在真实会话切换 Skill 行为，按 Skill/路径、原生轮次、行为、结果、认证筛选；区分本批无匹配但仍可继续查询与最终空结果。点击记录核对时间线，平台刷新保留当前内容，待确认步骤显示可操作原因。
 - 长技能名、长路径、摘要及英文在窄屏换行；抽屉宽度不随插件/审计 Tab 改变；仅列表内容滚动。
 - 在隔离设备与隔离 Skill 中验收批准、未登记、未批准、变更、撤销、未授权；检查查询失败为待确认，恢复后重新核对；同次调用只有一条告警，不同调用独立。
 - 重复安装/更新/卸载确认用户 Hook 保留；宿主信任需人工完成，配置保存不算采集通过。断网积压/恢复与客户端重启不清空队列或游标，再核对严格 ACK。
+
+重新采集人工验收：验证旧客户端升级提示、离线提示、无修改权限禁用、重复点击只建一条任务、任务过期后可重新请求；采集期间关闭策略应使旧回执失效，成功回执不等于认证通过。核对变更历史受审计保留策略约束。
+
+桌面端“操作记录 → 平台任务”显示重新采集的来源路径、状态和双语错误原因，用于区分同一 Agent 的不同采集任务。
+
+**English — desktop task history:** Activity Records → Platform tasks shows the recollection source path, status and localized failure reason, distinguishing observations for different Skills on the same Agent.
+
+**English — recollection:** Pending details offer evidence inspection and a background, read-only recollection task under the current policy. A unique trusted path, a recent online heartbeat and advertised `skill_audit_observe` support are required. New observations preserve original call evidence. Verify upgrade/offline/permission states, duplicate submission, expiry and stale-policy receipts. A successful receipt does not imply certification. The timeline includes retained evidence, observations and check changes.
 
 逐产品实测状态和具体证据见 [Skill 使用识别与认证审计](external-agent-integration.md#skill-使用识别与认证审计)。WorkBuddy 的新调用通过不替代其他产品或全部审批状态的真实验收。
 

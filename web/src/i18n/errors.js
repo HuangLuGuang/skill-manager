@@ -1,6 +1,11 @@
 import { formatMcpFieldError } from './mcpServerForm.js'
 import { scanScheduleMessages } from './scanSchedule.js'
+import { skillAuditReview } from './skill-audit-review.js'
 const errorMessages = {
+  ...Object.fromEntries(Object.keys(skillAuditReview['zh-CN'].reasons).map(code => ['aidr.skill_' + code, { 'zh-CN':skillAuditReview['zh-CN'].reasons[code], 'en-US':skillAuditReview['en-US'].reasons[code] }])),
+  'aidr.skill_source_unknown': { 'zh-CN':'无法确认来源路径，请同步客户端清单。', 'en-US':'Source path cannot be verified; synchronize client inventory.' },
+  'aidr.skill_agent_identity_unknown': { 'zh-CN':'无法确认唯一的本机实例。', 'en-US':'A unique local instance cannot be verified.' },
+  'aidr.skill_audit_disabled': { 'zh-CN':'Skill 认证核对已关闭。', 'en-US':'Skill audit is disabled.' },
   'agent.mcp_gateway_unavailable': { 'zh-CN': '请选择已启用的 MCP 网关；已失效的原有选择可保留或移除', 'en-US': 'Select active MCP gateways; existing unavailable selections may be kept or removed' },
   'agent.mcp_scope_exceeded': { 'zh-CN': 'MCP 网关超出智能体允许范围，请先修改智能体的 MCP 工具访问配置', 'en-US': "MCP gateways exceed the Agent's allowed scope. Update the Agent's MCP tool access first" },
   'mcp.connection_failed': { 'zh-CN': 'MCP Server 连接失败: {reason}', 'en-US': 'MCP Server connection failed: {reason}' },

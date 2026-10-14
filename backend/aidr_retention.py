@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 
 from .aidr_policy import CLIENT_KEY, current
 from .models import SystemConfig, ClientEvent
-from .aidr_models import AidrEvent, AidrHookEvent, AidrCoverageRecord, AidrOperation, AidrSkillUse
+from .aidr_models import AidrEvent, AidrHookEvent, AidrCoverageRecord, AidrOperation, AidrSkillUse, AidrSkillCheck
 from .aidr_enforcement import AidrRuntimeRecord
 
 
@@ -19,7 +19,7 @@ def expire_once(db, now=None, limit=500):
     now = now or datetime.utcnow()
     default_days = current(db)['lifecycle']['retention_days']
     counts = {}
-    for model in (AidrEvent, AidrHookEvent, AidrCoverageRecord, AidrOperation, AidrRuntimeRecord, AidrSkillUse):
+    for model in (AidrEvent, AidrHookEvent, AidrCoverageRecord, AidrOperation, AidrRuntimeRecord, AidrSkillUse, AidrSkillCheck):
         runtime = model is AidrRuntimeRecord
         # Filter by the effective device policy before LIMIT so long-retention
         # devices cannot consume the cleanup budget or starve other devices.

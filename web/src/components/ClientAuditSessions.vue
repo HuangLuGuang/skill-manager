@@ -43,7 +43,7 @@
             <a-input v-if="!showSkills" v-model:value="search" class="timeline-search" :aria-label="t('aidr.sessions.search')" :placeholder="t('aidr.sessions.searchCompact')" :maxlength="256" allow-clear />
           </div>
         </div>
-        <AidrSkillUses v-if="showSkills" :client-id="clientId" :agent="selected.agent" :session-id="selected.session_id" />
+        <AidrSkillUses v-if="showSkills" ref="skillsPane" :client-id="clientId" :agent="selected.agent" :session-id="selected.session_id" @collection="$emit('collection')" />
         <div v-else class="turn-reading">
           <AidrTurnNavigator :items="sourceTurns" :all-items="turns.items" :active="turnKey" :can-read="canRead" :loading="turnsLoading" :error="turnsError" :has-more="turns.has_more" @select="turnKey = $event" @more="loadTurns(turnsFailedAppend || !turnsError)" />
           <div ref="timelinePane" class="timeline-records" tabindex="0" role="region" :aria-label="t('aidr.sessions.timeline')">
@@ -131,6 +131,7 @@ const empty = () => ({ items: [], has_more: false, next_cursor: '' })
 const sessions = ref(empty()), timeline = ref(empty()), selected = ref(null)
 const timelinePane = ref(null)
 const showSkills = ref(false)
+const skillsPane = ref(null)
 const turns = ref(empty()), turnKey = ref('')
 const turnsLoading = ref(false), turnsError = ref(false), turnsFailedAppend = ref(false)
 const canRead = computed(() => can('clients:read-audit-content'))
@@ -227,6 +228,7 @@ async function loadTimeline(append = false) {
   finally { if (request === timelineRequest) timelineLoading.value = false }
 }
 function refresh() {
+  if (showSkills.value) skillsPane.value?.refresh()
   if (sessionsLoading.value || timelineLoading.value || turnsLoading.value) return
   resolvedTurnContext.value = ''
   loadSessions(false, true)

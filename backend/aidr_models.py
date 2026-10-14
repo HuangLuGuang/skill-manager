@@ -150,6 +150,17 @@ class AidrAuditState(Base):
     value = Column(Integer,nullable=False)
 
 
+class AidrSkillCheck(Base):
+    __tablename__ = 'aidr_skill_checks'
+    __table_args__ = (Index('ix_aidr_skill_check_expiry', 'expired_at', 'received_at', 'id'),)
+    id = Column(Integer, primary_key=True)
+    client_id = Column(String(128), ForeignKey('aidr_devices.client_id'), index=True, nullable=False)
+    usage_id = Column(Integer, ForeignKey('aidr_skill_uses.id'), index=True, nullable=False)
+    payload_json = Column(Text, nullable=False)
+    received_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expired_at = Column(DateTime, nullable=True)
+
+
 class AidrSkillUse(Base):
     __tablename__ = 'aidr_skill_uses'
     __table_args__ = (UniqueConstraint('client_id', 'call_key', name='uq_aidr_skill_call'),

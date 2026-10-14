@@ -1,83 +1,77 @@
 <template>
-  <section class="skill-uses" :aria-busy="loading">
-    <div class="skill-filters">
-      <a-select v-model:value="behavior" :aria-label="t('aidr.skillUse.allBehaviors')" :options="behaviorOptions" />
-      <a-select v-model:value="certification" :aria-label="t('aidr.skillUse.allChecks')" :options="checkOptions" />
-      <a-button :loading="loading" :disabled="loading" @click="load()">{{ t('aidr.skillUse.refresh') }}</a-button>
-    </div>
-    <p class="muted">{{ t('aidr.skillUse.help') }}</p>
-    <a-alert v-if="error" type="error" show-icon :message="t('aidr.skillUse.error')" />
-    <a-spin v-if="loading && !items.length" />
-    <a-empty v-else-if="!items.length && !error" :description="t('aidr.skillUse.empty')" />
-    <article v-for="item in items" :key="item.id" class="skill-card">
-      <header><strong>{{ item.skill.name || item.certification?.name || (item.skill.path ? t('aidr.skillUse.fileRecord') : t('aidr.skillUse.unknownName')) }}</strong><time>{{ time(item.first_at) }}</time></header>
-      <div class="skill-origin">
-        <span v-if="item.entry || item.agent"><span class="meta-label">{{ t('aidr.skillUse.entry') }}</span>{{ entryName(item) }}<template v-if="item.agent_version"> · {{ item.agent_version }}</template></span>
-        <span v-for="source in sources(item)" :key="source.source">{{ t('aidr.skillUse.source.' + source.source, { count: source.count }) }}</span>
-        <span v-if="item.tool"><span class="meta-label">{{ t('aidr.skillUse.tool') }}</span>{{ item.tool }}</span>
+  <section class="skill-uses" :class="{ 'has-detail': selectedId }" :aria-busy="loading">
+    <div class="skill-list">
+      <header><h3>{{ tr('title') }}</h3><a-button :loading="loading" :disabled="loading" @click="refresh">{{ ui('refreshPlatform') }}</a-button></header>
+      <p class="muted">{{ ui('separateStates') }}</p>
+      <div class="skill-filters">
+        <a-input v-model:value="search" :placeholder="ui('search')" :aria-label="ui('search')" :maxlength="256" allow-clear @press-enter="searchNow" />
+        <a-select v-model:value="behavior" :aria-label="tr('allBehaviors')" :options="behaviorOptions" />
+        <a-select v-model:value="result" :aria-label="ui('allResults')" :options="resultOptions" />
+        <a-select v-model:value="certification" :aria-label="tr('allChecks')" :options="checkOptions" />
+        <a-select v-model:value="order" :aria-label="ui('order')" :options="orderOptions" />
+        <a-input v-model:value="turnSearch" :placeholder="ui('turnSearch')" :aria-label="ui('turnSearch')" :maxlength="256" allow-clear @press-enter="searchNow" />
       </div>
-      <p v-if="item.skill.path" class="skill-path"><span class="meta-label">{{ t('aidr.skillUse.path') }}</span>{{ item.skill.path }}</p>
-      <div class="skill-badges"><a-tag color="blue">{{ t('aidr.skillUse.' + item.skill.behavior) }}</a-tag><a-tag>{{ phase(item) }}</a-tag><a-tag :color="tone(item.certification?.status)">{{ t('aidr.skillUse.' + (item.certification?.status || 'pending')) }}</a-tag></div>
-      <p v-if="item.certification?.reason && item.certification.reason !== item.certification.status">{{ t('aidr.skillUse.' + item.certification.reason) }}</p>
-      <dl v-if="item.certification?.version_no != null || item.certification?.managed_agent_id || item.certification?.local_agent_id || item.skill.content_digest" class="skill-facts">
-        <template v-if="item.certification?.version_no != null"><dt>{{ t('aidr.skillUse.version') }}</dt><dd>{{ item.certification.version_no }}</dd></template>
-        <template v-if="item.certification?.managed_agent_id"><dt>{{ t('aidr.skillUse.managedAgent') }}</dt><dd>{{ item.certification.managed_agent_id }}</dd></template>
-        <template v-if="item.certification?.local_agent_id"><dt>{{ t('aidr.skillUse.localInstance') }}</dt><dd>{{ item.certification.local_agent_id }}</dd></template>
-        <template v-if="item.skill.content_digest"><dt>{{ t('aidr.skillUse.digest') }}<a-tooltip :title="t('aidr.skillUse.observation')"><button class="digest-info" :aria-label="t('aidr.skillUse.observation')"><InfoCircleOutlined /></button></a-tooltip></dt><dd><code>{{ item.skill.content_digest }}</code><span v-if="item.skill.content_observed_at" class="observed-at">{{ t('aidr.skillUse.observedAt') }} · {{ time(item.skill.content_observed_at) }}</span></dd></template>
-      </dl>
-      <p v-if="['computed', 'reused'].includes(item.skill.content_status)" class="muted">{{ t('aidr.skillUse.contentState.' + item.skill.content_status) }}</p>
-      <p v-if="item.certification?.checked_at" class="muted">{{ t('aidr.skillUse.checkedAt') }} · {{ time(item.certification.checked_at) }}</p>
-    </article>
-    <a-button v-if="hasMore" :loading="loading" :disabled="loading" @click="load(true)">{{ t('aidr.skillUse.more') }}</a-button>
+      <p v-if="loading && items.length" class="muted" role="status">{{ ui('refreshing') }}</p>
+      <a-alert v-if="error" type="error" show-icon :message="tr('error')"><template #action><a-button @click="load(failedAppend)">{{ ui('retry') }}</a-button></template></a-alert>
+      <a-spin v-if="loading && !items.length" />
+      <a-empty v-else-if="!items.length && !error" :description="hasMore ? ui('batchEmpty') : tr('empty')" />
+      <div v-if="items.length" class="skill-table-scroll"><table class="skill-table">
+        <thead><tr><th>Skill</th><th>{{ ui('behavior') }}</th><th>{{ ui('outcome') }}</th><th>{{ ui('certification') }}</th><th>{{ ui('time') }}</th></tr></thead>
+        <tbody><tr v-for="item in items" :key="item.id" :class="{ selected:item.id === selectedId }" @click="selectedId = item.id">
+          <td><button class="skill-name" :aria-pressed="item.id === selectedId" @click.stop="selectedId = item.id"><FileTextOutlined />{{ name(item) }}</button><small v-if="!item.skill.name && !item.certification?.name">{{ item.skill.path }}</small></td>
+          <td>{{ ui(item.skill.behavior) }}</td><td><a-tag :color="outcomeTone(item.stage)">{{ phase(item) }}</a-tag></td>
+          <td><a-tag :color="tone(item.certification?.status)">{{ tr(item.certification?.status || 'pending') }}</a-tag></td><td><time>{{ time(item.first_at) }}</time></td>
+        </tr></tbody>
+      </table></div>
+      <footer><span class="muted">{{ ui('loadedCount', { count:items.length }) }}</span><a-button v-if="hasMore" :loading="loading" :disabled="loading" @click="load(true)">{{ items.length ? tr('more') : ui('continueSearch') }}</a-button></footer>
+    </div>
+    <AidrSkillUseDetail v-if="selectedId" :key="clientId + ':' + selectedId" ref="detailPane" class="skill-detail" :client-id="clientId" :usage-id="selectedId" @close="selectedId = ''" @collection="$emit('collection')" @updated="updateItem" />
   </section>
 </template>
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { InfoCircleOutlined } from '@ant-design/icons-vue'
-import products from '../aidr-products.json'
+import { FileTextOutlined } from '@ant-design/icons-vue'
 import { getClientAidrSkillUses } from '../api'
-const props = defineProps({ clientId: String, agent: String, sessionId: String })
-const { t, locale } = useI18n()
-const behavior = ref(''), certification = ref(''), items = ref([]), loading = ref(false), error = ref(false), hasMore = ref(false), cursor = ref('')
-let request = 0
-const options = (keys, all) => [{value:'', label:t('aidr.skillUse.'+all)}, ...keys.map(value => ({value,label:t('aidr.skillUse.'+value)}))]
+import AidrSkillUseDetail from './AidrSkillUseDetail.vue'
+import { useSkillAuditLabels } from '../utils/skillAudit'
+const props = defineProps({ clientId:String, agent:String, sessionId:String })
+defineEmits(['collection'])
+const { t } = useI18n()
+const { name, time, phase, tone, outcomeTone } = useSkillAuditLabels()
+const tr = (key, args) => t('aidr.skillUse.' + key, args), ui = (key, args) => tr('review.' + key, args)
+const behavior = ref(''), certification = ref(''), result = ref(''), order = ref('newest'), search = ref(''), keyword = ref(''), turnSearch = ref(''), turn = ref('')
+const items = ref([]), loading = ref(false), error = ref(false), hasMore = ref(false), cursor = ref(''), selectedId = ref(''), detailPane = ref(null)
+let request = 0, timer, failedAppend = false
+const options = (keys, all) => [{ value:'', label:tr(all) }, ...keys.map(value => ({ value, label:tr(value) }))]
 const behaviorOptions = computed(() => options(['invocation','file_access'], 'allBehaviors'))
 const checkOptions = computed(() => options(['pending','verified','verified_content','unregistered','unapproved','content_changed','revoked','unauthorized'], 'allChecks'))
-const tone = status => ['verified','verified_content'].includes(status) ? 'green' : status === 'pending' ? 'default' : 'orange'
-const phase = item => t('aidr.skillUse.' + (item.stage === 'host_confirmed' ? item.skill.behavior === 'invocation' ? 'loaded' : 'read' : item.stage === 'unknown' ? 'outcomeUnconfirmed' : item.stage))
-const time = value => value ? new Date(value).toLocaleString(locale.value) : '—'
-const entryName = item => {
-  const id = item.entry || item.agent
-  const product = products.find(entry => entry.id === id)
-  if (!product) return id
-  return product.id.startsWith('qoder-') ? `Qoder · ${t('agentRuntimeGovernance.catalog.entries.' + product.entry)}` : product.name
-}
-const sources = item => ['log', 'hook'].map(source => ({ source, count: (item.evidence || []).filter(ref => ref.source === source).length })).filter(source => source.count)
+const resultOptions = computed(() => [{ value:'', label:ui('allResults') }, ...['attempted','host_confirmed','denied','failed','unknown'].map(value => ({ value, label:tr(value) }))])
+const orderOptions = computed(() => ['newest','oldest'].map(value => ({ value, label:ui(value) })))
 async function load(append = false) {
   if (append && loading.value) return
-  const id = ++request
-  loading.value = true; error.value = false
-  if (!append) { items.value = []; cursor.value = ''; hasMore.value = false }
+  const id = ++request; loading.value = true; error.value = false; failedAppend = append
   try {
-    const result = await getClientAidrSkillUses(props.clientId, { agent:props.agent, session_id:props.sessionId, behavior:behavior.value, certification:certification.value, after:append ? cursor.value : 0 })
+    const data = await getClientAidrSkillUses(props.clientId, { agent:props.agent, session_id:props.sessionId, behavior:behavior.value, certification:certification.value, result:result.value, keyword:keyword.value, turn_id:turn.value, order:order.value, after:append ? cursor.value : 0 })
     if (id !== request) return
-    items.value = append ? [...items.value, ...result.items] : result.items
-    cursor.value = result.next_cursor; hasMore.value = result.has_more
+    items.value = append ? [...items.value, ...data.items.filter(item => !items.value.some(old => old.id === item.id))] : data.items
+    hasMore.value = data.has_more; cursor.value = data.next_cursor
   } catch { if (id === request) error.value = true }
   finally { if (id === request) loading.value = false }
 }
-watch(() => [props.clientId, props.agent, props.sessionId, behavior.value, certification.value], () => load(), { immediate:true })
-onBeforeUnmount(() => request++)
+function updateItem(data) { items.value = items.value.map(item => item.id === data.id ? { ...item, stage:data.stage, certification:data.certification } : item).filter(item => (!certification.value || item.certification?.status === certification.value) && (!result.value || item.stage === result.value)) }
+function searchNow() { clearTimeout(timer); keyword.value = search.value.trim(); turn.value = turnSearch.value.trim() }
+function refresh() { const changed = keyword.value !== search.value.trim() || turn.value !== turnSearch.value.trim(); searchNow(); if (!changed) load(); detailPane.value?.refresh() }
+watch([search, turnSearch], () => { clearTimeout(timer); timer = setTimeout(searchNow, 300) })
+watch([behavior, certification, result, order, keyword, turn], () => { items.value = []; cursor.value = ''; hasMore.value = false; selectedId.value = ''; load() })
+watch(() => [props.clientId, props.agent, props.sessionId], () => { clearTimeout(timer); selectedId.value = ''; items.value = []; cursor.value = ''; hasMore.value = false; load() }, { immediate:true })
+onBeforeUnmount(() => { request++; clearTimeout(timer) })
+defineExpose({ refresh })
 </script>
 <style scoped>
-.skill-uses { overflow:auto; min-height:0; padding:12px 14px; overscroll-behavior:contain; }
-.skill-filters { display:flex; flex-wrap:wrap; gap:8px; }.skill-filters .ant-select { min-width:190px; max-width:100%; }
-.skill-card { border:1px solid #e2e7ed; border-radius:10px; padding:14px; margin:12px 0; overflow-wrap:anywhere; }
-header { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; } time,.muted { color:#68798c; font-size:12px; } .skill-badges { display:flex; flex-wrap:wrap; gap:4px; margin:10px 0; }
-dl { display:grid; grid-template-columns:150px minmax(0,1fr); gap:8px; margin:12px 0; } dd { margin:0; min-width:0; }
-.skill-origin { display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:8px; color:#68798c; font-size:12px; }
-.meta-label { color:#68798c; margin-right:8px; }.skill-path { margin:12px 0; font-size:13px; }.skill-facts { font-size:12px; }.skill-facts dt { color:#68798c; }.observed-at { display:block; color:#68798c; margin-top:4px; }
-.digest-info { border:0; padding:0 4px; background:none; color:#68798c; cursor:help; }.digest-info:focus-visible { outline:2px solid #315fbd; outline-offset:2px; }
-@media(max-width:700px) { dl { grid-template-columns:1fr; } .skill-filters .ant-select { flex:1; min-width:150px; } }
+.skill-uses { display:flex; flex:1; min-height:0; min-width:0; overflow:hidden; container-type:inline-size; }.skill-list { flex:1 1 55%; min-width:0; padding:18px; overflow:auto; }.skill-detail { flex:0 1 46%; min-width:330px; border-left:1px solid #e5e9ef; }
+header { display:flex; align-items:center; justify-content:space-between; gap:12px; } h3 { font-size:20px; margin:0; }.muted,time { color:#68798c; font-size:12px; } time { font-variant-numeric:tabular-nums; }
+.skill-filters { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }.skill-filters > * { flex:1 1 200px; min-width:0; }.skill-filters > .ant-input-affix-wrapper { flex-basis:190px; }.skill-table-scroll { overflow:auto; }.skill-table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }.skill-table th { background:#f6f8fb; font-weight:600; text-align:left; }.skill-table th,.skill-table td { padding:14px 10px; border-bottom:1px solid #e9edf2; overflow-wrap:anywhere; vertical-align:top; }.skill-table th:first-child { width:22%; }.skill-table th:nth-child(2) { width:18%; }.skill-table th:last-child { width:19%; }.skill-table tr.selected td { background:#edf4ff; }.skill-table tbody tr { cursor:pointer; }.skill-table tbody tr:hover td { background:#f5f8fc; }.skill-table :deep(.ant-tag) { white-space:normal; margin:0; }.skill-name { display:inline-flex; align-items:center; gap:8px; text-align:left; background:none; border:0; padding:0; font:inherit; color:#202630; cursor:pointer; overflow-wrap:anywhere; }.skill-name .anticon { color:#315fbd; flex-shrink:0; }.skill-name:focus-visible { outline:2px solid #315fbd; outline-offset:4px; } td small { display:block; color:#68798c; margin-top:6px; } footer { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:18px; }
+@container (max-width:900px) { .skill-list:has(+ .skill-detail) { display:none; }.skill-detail { flex:1; border-left:0; min-width:0; } }
+@media(max-width:600px) { .skill-list { padding:12px; }.skill-table { min-width:540px; } }
 </style>

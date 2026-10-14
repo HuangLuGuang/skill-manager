@@ -925,16 +925,16 @@ window.clientStaticI18nBindings = [
     "source": "搜索 Skill、类型或错误"
   },
   {
-    "selector": "#records>div:nth-of-type(2)>label:nth-of-type(3)>span:nth-of-type(1)",
+    "selector": "#records-type-label",
     "nodeIndex": 0,
-    "key": "ui.records.type",
-    "source": "类型"
+    "key": "ui.eventRecord.category",
+    "source": "事件类别"
   },
   {
-    "selector": "#records-status-filter>span:nth-of-type(1)",
+    "selector": "#records-status-label",
     "nodeIndex": 0,
-    "key": "ui.records.status",
-    "source": "状态"
+    "key": "ui.eventRecord.handling",
+    "source": "处理情况"
   },
   {
     "selector": "#records>div:nth-of-type(2)>label:nth-of-type(5)>span:nth-of-type(1)",
@@ -973,22 +973,22 @@ window.clientStaticI18nBindings = [
     "source": "重置"
   },
   {
+    "selector": "#event-records>div:nth-of-type(1)>span:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.eventRecord.event",
+    "source": "事件与原因"
+  },
+  {
     "selector": "#event-records>div:nth-of-type(1)>span:nth-of-type(3)",
     "nodeIndex": 0,
-    "key": "ui.records.type",
-    "source": "类型"
+    "key": "ui.eventRecord.handling",
+    "source": "处理情况"
   },
   {
     "selector": "#event-records>div:nth-of-type(1)>span:nth-of-type(4)",
     "nodeIndex": 0,
-    "key": "ui.records.result",
-    "source": "结果"
-  },
-  {
-    "selector": "#event-records>div:nth-of-type(1)>span:nth-of-type(5)",
-    "nodeIndex": 0,
-    "key": "ui.records.latest_occurrence",
-    "source": "最近发生"
+    "key": "ui.eventRecord.time",
+    "source": "发生时间"
   },
   {
     "selector": "#task-records>div:nth-of-type(1)>span:nth-of-type(1)",
@@ -2363,5 +2363,29 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "client.models.refresh_and_configure",
     "source": "刷新模型并配置"
+  },
+  {
+    "selector": "#event-record-title",
+    "nodeIndex": 0,
+    "key": "ui.eventRecord.detail",
+    "source": "记录详情"
+  },
+  {
+    "selector": "#event-record-close",
+    "nodeIndex": 0,
+    "key": "ui.eventRecord.close",
+    "source": "关闭详情"
+  },
+  {
+    "selector": "#event-record-boundary",
+    "nodeIndex": 0,
+    "key": "ui.eventRecord.boundary",
+    "source": "内容核对基于采集时的观察，不证明调用瞬间内容。"
+  },
+  {
+    "selector": "#event-record-skill",
+    "nodeIndex": 0,
+    "key": "ui.eventRecord.viewSkill",
+    "source": "查看 Skill"
   }
 ]
