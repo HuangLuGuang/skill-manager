@@ -36,8 +36,11 @@
         <a-button v-if="hasAccess('skills:create')" type="primary" @click="$router.push('/submit')">{{ text('提交 Skill', 'Submit Skill') }}</a-button>
         <a-popover trigger="click" placement="bottomRight" :title="$t('skillColumns.hint')">
           <template #content>
+            <p class="column-minimum">{{ $t('skillColumns.minimum') }}</p>
+            <!-- 至少保留一列；新增选项后可取消原来的最后一项。 -->
             <a-checkbox-group v-model:value="visibleColumns" class="column-options">
-              <a-checkbox v-for="column in allColumns" :key="column.key" :value="column.key">{{ column.title }}</a-checkbox>
+              <a-checkbox v-for="column in allColumns" :key="column.key" :value="column.key"
+                :disabled="visibleColumns.length === 1 && visibleColumns.includes(column.key)">{{ column.title }}</a-checkbox>
             </a-checkbox-group>
             <a-button type="link" class="reset-columns" @click="visibleColumns = [...defaultSkillColumns]">{{ $t('skillColumns.reset') }}</a-button>
           </template>
@@ -531,6 +534,7 @@ watch([status, risk, sandboxFilter], () => {
 </script>
 
 <style scoped>
+.column-minimum { margin: 0 0 12px; color: var(--ant-color-text-secondary, #666); }
 .column-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 4px 0; width: 300px; max-width: calc(100vw - 64px); }
 .reset-columns { margin-top: 12px; padding-left: 0; }
 .column-options :deep(.ant-checkbox-wrapper) { margin-inline-start: 0; }
