@@ -247,7 +247,7 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, p
     build.chmod(0o755)
     for relative in (
         "docker-compose.yaml", ".env.example", "deploy/nginx/default.conf",
-        "docs/offline-deployment.md", "docs/docker-deployment.md",
+        "docs/offline-deployment.md", "docs/docker-deployment.md", "docs/license.md",
         "start.sh", "upgrade.sh", "deploy/offline.py",
     ):
         destination = source / relative
@@ -315,7 +315,7 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, p
         provenance = json.load(archive.extractfile("agent-manager/release-provenance.json"))
     files = {
         "docker-compose.yaml", ".env.example", "deploy/nginx/default.conf", "release-provenance.json",
-        "docs/offline-deployment.md", "docs/docker-deployment.md",
+        "docs/offline-deployment.md", "docs/docker-deployment.md", "docs/license.md",
         f"docker_images/{arch}/agent-manager-images-{version}.tar.xz",
         "installers/docker-installer-28.5.2-x86-arm.tar.gz",
         "scanner/releases/latest.json", "scanner/releases/agent-manager-client.exe",

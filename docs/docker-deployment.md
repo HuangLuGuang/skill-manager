@@ -1,5 +1,9 @@
 # Docker 部署
 
+License 状态默认保存在后端持久化 data 卷的 `license/state.db`，可信公钥由镜像内
+`deploy/license/public-keys/` 提供。后端重建/升级保留该卷；自定义路径的多进程必须共享状态文件。
+安装后的申请、签发和导入流程见 [离线 License](license.md)。
+
 现场安装与升级使用交付包：首次在解压后的 `agent-manager` 目录准备生产 `.env`，执行
 `./start.sh`；自定义 HTTP 端口使用 `./start.sh --port 8088`。后续在原安装目录执行
 `./upgrade.sh /path/to/agent-manager_<版本>_<架构>.tar.gz`。脚本加载包内镜像并检查服务，

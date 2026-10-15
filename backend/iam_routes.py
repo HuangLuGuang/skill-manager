@@ -8,6 +8,8 @@ to management JWT authentication after FastAPI has selected an endpoint.
 def route_permission(request):
     path = getattr(request.scope.get("route"), "path", request.url.path)
     method = request.method
+    if path.startswith("/api/v1/license/"):
+        return None if method == "GET" else "license:update"
     if path.startswith("/api/v1/iam/") or path.startswith("/api/auth/"):
         return None
     if path in {"/api/system/capabilities", "/api/system/logo", "/api/system/branding"} and method == "GET":

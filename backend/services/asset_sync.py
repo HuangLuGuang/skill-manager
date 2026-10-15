@@ -166,6 +166,8 @@ def discovery_client(db: Session, source: models.AssetSource) -> DifyConsoleClie
 def start_run(
     db: Session, source: models.AssetSource, request_key: str, *, now: datetime | None = None
 ) -> models.AssetSyncRun:
+    from agent_manager.core.licensing import require_license
+    require_license("security_scanning")
     now = now or datetime.utcnow()
     existing = db.query(models.AssetSyncRun).filter_by(source_id=source.source_id, request_key=request_key).first()
     if existing:
@@ -202,6 +204,9 @@ def start_run(
 
 
 def dispatch_due(db: Session, now: datetime) -> int:
+    from agent_manager.core.licensing import scan_allowed
+    if not scan_allowed():
+        return 0
     count = 0
     if db.bind.dialect.name == "sqlite":
         db.connection().exec_driver_sql("BEGIN IMMEDIATE")
@@ -246,6 +251,8 @@ def _lease(db: Session, run_id: str, token: str) -> models.AssetSyncRun:
 
 
 def _ensure_target(db: Session, source: models.AssetSource, app: dict) -> models.SecurityAgentAsset:
+    from agent_manager.core.licensing import require_license
+    require_license("security_scanning")
     template, user = source_context(db, source)
     agent = db.query(models.SecurityAgentAsset).filter_by(source_id=source.source_id, external_id=app["id"]).first()
     if agent:
@@ -297,6 +304,9 @@ def _finish(db: Session, run: models.AssetSyncRun, status: str) -> None:
 
 
 def process_run(run_id: str, factory=SessionLocal) -> None:
+    from agent_manager.core.licensing import scan_allowed
+    if not scan_allowed():
+        return
     from ..routers import security_scans as scans
 
     token = new_resource_id("lease")

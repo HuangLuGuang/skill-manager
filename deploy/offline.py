@@ -19,7 +19,7 @@ import tempfile
 DEPLOY_FILES = (
     "docker-compose.yaml", ".env.example", "release-provenance.json",
     "start.sh", "upgrade.sh", "deploy/offline.py", "deploy/nginx/default.conf",
-    "docs/offline-deployment.md", "docs/docker-deployment.md",
+    "docs/offline-deployment.md", "docs/docker-deployment.md", "docs/license.md",
 )
 COMPOSE_COMMAND = ("docker", "compose")
 

@@ -45,6 +45,7 @@ COPY web/public/docs/screenshots ./web/public/docs/screenshots
 COPY services/aig-scan-service/vendor/ai-infra-guard/data/eval ./services/aig-scan-service/vendor/ai-infra-guard/data/eval
 COPY services/aig-scan-service/vendor/ai-infra-guard/LICENSE services/aig-scan-service/vendor/ai-infra-guard/NOTICE ./services/aig-scan-service/vendor/ai-infra-guard/
 COPY deploy/agent-security ./deploy/agent-security
+COPY deploy/license ./deploy/license
 COPY demo/agent-manager-skill-verifier ./demo/agent-manager-skill-verifier
 COPY demo/mcp-customer-operations ./demo/mcp-customer-operations
 

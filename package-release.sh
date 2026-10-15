@@ -243,7 +243,7 @@ cp start.sh upgrade.sh "$PACKAGE_DIR/"
 chmod +x "$PACKAGE_DIR/start.sh" "$PACKAGE_DIR/upgrade.sh"
 cp deploy/offline.py "$PACKAGE_DIR/deploy/"
 cp deploy/nginx/default.conf "$PACKAGE_DIR/deploy/nginx/"
-cp docs/offline-deployment.md docs/docker-deployment.md "$PACKAGE_DIR/docs/"
+cp docs/offline-deployment.md docs/docker-deployment.md docs/license.md "$PACKAGE_DIR/docs/"
 mv "$IMAGE_XZ" "$PACKAGE_DIR/$IMAGE_DIR/"
 cp "$DOCKER_INSTALLER" "$PACKAGE_DIR/installers/docker-installer-28.5.2-x86-arm.tar.gz"
 if [ -n "$CLIENT_RELEASES" ]; then

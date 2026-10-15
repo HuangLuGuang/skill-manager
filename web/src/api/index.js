@@ -52,6 +52,9 @@ export const changePassword = (oldPassword, newPassword) =>
 export const checkSession = () => api.get('/auth/session-check')
 
 export const getSystemInfo = () => api.get('/system/info')
+export const getLicenseStatus = () => api.get('/v1/license/status')
+export const exportLicenseRequest = body => api.post('/v1/license/request', body)
+export const importLicense = content => api.post('/v1/license/import', content, { headers: { 'Content-Type': 'application/json' } })
 export const getSystemCapabilities = () => api.get('/system/capabilities')
 export const getLogoInfo = () => api.get('/system/logo')
 export const listRuntimeTraces = (params = {}) => api.get('/v1/runtime-traces', { params })
