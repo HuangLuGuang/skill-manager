@@ -80,6 +80,7 @@ deploy-35:
       fi
 
       cd "$DEPLOY_DIR"
+      docker compose run --rm --no-deps --pull never --entrypoint python backend -m backend.aidr_signing
       docker compose up -d --remove-orphans
       docker compose up -d --force-recreate --no-deps nginx
 
@@ -103,6 +104,7 @@ deploy-35:
       done
 
       docker compose ps
+      docker compose exec -T backend python -m backend.aidr_signing --check
       notify "Agent Manager ${IMAGE_TAG} 已部署并通过健康检查\n${CI_PIPELINE_URL}"
   after_script:
     - |

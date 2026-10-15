@@ -1,8 +1,6 @@
 """Signed, device-scoped P2 snapshots. Private signing material never enters API responses."""
 import base64
 import json
-import os
-import stat
 import time
 from pathlib import PurePosixPath
 
@@ -13,6 +11,7 @@ from sqlalchemy import Column, ForeignKey, Index, Integer, String, Text, UniqueC
 
 from .sqlite_db import Base
 from .api_errors import ApiError
+from .aidr_signing import key_path, load_key
 
 
 class AidrEnforcementRevision(Base):
@@ -113,17 +112,8 @@ def canonical(value):
 
 
 def signing_key():
-    path = os.environ.get('AIDR_POLICY_SIGNING_KEY_FILE', '')
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-        with os.fdopen(fd, 'rb') as source:
-            info = os.fstat(source.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_size > 16384 or info.st_uid != os.geteuid():
-                raise ValueError('key file ownership or permissions')
-            key = serialization.load_pem_private_key(source.read(16385), password=None)
-        if not isinstance(key, ec.EllipticCurvePrivateKey) or not isinstance(key.curve, ec.SECP256R1):
-            raise ValueError('key type')
-        return key
+        return load_key(key_path())
     except (OSError, ValueError, TypeError):
         raise ApiError(503, 'aidr.enforcement_signer_unavailable', '系统防护签名密钥未就绪', 'Enforcement signing key is unavailable') from None
 
