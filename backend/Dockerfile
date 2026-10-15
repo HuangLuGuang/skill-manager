@@ -56,7 +56,8 @@ RUN python -c "from backend.aidr_commands import command_counts; assert command_
 
 # Pre-download tiktoken encoding files (downloaded from Azure CDN on first use, ~2MB)
 ENV TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
-RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')" 2>&1
+RUN if [ -n "$GIT_PROXY" ]; then export HTTPS_PROXY="$GIT_PROXY"; fi; \
+    python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')" 2>&1
 
 # Warm up headroom (triggers any lazy init, uses pre-cached tiktoken files)
 RUN python -c "from headroom import compress; compress([{'role':'user','content':'warmup'}], model='gpt-4o', optimize=False)" 2>&1 || true

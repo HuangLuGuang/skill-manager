@@ -482,7 +482,7 @@ ARM 包内的镜像 tag、Compose 镜像引用和 provenance 版本均为完整 
 带 `v` 前缀的版本 tag（包括 `_arm`）。Runner 的 AWS 凭据需要具备桶检查、对象上传及读取权限。
 `client-vYY.MM.DD.N` 继续由 GitHub Actions 构建并同步桌面客户端。
 
-内部发布环境的 Docker daemon 使用外网代理拉取基础镜像；GitLab CI 还通过 `BUILD_DOCKER_PROXY` 仅为 Buildx 进程设置 `HTTP_PROXY`/`HTTPS_PROXY`，确保 Docker Hub token 鉴权请求走代理。Backend 的 Debian 与 GitHub 下载分别通过 `BUILD_APT_PROXY`、`BUILD_GIT_PROXY` 使用代理，Python 包通过 `BUILD_PYPI_INDEX` 使用清华源；npm 保持直连。Docker 代理配置位于 `/etc/systemd/system/docker.service.d/http-proxy.conf`；修改后执行 `sudo systemctl daemon-reload && sudo systemctl restart docker`。
+内部发布环境的 Docker daemon 使用外网代理拉取基础镜像；GitLab CI 还通过 `BUILD_DOCKER_PROXY` 仅为 Buildx 进程设置 `HTTP_PROXY`/`HTTPS_PROXY`，确保 Docker Hub token 鉴权请求走代理。Backend 的 Debian 与 GitHub 下载分别通过 `BUILD_APT_PROXY`、`BUILD_GIT_PROXY` 使用代理，Python 包通过 `BUILD_PYPI_INDEX` 使用清华源；npm 保持直连。Backend 预热 tiktoken 词表的构建步骤也使用 `BUILD_GIT_PROXY` 作为 HTTPS 下载代理，仅在该步骤内生效；构建时代理不配置到运行容器。Docker 代理配置位于 `/etc/systemd/system/docker.service.d/http-proxy.conf`；修改后执行 `sudo systemctl daemon-reload && sudo systemctl restart docker`。
 
 Backend、Sandbox（nsjail 编译阶段和运行阶段）、AIG Scan Service 镜像构建先下载 Debian 依赖，再从已下载的包执行安装。索引更新最多尝试 3 次，依赖下载最多尝试 5 次，下载失败后依次等待 5、10、15、20 秒，并复用本次构建中已下载成功的包；连续失败会终止构建。该重试用于应对依赖下载链路的临时 503 或连接超时，持续网络故障仍需排查代理及网络链路。
 
