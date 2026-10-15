@@ -5,7 +5,9 @@ export const readVisibleColumns = (storage, key, previousKey) => {
     const saved = storage.getItem(key)
     if (saved !== null) {
       const value = JSON.parse(saved)
-      return Array.isArray(value) ? [...defaultSkillColumns, 'skill_id', ...optionalAnalysisColumns].filter(item => value.includes(item)) : [...defaultSkillColumns]
+      const columns = Array.isArray(value) ? [...defaultSkillColumns, 'skill_id', ...optionalAnalysisColumns].filter(item => value.includes(item)) : []
+      // 旧版可保存空列设置，读取时恢复默认以保留可读业务列。
+      return columns.length ? columns : [...defaultSkillColumns]
     }
     const previous = JSON.parse(storage.getItem(previousKey) || '[]')
     return [...defaultSkillColumns, ...(Array.isArray(previous) ? optionalAnalysisColumns.filter(item => previous.includes(item)) : [])]

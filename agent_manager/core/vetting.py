@@ -722,6 +722,8 @@ class VettingPipeline:
         analyzer_callback: Callable[[str, str], None] | None = None,
     ) -> tuple[VettingResult, list[PolicyViolation], str, str, list[str]]:
         """Run selected analyzers and return the final policy-ready result."""
+        from .licensing import require_license
+        require_license("security_scanning")
         started = time.monotonic()
         skill_path = Path(skill_path).resolve()
         effective_judgement_mode = (
@@ -742,6 +744,8 @@ class VettingPipeline:
         )
 
         def report_analyzer(name: str, status: str) -> None:
+            if status == "running":
+                require_license("security_scanning")
             if analyzer_callback:
                 analyzer_callback(name, status)
 

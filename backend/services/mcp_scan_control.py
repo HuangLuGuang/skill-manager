@@ -35,6 +35,8 @@ class McpRepositoryRequest(BaseModel):
 
 
 def authorize(db, task_id, lease_token):
+    from agent_manager.core.licensing import require_license
+    require_license("security_scanning")
     from ..routers import security_scans as scans
     task = scans._task_or_404(db, task_id)
     worker = db.query(models.SecurityScanWorker).filter_by(worker_id=task.worker_id, status="active").first()

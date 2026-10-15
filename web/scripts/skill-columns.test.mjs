@@ -13,9 +13,13 @@ test('all columns are configurable with current columns as defaults', () => {
   assert.equal(defaultSkillColumns.includes('skill_id'), false)
   assert.deepEqual(readVisibleColumns({ getItem: () => '["skill_id"]' }, 'key', 'previous'), ['skill_id'])
   assert.deepEqual(readVisibleColumns({ getItem: () => '["sandbox","llm","name"]' }, 'key', 'previous'), ['name', 'llm', 'sandbox'])
-  assert.deepEqual(readVisibleColumns({ getItem: () => '[]' }, 'key', 'previous'), [])
   assert.deepEqual(readVisibleColumns({ getItem: () => 'bad JSON' }, 'key', 'previous'), defaultSkillColumns)
 })
 test('existing optional column choices are retained', () => {
   assert.deepEqual(readVisibleColumns({ getItem: key => key === 'previous' ? '["sandbox"]' : null }, 'key', 'previous'), [...defaultSkillColumns, 'sandbox'])
+})
+test('empty or obsolete saved column selections restore defaults', () => {
+  assert.deepEqual(readVisibleColumns({ getItem: () => '[]' }, 'key', 'previous'), defaultSkillColumns)
+  assert.deepEqual(readVisibleColumns({ getItem: () => '["removed-column"]' }, 'key', 'previous'), defaultSkillColumns)
+  assert.deepEqual(readVisibleColumns({ getItem: () => '["removed-column","name"]' }, 'key', 'previous'), ['name'])
 })

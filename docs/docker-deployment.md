@@ -1,5 +1,9 @@
 # Docker 部署
 
+License 状态默认保存在后端持久化 data 卷的 `license/state.db`，可信公钥由镜像内
+`deploy/license/public-keys/` 提供。后端重建/升级保留该卷；自定义路径的多进程必须共享状态文件。
+安装后的申请、签发和导入流程见 [离线 License](license.md)。
+
 现场安装与升级使用交付包：首次在解压后的 `agent-manager` 目录准备生产 `.env`，执行
 `./start.sh`；自定义 HTTP 端口使用 `./start.sh --port 8088`。后续在原安装目录执行
 `./upgrade.sh /path/to/agent-manager_<版本>_<架构>.tar.gz`。脚本加载包内镜像并检查服务，
@@ -80,10 +84,45 @@ docker compose up -d
 docker compose ps
 ```
 
-生产模式不会接受本地占位密钥，也不会恢复公开固定管理员密码。签名私钥必须在启动
+生产模式不会接受本地占位密钥，也不会恢复公开固定管理员密码。Skill Ed25519 签名私钥必须在启动
 服务前预置：源码部署执行上述初始化命令，交付包的 `start.sh` 和 `upgrade.sh` 自动初始化
-缺失的密钥并沿用已有密钥；生产副本不会在启动或公钥查询时各自生成身份。多副本
+缺失的 Skill 密钥并沿用已有密钥；生产副本不会在启动或公钥查询时各自生成该身份。多副本
 部署必须挂载同一份只读私钥或由统一密钥管理系统下发。
+
+### AIDR 策略签名密钥
+
+Docker Backend 入口在启动 API 前初始化并校验独立的 P-256 策略签名密钥，供原生 Hook
+和系统防护策略使用。Compose 和镜像的默认配置为：
+
+```dotenv
+AIDR_POLICY_SIGNING_KEY_FILE=/app/runtime/data/signing/aidr-policy-p256.pem
+```
+
+该文件位于 `backend_data` 持久化卷。首次部署仅在文件缺失时生成无密码的 PKCS8 PEM 私钥，
+权限为 `0600`，所有者为容器内服务用户；并发初始化不会覆盖先生成的完整密钥。
+`docker compose up -d`、交付包 `start.sh` / `upgrade.sh` 和 CI 部署均沿用同一入口，
+容器重建及旧 `.env` 未增加此配置时仍使用上述默认路径。CI 在更新服务前预检密钥，
+CI 和离线脚本在启动后再次检查实际运行容器中的密钥。
+
+已有文件的类型、所有者、权限、PEM 格式或曲线不符合要求时，启动失败并提示
+`aidr.enforcement_signer_unavailable`，不会覆盖或自动更换密钥。只读挂载的已有有效密钥可正常使用。
+自定义路径必须挂载到持久化存储，多副本应预置同一份密钥。修改服务 UID 时同步调整文件所有者。
+
+仅校验当前容器中的密钥（不输出私钥、不创建文件）：
+
+```bash
+docker compose exec -T backend python -m backend.aidr_signing --check
+```
+
+如需在启动前单独初始化或检查已有密钥：
+
+```bash
+docker compose run --rm --no-deps --entrypoint python backend -m backend.aidr_signing
+```
+
+将 `backend_data` 中的该密钥纳入受控备份，恢复时保留原密钥与权限。客户端会固定策略验签公钥，
+更换密钥需要同步更新客户端信任；不要通过删除密钥排查故障。私钥只保留在部署环境，
+不提交到 Git、不写入镜像或离线包；License 签发私钥仍由独立签发系统保管。
 
 ### 管理员初始密码与升级
 
@@ -478,7 +517,7 @@ ARM 包内的镜像 tag、Compose 镜像引用和 provenance 版本均为完整 
 带 `v` 前缀的版本 tag（包括 `_arm`）。Runner 的 AWS 凭据需要具备桶检查、对象上传及读取权限。
 `client-vYY.MM.DD.N` 继续由 GitHub Actions 构建并同步桌面客户端。
 
-内部发布环境的 Docker daemon 使用外网代理拉取基础镜像；GitLab CI 还通过 `BUILD_DOCKER_PROXY` 仅为 Buildx 进程设置 `HTTP_PROXY`/`HTTPS_PROXY`，确保 Docker Hub token 鉴权请求走代理。Backend 的 Debian 与 GitHub 下载分别通过 `BUILD_APT_PROXY`、`BUILD_GIT_PROXY` 使用代理，Python 包通过 `BUILD_PYPI_INDEX` 使用清华源；npm 保持直连。Docker 代理配置位于 `/etc/systemd/system/docker.service.d/http-proxy.conf`；修改后执行 `sudo systemctl daemon-reload && sudo systemctl restart docker`。
+内部发布环境的 Docker daemon 使用外网代理拉取基础镜像；GitLab CI 还通过 `BUILD_DOCKER_PROXY` 仅为 Buildx 进程设置 `HTTP_PROXY`/`HTTPS_PROXY`，确保 Docker Hub token 鉴权请求走代理。Backend 的 Debian 与 GitHub 下载分别通过 `BUILD_APT_PROXY`、`BUILD_GIT_PROXY` 使用代理，Python 包通过 `BUILD_PYPI_INDEX` 使用清华源；npm 保持直连。Backend 预热 tiktoken 词表的构建步骤也使用 `BUILD_GIT_PROXY` 作为 HTTPS 下载代理，仅在该步骤内生效；构建时代理不配置到运行容器。Docker 代理配置位于 `/etc/systemd/system/docker.service.d/http-proxy.conf`；修改后执行 `sudo systemctl daemon-reload && sudo systemctl restart docker`。
 
 Backend、Sandbox（nsjail 编译阶段和运行阶段）、AIG Scan Service 镜像构建先下载 Debian 依赖，再从已下载的包执行安装。索引更新最多尝试 3 次，依赖下载最多尝试 5 次，下载失败后依次等待 5、10、15、20 秒，并复用本次构建中已下载成功的包；连续失败会终止构建。该重试用于应对依赖下载链路的临时 503 或连接超时，持续网络故障仍需排查代理及网络链路。
 

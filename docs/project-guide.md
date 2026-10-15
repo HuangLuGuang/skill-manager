@@ -1,5 +1,12 @@
 # Agent Manager Project Guide
 
+系统管理新增 [离线 License 授权](license.md)：导出部署申请、导入厂商签名授权、自动激活续期，
+按有效期、模块与注册客户端额度执行服务端限制。到期保留查看、导出及既有网关与防护；停止新增和扫描。
+页面支持中英文，具体配置、运行边界及人工验收清单见链接。
+
+**English:** [Offline licensing](license.md) supports deployment requests, signed imports, scheduled renewals,
+module entitlements and registered-client limits. Expiry preserves viewing, exports and existing runtime protection while stopping additions and scans.
+
 平台智能体的创建和编辑支持可选的 MCP 网关多选及当前工具预览。Agent 范围约束运行凭证授权，后续 MCP 请求重新核对 Agent 状态和网关范围；接入指引提供逐网关连接配置，详情页分别展示配置、凭证权限覆盖和实际调用。旧 Agent 从有效运行凭证一次性迁移 MCP 范围。操作步骤与记录归属边界见 [MCP 工具访问](agent-governance.md#mcp-工具访问--mcp-tool-access)。
 
 **English:** Platform Agent creation and editing support optional MCP gateway selection and current tool previews. Agent grants bound runtime credential authorization and subsequent MCP requests recheck Agent state and scope. The integration guide provides per-gateway connection settings; details separates configuration, credential coverage and actual calls. Existing Agent scopes are migrated once from valid runtime credentials. See [MCP tool access](agent-governance.md#mcp-工具访问--mcp-tool-access) for the workflow and attribution limits.
@@ -262,7 +269,7 @@ LLM 分析生成详细的安全报告，如果是恶意skill，还会生成攻�
 - 同名但内容不同会创建递增版本，历史版本内容使用服务端快照保存。
 - Skill 详情中的基础信息、检测报告、文件等内容分别加载，已返回的内容立即显示。“版本差异”在打开时加载比较结果，等待期间仍可切换其他标签；相同版本直接显示无文本文件差异，比较失败可点击“重新加载差异”。
 - 版本差异默认以最新版本为目标、前一个版本为基准，支持选择版本、交换比较方向、切换差异文件及并排或单栏对比。在本次详情查看期间，版本选择未变时切换标签再返回会继续等待或显示已有比较结果。比较范围为可读取的 UTF-8 文本文件，单文件不超过 1 MiB；跳过软链接及 `.git`、`.venv`、`node_modules`、`__pycache__`、`dist`、`build` 目录。
-- Skill 列表默认展示 LLM 判定结果，与最终风险独立显示；“显示列”可设置全部列的显示或隐藏，默认展示现有基础列与 LLM 判定结果，规则扫描、深度扫描和 Sandbox 默认隐藏；支持恢复默认，选择保存在当前浏览器。检测中、调用失败、已跳过、未启用和未记录分别显示。
+- Skill 列表默认展示 LLM 判定结果，与最终风险独立显示；检测中、调用失败、已跳过、未启用和未记录分别显示。显示列、偏好保存及排序规则见“12.2 技能列表”。
 - Scanner 的 `--llm` 是请求开关；系统关闭 AI 分析时，上传和其他检测继续，报告以 `analyzer_timings.llm.status=disabled`、`reason=llm_analysis_disabled` 记录本次未调用模型。列表及版本摘要显示“未启用”，详情显示原因说明；系统开启后的缺配置或真实调用异常仍为失败。既有报告保留本次记录，不随当前开关改变；重新检测生成新的实际状态。
 - The Scanner `--llm` flag requests analysis. If AI analysis is disabled on the server, uploads and other checks continue, and the report records `disabled` with reason `llm_analysis_disabled`. The list, detail and version summary show the recorded state. Configuration or model request errors while enabled remain failures. Existing reports retain their historical state; rescan to apply new settings.
 
@@ -1843,9 +1850,19 @@ task polling and fresh verification decisions after approval/revocation in both 
 - 分开的 SCANNING（检测中）、VETTED（待审核）筛选；APPROVED 表示已批准
 - 勾选当前页项目后批量重新检测、取消任务或删除；结果按具体动作统计成功数量，并按状态或原因列出跳过、失败项目
 
-“显示列”可配置全部 13 列，默认显示名称、最新版本、最新可信、状态、风险等级、LLM 判定结果、审批人、更新时间和操作。Skill ID、规则扫描、深度扫描、Sandbox 默认隐藏。设置按账号保存在本浏览器中，可点击“恢复默认”。
+“显示列”可配置全部 13 列，默认显示名称、最新版本、最新可信、状态、风险等级、LLM 判定结果、审批人、更新时间和操作；Skill ID、规则扫描、深度扫描、Sandbox 默认隐藏。设置按账号保存在本浏览器中，支持“恢复默认”。
 
-更新时间展示 Skill 的 `updated_at`，审批等记录更新也会改变此时间。列表默认按更新时间降序；点击名称、Skill ID、状态、风险、审批人或更新时间表头在升序和降序之间切换，箭头与当前请求方向一致。筛选、分页及刷新保留当前排序，重置筛选恢复更新时间降序。风险按英文编码排序，升序为 benign（安全）、malicious（恶意）、suspicious（可疑），降序反向；未判定风险在升序最前、降序最后。名称、Skill ID、审批人按文本排序（英文字母忽略大小写，不按中文拼音）；状态按内部英文状态码排序；更新时间升序从旧到新。分页列表同值时按更新时间降序。分页和非分页接口均使用相同英文风险编码顺序。
+至少保留一列：最后一个已选项保持勾选并禁用，勾选另一列后可取消原项。面板显示“至少保留一列 / Keep at least one column”。读取旧版空设置或全无效列键时恢复默认，保留合法单列及旧版分析列偏好。
+
+“更新时间 / Updated Time”展示 Skill 的 `updated_at`，审批等记录更新也会改变此时间。名称、Skill ID、状态、风险、审批人、更新时间均仅在升序和降序之间切换，箭头与请求方向一致。默认及重置按更新时间降序；筛选、分页和刷新保留当前排序。各列升序规则如下，降序反向；分页列表同值时按更新时间降序。
+
+| 列 | 升序规则 |
+|---|---|
+| 名称、审批人 | 文本顺序，英文字母忽略大小写；中文按数据库文本顺序 |
+| Skill ID | 完整 `family_id` 文本顺序 |
+| 状态 | 内部英文状态码顺序 |
+| 风险 | 英文编码 `benign`（安全）、`malicious`（恶意）、`suspicious`（可疑）；未判定在最前，降序在最后；分页及非分页接口一致 |
+| 更新时间 | 从旧到新 |
 
 单条“更多 > 重新检测”和“批量重新检测”使用同一策略弹窗：可以沿用原有检测选项，也可以统一选择深度扫描、Sandbox 和 LLM 分析。规则分析强制开启、不可取消，悬停选项可查看说明。正在检测的项目会跳过重新提交；取消任务支持初次扫描和重新检测，取消重新检测保留此前有效判定。失败项保留选中，便于重试。
 
