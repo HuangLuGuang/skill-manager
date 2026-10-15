@@ -1594,6 +1594,7 @@ const taskReasonKeys = {
 }
 const taskReasonLabel = value => {
   if (!value) return '—'
+  if (value === 'license.scan_stopped') return localizeApiError({ code: value }, locale.value)
   const key = taskReasonKeys[value]
   return key ? t(`agentSecurityScans.detail.reasons.${key}`) : value
 }

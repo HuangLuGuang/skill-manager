@@ -49,6 +49,9 @@ class PromptManager:
         author: str | None = None,
     ) -> PromptEntry:
         """Submit a prompt for vetting. Returns the pending PromptEntry."""
+        from .licensing import require_license
+        require_license("skill_governance")
+        require_license("security_scanning")
         entry = PromptEntry(
             prompt_id=str(uuid.uuid4()),
             name=name,
@@ -69,6 +72,8 @@ class PromptManager:
 
     def vet(self, prompt_id: str) -> PromptEntry:
         """Run vetting analysis on a pending prompt."""
+        from .licensing import require_license
+        require_license("security_scanning")
         entry = self._require_prompt(prompt_id)
         if entry.status != PromptStatus.PENDING:
             raise ValueError(f"Prompt {entry.name!r} is not PENDING")
@@ -207,6 +212,8 @@ class PromptManager:
         actor: str | None = None,
     ) -> PromptEntry:
         """Deploy a prompt: sign, write to disk, mark DEPLOYED."""
+        from .licensing import require_license
+        require_license("skill_governance")
         entry = self._require_prompt(prompt_id)
         if entry.status != PromptStatus.APPROVED:
             raise ValueError(f"Prompt {entry.name!r} must be APPROVED before deploying")

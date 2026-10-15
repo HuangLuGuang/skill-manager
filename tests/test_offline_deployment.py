@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def make_release(root, version='1.0.7', platform='linux/amd64'):
     root.mkdir(parents=True, exist_ok=True)
     for name in ('start.sh', 'upgrade.sh', 'deploy/offline.py', '.env.example',
-                 'deploy/nginx/default.conf', 'docs/offline-deployment.md', 'docs/docker-deployment.md'):
+                 'deploy/nginx/default.conf', 'docs/offline-deployment.md', 'docs/docker-deployment.md', 'docs/license.md'):
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / name, target)

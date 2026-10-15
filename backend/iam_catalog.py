@@ -24,6 +24,7 @@ MODULE_ACTIONS = {
     "runtime": "view create update delete execute",
     "traces": "view raw delete",
     "settings": "view update",
+    "license": "view update",
     "tasks": "view create update execute",
     "docs": "view update",
 }
@@ -71,6 +72,7 @@ PAGES = [
     ("menus", "system-admin", "菜单管理", "Menus", "/menus", "menus:view", "setting", None),
     ("system-audit", "system-admin", "系统审计", "System Audit", "/system-audit", "audit:operation", "audit", None),
     ("settings", "system-admin", "系统总览", "System Overview", "/settings", "settings:view", "setting", None),
+    ("license", "system-admin", "License 授权", "License", "/license", "license:view", "key", None),
     ("docs-settings", "system-admin", "文档设置", "Documentation Settings", "/docs-settings", "docs:update", "fileText", None),
 ]
 PAGE_PERMISSIONS = {row[4]: row[5] for row in PAGES if row[4]}
