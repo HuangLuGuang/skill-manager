@@ -2452,6 +2452,8 @@ async def upsert_privacy_policy(
     permission = "privacy:create" if row is None else "privacy:update"
     request.state.iam_permission = permission
     iam.check(db, current_user, permission)
+    from agent_manager.core.licensing import require_license
+    require_license("model_gateway", runtime=row is not None)
     default_policy = _get_default_policy(db)
     if row is None:
         row = models.PrivacyPolicy(group_id=body.group_id, entity_types_json="[]", name=body.name)

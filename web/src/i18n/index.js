@@ -1,4 +1,5 @@
 import { scannerGuideMessages } from './scannerGuide.js'
+import { licenseMessages } from './license.js'
 import { dashboardMessages } from './dashboard.js'
 import { clientEventMessages } from './client-events.js'
 import { mcpServerFormMessages } from './mcpServerForm.js'
@@ -55,6 +56,7 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      license: licenseMessages['zh-CN'],
       clientEvents: clientEventMessages['zh-CN'],
       localAssets: localAssetMessages['zh-CN'],
       dashboard: dashboardMessages['zh-CN'],
@@ -1184,6 +1186,7 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      license: licenseMessages['en-US'],
       clientEvents: clientEventMessages['en-US'],
       localAssets: localAssetMessages['en-US'],
       dashboard: dashboardMessages['en-US'],

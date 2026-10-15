@@ -45,6 +45,7 @@ COPY web/public/docs/screenshots ./web/public/docs/screenshots
 COPY services/aig-scan-service/vendor/ai-infra-guard/data/eval ./services/aig-scan-service/vendor/ai-infra-guard/data/eval
 COPY services/aig-scan-service/vendor/ai-infra-guard/LICENSE services/aig-scan-service/vendor/ai-infra-guard/NOTICE ./services/aig-scan-service/vendor/ai-infra-guard/
 COPY deploy/agent-security ./deploy/agent-security
+COPY deploy/license ./deploy/license
 COPY demo/agent-manager-skill-verifier ./demo/agent-manager-skill-verifier
 COPY demo/mcp-customer-operations ./demo/mcp-customer-operations
 
@@ -55,7 +56,8 @@ RUN python -c "from backend.aidr_commands import command_counts; assert command_
 
 # Pre-download tiktoken encoding files (downloaded from Azure CDN on first use, ~2MB)
 ENV TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
-RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')" 2>&1
+RUN if [ -n "$GIT_PROXY" ]; then export HTTPS_PROXY="$GIT_PROXY"; fi; \
+    python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')" 2>&1
 
 # Warm up headroom (triggers any lazy init, uses pre-cached tiktoken files)
 RUN python -c "from headroom import compress; compress([{'role':'user','content':'warmup'}], model='gpt-4o', optimize=False)" 2>&1 || true
@@ -66,6 +68,7 @@ ENV PYTHONPATH=/app \
     SKILLSPECTOR_BIN=/app/tools/SkillSpector/.venv/bin/skillspector \
     DEBUG=false \
     DATA_DIR=/app/runtime/data \
+    AIDR_POLICY_SIGNING_KEY_FILE=/app/runtime/data/signing/aidr-policy-p256.pem \
     UPLOADS_DIR=/app/runtime/uploads \
     SQLITE_PATH=/app/runtime/sqlite/admin_starter.db \
     AGENT_MANAGER_DATA_DIR=/app/runtime/agent_manager \
@@ -73,4 +76,5 @@ ENV PYTHONPATH=/app \
 
 EXPOSE 8000
 
+ENTRYPOINT ["/bin/sh", "/app/backend/docker-entrypoint.sh"]
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

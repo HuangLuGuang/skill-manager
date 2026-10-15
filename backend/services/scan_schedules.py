@@ -69,6 +69,9 @@ def queue_run(db, plan, key, trigger, actor=None):
 
 
 def dispatch_due(factory=SessionLocal, now=None):
+    from agent_manager.core.licensing import scan_allowed
+    if not scan_allowed():
+        return
     now = now or datetime.utcnow()
     with factory() as db:
         begin_write(db)
@@ -83,6 +86,9 @@ def dispatch_due(factory=SessionLocal, now=None):
 
 
 def process_run(run_id, factory=SessionLocal):
+    from agent_manager.core.licensing import scan_allowed
+    if not scan_allowed():
+        return
     from ..routers import security_scans as scans
 
     now = datetime.utcnow()

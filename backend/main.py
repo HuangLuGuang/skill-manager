@@ -25,6 +25,9 @@ from .auth import get_current_admin_user, get_current_security_reader, get_passw
 from .config import settings
 from .dify_inventory_migration import migrate_dify_asset_inventory
 from .request_limits import WorkerCompletionBodyLimitMiddleware
+from .license_policy import enforce_license_request, license_error_handler
+from agent_manager.core.licensing import LicenseError
+from .routers import license as license_routes
 from .routers import (
     access_tokens,
     aidr,
@@ -140,7 +143,10 @@ app = FastAPI(
     title=settings.APP_NAME,
     debug=settings.DEBUG,
     lifespan=application_lifespan,
+    dependencies=[Depends(enforce_license_request)],
 )
+app.add_exception_handler(LicenseError, license_error_handler)
+app.include_router(license_routes.router, prefix=settings.API_PREFIX)
 app.add_exception_handler(ApiError, api_error_handler)
 app.add_exception_handler(HTTPException, http_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)

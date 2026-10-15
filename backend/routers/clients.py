@@ -9,6 +9,8 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from agent_manager.core.licensing import LicenseError, require_license, scan_allowed
+
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Query, Request, Response
 from backend.client_event_delivery import save_delivery
 from backend import client_discovery, client_governance, client_skill_actions, runtime_governance, client_event_records
@@ -75,6 +77,19 @@ _AUTO_AGENT_CREDENTIAL_SCOPES = [
     "runtime:check-tool",
     "model:chat",
 ]
+
+
+def require_client_task(task_type):
+    if task_type == "rescan":
+        require_license("security_scanning")
+    elif task_type in {"install_skill", "repair_skill"}:
+        require_license("skill_governance")
+    elif task_type == "apply_model_config":
+        require_license("model_gateway")
+    elif task_type in {"verify_model_config", "restore_model_config"}:
+        require_license("model_gateway", runtime=True)
+    elif task_type in {"aidr_plugin_action", "aidr_skill_observe"}:
+        require_license("aidr", runtime=True)
 
 
 def _dump(value) -> str:
@@ -376,6 +391,7 @@ def _ensure_client_managed_agent(
         return existing
     label = _MODEL_CONFIG_AGENT_LABELS.get(client_agent.agent_type, client_agent.agent_type)
     owner = token.created_by or client.registered_by
+    require_license()
     row = models.ManagedAgent(
         agent_id=agent_id,
         name=f"{client.name} · {label}"[:128],
@@ -490,6 +506,11 @@ def ensure_client_inventory_identities(
             client.client_id, _local_agent_id(client_agent.local_agent_id, client_agent.agent_type)
         )
         identity_exists = db.query(models.ManagedAgent.id).filter_by(agent_id=discovery_id).first() is not None
+        if not identity_exists:
+            try:
+                require_license()
+            except LicenseError:
+                continue
         identity = _ensure_inventory_agent_identity(
             db,
             client=client,
@@ -1139,9 +1160,14 @@ def register_client(
 ):
     token = _runtime_token("client:register", authorization, request, db)
     _bind_client(token, body.client_id, db)
+    # Serialize count and registration in the same transaction, even for an empty table.
+    db.query(models.ManagedClient).filter(models.ManagedClient.id == -1).update({"status": models.ManagedClient.status}, synchronize_session=False)
     row = db.query(models.ManagedClient).filter(models.ManagedClient.client_id == body.client_id).first()
     is_new = row is None
     if is_new:
+        entitlement = require_license()
+        if db.query(models.ManagedClient).count() >= entitlement["limits"]["clients"]:
+            raise LicenseError("client_limit")
         row = models.ManagedClient(client_id=body.client_id, registered_by=token.created_by)
         db.add(row)
     row.name = body.name.strip() or body.hostname
@@ -1659,7 +1685,14 @@ async def poll_tasks(
             _bind_client(token, client_id, db)
             _client_or_404(db, client_id)
             rows = db.query(models.ClientTask).filter_by(client_id=client_id, status="pending").filter(models.ClientTask.id > after_id).order_by(models.ClientTask.id).all()
-            return [{"id": row.id, "task_type": row.task_type, "payload": _load(row.payload_json, {})} for row in rows]
+            allowed = []
+            for row in rows:
+                try:
+                    require_client_task(row.task_type)
+                except LicenseError:
+                    continue
+                allowed.append({"id": row.id, "task_type": row.task_type, "payload": _load(row.payload_json, {})})
+            return allowed
         finally:
             db.close()
 
@@ -1727,6 +1760,7 @@ def request_model_configuration(
     authorization: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    require_license("model_gateway")
     client_token = _runtime_token("client:read-tasks", authorization, request, db)
     _bind_client(client_token, client_id, db)
     client = _client_or_404(db, client_id)
@@ -2617,6 +2651,9 @@ def update_client_policy(
         "mode": row.policy_mode,
         "governance_mode": row.governance_mode,
     }
+    if not scan_allowed():
+        db.commit()
+        return {"client_id": client_id, "mode": row.policy_mode, "governance_mode": row.governance_mode, "sync_task_id": None}
     sync_task = next(
         (
             task
@@ -2713,6 +2750,7 @@ def create_task(
     current_user: models.User = Depends(auth.get_current_admin_user),
     manager: AgentManager = Depends(get_manager),
 ):
+    require_client_task(body.task_type)
     client = _client_or_404(db, client_id)
     _ensure_visible(client, current_user)
     payload = dict(body.payload)
@@ -3012,6 +3050,7 @@ def retry_task(
         raise HTTPException(status_code=404, detail="任务不存在")
     if row.status not in {"failed", "cancelled"}:
         raise HTTPException(status_code=400, detail="只有失败或已取消的任务可以重试")
+    require_client_task(row.task_type)
     payload = _load(row.payload_json, {})
     if row.task_type == 'aidr_skill_observe':
         from .. import aidr_skill_review

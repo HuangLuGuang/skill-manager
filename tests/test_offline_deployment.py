@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def make_release(root, version='1.0.7', platform='linux/amd64'):
     root.mkdir(parents=True, exist_ok=True)
     for name in ('start.sh', 'upgrade.sh', 'deploy/offline.py', '.env.example',
-                 'deploy/nginx/default.conf', 'docs/offline-deployment.md', 'docs/docker-deployment.md'):
+                 'deploy/nginx/default.conf', 'docs/offline-deployment.md', 'docs/docker-deployment.md', 'docs/license.md'):
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / name, target)
@@ -79,7 +79,7 @@ elif args[0] == 'compose':
     elif 'up' in args:
         sys.exit(1 if fail == 'health' else 0)
     elif 'exec' in args:
-        sys.exit(1 if fail == 'http' else 0)
+        sys.exit(1 if (fail == 'http' and 'nginx' in args) or (fail == 'aidr_signer' and 'backend.aidr_signing' in args) else 0)
 ''')
     docker.chmod(0o755)
     shutil.copy2(docker, binaries / 'docker-compose')
@@ -116,6 +116,7 @@ def test_start_loads_images_then_initializes_signer_and_waits(installation):
     assert '--wait' in calls[up] and '--wait-timeout' in calls[up]
     assert '--no-build' in calls[up] and calls[up][calls[up].index('--pull') + 1] == 'never'
     assert any('http://127.0.0.1/' in call for call in calls)
+    assert any('backend.aidr_signing' in call and '--check' in call for call in calls)
     assert (root / '.env').read_bytes() == original
     assert '检查通过' in result.stdout
 
@@ -200,7 +201,7 @@ def test_upgrade_backs_up_and_preserves_customer_env(tmp_path, installation):
     assert backup.stat().st_mode & 0o777 == 0o700
 
 
-@pytest.mark.parametrize('failure', ['architecture', 'load', 'image_architecture', 'health', 'http'])
+@pytest.mark.parametrize('failure', ['architecture', 'load', 'image_architecture', 'health', 'aidr_signer', 'http'])
 def test_upgrade_failures_are_visible_and_keep_backups(tmp_path, installation, failure):
     root, run = installation
     original = (root / 'docker-compose.yaml').read_bytes()

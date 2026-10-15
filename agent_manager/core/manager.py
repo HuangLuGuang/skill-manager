@@ -159,6 +159,9 @@ class AgentManager:
         judgement_mode: str | None = None,
     ) -> tuple[RegistryEntry, bool, str]:
         """Resolve a submission to an immutable version and decide whether to scan it."""
+        from .licensing import require_license
+        require_license("skill_governance")
+        require_license("security_scanning")
         resolved = Path(skill_path).resolve()
         if source is None:
             source = SourceInfo(origin=SkillOrigin.LOCAL, author=author)
@@ -259,6 +262,9 @@ class AgentManager:
         source: SourceInfo | None = None,
         author: str | None = None,
     ) -> RegistryEntry:
+        from .licensing import require_license
+        require_license("skill_governance")
+        require_license("security_scanning")
         skill_path = Path(skill_path).resolve()
 
         if source is None:
@@ -358,6 +364,8 @@ class AgentManager:
         force_scan: bool = False,
         judgement_mode: str | None = None,
     ) -> RegistryEntry:
+        from .licensing import require_license
+        require_license("security_scanning")
         entry = self._require_entry(skill_id)
         runs = self.registry.list_scan_runs(entry.skill_id)
         if runs and runs[0].status == "CANCELLED":
@@ -672,6 +680,8 @@ class AgentManager:
 
         Signs the skill and moves it to APPROVED status.
         """
+        from .licensing import require_license
+        require_license("skill_governance")
         entry = self._require_entry(skill_id)
 
         manual_policy_override = False
@@ -778,6 +788,8 @@ class AgentManager:
 
     def deploy(self, skill_id: str, actor: str | None = None) -> RegistryEntry:
         """Mark an APPROVED skill as DEPLOYED."""
+        from .licensing import require_license
+        require_license("skill_governance")
         entry = self._require_entry(skill_id)
 
         if entry.status != SkillStatus.APPROVED:
@@ -851,6 +863,8 @@ class AgentManager:
         scan_options: dict[str, bool] | None = None,
     ) -> tuple[RegistryEntry, bool]:
         """Start a rescan, or return the existing in-progress request."""
+        from .licensing import require_license
+        require_license("security_scanning")
         entry = self._require_entry(skill_id)
         if not entry.skill_path or not Path(entry.skill_path).exists():
             raise ValueError(f"Skill path {entry.skill_path!r} is not accessible")

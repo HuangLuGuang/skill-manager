@@ -1,5 +1,12 @@
 # Agent Manager Project Guide
 
+系统管理新增 [离线 License 授权](license.md)：导出部署申请、导入厂商签名授权、自动激活续期，
+按有效期、模块与注册客户端额度执行服务端限制。到期保留查看、导出及既有网关与防护；停止新增和扫描。
+页面支持中英文，具体配置、运行边界及人工验收清单见链接。
+
+**English:** [Offline licensing](license.md) supports deployment requests, signed imports, scheduled renewals,
+module entitlements and registered-client limits. Expiry preserves viewing, exports and existing runtime protection while stopping additions and scans.
+
 平台智能体的创建和编辑支持可选的 MCP 网关多选及当前工具预览。Agent 范围约束运行凭证授权，后续 MCP 请求重新核对 Agent 状态和网关范围；接入指引提供逐网关连接配置，详情页分别展示配置、凭证权限覆盖和实际调用。旧 Agent 从有效运行凭证一次性迁移 MCP 范围。操作步骤与记录归属边界见 [MCP 工具访问](agent-governance.md#mcp-工具访问--mcp-tool-access)。
 
 **English:** Platform Agent creation and editing support optional MCP gateway selection and current tool previews. Agent grants bound runtime credential authorization and subsequent MCP requests recheck Agent state and scope. The integration guide provides per-gateway connection settings; details separates configuration, credential coverage and actual calls. Existing Agent scopes are migrated once from valid runtime credentials. See [MCP tool access](agent-governance.md#mcp-工具访问--mcp-tool-access) for the workflow and attribution limits.

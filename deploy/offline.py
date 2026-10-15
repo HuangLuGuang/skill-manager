@@ -19,7 +19,7 @@ import tempfile
 DEPLOY_FILES = (
     "docker-compose.yaml", ".env.example", "release-provenance.json",
     "start.sh", "upgrade.sh", "deploy/offline.py", "deploy/nginx/default.conf",
-    "docs/offline-deployment.md", "docs/docker-deployment.md",
+    "docs/offline-deployment.md", "docs/docker-deployment.md", "docs/license.md",
 )
 COMPOSE_COMMAND = ("docker", "compose")
 
@@ -174,6 +174,7 @@ def start_services(root, timeout, *, upgrade=False):
         args.append("--force-recreate")
     try:
         compose(root, *args)
+        compose(root, "exec", "-T", "backend", "python", "-m", "backend.aidr_signing", "--check")
         compose(root, "exec", "-T", "nginx", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/")
     except DeploymentError:
         compose(root, "ps", "--all")

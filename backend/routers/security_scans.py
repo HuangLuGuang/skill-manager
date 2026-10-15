@@ -2474,6 +2474,8 @@ async def preview_task(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
+    from agent_manager.core.licensing import require_license
+    require_license("security_scanning")
     context = _validate_scan_task_request(db, body, current_user)
     plan = _build_scan_task_plan(db, body, context, now=datetime.utcnow())
     return SecurityTaskPreviewResponse(**{key: value for key, value in plan.items() if not key.startswith("_")})
@@ -2485,6 +2487,8 @@ async def create_task(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
+    from agent_manager.core.licensing import require_license
+    require_license("security_scanning")
     context = _validate_scan_task_request(db, body, current_user)
     target: models.SecurityTarget = context["target"]
     policy: models.SecurityScanPolicy = context["policy"]
@@ -3914,6 +3918,8 @@ async def evaluate_scan_chat(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ):
+    from agent_manager.core.licensing import require_license
+    require_license("security_scanning")
     from . import llm_gateway
     from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
 
@@ -4185,6 +4191,9 @@ async def claim_task(
     db: Session = Depends(get_db),
     worker: models.SecurityScanWorker = Depends(resolve_security_worker),
 ):
+    from agent_manager.core.licensing import scan_allowed
+    if not scan_allowed():
+        return SecurityWorkerClaimResponse(task=None)
     now = datetime.utcnow()
     recover_stale_tasks(db, now=now)
     running = (
@@ -4411,6 +4420,16 @@ async def task_heartbeat(
     _verify_lease(task, worker, body.lease_token)
     now = datetime.utcnow()
     _apply_usage(task, body.usage)
+    from agent_manager.core.licensing import scan_allowed
+    if not scan_allowed():
+        task.status = "cancelled"
+        task.stop_reason = "license.scan_stopped"
+        task.error_code = "license.scan_stopped"
+        task.completed_at = now
+        task.updated_at = now
+        _clear_lease(task)
+        db.commit()
+        return SecurityWorkerHeartbeatResponse(continue_allowed=False, status=task.status, stop_reason=task.stop_reason)
     if body.diagnostics is not None:
         options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
         attempts = options.setdefault("diagnostics", {})
@@ -4470,6 +4489,8 @@ async def infer_dify_agent_intent(
     db: Session = Depends(get_db),
     worker: models.SecurityScanWorker = Depends(resolve_security_worker),
 ):
+    from agent_manager.core.licensing import require_license
+    require_license("security_scanning")
     task = _task_or_404(db, task_id)
     _verify_lease(task, worker, body.lease_token)
     if task.scan_kind != "dify_asset_inventory":

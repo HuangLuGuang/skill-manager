@@ -2,6 +2,22 @@ import { formatMcpFieldError } from './mcpServerForm.js'
 import { scanScheduleMessages } from './scanSchedule.js'
 import { skillAuditReview } from './skill-audit-review.js'
 const errorMessages = {
+  "license.invalid": {"zh-CN": "授权文件格式或签名无效", "en-US": "Invalid license format or signature"},
+  "license.untrusted_key": {"zh-CN": "签发公钥不受信任，请联系管理员配置", "en-US": "The issuing key is not trusted; contact your administrator"},
+  "license.deployment_mismatch": {"zh-CN": "授权与当前部署不匹配", "en-US": "The license belongs to a different deployment"},
+  "license.customer_mismatch": {"zh-CN": "授权客户与本部署申请不匹配", "en-US": "The license customer does not match this deployment"},
+  "license.rollback": {"zh-CN": "授权修订号低于已接收版本", "en-US": "The license revision is older than an accepted revision"},
+  "license.revision_conflict": {"zh-CN": "相同修订号对应不同授权文件", "en-US": "The revision is already associated with a different license"},
+  "license.expired_import": {"zh-CN": "不能导入已到期的授权", "en-US": "An expired license cannot be imported"},
+  "license.missing": {"zh-CN": "请先导入有效 License", "en-US": "Import a valid license first"},
+  "license.expired": {"zh-CN": "授权已到期，保留查看、导出及既有网关与防护", "en-US": "License expired; viewing, exports and existing gateways/protection remain available"},
+  "license.future": {"zh-CN": "授权尚未生效", "en-US": "The license is not yet effective"},
+  "license.clock_rollback": {"zh-CN": "检测到系统时间回拨，请校准服务器时间", "en-US": "Clock rollback detected; correct the server clock"},
+  "license.feature_denied": {"zh-CN": "授权未包含此功能模块", "en-US": "This module is not included in the license"},
+  "license.client_limit": {"zh-CN": "已达到注册客户端上限", "en-US": "The registered client limit has been reached"},
+  "license.identity_locked": {"zh-CN": "已导入授权的客户标识不可修改", "en-US": "The customer identity is locked after importing a license"},
+  "license.unavailable": {"zh-CN": "授权状态存储不可用", "en-US": "License state storage is unavailable"},
+  "license.scan_stopped": {"zh-CN": "授权限制已停止本次扫描", "en-US": "This scan was stopped by the license policy"},
   ...Object.fromEntries(Object.keys(skillAuditReview['zh-CN'].reasons).map(code => ['aidr.skill_' + code, { 'zh-CN':skillAuditReview['zh-CN'].reasons[code], 'en-US':skillAuditReview['en-US'].reasons[code] }])),
   'aidr.skill_source_unknown': { 'zh-CN':'无法确认来源路径，请同步客户端清单。', 'en-US':'Source path cannot be verified; synchronize client inventory.' },
   'aidr.skill_agent_identity_unknown': { 'zh-CN':'无法确认唯一的本机实例。', 'en-US':'A unique local instance cannot be verified.' },
