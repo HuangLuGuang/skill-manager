@@ -116,7 +116,16 @@ cd agent-manager
 
 脚本自动加载包内 `.tar.xz` 镜像、核对 Docker 和镜像架构、在缺少 `.env` 时复制配置模板，
 初始化缺失的签名密钥（已有密钥继续使用），然后启动服务。启动过程中禁止在线拉取和现场构建。
-最后等待服务健康，并通过 Nginx 请求首页；全部通过才返回成功。默认最多等待 300 秒，可调整：
+最后等待服务健康，并通过 Nginx 请求首页；全部通过才返回成功。
+
+Backend 镜像入口同时初始化并校验 AIDR P-256 策略签名密钥。默认
+`AIDR_POLICY_SIGNING_KEY_FILE=/app/runtime/data/signing/aidr-policy-p256.pem`，保存在
+`backend_data` 卷内，权限为 `0600`，归容器服务用户所有。已有密钥保持不变；格式、权限或
+所有者不正确时停止启动，按报错修复原文件。旧 `.env` 不含该变量时也采用此默认路径。
+启动及升级脚本会执行 `python -m backend.aidr_signing --check` 校验运行容器，
+详细预检和恢复说明见 [AIDR 策略签名密钥](docker-deployment.md#aidr-策略签名密钥)。
+
+默认最多等待 300 秒，可调整：
 
 ```bash
 ./start.sh --wait-timeout 600
@@ -163,6 +172,10 @@ cp .env.example .env
 
 可追加 `--wait-timeout 600` 延长等待。脚本不会执行 `docker compose down -v`。
 部署文件备份**不包含数据库、签名密钥和数据卷内容**；生产升级前应单独完成业务数据备份。
+
+其中 `backend_data` 卷的 AIDR P-256 私钥必须随原数据恢复。客户端已固定对应公钥，
+重新生成私钥会改变信任身份；需要轮换时应同步更新客户端信任，不能将删除密钥作为常规升级步骤。
+
 如果原来通过 `COMPOSE_PROJECT_NAME` 自定义项目名，升级时继续使用原值，保证连接原有数据卷。
 新版 Compose 和 Nginx 配置会覆盖现场对这两个文件的直接修改，旧配置保留在备份目录。
 

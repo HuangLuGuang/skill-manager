@@ -68,6 +68,7 @@ ENV PYTHONPATH=/app \
     SKILLSPECTOR_BIN=/app/tools/SkillSpector/.venv/bin/skillspector \
     DEBUG=false \
     DATA_DIR=/app/runtime/data \
+    AIDR_POLICY_SIGNING_KEY_FILE=/app/runtime/data/signing/aidr-policy-p256.pem \
     UPLOADS_DIR=/app/runtime/uploads \
     SQLITE_PATH=/app/runtime/sqlite/admin_starter.db \
     AGENT_MANAGER_DATA_DIR=/app/runtime/agent_manager \
@@ -75,4 +76,5 @@ ENV PYTHONPATH=/app \
 
 EXPOSE 8000
 
+ENTRYPOINT ["/bin/sh", "/app/backend/docker-entrypoint.sh"]
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

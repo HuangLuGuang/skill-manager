@@ -84,10 +84,45 @@ docker compose up -d
 docker compose ps
 ```
 
-生产模式不会接受本地占位密钥，也不会恢复公开固定管理员密码。签名私钥必须在启动
+生产模式不会接受本地占位密钥，也不会恢复公开固定管理员密码。Skill Ed25519 签名私钥必须在启动
 服务前预置：源码部署执行上述初始化命令，交付包的 `start.sh` 和 `upgrade.sh` 自动初始化
-缺失的密钥并沿用已有密钥；生产副本不会在启动或公钥查询时各自生成身份。多副本
+缺失的 Skill 密钥并沿用已有密钥；生产副本不会在启动或公钥查询时各自生成该身份。多副本
 部署必须挂载同一份只读私钥或由统一密钥管理系统下发。
+
+### AIDR 策略签名密钥
+
+Docker Backend 入口在启动 API 前初始化并校验独立的 P-256 策略签名密钥，供原生 Hook
+和系统防护策略使用。Compose 和镜像的默认配置为：
+
+```dotenv
+AIDR_POLICY_SIGNING_KEY_FILE=/app/runtime/data/signing/aidr-policy-p256.pem
+```
+
+该文件位于 `backend_data` 持久化卷。首次部署仅在文件缺失时生成无密码的 PKCS8 PEM 私钥，
+权限为 `0600`，所有者为容器内服务用户；并发初始化不会覆盖先生成的完整密钥。
+`docker compose up -d`、交付包 `start.sh` / `upgrade.sh` 和 CI 部署均沿用同一入口，
+容器重建及旧 `.env` 未增加此配置时仍使用上述默认路径。CI 在更新服务前预检密钥，
+CI 和离线脚本在启动后再次检查实际运行容器中的密钥。
+
+已有文件的类型、所有者、权限、PEM 格式或曲线不符合要求时，启动失败并提示
+`aidr.enforcement_signer_unavailable`，不会覆盖或自动更换密钥。只读挂载的已有有效密钥可正常使用。
+自定义路径必须挂载到持久化存储，多副本应预置同一份密钥。修改服务 UID 时同步调整文件所有者。
+
+仅校验当前容器中的密钥（不输出私钥、不创建文件）：
+
+```bash
+docker compose exec -T backend python -m backend.aidr_signing --check
+```
+
+如需在启动前单独初始化或检查已有密钥：
+
+```bash
+docker compose run --rm --no-deps --entrypoint python backend -m backend.aidr_signing
+```
+
+将 `backend_data` 中的该密钥纳入受控备份，恢复时保留原密钥与权限。客户端会固定策略验签公钥，
+更换密钥需要同步更新客户端信任；不要通过删除密钥排查故障。私钥只保留在部署环境，
+不提交到 Git、不写入镜像或离线包；License 签发私钥仍由独立签发系统保管。
 
 ### 管理员初始密码与升级
 
