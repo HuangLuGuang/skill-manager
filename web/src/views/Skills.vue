@@ -67,6 +67,7 @@
         :row-selection="rowSelection"
         :data-source="rows"
         :columns="columns"
+        :sort-directions="['ascend', 'descend', 'ascend']"
         :scroll="{ x: 'max-content' }"
         rowKey="skill_id"
         :loading="loading"
@@ -239,10 +240,15 @@ const allColumns = computed(() => [
   { title: t('skillColumns.llm'), key: 'llm', width: 180 },
   ...optionalAnalysisColumns.map(key => ({ title: t(`skillColumns.${key}`), key, width: 160 })),
   { title: text('审批人', 'Approver'), dataIndex: 'approved_by', key: 'approved_by', width: 160, sorter: true },
-  { title: text('扫描时间', 'Scan Time'), dataIndex: 'updated_at', key: 'updated_at', width: 190, sorter: true, customRender: ({ text: value }) => formatDateTime(value) },
+  { title: t('skillColumns.updatedAt'), dataIndex: 'updated_at', key: 'updated_at', width: 190, sorter: true, customRender: ({ text: value }) => formatDateTime(value) },
   { title: text('操作', 'Actions'), key: 'actions', width: 120, fixed: 'right' },
 ])
-const columns = computed(() => allColumns.value.filter(column => visibleColumns.value.includes(column.key)))
+// 受控排序让默认、重置及切列后的方向指示与请求保持一致。
+const columns = computed(() => allColumns.value
+  .filter(column => visibleColumns.value.includes(column.key))
+  .map(column => column.sorter
+    ? { ...column, sortOrder: column.dataIndex === sortState.value.field ? sortState.value.order : null }
+    : column))
 
 let refreshTimer
 let keywordTimer
@@ -316,10 +322,10 @@ const handleTableChange = (pager, _filters, sorter) => {
     current: pager.current,
     pageSize: pager.pageSize,
   }
-  if (sorter?.field) {
+  if (sorter?.field && ['ascend', 'descend'].includes(sorter.order)) {
     sortState.value = {
       field: sorter.field,
-      order: sorter.order || 'ascend',
+      order: sorter.order,
     }
   }
   fetchSkills()

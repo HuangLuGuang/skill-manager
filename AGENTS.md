@@ -123,6 +123,7 @@ make sandbox-runtime-build
 - 页面主要在 `web/src/views/`。
 - Skill 列表显示列至少保留一项可配置列，最后一个已选项禁用取消并提供语义双语说明；读取历史空设置或全无效列键时恢复默认，保留合法选择与旧偏好迁移。
 - Skill 列表关键词自动过滤沿用审核队列的 300 毫秒防抖交互，复用服务端分页搜索与第一页重置逻辑；立即查询及离开页面时清理待执行的关键词定时器。
+- Skill 列表时间列使用 `updated_at` 并展示“更新时间 / Updated Time”，表头与显示列选项复用 `skillColumns.updatedAt`；可排序列仅升降序切换，以 `sortState` 控制方向指示，默认及重置为更新时间降序，分页和筛选保留当前排序；风险按英文编码 benign、malicious、suspicious 升序，分页及非分页接口保持一致，未判定风险升序在前、降序在后。
 - 提交 skill 页面支持四种导入方式：ZIP、本地目录、网络下载/GitHub、ClawHub。
 - 对会创建后台记录的按钮必须同时做：
   - loading 状态。
