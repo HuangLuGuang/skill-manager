@@ -3,6 +3,7 @@ import { integrationGuides } from './integration-guides.js'
 import { aidrGuides, aidrGuideOrder } from './aidr-guides.js'
 import { hookGuides } from './hook-guides.js'
 import { agentIntegrationChoices, agentRegistrationGuides } from './agent-registration-guide.js'
+import { licenseGuides } from './license-guide.js'
 
 const zh = {
   groups: [
@@ -4232,6 +4233,20 @@ en.articles['skill-policy'] = {
 }
 
 for (const [locale, content] of [['zh-CN', zh], ['en-US', en]]) {
+  const licenseGuide = licenseGuides[locale]
+  content.articles['license-authorization'] = licenseGuide
+  const deploymentGroup = content.groups.find(group => group.items.some(item => item.slug === 'docker-deployment'))
+  const deploymentIndex = deploymentGroup.items.findIndex(item => item.slug === 'docker-deployment')
+  deploymentGroup.items.splice(deploymentIndex + 1, 0, {
+    slug: 'license-authorization', title: licenseGuide.title, summary: licenseGuide.summary,
+  })
+  for (const slug of ['docker-deployment', 'system-management']) {
+    content.articles[slug].sections.push({
+      id: 'license-authorization', title: licenseGuide.title,
+      paragraphs: [licenseGuide.summary],
+      link: { path: '/docs/license-authorization', label: locale === 'zh-CN' ? '查看离线 License 操作指南' : 'Open the offline License guide' },
+    })
+  }
   Object.assign(content.articles, hookGuides[locale])
   Object.assign(content.articles, aidrGuides[locale])
   const aidrGroup = {
@@ -4332,6 +4347,7 @@ export const docsArticleOrder = [
   'external-ai-gateway',
   'system-management',
   'docker-deployment',
+  'license-authorization',
   'performance-benchmark',
   'docker-operations',
   'case-expense-skill',

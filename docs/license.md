@@ -3,6 +3,25 @@
 智能体生命周期管理系统（Agent Manager）使用厂商 Ed25519 签名的离线 License。
 签发工具位于独立的 `license-issuer` 仓库；客户平台只持有验签公钥，无需联网验证。
 
+管理台帮助中心在 **部署与运维 → License 申请、签发与续期** 提供中英文操作指南，
+地址为 `/docs/license-authorization`，Docker 部署和系统管理帮助页也提供入口。
+指南按客户部署人员、客户管理员和厂商签发人员分别说明操作位置、步骤及验收结果。
+
+## 新客户与续期交付
+
+- 新客户先在实际交付服务器部署并登录，再导出该部署的申请。厂商分配客户编号并核对客户身份，
+  确认安装镜像或受管公钥目录信任签发系统的公钥。客户平台不需要连接厂商签发系统。
+- 厂商登录 `license-issuer`，在新建授权页导入申请 JSON，设置日期、完整模块和注册客户端额度，
+  点击“核对并签发”后下载 `.license` 交付客户；签发记录不等同于客户已经导入。
+- 签发页面的日期表示北京时间 00:00，结束时刻不包含在有效期内；例如覆盖 10 月 31 日全天时，
+  结束日期应为 11 月 1 日。导入后核对“有效”状态、客户与部署身份、日期、模块、额度和修订号，
+  再按已授权模块执行新增、扫描和网关或防护业务验收。
+- 续期、增购或调整额度时，在签发系统找到原部署记录，选择“续期 / 调整”，签发更高修订号。
+  新文件包含全部权益，应保留仍需使用的模块；未来续期的起始时间应与原到期时间衔接。
+  客户可提前导入并核对待生效记录，到生效时间自动切换。
+- License 签发私钥、AIDR 策略签名密钥和 Skill 签名密钥用途不同；初始化防护或 Skill 签名密钥
+  不会自动获得商业授权。客户全新安装或使用空卷生成了新部署标识时，需要重新申请。
+
 ## 管理员操作
 
 1. 在 **系统管理 → License 授权** 打开 `/license`。新部署生成并持久化唯一部署标识。
@@ -111,6 +130,15 @@ payload 使用未填充 base64url 编码的规范 UTF-8 JSON。公钥 ID 为原�
 - [ ] 全套离线包升级/恢复，在目标宿主机验证持久卷、时间和可信公钥配置。
 
 ## English operator summary
+
+The bilingual Help Center guide is under **Deploy and operate → License requests, issuance and renewal**
+at `/docs/license-authorization`, with links from Docker deployment and System management.
+For a new customer, export the request from the actual delivered deployment and have the vendor verify
+customer identity and signing-key trust. The vendor imports the JSON into license-issuer, reviews the full
+entitlement and delivers the signed file. Issuer dates mean 00:00 Beijing time, with the end instant excluded.
+To renew, select Renew / adjust on the existing deployment record and issue a higher revision containing
+all required modules and capacity. Align the new start with the previous expiry and verify pending renewals.
+License, AIDR policy and Skill signing keys have separate purposes; configuring runtime signing does not grant a License.
 
 Open **System Management → License**, export a customer request and send it to the separate vendor issuer.
 Import the returned signed file. The deployment identity persists locally; the private signing key remains with the vendor.
