@@ -930,6 +930,28 @@ class TestVettingPipeline:
         assert "SKILL.md command examples are not executed" in sandbox_analysis["reason"]
 
 
+def test_failed_llm_keeps_provider_in_analyzers(skill_dir, monkeypatch):
+    """模型超时仍保留实际分析器名称和原始失败原因。"""
+    monkeypatch.setattr(
+        "agent_manager.core.vetting.LLMConfig.load",
+        lambda: LLMConfig(enabled=True, provider="model-gateway", model="test-model"),
+    )
+    monkeypatch.setattr(
+        "agent_manager.core.vetting._run_scanner",
+        lambda *_: {"findings": [], "max_severity": "SAFE"},
+    )
+    def fail(**_kwargs):
+        raise TimeoutError("provider request timed out")
+    monkeypatch.setattr("agent_manager.core.vetting.analyze_skill_with_llm_single_round", fail)
+    result, *_ = VettingPipeline(CompanyPolicy({"require_sandbox_for_risk": []})).vet(
+        skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_llm=True, use_skillspector=False,
+    )
+    assert result.analyzers_used.count("llm:model-gateway") == 1
+    assert result.scan_report["analyzers_used"].count("llm:model-gateway") == 1
+    assert result.scan_report["analyzer_timings"]["llm"]["status"] == "failed"
+    assert "[LLM] analysis skipped: provider request timed out" in result.policy_notes
+
+
 def test_ai_total_timeout_records_stable_reason(skill_dir, monkeypatch):
     """总超时使用稳定原因编码和本次秒数供双语界面展示。"""
     from agent_manager.core.llm import LLMAnalysisTimeout

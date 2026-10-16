@@ -978,6 +978,11 @@ class VettingPipeline:
                     report_analyzer("llm", "running")
                     from .llm import _build_skill_snapshot as _build_snapshot
 
+                    # 实际启用的分析器在调用前记录，失败时仍保留名称。
+                    scan_report["analyzers_used"] = [
+                        *scan_report.get("analyzers_used", ["basic"]),
+                        f"llm:{llm_config.provider}",
+                    ]
                     with llm_analysis_timeout(llm_config):
                         analysis_result = analyze_skill_with_llm_single_round(
                             skill_snapshot=_build_snapshot(skill_path, llm_config),
@@ -994,10 +999,6 @@ class VettingPipeline:
                             config=llm_config,
                         )
                     llm_result = analysis_result
-                    scan_report["analyzers_used"] = [
-                        *scan_report.get("analyzers_used", ["basic"]),
-                        f"llm:{llm_result.provider}",
-                    ]
                     scan_report["llm_analysis"] = llm_result.model_dump(mode="json")
                     if llm_result.report:
                         llm_notes.append(f"[LLM] {llm_result.report}")
