@@ -1891,6 +1891,12 @@ task polling and fresh verification decisions after approval/revocation in both 
 - 任意两个版本之间的文件级 Diff
 - 指定内容版本的检测执行记录（Scan Run）
 
+LLM 实际启用时，执行信息的分析器列表保留 `llm:{provider}` 名称，调用失败仍保留。失败状态在 Skill 列表的“LLM 判定结果”列显示“调用失败”；打开详情的“扫描结果 → LLM 分析”可查看本次报告记录的失败原因，原始上游错误保留原文。系统关闭 AI 或本次未选择 LLM 时按对应执行状态展示。
+
+When LLM analysis starts, the execution information retains `llm:{provider}` even if the call fails. The Skill list shows the failed state in the LLM result column; **Scan results → LLM analysis** in the detail page shows the recorded failure reason, preserving the original upstream error.
+
+供应商请求超时按当次报告的 `llm_provider_timeout` 编码，在详情 LLM 项显示“模型供应商请求超时 / The model provider request timed out”，并保留已有原始错误；上游超时异常没有文本时也能查看明确原因。
+
 基础信息中的版本号与最新版本标识保持完整，使用选择框切换版本。“安全判定”旁的“查看判定过程”会切换到实际判定过程并定位标题。
 
 基础信息顶部集中展示当前版本、准入状态与安全判定，下方以紧凑信息项展示名称、作者、Skill ID、来源、工具声明及 Sandbox 运行信息，并随可用宽度换行。工具声明校验表示声明是否符合工具白名单与权限策略；结果复用标明历史结果来源。执行信息中的 Sandbox 分析器名称按该次报告记录的运行方式展示为 `sandbox:remote` 或 `sandbox:docker`，包括无脚本而跳过的情况；已有报告按其保存的运行方式展示。Sandbox 执行状态来自检测报告，策略要求单独说明是否必须执行；远程模式展示服务地址，Docker 模式展示容器镜像，远程模式因无可执行脚本（`reason_code=no_executable_script`）跳过时，服务地址显示“未调用”（英文 Not called）；缺失的运行信息显示“未记录”。生命周期中的策略自动批准会显示中文说明，人工审批保留审批人名称。

@@ -928,3 +928,46 @@ class TestVettingPipeline:
         assert sandbox_analysis["executed"] is False
         assert sandbox_analysis["reason_code"] == "no_executable_script"
         assert "SKILL.md command examples are not executed" in sandbox_analysis["reason"]
+
+
+def test_failed_llm_keeps_provider_in_analyzers(skill_dir, monkeypatch):
+    """模型超时仍保留实际分析器名称和原始失败原因。"""
+    monkeypatch.setattr(
+        "agent_manager.core.vetting.LLMConfig.load",
+        lambda: LLMConfig(enabled=True, provider="model-gateway", model="test-model"),
+    )
+    monkeypatch.setattr(
+        "agent_manager.core.vetting._run_scanner",
+        lambda *_: {"findings": [], "max_severity": "SAFE"},
+    )
+    def fail(**_kwargs):
+        raise TimeoutError("provider request timed out")
+    monkeypatch.setattr("agent_manager.core.vetting.analyze_skill_with_llm_single_round", fail)
+    result, *_ = VettingPipeline(CompanyPolicy({"require_sandbox_for_risk": []})).vet(
+        skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_llm=True, use_skillspector=False,
+    )
+    assert result.analyzers_used.count("llm:model-gateway") == 1
+    assert result.scan_report["analyzers_used"].count("llm:model-gateway") == 1
+    assert result.scan_report["analyzer_timings"]["llm"]["status"] == "failed"
+    assert "[LLM] analysis skipped: provider request timed out" in result.policy_notes
+
+
+def test_provider_timeout_without_message_records_reason(skill_dir, monkeypatch):
+    """httpx 超时可无文本，报告仍须保留可识别的失败原因。"""
+    import httpx
+    monkeypatch.setattr(
+        "agent_manager.core.vetting.LLMConfig.load",
+        lambda: LLMConfig(enabled=True, provider="model-gateway"),
+    )
+    monkeypatch.setattr(
+        "agent_manager.core.vetting._run_scanner",
+        lambda *_: {"findings": [], "max_severity": "SAFE"},
+    )
+    def fail(**_kwargs):
+        raise httpx.ReadTimeout("")
+    monkeypatch.setattr("agent_manager.core.vetting.analyze_skill_with_llm_single_round", fail)
+    result, *_ = VettingPipeline(CompanyPolicy({"require_sandbox_for_risk": []})).vet(
+        skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_llm=True, use_skillspector=False,
+    )
+    assert result.scan_report["analyzer_timings"]["llm"]["status"] == "failed"
+    assert result.scan_report["analyzer_timings"]["llm"]["reason"] == "llm_provider_timeout"
