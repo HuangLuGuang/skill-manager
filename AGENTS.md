@@ -251,3 +251,7 @@ make sandbox-runtime-build
 - 噪声明细的过滤原因仅翻译原因资源自身声明的编码；编码未知、为空或缺失时，统一按当前语言显示“未知 / Unknown”；兜底仅作用于过滤原因。
 
 - Scanner 的 `--llm` 以服务端 AI 开关为执行边界；关闭时本次报告记录 `analyzer_timings.llm.status=disabled`、`reason=llm_analysis_disabled`，其他检测继续，提交选项保持原请求。列表、详情与版本摘要使用本次报告状态；开启后的配置或调用异常仍为 failed。Scanner 的 LLM/Sandbox 参数说明须同时说明服务端启用与配置要求。
+
+- Skill AI 分析的 `llm.timeout_seconds` 为输入准备、模型调用与结果处理共用的总预算；内部网关请求使用供应商超时与剩余预算的较小值，总超时取消并清理请求，报告以 `llm_analysis_timeout` 编码展示双语原因。
+
+- LLM 供应商请求超时使用本次报告的 `llm_provider_timeout` 原因编码，在详情 LLM 项提供双语说明并保留已有原始错误；异常无文本时同样显示可识别原因。

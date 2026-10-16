@@ -2710,3 +2710,29 @@ def test_anthropic_token_count_is_local_bounded_and_authorized(tmp_path, monkeyp
     assert invalid.status_code == 401 and invalid.json()['type'] == 'error'
     with factory() as db:
         assert db.query(models.LlmRequestAudit).count() == 0
+
+
+@pytest.mark.parametrize("budget, expected", [(None, 15), (5, 5), (30, 15)])
+def test_skill_request_uses_smaller_provider_timeout(tmp_path, monkeypatch, budget, expected):
+    """Skill 预算只收紧本次请求，供应商配置和普通网关调用保持原义。"""
+    call_upstream = llm_gateway._call_upstream
+    _, _, factory = _client(tmp_path, monkeypatch)
+    seen = []
+    class Provider:
+        def __init__(self, **kwargs):
+            seen.append(kwargs["timeout"])
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            pass
+        async def post(self, *args, **kwargs):
+            return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+    monkeypatch.setattr(llm_gateway.httpx, "AsyncClient", Provider)
+    with factory() as db:
+        provider = db.query(models.ModelProvider).one()
+        provider.timeout_seconds = 15
+        db.commit()
+        model = db.query(models.ModelEndpoint).one()
+        asyncio.run(call_upstream(db, model, {"messages": []}, timeout_seconds=budget))
+        assert provider.timeout_seconds == 15
+    assert seen == [expected]

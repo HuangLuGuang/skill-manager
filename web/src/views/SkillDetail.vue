@@ -1785,7 +1785,17 @@ const llmAnalysis = computed(() => {
 // 仅按本次报告的关闭原因展示说明，不使用当前系统开关推断历史结果。
 const llmDisabled = computed(() => analysisState(scanReport.value, 'llm') === 'disabled'
   && scanReport.value?.analyzer_timings?.llm?.reason === 'llm_analysis_disabled')
-const llmFailure = computed(() => formatLlmFailureReason(llmFailureReason(scanReport.value, policyNotes.value), t))
+const llmFailure = computed(() => {
+  const timing = scanReport.value?.analyzer_timings?.llm
+  if (timing?.status === 'failed' && timing.reason === 'llm_analysis_timeout') {
+    return t('skillDetail.llmAnalysisTimedOut', { seconds: timing.timeout_seconds })
+  }
+  const raw = formatLlmFailureReason(llmFailureReason(scanReport.value, policyNotes.value), t)
+  if (timing?.status === 'failed' && timing.reason === 'llm_provider_timeout') {
+    return [t('skillDetail.llmProviderTimedOut'), raw].filter(Boolean).join('\n')
+  }
+  return raw
+})
 const llmExplanationHtml = computed(() => {
   const text = llmAnalysis.value?.report || ''
   if (!text) return phrase('legacy.xsay8c')

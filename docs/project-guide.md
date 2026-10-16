@@ -1554,6 +1554,10 @@ LLM 现在做这些事：
 2. 生成一篇专业的安全分析报告
 3. **生成详细的攻击链分析**，如果是恶意skill, 会生成攻击链并映射到 MITRE ATT&CK（传统网络安全）和 MITRE ATLAS（AI 安全）框架
 
+策略配置的“AI 分析服务 → 超时（秒）”是本次 AI 分析的总预算，包含输入准备、模型调用和结果处理，不包含前序确定性分析器耗时。内部模型网关请求按供应商超时与本次剩余预算的较小值执行；直连及环境变量网关也受剩余预算约束。总时限到期后取消并清理请求，报告记录 `analyzer_timings.llm.reason=llm_analysis_timeout` 与本次秒数，详情 LLM 项展示双语说明；供应商先超时则保留其失败原因。可在高级配置中保存 5–180 秒后重新检测应用；历史报告继续使用当次记录。
+
+The **AI analysis service → Timeout (seconds)** setting limits the full AI analysis, including input preparation, the model request and result processing, excluding earlier deterministic analyzers. Internal gateway requests use the smaller of the provider timeout and remaining analysis budget; direct and environment-configured gateway requests also obey the remaining budget. Expiry cancels and closes the request and records `llm_analysis_timeout` with the configured seconds for bilingual detail display. An earlier provider timeout retains its own reason. Save a value between 5 and 180 seconds and rescan to apply it; historical reports retain their recorded outcome.
+
 深度扫描和 Sandbox 不再各自发起前置 LLM 请求。Sandbox 使用确定性的 probe 计划执行；LLM 只在所有已选分析器结束后调用一次。
 
 所以 LLM 结果里你会看到：
@@ -1890,6 +1894,8 @@ task polling and fresh verification decisions after approval/revocation in both 
 - 同名 Skill 的完整版本历史、来源版本和可信状态
 - 任意两个版本之间的文件级 Diff
 - 指定内容版本的检测执行记录（Scan Run）
+
+供应商请求超时按当次报告的 `llm_provider_timeout` 编码，在详情 LLM 项显示“模型供应商请求超时 / The model provider request timed out”，并保留已有原始错误；上游超时异常没有文本时也能查看明确原因。
 
 基础信息中的版本号与最新版本标识保持完整，使用选择框切换版本。“安全判定”旁的“查看判定过程”会切换到实际判定过程并定位标题。
 

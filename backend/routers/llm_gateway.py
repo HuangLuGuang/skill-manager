@@ -1356,12 +1356,20 @@ def _upstream_request(provider: models.ModelProvider, payload: dict[str, Any]) -
     return _chat_url(provider.base_url), payload, headers
 
 
-async def _call_upstream(db: Session, model: models.ModelEndpoint, payload: dict[str, Any]) -> dict[str, Any]:
+async def _call_upstream(
+    db: Session, model: models.ModelEndpoint, payload: dict[str, Any],
+    timeout_seconds: float | None = None,
+) -> dict[str, Any]:
     provider = db.query(models.ModelProvider).filter(models.ModelProvider.id == model.provider_id).first()
     if not provider:
         raise HTTPException(status_code=400, detail="模型供应商不存在")
     url, upstream_payload, headers = _upstream_request(provider, {**payload, "model": model.upstream_name or model.name})
-    async with httpx.AsyncClient(timeout=provider.timeout_seconds) as client:
+    # Skill 分析传入剩余总预算，其他调用继续使用供应商超时。
+    timeout = (
+        provider.timeout_seconds if timeout_seconds is None
+        else min(provider.timeout_seconds, timeout_seconds)
+    )
+    async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(url, json=upstream_payload, headers=headers)
     if response.status_code >= 400:
         raise HTTPException(status_code=502, detail=f"上游模型接口失败: {response.status_code} {response.text[:500]}")
