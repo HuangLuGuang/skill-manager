@@ -251,3 +251,5 @@ make sandbox-runtime-build
 - 噪声明细的过滤原因仅翻译原因资源自身声明的编码；编码未知、为空或缺失时，统一按当前语言显示“未知 / Unknown”；兜底仅作用于过滤原因。
 
 - Scanner 的 `--llm` 以服务端 AI 开关为执行边界；关闭时本次报告记录 `analyzer_timings.llm.status=disabled`、`reason=llm_analysis_disabled`，其他检测继续，提交选项保持原请求。列表、详情与版本摘要使用本次报告状态；开启后的配置或调用异常仍为 failed。Scanner 的 LLM/Sandbox 参数说明须同时说明服务端启用与配置要求。
+
+- Skill 列表“仅已执行 / Executed only”使用可选参数 `sandbox_executed`，按对应版本报告的 `sandbox_analysis.executed=true` 筛选；分页计数与查询共用 IN 版本集合及 `idx_skill_scan_reports_sandbox_executed` 覆盖索引，避免逐条解析报告。Registry 初始化幂等建索引，首次升级考虑读报告及写锁成本，SQLite 自动维护更新和删除；报告不回写。分页和非分页执行依据一致，历史已执行报告缺少 timing 时仅补齐列表读取状态，缺风险值显示已执行。保留旧 `sandbox_triggered` 的检测安排语义。

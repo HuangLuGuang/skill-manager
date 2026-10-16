@@ -1524,6 +1524,7 @@ def list_skills(
     loadable_only: bool = Query(False),
     risk_level: str | None = Query(None),
     sandbox_triggered: bool | None = Query(None),
+    sandbox_executed: bool | None = Query(None),
     sandbox_required_by_policy: bool | None = Query(None),
     q: str | None = Query(None),
     sort_by: str = Query("updated_at"),
@@ -1556,6 +1557,7 @@ def list_skills(
             loadable_only=loadable_only,
             risk_level=risk_level,
             sandbox_triggered=sandbox_triggered,
+            sandbox_executed=sandbox_executed,
             sandbox_required_by_policy=sandbox_required_by_policy,
             q=q,
             sort_by=sort_by,
@@ -1585,6 +1587,14 @@ def list_skills(
         entries = [
             e for e in entries
             if bool(e.vetting.sandbox_triggered if e.vetting else False) == sandbox_triggered
+        ]
+
+    if sandbox_executed is not None:
+        # 与分页查询相同，只有本版本报告明确记录 true 才算实际执行。
+        entries = [
+            e for e in entries
+            if bool(e.vetting and e.vetting.scan_report.get("sandbox_analysis", {}).get("executed") is True)
+            == sandbox_executed
         ]
 
     if sandbox_required_by_policy is not None:

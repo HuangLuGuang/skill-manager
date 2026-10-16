@@ -19,5 +19,7 @@ export const analysisCell = (record, key) => {
   if (!result) return { state: 'unrecorded' }
   if (result.status !== 'completed') return { state: ['failed', 'skipped', 'disabled', 'pending'].includes(result.status) ? result.status : 'unrecorded' }
   if (key === 'rule') return { count: result.findings_count ?? 0 }
+  // 已执行但缺少风险值时仍展示执行状态，避免误显示为未记录。
+  if (key === 'sandbox' && result.executed === true && !result.risk_level) return { state: 'executed' }
   return result.risk_level ? { risk: result.risk_level } : { state: 'unrecorded' }
 }
