@@ -254,4 +254,6 @@ make sandbox-runtime-build
 
 - LLM 实际启用时在调用前记录 `llm:{provider}`，失败仍保留该名称；失败状态复用 Skill 列表，失败原因复用详情页 LLM 项及本次报告。
 
+- Skill AI 分析的 `llm.timeout_seconds` 为输入准备、模型调用与结果处理共用的总预算；内部网关请求使用供应商超时与剩余预算的较小值，总超时取消并清理请求，报告以 `llm_analysis_timeout` 编码展示双语原因。
+
 - LLM 供应商请求超时使用本次报告的 `llm_provider_timeout` 原因编码，在详情 LLM 项提供双语说明并保留已有原始错误；异常无文本时同样显示可识别原因。

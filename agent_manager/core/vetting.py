@@ -24,6 +24,8 @@ import httpx
 
 from .llm import (
     LLMConfig,
+    LLMAnalysisTimeout,
+    llm_analysis_timeout,
     _build_skill_snapshot,  # noqa: F401 - used via llm module
     analyze_skill_with_llm_single_round,
 )
@@ -964,6 +966,7 @@ class VettingPipeline:
         if use_llm:
             llm_started = time.monotonic()
             llm_provider_timeout = False
+            llm_timeout_seconds = None
             try:
                 llm_config = LLMConfig.load()
                 # CLI 只请求分析；服务端关闭 AI 时记录未启用，不进入模型调用。
@@ -980,20 +983,22 @@ class VettingPipeline:
                         *scan_report.get("analyzers_used", ["basic"]),
                         f"llm:{llm_config.provider}",
                     ]
-                    llm_result = analyze_skill_with_llm_single_round(
-                        skill_snapshot=_build_snapshot(skill_path, llm_config),
-                        rule_results={
-                            "max_severity": scan_report.get("max_severity", "SAFE"),
-                            "findings": [
-                                finding
-                                for finding in scan_report.get("findings", [])
-                                if finding.get("source") not in {"behavioral", "sandbox"}
-                            ],
-                        },
-                        behavioural_result=behavioral_for_llm,
-                        sandbox_result=sandbox_result,
-                        config=llm_config,
-                    )
+                    with llm_analysis_timeout(llm_config):
+                        analysis_result = analyze_skill_with_llm_single_round(
+                            skill_snapshot=_build_snapshot(skill_path, llm_config),
+                            rule_results={
+                                "max_severity": scan_report.get("max_severity", "SAFE"),
+                                "findings": [
+                                    finding
+                                    for finding in scan_report.get("findings", [])
+                                    if finding.get("source") not in {"behavioral", "sandbox"}
+                                ],
+                            },
+                            behavioural_result=behavioral_for_llm,
+                            sandbox_result=sandbox_result,
+                            config=llm_config,
+                        )
+                    llm_result = analysis_result
                     scan_report["llm_analysis"] = llm_result.model_dump(mode="json")
                     if llm_result.report:
                         llm_notes.append(f"[LLM] {llm_result.report}")
@@ -1003,11 +1008,18 @@ class VettingPipeline:
                 llm_notes.append(f"[LLM] analysis skipped: {exc}")
                 llm_status = "failed"
                 llm_provider_timeout = isinstance(exc, httpx.TimeoutException)
+                if isinstance(exc, LLMAnalysisTimeout):
+                    llm_timeout_seconds = exc.seconds
             report_analyzer("llm", llm_status)
             analyzer_timings["llm"] = {
                 "status": llm_status,
                 "duration_seconds": time.monotonic() - llm_started,
             }
+            if llm_timeout_seconds is not None:
+                analyzer_timings["llm"].update({
+                    "reason": "llm_analysis_timeout",
+                    "timeout_seconds": llm_timeout_seconds,
+                })
             if llm_provider_timeout:
                 analyzer_timings["llm"]["reason"] = "llm_provider_timeout"
             if llm_status == "disabled":

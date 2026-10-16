@@ -12,8 +12,11 @@ import logging
 import os
 import uuid
 import asyncio
+import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Iterator, Literal, Optional
 
 import httpx
 import yaml
@@ -239,7 +242,39 @@ def _uses_model_gateway(config: LLMConfig) -> bool:
     return config.provider.lower() in {"model-gateway", "model_gateway"}
 
 
-async def _call_model_gateway_upstream(payload: dict[str, Any]) -> dict[str, Any]:
+class LLMAnalysisTimeout(TimeoutError):
+    """本次 AI 分析预算耗尽，区别于供应商请求超时。"""
+
+    def __init__(self, seconds: float) -> None:
+        self.seconds = seconds
+        super().__init__(f"AI analysis timed out after {seconds:g} seconds")
+
+
+_analysis_deadline: ContextVar[float | None] = ContextVar("llm_analysis_deadline", default=None)
+
+
+def _remaining_timeout(config: LLMConfig) -> float:
+    deadline = _analysis_deadline.get()
+    remaining = config.timeout_seconds if deadline is None else deadline - time.monotonic()
+    if remaining <= 0:
+        raise LLMAnalysisTimeout(config.timeout_seconds)
+    return remaining
+
+
+@contextmanager
+def llm_analysis_timeout(config: LLMConfig) -> Iterator[None]:
+    """输入准备和结果处理共用预算；上下文隔离并行扫描。"""
+    token = _analysis_deadline.set(time.monotonic() + config.timeout_seconds)
+    try:
+        yield
+        _remaining_timeout(config)
+    finally:
+        _analysis_deadline.reset(token)
+
+
+async def _call_model_gateway_upstream(
+    payload: dict[str, Any], timeout_seconds: float | None = None,
+) -> dict[str, Any]:
     from backend import models
     from backend.routers.llm_gateway import _call_upstream
     from backend.sqlite_db import SessionLocal
@@ -255,13 +290,24 @@ async def _call_model_gateway_upstream(payload: dict[str, Any]) -> dict[str, Any
         if not model:
             raise ValueError(f"模型不存在或未启用: {model_name}")
         upstream_payload = {key: value for key, value in payload.items() if key != "metadata"}
-        return await _call_upstream(db, model, upstream_payload)
+        if timeout_seconds is None:
+            return await _call_upstream(db, model, upstream_payload)
+        return await _call_upstream(db, model, upstream_payload, timeout_seconds=timeout_seconds)
     finally:
         db.close()
 
 
-def _call_model_gateway_sync(payload: dict[str, Any]) -> dict[str, Any]:
-    return asyncio.run(_call_model_gateway_upstream(payload))
+def _call_model_gateway_sync(
+    payload: dict[str, Any], timeout_seconds: float | None = None,
+) -> dict[str, Any]:
+    async def call() -> dict[str, Any]:
+        if timeout_seconds is None:
+            return await _call_model_gateway_upstream(payload)
+        return await asyncio.wait_for(
+            _call_model_gateway_upstream(payload, timeout_seconds=timeout_seconds),
+            timeout=timeout_seconds,
+        )
+    return asyncio.run(call())
 
 
 def _call_llm(config: LLMConfig, system_prompt: str, user_prompt: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -287,28 +333,47 @@ def _call_llm(config: LLMConfig, system_prompt: str, user_prompt: str) -> tuple[
         "response_format": {"type": "json_object"},
         "stream": False,
     }
-    if _uses_model_gateway(config) and not gateway_url:
-        body = _call_model_gateway_sync(payload)
-    else:
-        api_key = gateway_api_key or config.api_key
-        with httpx.Client(timeout=config.timeout_seconds) as client:
-            response = client.post(
-                endpoint,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-            response.raise_for_status()
-            body = response.json()
+    remaining = _remaining_timeout(config)
+    try:
+        if _uses_model_gateway(config) and not gateway_url:
+            body = _call_model_gateway_sync(payload, timeout_seconds=remaining)
+        else:
+            api_key = gateway_api_key or config.api_key
+
+            async def request() -> dict[str, Any]:
+                async with httpx.AsyncClient(timeout=remaining) as client:
+                    response = await client.post(
+                        endpoint,
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json=payload,
+                    )
+                    response.raise_for_status()
+                    return response.json()
+
+            async def call() -> dict[str, Any]:
+                return await asyncio.wait_for(request(), timeout=remaining)
+
+            body = asyncio.run(call())
+    except asyncio.TimeoutError as exc:
+        # 取消并等待请求清理，避免超时后模型调用仍占用连接。
+        raise LLMAnalysisTimeout(config.timeout_seconds) from exc
+    except httpx.TimeoutException as exc:
+        deadline = _analysis_deadline.get()
+        if deadline is not None and time.monotonic() >= deadline:
+            raise LLMAnalysisTimeout(config.timeout_seconds) from exc
+        raise
 
     try:
         content = body["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
         raise ValueError("Unexpected LLM response shape") from exc
 
-    return _extract_json_object(content), body
+    parsed = _extract_json_object(content)
+    _remaining_timeout(config)
+    return parsed, body
 
 
 # --------------------------------------------------------------------------- #

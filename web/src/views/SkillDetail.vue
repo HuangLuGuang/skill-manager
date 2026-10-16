@@ -1787,6 +1787,9 @@ const llmDisabled = computed(() => analysisState(scanReport.value, 'llm') === 'd
   && scanReport.value?.analyzer_timings?.llm?.reason === 'llm_analysis_disabled')
 const llmFailure = computed(() => {
   const timing = scanReport.value?.analyzer_timings?.llm
+  if (timing?.status === 'failed' && timing.reason === 'llm_analysis_timeout') {
+    return t('skillDetail.llmAnalysisTimedOut', { seconds: timing.timeout_seconds })
+  }
   const raw = formatLlmFailureReason(llmFailureReason(scanReport.value, policyNotes.value), t)
   if (timing?.status === 'failed' && timing.reason === 'llm_provider_timeout') {
     return [t('skillDetail.llmProviderTimedOut'), raw].filter(Boolean).join('\n')

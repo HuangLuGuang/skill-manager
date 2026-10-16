@@ -590,6 +590,10 @@ export AGENT_MANAGER_LLM_GATEWAY_USER_ID="agent-manager-vetting"
 export AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID="vetting-session"
 ```
 
+Skill AI 分析共用策略配置中的总超时预算：输入准备、模型请求与结果处理计入本次预算，内部网关的单次上游等待取供应商超时和剩余预算较小值。总预算到期取消请求并释放连接；供应商超时更短时可先失败。普通网关调用沿用供应商超时。配置字段和数据库结构不变，Docker 部署沿用现有配置；保存后需重新检测，既有报告不重算。
+
+Skill AI analysis shares a total timeout budget across preparation, the request and result processing. An internal gateway request uses the smaller of the provider timeout and the remaining budget. Budget expiry cancels the request and releases its connection; a shorter provider timeout may fail first. Ordinary gateway calls retain the provider timeout. Existing configuration fields, database structure and Docker deployment remain compatible; rescan after saving to apply the new budget.
+
 如果未配置 `AGENT_MANAGER_LLM_GATEWAY_URL`，系统会保持原有 `LLMConfig` / 系统设置中的直连配置。
 
 ---
