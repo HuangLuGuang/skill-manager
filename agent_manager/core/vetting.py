@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import httpx
+
 from .llm import (
     LLMConfig,
     _build_skill_snapshot,  # noqa: F401 - used via llm module
@@ -961,6 +963,7 @@ class VettingPipeline:
         llm_result = None
         if use_llm:
             llm_started = time.monotonic()
+            llm_provider_timeout = False
             try:
                 llm_config = LLMConfig.load()
                 # CLI 只请求分析；服务端关闭 AI 时记录未启用，不进入模型调用。
@@ -972,6 +975,11 @@ class VettingPipeline:
                     report_analyzer("llm", "running")
                     from .llm import _build_skill_snapshot as _build_snapshot
 
+                    # 实际启用的分析器在调用前记录，失败时仍保留名称。
+                    scan_report["analyzers_used"] = [
+                        *scan_report.get("analyzers_used", ["basic"]),
+                        f"llm:{llm_config.provider}",
+                    ]
                     llm_result = analyze_skill_with_llm_single_round(
                         skill_snapshot=_build_snapshot(skill_path, llm_config),
                         rule_results={
@@ -986,10 +994,6 @@ class VettingPipeline:
                         sandbox_result=sandbox_result,
                         config=llm_config,
                     )
-                    scan_report["analyzers_used"] = [
-                        *scan_report.get("analyzers_used", ["basic"]),
-                        f"llm:{llm_result.provider}",
-                    ]
                     scan_report["llm_analysis"] = llm_result.model_dump(mode="json")
                     if llm_result.report:
                         llm_notes.append(f"[LLM] {llm_result.report}")
@@ -998,11 +1002,14 @@ class VettingPipeline:
                 logger.warning("LLM analysis skipped for %s: %s", skill_path, exc)
                 llm_notes.append(f"[LLM] analysis skipped: {exc}")
                 llm_status = "failed"
+                llm_provider_timeout = isinstance(exc, httpx.TimeoutException)
             report_analyzer("llm", llm_status)
             analyzer_timings["llm"] = {
                 "status": llm_status,
                 "duration_seconds": time.monotonic() - llm_started,
             }
+            if llm_provider_timeout:
+                analyzer_timings["llm"]["reason"] = "llm_provider_timeout"
             if llm_status == "disabled":
                 analyzer_timings["llm"]["reason"] = "llm_analysis_disabled"
 
