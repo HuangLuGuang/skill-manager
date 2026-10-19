@@ -178,6 +178,7 @@ def test_automatic_triggers_share_active_task_and_recover_after_dispatch(schedul
     base = body['task']
     first = client.post(f'{ROOT}/tasks', json={**base, 'idempotency_key': 'schedule:first-test'})
     assert first.status_code == 200, first.text
+    assert first.json()['trigger_source'] == 'console'
     second = client.post(f'{ROOT}/tasks', json={**base, 'idempotency_key': 'asset-change:agent:1'})
     assert second.status_code == 200, second.text
     assert second.json()['task_id'] == first.json()['task_id']

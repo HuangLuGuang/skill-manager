@@ -7,7 +7,8 @@ from .sqlite_db import SessionLocal
 
 
 async def management_audit_middleware(request, call_next):
-    request.state.request_id = str(uuid.uuid4())
+    if not getattr(request.state, "request_id", None):
+        request.state.request_id = str(uuid.uuid4())
     try:
         response = await call_next(request)
     except Exception:

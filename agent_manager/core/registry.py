@@ -159,6 +159,11 @@ class Registry:
                 CREATE INDEX IF NOT EXISTS idx_skill_scan_runs_version
                     ON skill_scan_runs(version_id, started_at DESC);
 
+                CREATE TABLE IF NOT EXISTS skill_scan_run_reports (
+                    scan_run_id TEXT PRIMARY KEY,
+                    report TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS skill_scan_reports (
                     skill_id TEXT PRIMARY KEY,
                     report TEXT NOT NULL,
@@ -457,6 +462,7 @@ class Registry:
         conn.execute(f"DELETE FROM skill_review_queue WHERE skill_id IN ({placeholders})", params)
         conn.execute(f"DELETE FROM skill_scan_reports WHERE skill_id IN ({placeholders})", params)
         conn.execute(f"DELETE FROM skill_finding_stats WHERE skill_id IN ({placeholders})", params)
+        conn.execute(f"DELETE FROM skill_scan_run_reports WHERE scan_run_id IN (SELECT scan_run_id FROM skill_scan_runs WHERE version_id IN ({placeholders}))", params)
         conn.execute(f"DELETE FROM skill_scan_runs WHERE version_id IN ({placeholders})", params)
 
     def _checkpoint(self) -> None:
@@ -939,6 +945,7 @@ class Registry:
             conn.execute("DELETE FROM skill_review_queue WHERE skill_id = ?", (skill_id,))
             conn.execute("DELETE FROM skill_scan_reports WHERE skill_id = ?", (skill_id,))
             conn.execute("DELETE FROM skill_finding_stats WHERE skill_id = ?", (skill_id,))
+            conn.execute("DELETE FROM skill_scan_run_reports WHERE scan_run_id IN (SELECT scan_run_id FROM skill_scan_runs WHERE version_id = ?)", (skill_id,))
             conn.execute("DELETE FROM skill_scan_runs WHERE version_id = ?", (skill_id,))
             family_id = row["family_id"] if row else None
             self._sync_family_pointers(conn, family_id)
@@ -1126,8 +1133,13 @@ class Registry:
                 (f"$.analyzers.{analyzer}", status, scan_run_id),
             )
 
-    def update_scan_run(self, run: ScanRun) -> None:
+    def update_scan_run(self, run: ScanRun, *, report: dict | None = None) -> None:
         with self._lock, self._connect() as conn:
+            if report is not None:
+                conn.execute(
+                    "INSERT OR IGNORE INTO skill_scan_run_reports (scan_run_id, report) VALUES (?, ?)",
+                    (run.scan_run_id, json.dumps(report, ensure_ascii=False, default=str)),
+                )
             conn.execute(
                 """
                 UPDATE skill_scan_runs
@@ -1142,6 +1154,11 @@ class Registry:
                     run.scan_run_id,
                 ),
             )
+
+    def get_scan_run_report(self, scan_run_id: str) -> dict | None:
+        with self._read_connection() as conn:
+            row = conn.execute("SELECT report FROM skill_scan_run_reports WHERE scan_run_id = ?", (scan_run_id,)).fetchone()
+        return json.loads(row["report"]) if row else None
 
     def list_scan_runs(self, version_id: str) -> list[ScanRun]:
         with self._read_connection() as conn:

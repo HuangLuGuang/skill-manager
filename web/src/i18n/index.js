@@ -1,4 +1,9 @@
 import { scannerGuideMessages } from './scannerGuide.js'
+import { externalAccessMessages } from './externalAccess.js'
+import { externalDeliveryMessages } from './externalDelivery.js'
+import { externalCallbackMessages } from './externalCallbacks.js'
+import { externalGatewayMessages } from './externalGateways.js'
+import { openapiProfileMessages } from './openapiProfiles.js'
 import { licenseMessages } from './license.js'
 import { dashboardMessages } from './dashboard.js'
 import { clientEventMessages } from './client-events.js'
@@ -56,6 +61,11 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      externalAccess: externalAccessMessages['zh-CN'],
+      externalDelivery: externalDeliveryMessages['zh-CN'],
+      externalCallbacks: externalCallbackMessages['zh-CN'],
+      externalGateways: externalGatewayMessages['zh-CN'],
+      openapiProfiles: openapiProfileMessages['zh-CN'],
       license: licenseMessages['zh-CN'],
       clientEvents: clientEventMessages['zh-CN'],
       localAssets: localAssetMessages['zh-CN'],
@@ -336,6 +346,7 @@ export const i18n = createI18n({
           fields: { attack_method: '测试问题变换方式', vulnerability: '测试集 / 风险类别', endpoint: '目标地址', component: '组件', component_version: '组件版本', cve: 'CVE', cvss: 'CVSS', upstream_rule: '命中规则', source_skill: '检测规则' },
         },
         live: {
+          agentCounts: '待执行 {queued} · 执行中 {running} · 执行错误 {errors}',
           count: '已完成 {completed} / 计划 {total} 用例', preparing: '准备测试用例', report: '汇总扫描报告',
           running: '执行中 {running} · 执行错误 {errors}', recent: '最近更新的用例：{count} 条（最多 50 条）', processRecords: '过程记录：{count} 条，尚无最终用例报告',
           updated: '更新于 {value}', refreshFailed: '进度刷新失败，正在重试', unavailable: '无进度记录',
@@ -416,7 +427,7 @@ export const i18n = createI18n({
             retry: '重试', emptyPrompts: '暂无 Prompt', loadFailed: '评测集加载失败，请重试',
             selectDataset: '选择 {name}', done: '完成选择',
           },
-          target: '扫描目标', policy: '执行策略', kind: '扫描类型', status: '任务状态', usage: '资源用量', roundUsage: '{value} 轮',
+          target: '扫描目标', policy: '执行策略', kind: '扫描类型', status: '任务状态', usage: '资源用量', progressUsage: '执行进度 / 用量', roundUsage: '{value} 轮',
           createTitle: '发起安全扫描', skills: '专项检测能力', prompt: '附加测试目标', conversationMode: '会话模式', singleTurn: '单轮', multiTurn: '多轮',
           continueFrom: '继续已有会话', cancel: '取消', cancelConfirm: '确认取消该任务？', created: '扫描任务已创建', cancelled: '取消请求已提交',
           killSwitch: '紧急停止', killSwitchTitle: '启用任务 Kill Switch', killSwitchWarning: '此操作不可撤销，将立即停止排队或阻止后续扫描请求。',
@@ -1186,6 +1197,11 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      externalAccess: externalAccessMessages['en-US'],
+      externalDelivery: externalDeliveryMessages['en-US'],
+      externalCallbacks: externalCallbackMessages['en-US'],
+      externalGateways: externalGatewayMessages['en-US'],
+      openapiProfiles: openapiProfileMessages['en-US'],
       license: licenseMessages['en-US'],
       clientEvents: clientEventMessages['en-US'],
       localAssets: localAssetMessages['en-US'],
@@ -1466,6 +1482,7 @@ export const i18n = createI18n({
           fields: { attack_method: 'Test prompt transformations', vulnerability: 'Dataset / risk category', endpoint: 'Endpoint', component: 'Component', component_version: 'Component version', cve: 'CVE', cvss: 'CVSS', upstream_rule: 'Matched rule', source_skill: 'Detection rule' },
         },
         live: {
+          agentCounts: 'Queued: {queued} · Running: {running} · Errors: {errors}',
           count: '{completed} completed / {total} planned cases', preparing: 'Preparing test cases', report: 'Generating scan report',
           running: '{running} running · {errors} execution errors', recent: 'Recently updated cases: {count} (up to 50)', processRecords: 'Process records: {count}. No final case report is available.',
           updated: 'Updated {value}', refreshFailed: 'Progress refresh failed. Retrying.', unavailable: 'No progress recorded',
@@ -1546,7 +1563,7 @@ export const i18n = createI18n({
             retry: 'Retry', emptyPrompts: 'No prompts', loadFailed: 'Unable to load dataset. Please retry.',
             selectDataset: 'Select {name}', done: 'Done',
           },
-          target: 'Scan target', policy: 'Execution policy', kind: 'Scan type', status: 'Task status', usage: 'Resource usage', roundUsage: '{value} rounds',
+          target: 'Scan target', policy: 'Execution policy', kind: 'Scan type', status: 'Task status', usage: 'Resource usage', progressUsage: 'Progress / usage', roundUsage: '{value} rounds',
           createTitle: 'Start security scan', skills: 'Focused detection skills', prompt: 'Additional test objective', conversationMode: 'Conversation mode', singleTurn: 'Single turn', multiTurn: 'Multi-turn',
           continueFrom: 'Continue prior session', cancel: 'Cancel', cancelConfirm: 'Cancel this task?', created: 'Scan task created', cancelled: 'Cancellation requested',
           killSwitch: 'Kill Switch', killSwitchTitle: 'Activate task Kill Switch', killSwitchWarning: 'This irreversible action stops queued work immediately and prevents subsequent scan requests.',

@@ -231,7 +231,7 @@ def _run_scanner(skill_path: Path, scanner_policy_name: str) -> dict:
     SkillScanner, ScanPolicy = _try_import_scanner()
     if SkillScanner is None:
         logger.warning("skill-scanner not installed — using basic file check only")
-        return {}
+        return {"scanner_unavailable": True, "findings": [], "max_severity": "SAFE"}
 
     scanner, scan_lock = _scanner_instance(SkillScanner, ScanPolicy, scanner_policy_name)
     try:
@@ -763,8 +763,8 @@ class VettingPipeline:
                 raise
             result = execution.result
             status = "completed"
-            if name == "scanner" and result.get("scanner_error"):
-                status = "failed"
+            if name == "scanner":
+                status = "skipped" if result.get("scanner_unavailable") else "failed" if result.get("scanner_error") else "completed"
             elif name == "skillspector":
                 status = "skipped" if not result.get("available") else "failed" if result.get("error") else "completed"
             elif name == "sandbox":
@@ -773,6 +773,7 @@ class VettingPipeline:
             return execution
 
         report_analyzer("scanner", "pending")
+        report_analyzer("behavioral", "pending" if use_behavioral else "disabled")
         report_analyzer("skillspector", "pending" if should_run_skillspector else "disabled")
         report_analyzer("sandbox", "pending")
         report_analyzer("llm", "pending" if use_llm else "disabled")
@@ -787,9 +788,9 @@ class VettingPipeline:
         }
         if use_behavioral:
             futures["behavioral"] = _analyzer_executor.submit(
-                _timed_analyzer,
+                run_analyzer,
                 "behavioral",
-                lambda: _run_behavioral_bundle(skill_path),
+                lambda: _timed_analyzer("behavioral", lambda: _run_behavioral_bundle(skill_path)),
             )
         if should_run_skillspector:
             futures["skillspector"] = _analyzer_executor.submit(
@@ -810,9 +811,11 @@ class VettingPipeline:
         scan_report.setdefault("findings", [])
         scan_report.setdefault("analyzers_used", ["basic"])
         analyzer_timings["scanner"] = {
-            "status": "failed" if scan_report.get("scanner_error") else "completed",
+            "status": "skipped" if scan_report.get("scanner_unavailable") else "failed" if scan_report.get("scanner_error") else "completed",
             "duration_seconds": scanner_execution.duration_seconds,
         }
+        if scan_report.get("scanner_unavailable"):
+            analyzer_timings["scanner"]["reason"] = "scanner_unavailable"
 
         skillspector_notes: list[str] = []
         if should_run_skillspector:

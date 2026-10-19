@@ -327,6 +327,7 @@ class AgentManager:
         run.reused_from_scan_run_id = reused_from_scan_run_id
         run.finished_at = datetime.now(timezone.utc)
         run.result = {
+            **run.result,
             "status": entry.status.value,
             "risk_level": entry.risk_level.value if entry.risk_level else None,
             "scan_reused": entry.scan_reused,
@@ -335,7 +336,10 @@ class AgentManager:
             "sandbox_required_by_policy": bool(entry.vetting and entry.vetting.sandbox_required_by_policy),
             "sandbox_runtime": entry.vetting.sandbox_runtime if entry.vetting else None,
         }
-        self.registry.update_scan_run(run)
+        # Commit the execution's report with its terminal state. A failed rescan
+        # may preserve the version's previous report, which belongs to another run.
+        report = entry.vetting.model_dump(mode="json") if entry.vetting and status in {"COMPLETED", "REUSED"} else None
+        self.registry.update_scan_run(run, report=report)
 
     @staticmethod
     def _reset_version_for_scan(entry: RegistryEntry) -> RegistryEntry:

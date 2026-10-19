@@ -801,6 +801,46 @@ def _normalize_report(
     }
 
 
+class AgentScanProgress:
+    """Count selected detection workers, independently of dialogue/model calls."""
+
+    def __init__(self, claim, skills, stage_id):
+        self.claim = claim
+        self.stages = {stage_id(index): skill for index, skill in enumerate(skills)}
+        self.states = {skill: "queued" for skill in skills}
+        self.lock = threading.Lock()
+        self.publish()
+
+    def publish(self):
+        states = list(self.states.values())
+        # Replace the entire snapshot so the keepalive thread never sees a partial update.
+        self.claim["scan_progress"] = {
+            "observed_total": len(states),
+            "completed": sum(state in {"completed", "error"} for state in states),
+            "running": states.count("running"), "errors": states.count("error"),
+        }
+
+    def update(self, skill, state):
+        with self.lock:
+            self.states[skill] = state
+            self.publish()
+
+    def wrap(self, run_agent):
+        async def tracked(*args, **kwargs):
+            skill = self.stages.get(kwargs.get("stage_id"))
+            if skill is None or (kwargs.get("context_data") or {}).get("Assigned Skill") != skill:
+                return await run_agent(*args, **kwargs)
+            self.update(skill, "running")
+            try:
+                result = await run_agent(*args, **kwargs)
+            except BaseException:
+                self.update(skill, "error")
+                raise
+            self.update(skill, "completed")
+            return result
+        return tracked
+
+
 def execute_agent_scan(
     claim: dict[str, Any],
     credential_secret: str | None,
@@ -839,6 +879,7 @@ def execute_agent_scan(
 
     original_call_provider = ToolContext.call_provider
     original_concurrency = agent_module._WORKER_CONCURRENCY
+    original_run_agent = agent_module.run_agent
 
     def call_provider(context: Any, prompt: str) -> Any:
         return runtime.call_target(
@@ -865,6 +906,8 @@ def execute_agent_scan(
             agent_provider=str(provider_path),
             skills=list(options.get("skills") or []),
         )
+        progress = AgentScanProgress(claim, scanner.skills, agent_module._worker_stage_id)
+        agent_module.run_agent = progress.wrap(original_run_agent)
         report = asyncio.run(scanner.scan("", str(options.get("prompt", ""))))
         for execution in report.get("detection_executions") or []:
             stage_id = str(execution.get("stage_id") or "")
@@ -885,5 +928,6 @@ def execute_agent_scan(
     finally:
         ToolContext.call_provider = original_call_provider
         agent_module._WORKER_CONCURRENCY = original_concurrency
+        agent_module.run_agent = original_run_agent
         if provider_path:
             provider_path.unlink(missing_ok=True)

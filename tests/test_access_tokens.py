@@ -28,7 +28,7 @@ class _Manager:
     runtime = _Runtime()
     registry = _Registry()
 
-    def get_skill(self, skill_name):
+    def get_skill(self, skill_name, *, include_scan_report=True):
         if skill_name != "risk-skill":
             return None
         return type(

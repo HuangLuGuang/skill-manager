@@ -8,6 +8,11 @@ to management JWT authentication after FastAPI has selected an endpoint.
 def route_permission(request):
     path = getattr(request.scope.get("route"), "path", request.url.path)
     method = request.method
+    if method == "POST" and path == "/api/v1/external-access/deliveries/{delivery_id}/retry":
+        return "external_access:update"
+    if method == "POST" and path in {"/api/v1/external-access/callbacks/{callback_id:path}/test",
+                                    "/api/v1/external-access/gateways/{gateway_id:path}/test"}:
+        return "external_access:update"
     if path.startswith("/api/v1/license/"):
         return None if method == "GET" else "license:update"
     if path.startswith("/api/v1/iam/") or path.startswith("/api/auth/"):
@@ -43,6 +48,7 @@ def route_permission(request):
     if method == "DELETE" and path.startswith(("/api/v1/privacy/mappings", "/api/v1/privacy/conversations")):
         return "privacy:delete"
     rules = [
+        ("/api/v1/external-access", "external_access", None),
         ("/api/v1/security-audit/verify", "audit", "verify"),
         ("/api/v1/security-audit", "audit", "security"),
         ("/api/v1/privacy/traces", "privacy_audit", "raw"),

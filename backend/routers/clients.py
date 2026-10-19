@@ -393,6 +393,7 @@ def _ensure_client_managed_agent(
     owner = token.created_by or client.registered_by
     require_license()
     row = models.ManagedAgent(
+        registration_source="client_discovery",
         agent_id=agent_id,
         name=f"{client.name} · {label}"[:128],
         department_group_id=token.group_id,
@@ -460,6 +461,7 @@ def _ensure_inventory_agent_identity(
         return existing
     label = _MODEL_CONFIG_AGENT_LABELS.get(client_agent.agent_type, client_agent.agent_type)
     row = models.ManagedAgent(
+        registration_source="client_discovery",
         agent_id=agent_id,
         name=f"{client.name} · {label}"[:128],
         department_group_id=group_id,

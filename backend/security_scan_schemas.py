@@ -452,6 +452,13 @@ class SecurityLiveProgress(BaseModel):
 
 
 class SecurityTaskResponse(BaseModel):
+    source_platform_name: str | None = None
+    trigger_source: str | None = None
+    source_platform_id: str | None = None
+    external_task_id: str | None = None
+    business_request_id: str | None = None
+    source_token_id: int | None = None
+    source_request_id: str | None = None
     origins: list[dict[str, Any]] = Field(default_factory=list)
     task_id: str
     target_id: str

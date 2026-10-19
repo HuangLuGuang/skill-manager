@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -53,7 +54,8 @@ def _database(tmp_path):
     return factory
 
 
-def test_signed_client_matches_seven_line_contract(monkeypatch):
+@pytest.mark.parametrize("base_url", ["http://gateway.test:4005", "http://gateway.test:4005/management"])
+def test_signed_client_matches_seven_line_contract(monkeypatch, base_url):
     captured = {}
 
     def request(method, url, **kwargs):
@@ -61,10 +63,11 @@ def test_signed_client_matches_seven_line_contract(monkeypatch):
         return httpx.Response(200, json={"ok": True})
 
     monkeypatch.setattr("backend.external_ai_gateway.httpx.request", request)
-    client = SignedClient("http://gateway.test:4005", "token-id", "token-secret")
+    client = SignedClient(base_url, "token-id", "token-secret")
     result = client.request("POST", "/api/v1/agents/中文", {"name": "测试"}, "b=2&a=1")
     assert result.data == {"ok": True}
     parsed = urlsplit(captured["url"])
+    assert parsed.path == urlsplit(base_url).path + "/api/v1/agents/%E4%B8%AD%E6%96%87"
     query = parse_qs(parsed.query)
     body = captured["kwargs"]["content"]
     expected = string_to_sign(

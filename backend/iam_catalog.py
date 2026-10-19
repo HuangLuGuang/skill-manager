@@ -1,6 +1,7 @@
 """Stable permission codes and supported management pages."""
 
 MODULE_ACTIONS = {
+    "external_access": "view create update delete",
     "dashboard": "view",
     "users": "view create update assign_role set_status reset_password delete",
     "groups": "view create update",
@@ -66,6 +67,7 @@ PAGES = [
     ("scans", None, "安全扫描", "Security Scans", "/agent-security/scans", "scans:view", "fileSearch", "agent_security_scanning"),
     ("traces", None, "调用轨迹", "Runtime Traces", "/runtime-traces", "traces:view", "audit", "runtime_trace"),
     ("system-admin", None, "系统管理", "System Management", None, None, "setting", None),
+    ("external-access", "system-admin", "开放 API 管理", "Open API Management", "/external-access", "external_access:view", "api", None),
     ("users", "system-admin", "账号管理", "Accounts", "/users", "users:view", "team", None),
     ("groups", "system-admin", "用户组", "User Groups", "/users-groups", "groups:view", "team", None),
     ("roles", "system-admin", "角色管理", "Roles", "/roles", "roles:view", "key", None),
