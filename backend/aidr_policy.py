@@ -145,17 +145,27 @@ def issue(db, client_id, stream, frontier, applied_receipt="", applied_after=0, 
             **({'skill_audit': json.loads(row.skill_audit_json)} if row.skill_audit_json else {})}
 
 
-def validate(db, client_id, stream, sequence, behavior):
+def load_receipts(db, policies):
+    """Keep a batch-local snapshot inside the ingestion write transaction."""
+    ids = list({policy.receipt for policy in policies if policy and policy.receipt})
+    receipts = {}
+    for offset in range(0, len(ids), 500):
+        receipts.update({row.id: row for row in db.query(models.AidrPolicyReceipt).filter(
+            models.AidrPolicyReceipt.id.in_(ids[offset:offset + 500])).all()})
+    return receipts
+
+
+def validate(db, client_id, stream, sequence, behavior, *, receipts=None):
     if not behavior or behavior.version < 3:
         return  # Legacy contracts always require redaction.
     policy = behavior.policy
-    return validate_receipt(db, client_id, stream, sequence, policy)
+    return validate_receipt(db, client_id, stream, sequence, policy, receipts=receipts)
 
 
-def validate_receipt(db, client_id, stream, sequence, policy):
+def validate_receipt(db, client_id, stream, sequence, policy, *, receipts=None):
     if policy.version == "0" and policy.enabled and not policy.receipt:
         return  # First-contact fail-closed projection, still checked for secrets.
-    row = db.get(models.AidrPolicyReceipt, policy.receipt)
+    row = db.get(models.AidrPolicyReceipt, policy.receipt) if receipts is None else receipts.get(policy.receipt)
     if (not row or row.client_id != client_id or row.stream_id != stream or row.version != policy.version
             or row.enabled != policy.enabled or (json.loads(row.capture_json) if row.capture_json else None) != (policy.capture.model_dump() if policy.capture else None) or sequence < row.start_sequence
             or (json.loads(row.lifecycle_json) if row.lifecycle_json else None) != (policy.lifecycle.model_dump() if policy.lifecycle else None)

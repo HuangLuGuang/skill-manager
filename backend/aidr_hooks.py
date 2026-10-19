@@ -6,6 +6,7 @@ from .aidr_skill_contract import SkillUse
 from typing import Literal
 
 from pydantic import Field, model_validator
+from sqlalchemy import lambda_stmt
 from sqlalchemy.dialects.sqlite import insert
 
 from . import aidr_policy
@@ -15,6 +16,9 @@ from .aidr_contract import _unique_object, invalid_batch
 from .aidr_models import AidrHookBatch, AidrHookEvent
 from .aidr_operations import stamp
 from .api_errors import ApiError
+
+_BATCH_INSERT = lambda_stmt(lambda: insert(AidrHookBatch.__table__).on_conflict_do_nothing())
+_EVENT_INSERT = lambda_stmt(lambda: insert(AidrHookEvent.__table__).on_conflict_do_nothing())
 
 class HostContext(Strict):
     model: str = Field(default='', max_length=256)
@@ -169,23 +173,37 @@ def save(db, device, raw):
     if batch.client_id != device.client_id:
         raise ApiError(403, "aidr.device_binding_mismatch", "凭证绑定的设备不匹配", "Credential device binding mismatch")
     digest = hashlib.sha256(raw).hexdigest()
-    inserted = db.execute(insert(AidrHookBatch).values(client_id=batch.client_id, stream_id=batch.stream_id, digest=digest, record_count=len(batch.records)).on_conflict_do_nothing())
+    prepared = []
+    for record in batch.records:
+        projected = record.model_dump(exclude_none=True)
+        if not record.receiver_instance:
+            projected.pop("receiver_instance", None)
+        payload = json.dumps(projected, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        prepared.append(dict(client_id=batch.client_id, stream_id=batch.stream_id, event_id=record.event_id,
+            source_seq=int(record.source_seq), content_hash=hashlib.sha256(payload.encode()).hexdigest(), payload_json=payload))
+    inserted = db.execute(_BATCH_INSERT, dict(client_id=batch.client_id, stream_id=batch.stream_id,
+        digest=digest, record_count=len(batch.records)))
     if inserted.rowcount:
+        receipts = aidr_policy.load_receipts(db, [record.event.policy for record in batch.records])
         for record in batch.records:
             # Validate the server-issued policy receipt, not the client's claim.
-            aidr_policy.validate_receipt(db, batch.client_id, batch.stream_id, int(record.source_seq), record.event.policy)
-            projected = record.model_dump(exclude_none=True)
-            if not record.receiver_instance:
-                projected.pop("receiver_instance", None)
-            payload = json.dumps(projected, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-            content_hash = hashlib.sha256(payload.encode()).hexdigest()
-            inserted_event = db.execute(insert(AidrHookEvent).values(client_id=batch.client_id, stream_id=batch.stream_id, event_id=record.event_id, source_seq=int(record.source_seq), content_hash=content_hash, payload_json=payload).on_conflict_do_nothing())
-            existing = db.query(AidrHookEvent).filter_by(client_id=batch.client_id, stream_id=batch.stream_id, event_id=record.event_id).first()
-            if existing is None or existing.content_hash != content_hash:
+            aidr_policy.validate_receipt(db, batch.client_id, batch.stream_id, int(record.source_seq), record.event.policy, receipts=receipts)
+        event_ids = [record.event_id for record in batch.records]
+        existing = {row.event_id: row for row in db.query(AidrHookEvent).filter(
+            AidrHookEvent.client_id == batch.client_id, AidrHookEvent.stream_id == batch.stream_id,
+            AidrHookEvent.event_id.in_(event_ids)).all()}
+        new = [values for values in prepared if values['event_id'] not in existing]
+        if new:
+            db.execute(_EVENT_INSERT, new)
+            existing.update({row.event_id: row for row in db.query(AidrHookEvent).filter(
+                AidrHookEvent.client_id == batch.client_id, AidrHookEvent.stream_id == batch.stream_id,
+                AidrHookEvent.event_id.in_([values['event_id'] for values in new])).all()})
+        for values in prepared:
+            row = existing.get(values['event_id'])
+            if row is None or row.content_hash != values['content_hash']:
                 db.rollback()
                 raise ApiError(409, "aidr.hook_event_conflict", "插件事件身份或序号冲突", "Plugin event identity or sequence conflict")
-            if inserted_event.rowcount:
-                from .aidr_skill_usage import merge
-                merge(db, "hook", existing)
+        from .aidr_skill_usage import merge_many
+        merge_many(db, "hook", [existing[values['event_id']] for values in new])
     db.commit()
     return {"schema_version": 1, "client_id": batch.client_id, "stream_id": batch.stream_id, "digest": digest, "accepted": len(batch.records), "durable": True}

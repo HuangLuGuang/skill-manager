@@ -52,6 +52,53 @@ def test_late_result_replay_and_retention_reconcile(service):
     with factory() as db: assert db.query(OverviewEvidence).count()==0
 
 
+def test_bulk_expiry_matches_individual_reconciliation_without_per_row_queries(service):
+    from sqlalchemy import select
+    from backend.aidr_overview import OverviewBucket, OverviewCommandBucket, reconcile
+    _, factory = service
+    engine = factory.kw['bind']
+    with factory() as db:
+        common = dict(source='hooks', client_id='one', agent='codex', product='codex',
+                      session_key='session', session_id='session', at=int(NOW.timestamp()),
+                      tool='Bash', command='echo', command_counts_json='{"echo":2,"printf":1}')
+        db.add_all([OverviewEvidence(**common, record_id=i, operation_key=str(i), phase='call', outcome='unknown')
+                    for i in range(1, 102)])
+        db.add(OverviewEvidence(**common, record_id=1002, operation_key='101', phase='result', outcome='failed'))
+        db.flush()
+        for i in range(1, 102):
+            reconcile(db, str(i))
+        db.commit()
+
+        def snapshot():
+            return [list(db.execute(select(model.__table__).order_by(model.__table__.c.key)).mappings())
+                    for model in (OverviewOperation, OverviewBucket, OverviewCommandBucket)]
+
+        statements = []
+        def record(*args):
+            statements.append(args[2])
+        ids = [*range(1, 101), 1002]
+        sql_event.listen(engine, 'before_cursor_execute', record)
+        try:
+            remove_evidence(db, 'hooks', ids)
+        finally:
+            sql_event.remove(engine, 'before_cursor_execute', record)
+        assert len(statements) < 30
+        actual = snapshot()
+        assert len(actual[0]) == 1 and actual[0][0]['failed'] == 0
+        assert actual[1][0]['calls'] == 1 and actual[1][0]['failures'] == 0
+        assert sorted(r['occurrences'] for r in actual[2]) == [1, 2]
+        db.rollback()
+
+        # Applying removals one operation at a time must match grouped deltas,
+        # including complete expiry and removal of only a failure result.
+        evidence = OverviewEvidence.__table__
+        db.execute(evidence.delete().where(evidence.c.source == 'hooks', evidence.c.record_id.in_(ids)))
+        for i in range(1, 102):
+            reconcile(db, str(i))
+        assert snapshot() == actual
+        db.rollback()
+
+
 def test_source_scope_product_grouping_and_missing_identity(service):
     client,factory=service
     hook(factory,1,agent='qoder-cli')

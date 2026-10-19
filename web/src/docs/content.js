@@ -4,6 +4,7 @@ import { aidrGuides, aidrGuideOrder } from './aidr-guides.js'
 import { hookGuides } from './hook-guides.js'
 import { agentIntegrationChoices, agentRegistrationGuides } from './agent-registration-guide.js'
 import { licenseGuides } from './license-guide.js'
+import { dockerLicenseSections } from './docker-license-guide.js'
 
 const zh = {
   groups: [
@@ -4233,6 +4234,8 @@ en.articles['skill-policy'] = {
 }
 
 for (const [locale, content] of [['zh-CN', zh], ['en-US', en]]) {
+  const dockerSections = content.articles['docker-deployment'].sections
+  dockerSections.splice(dockerSections.findIndex(section => section.id === 'verify'), 0, ...dockerLicenseSections[locale])
   const licenseGuide = licenseGuides[locale]
   content.articles['license-authorization'] = licenseGuide
   const deploymentGroup = content.groups.find(group => group.items.some(item => item.slug === 'docker-deployment'))

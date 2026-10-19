@@ -195,6 +195,21 @@ HOOK_RELATED_INDEX = Index(
     sqlite_where=AidrHookEvent.expired_at.is_(None),
 )
 
+
+def skill_evidence_identity_columns(model):
+    prefix = '$.' if model is AidrEvent else '$.event.'
+    # Literal, application-owned paths must match the SQLite expression index.
+    return tuple(literal_column(f"json_extract(payload_json, '{prefix}{field}')")
+                 for field in ('agent', 'session_id', 'native_call_id'))
+
+
+SKILL_EVIDENCE_INDEXES = tuple(
+    Index(f'ix_aidr_{source}_skill_evidence', model.client_id,
+          *skill_evidence_identity_columns(model), model.id,
+          sqlite_where=model.expired_at.is_(None))
+    for model, source in ((AidrEvent, 'log'), (AidrHookEvent, 'hook'))
+)
+
 # Session navigation reads messages separately from potentially large tool payloads.
 SESSION_MESSAGE_INDEX = Index(
     'ix_aidr_session_messages', AidrEvent.client_id, AidrEvent.id, AidrEvent.agent,

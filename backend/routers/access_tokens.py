@@ -446,9 +446,9 @@ def ensure_agent_prompt_allowed(agent: models.ManagedAgent, prompt_name: str) ->
         )
 
 
-def acquire_access_token_slot(token: models.AccessToken) -> None:
+def acquire_access_token_slot(token: models.AccessToken, *, bind=None) -> None:
     session = object_session(token)
-    bind = session.get_bind() if session is not None else None
+    bind = bind or (session.get_bind() if session is not None else None)
     try:
         lease_id = acquire_lease(
             "access_token",

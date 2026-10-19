@@ -17,7 +17,12 @@ from tests.test_aidr_api import service
 
 
 def test_go_bridge_to_platform_with_owned_processes(service, tmp_path):
-    client, _ = service
+    from backend import auth, iam, models
+    client, factory = service
+    client.app.dependency_overrides[auth.get_current_active_user] = lambda: models.User(
+        id=1, username='owner', role='admin', is_active=True)
+    with factory() as db:
+        iam.initialize(db)
     repository = Path(__file__).resolve().parents[1]
     binary = tmp_path / "agent-manager-client"
     subprocess.run(["go", "build", "-o", str(binary), "./cmd/agent-manager-client"], cwd=repository / "scanner", check=True, capture_output=True, timeout=120)
@@ -94,7 +99,12 @@ def test_go_bridge_to_platform_with_owned_processes(service, tmp_path):
             by_hook = {item["record"]["event"]["hook_event"]: item["record"]["event"] for item in items}
             assert by_hook["PostToolUse"]["behavior"]["exit_code"] == 7
             assert by_hook["PostToolUse"]["behavior"]["status"] == "reported_error"
-            assert by_hook["PreToolUse"]["behavior"]["actions"][0]["command"] == "echo --password='[REDACTED]' && pwd"
+            assert 'command' not in by_hook["PreToolUse"]["behavior"]["actions"][0]
+            call = next(item for item in items if item['record']['event']['hook_event']=='PreToolUse')
+            content = client.get('/api/v1/clients/one/aidr/content', params={'source':'hook','record_id':call['id']})
+            assert content.status_code == 200, content.text
+            command = next(item for item in content.json()['contents'] if item['kind']=='command_body')
+            assert command['text'] == "echo --password='[REDACTED]' && pwd"
             assert all(item["record"]["user_scope"] == str(os.geteuid()) for item in items)
             for forbidden in ("synthetic-bridge-secret", "SYNTHETIC-OMITTED-PROMPT", "SYNTHETIC-OMITTED-OUTPUT"):
                 assert forbidden not in json.dumps(items)

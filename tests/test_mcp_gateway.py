@@ -78,7 +78,7 @@ def test_streamable_http_sse_skips_notifications_before_response():
 def test_upstream_negotiated_protocol_version_is_reused(monkeypatch):
     calls = []
 
-    async def fake_post(server, payload, session_id=None, protocol_version=mcp_gateway.MCP_PROTOCOL_VERSION):
+    async def fake_post(server, payload, session_id=None, protocol_version=mcp_gateway.MCP_PROTOCOL_VERSION, *, client=None):
         calls.append((payload["method"], protocol_version))
         if payload["method"] == "initialize":
             return {"result": {"protocolVersion": "2025-06-18"}}, "session-1"

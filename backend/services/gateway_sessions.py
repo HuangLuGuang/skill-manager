@@ -176,7 +176,7 @@ def associate(db, *, key, tenant_id, messages, request_id, explicit_id=None, sou
     return result
 
 
-def finish(db, request_id, status, request_payload=None, response_payload=None):
+def finish(db, request_id, status, request_payload=None, response_payload=None, *, commit=True):
     row = db.get(models.GatewaySessionRequest, request_id)
     if row and status == "completed" and row.match_reason not in {"connection_probe", "auxiliary_title_v1"} and not title_exchange((request_payload or {}).get("messages", [])):
         turns = dialogue((request_payload or {}).get("messages", []))
@@ -194,7 +194,10 @@ def finish(db, request_id, status, request_payload=None, response_payload=None):
                 save_fingerprint(db, row, "title_exchange_v1", digest([user[:500], content[:500]]), 2)
     db.query(models.GatewaySessionRequest).filter_by(request_id=request_id, status="running").update(
         {"status": status, "completed_at": datetime.utcnow()}, synchronize_session=False)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
 
 
 def summaries(db, trace_ids):

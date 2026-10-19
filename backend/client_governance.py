@@ -210,6 +210,23 @@ def record_protocol(db: Session, client_id: str, protocol: int, *, is_new=False)
 def policy_view(db: Session, client_id: str | None = None):
     default = db.get(models.ClientGovernancePolicy, DEFAULT_SCOPE)
     custom = db.get(models.ClientGovernancePolicy, client_id) if client_id else None
+    from .runtime_governance import HookEnrollment
+    enrollment = db.get(HookEnrollment, client_id) if client_id else None
+    return _policy_view(default, custom, enrollment, client_id)
+
+
+def policy_views(db: Session, client_ids):
+    """Request-local policy reads for a bounded group of visible clients."""
+    from .runtime_governance import HookEnrollment
+    policies = {row.scope: row for row in db.query(models.ClientGovernancePolicy).filter(
+        models.ClientGovernancePolicy.scope.in_([DEFAULT_SCOPE, *client_ids]))}
+    enrollments = {row.client_id: row for row in db.query(HookEnrollment).filter(
+        HookEnrollment.client_id.in_(client_ids))}
+    return {cid: _policy_view(policies.get(DEFAULT_SCOPE), policies.get(cid), enrollments.get(cid), cid)
+            for cid in client_ids}
+
+
+def _policy_view(default, custom, enrollment, client_id):
     defaults = {**DEFAULT_RULES, **(json.loads(default.rules_json) if default else {})}
     overrides = json.loads(custom.rules_json) if custom else {}
     rules = {**defaults, **overrides}
@@ -223,8 +240,7 @@ def policy_view(db: Session, client_id: str | None = None):
     if runtime_override is not None:
         runtime_override = {"allow_user_enrollment": True, **runtime_override}
     runtime = dict(runtime_override if runtime_override is not None else runtime_default)
-    from .runtime_governance import HookEnrollment, hook_target
-    enrollment = db.get(HookEnrollment, client_id) if client_id else None
+    from .runtime_governance import hook_target
     user_hosts = json.loads(enrollment.hosts_json) if enrollment else []
     if runtime["allow_user_enrollment"] and runtime["access_mode"] == "ordinary" and hook_target(runtime):
         runtime["hosts"] = list(dict.fromkeys([*runtime["hosts"], *user_hosts]))

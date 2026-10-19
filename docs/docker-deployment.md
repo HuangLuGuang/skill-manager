@@ -124,6 +124,108 @@ docker compose run --rm --no-deps --entrypoint python backend -m backend.aidr_si
 更换密钥需要同步更新客户端信任；不要通过删除密钥排查故障。私钥只保留在部署环境，
 不提交到 Git、不写入镜像或离线包；License 签发私钥仍由独立签发系统保管。
 
+### 新客户部署与 License 验收
+
+按以下顺序完成首次交付，服务健康与授权生效分别检查：
+
+1. 固定安装目录与 Compose 项目名，准备生产 `.env`、独立随机凭据和持久化卷；启用安全启动。
+2. 核对厂商 License 签发公钥。默认使用镜像内 `/app/deploy/license/public-keys/`；需要受管公钥目录时使用下节配置。
+3. 源码部署在构建镜像后执行上述 `signing-key init`，再启动 Compose；离线交付执行 `./start.sh`，由脚本加载镜像并初始化。Backend 入口自动生成缺失的 AIDR 密钥。
+4. 确认六个服务健康、管理台可登录，执行 `docker compose exec -T backend python -m backend.aidr_signing --check`。
+5. 从客户实际部署的“系统管理 → License 授权”导出申请，厂商在独立 `license-issuer` 核对身份、日期、完整模块和客户端额度，签发并交付 `.license`；客户验证并导入。
+6. 确认授权状态有效，部署标识、客户、日期、修订、模块和额度一致，再执行授权范围内的扫描、网关和防护业务验收。没有有效授权时仍可登录、申请和导入，新增与扫描受限。
+
+详细签发及续期操作见 [离线 License](license.md)，管理台中英文帮助入口为 `/docs/license-authorization`。
+
+#### 受管 License 公钥目录
+
+由厂商交付验签公钥及其 key_id，核对来源后将文件保存为 `license-public-keys/<key_id>.pem`。
+key_id 为公钥原始字节 SHA-256 的前 16 位十六进制，与 License 的 key_id 一致。
+目录内仅放公钥。采用自定义目录后该目录成为信任来源，应包含所有需要继续信任的签发公钥。
+
+在安装目录创建 `docker-compose.override.yaml`（已有文件时合并 backend 配置）：
+
+```yaml
+services:
+  backend:
+    environment:
+      AGENT_MANAGER_LICENSE_KEYS_DIR: /app/license-public-keys
+    volumes:
+      - ./license-public-keys:/app/license-public-keys:ro
+```
+
+上述挂载与 `.env` 中的配置独立保存；确保部署命令加载此 override，
+可用 `docker compose config --services` 检查配置能够解析。检查解析后的挂载与目录时，
+不要将包含凭据的完整 Compose 配置保存到普通日志。升级后再次核对自定义挂载仍生效。
+客户平台不持有 License 签发私钥，也不需要联网访问签发系统。
+
+**离线脚本的配置边界：** 当前 `start.sh` / `upgrade.sh` 显式只加载 `docker-compose.yaml`，
+不会自动加载上述 override；`upgrade.sh` 还会用安装包替换主 Compose 文件。
+使用这两个脚本且需要自定义公钥挂载时，首次启动前将同一 backend 配置合并到主文件。
+升级前备份现场配置，在维护窗口完成升级后重新合并挂载配置，重建 backend 并检查授权有效，再恢复业务。
+`.env` 与数据卷保留不代表自定义 Compose 挂载自动保留；默认使用镜像公钥的部署无需额外挂载。
+
+### 重建后的密钥与授权持久化验收
+
+在维护窗口执行，先完成业务数据备份。保留原安装目录、项目名、`.env`、全部命名卷和自定义挂载。
+以下函数从现有密钥计算 AIDR **公钥**指纹，只输出指纹和授权摘要，不输出私钥内容；摘要属于客户交付记录，应受控保存：
+
+```bash
+umask 077
+license_snapshot() {
+  docker compose exec -T backend python - <<'PY'
+import hashlib, json, os
+from cryptography.hazmat.primitives import serialization
+from backend.aidr_signing import key_path, load_key
+from agent_manager.core.licensing import LicenseStore
+path = key_path()
+public = load_key(path).public_key().public_bytes(
+    serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+status = LicenseStore().status()
+current = status['current'] or {}
+print(json.dumps({
+    'aidr_public_sha256': hashlib.sha256(public).hexdigest(),
+    'key_mode': oct(os.stat(path).st_mode & 0o777),
+    'deployment_id': status['deployment_id'], 'state': status['state'],
+    'license': {k: current.get(k) for k in (
+        'license_id', 'customer_id', 'revision', 'not_before', 'expires_at', 'features', 'limits')},
+    'history_count': len(status['history']),
+}, ensure_ascii=False, indent=2))
+PY
+}
+license_snapshot > license-before.json
+docker compose up -d --force-recreate --no-build --pull never --wait --wait-timeout 300
+docker compose exec -T backend python -m backend.aidr_signing --check
+license_snapshot > license-after.json
+diff -u license-before.json license-after.json
+docker compose ps
+```
+
+确认容器已重建且全部健康，公钥指纹、部署标识及授权摘要一致，并在授权页检查导入历史和客户端数量。
+日期跨过生效或到期边界时，状态或待生效续期切换应按授权日期核对。
+独立测试环境还可使用 `docker compose down` 后再 `up` 验证保留卷后的恢复；`down -v` 会删除命名卷，
+不能用于保留身份的重建验收。`.license` 文件本身不包含部署身份数据库，不能替代完整数据备份。
+
+### 隔离验证与已验证范围
+
+在共享服务器上验证时，先检查资源余量、端口、现有容器 ID、启动时间和健康状态。
+使用独立安装目录、固定且唯一的 Compose 项目名、空命名卷和独立网络；不要复制生产 `.env`、数据库或私钥。
+所有测试端口仅绑定回环地址。除管理台端口外，还要替换或移除 Sandbox 默认 `127.0.0.1:8194` 的发布端口，
+以及可选签发服务端口；仅修改 `HTTP_PORT` 不足以隔离整个项目。
+使用 Compose override 时端口列表可能追加而非替换，必须检查最终配置中没有现有环境的端口。
+
+测试签发可使用独立的 `license-issuer` 数据卷和签发身份，客户测试环境只读挂载对应公钥。
+申请必须来自新部署，按正常认证执行申请、签发和导入。记录重建前后的公钥指纹、部署标识和授权状态；
+所有启停命令始终使用同一测试项目名和配置文件集合。结束后停止或移除测试容器及网络，释放端口，
+明确记录测试卷的保留或清理状态，再核对原有容器未被重建、原密钥与授权不变、服务仍健康。
+密码、私钥、会话、授权文件和状态库不进入 Git 或通用交付文档。
+
+2026-10-15 使用提交 `eeee22bc` 对应的 amd64 正式镜像与部署 Compose，在空卷、启用安全启动的隔离环境完成：
+AIDR 自动生成及实际签名验签；正常认证后的 HTTP 申请、签发、下载和导入；删除并重建七个测试容器后
+六个卷的持久化检查（含独立签发服务），确认密钥、授权和签发记录保留。现有环境容器身份、密钥、授权及健康状态未改变。
+这是镜像和 Compose 流程验收，**未覆盖完整离线包下载、解压、`start.sh` / `upgrade.sh` 整链执行、ARM 或 UI 点击流程**。
+正式交付仍须对实际版本、架构的离线包单独完成安装、升级和业务验收。
+
 ### 管理员初始密码与升级
 
 默认管理员用户名是 `admin`，可在首次创建账号前通过 `INITIAL_ADMIN_USERNAME` 修改。
