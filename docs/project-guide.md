@@ -1026,9 +1026,41 @@ Governance 发布策略决定、预算、阻断和终止事件。
 
 服务端 `seq` 只按接收顺序分配，客户端时钟只保留为 `event_time`。原始 Payload 使用平台密钥加密，
 普通查询只返回脱敏投影；原始查看和导出限管理员、隐私审计角色并写安全审计，安全审计角色只读取
-脱敏投影。过期轨迹在 Backend 启动时清理，并由运行期每小时留存任务继续清理；管理员接口用于手动
-补偿执行。网关事件发布失败不会阻塞主请求，但会计入失败指标。完整度只根据真实事件源计算为
+脱敏投影。过期轨迹不再提供查询、导出或新增事件写入。Backend 启动后在后台线程分批清理；每轮最多选择
+500 个到期会话，各关联表最多删除 500 条并分别提交，子记录清空后才删除会话。积压时每轮完成后等待
+250 毫秒继续，空闲或失败后等待 60 秒。管理员清理接口执行一轮并返回 `more` 表示是否仍有积压。
+网关事件发布失败不会阻塞主请求，但会计入失败指标。完整度只根据真实事件源计算为
 `full`、`gateway_partial`、`model_only` 或 `mcp_only`，不会为了展示效果伪造 Agent Step。
+
+**English:** Expired Runtime Traces are unavailable for reads, exports and new event ingestion. Background threads start cleanup after Backend startup, select at most 500 expired sessions per pass and delete at most 500 rows per related table, committing each table separately. Sessions are removed only after their children drain. Backlog passes wait 250 ms; idle or failed passes wait 60 seconds. The administrator cleanup endpoint performs one pass and returns `more` to indicate remaining work.
+
+AIDR 使用全局或单设备的有效保留天数，按服务端接收时间清理正文；每张表每批最多处理 500 条并单独提交。
+清理原始日志与 Hook 时在同一事务内移除对应统计投影。后台沿用上述积压追赶与空闲间隔，普通日志清理只读取所需身份字段，
+避免加载完整正文。清理操作视图时在实际更新前重新校验过期条件，保留选取后已被补传结果更新的操作视图。事件身份、摘要和批次 ACK 保留，重复补传不能恢复已清理正文。该策略控制正文保留，
+不代表总记录数或 SQLite 文件大小恒定；已释放页面可被后续写入复用。Pipeline Trace 独立按保存的到期时间
+清除阶段正文，详见[模型网关说明](model-gateway.md)。
+
+**English:** AIDR expires bodies by server receipt time and the effective global or device retention policy, processing at most 500 rows per table and committing separately. Log and Hook expiry removes their statistics projections in the same transaction. The same background catch-up and idle intervals apply; ordinary expiry reads identity fields rather than full bodies. Operation expiry updates recheck eligibility, preserving views refreshed by late results after selection. Event identities, digests and batch ACKs remain so retries cannot restore expired bodies. This bounds body retention, not total record count or SQLite file size; freed pages can be reused. Pipeline Trace stage expiry is maintained independently as described in the model gateway guide.
+
+统计投影保持每轮日志与 Hook 各最多 250 条，将证据插入、操作写入和小时桶增减批量执行。原始正文读取与投影准备在取得写权限前完成；发布时重新检查水位，并按本批主键复核原始记录的到期状态。其他 worker 已推进时重新准备该来源，已到期证据不再发布。每 50 个操作合并一次核对查询，每个操作仍只读取最多 34 条证据；重复调用起点、过多证据及缺失身份继续按不确定处理。失败计数和命令次数按净变化更新，水位与统计共用一次提交。保留期清理在读取投影身份前取得 SQLite 写权限，与投影推进串行，避免并发补建的统计成为清理残留。
+
+**English:** Overview projection batches evidence, operation writes and net bucket deltas while keeping the existing 250-row limit per source. Raw evidence is read and prepared before acquiring write access. Publication rechecks the watermark and the batch's raw-record expiry by primary key; concurrent progress causes that source to be prepared again, and expired evidence is not published. Reconciliation groups 50 indexed lookups, retaining the 34-evidence bound per operation and conservative ambiguity handling. Watermarks and counters commit together. Expiry acquires SQLite write access before reading projection identities, serializing it with projection advancement.
+
+AIDR 正文和行为摘要的控制字符校验采用共享的预编译扫描，减少大批量采集时的 Python 循环开销，保留原字符范围、UTF-8 字节限制、敏感信息与采集策略校验。
+
+**English:** Audit content and behavior summaries use a shared compiled control-character scan, reducing Python-loop overhead while preserving accepted characters, UTF-8 byte limits, secret checks and capture-policy validation.
+
+采集批次回执、证据插入和日志操作批量 UPSERT 复用固定 SQL 结构与编译结果；每批参数和默认接收时间按次绑定或生成。策略凭据、身份及序列仍在本次事务内校验，冲突回滚和提交后 ACK 语义保持。
+
+**English:** Collection receipts, evidence inserts and bulk log-operation upserts reuse fixed SQL structure and compilation. Batch parameters and default receipt times remain fresh for every execution. Policy receipts, identities and sequence bounds are validated in the current transaction, preserving rollback on conflict and commit-before-ACK.
+
+AIDR 日志与 Hook 在批内合并策略凭据读取、查重和证据插入，日志操作投影按原到达顺序折叠后批量写入。Coverage 与 Skill 证据仍保留处理顺序。批次回执、证据和投影共用一次事务，冲突整批回滚，提交成功后才返回 durable ACK；策略版本与序列校验逐条执行。MCP 两级并发租约在同一事务获取，释放与最终审计合并提交，详情见[网关数据库阶段说明](model-gateway.md)。
+
+日志与 Hook 入库、Skill 审计、概览投影和 AIDR 有界清理步骤，在工作线程和连接池之前共用每服务事件循环两个异步名额；等待不占连接，活动取消等待工作线程完成，每批采集提交后返回 durable ACK。共享准入可能延后清理完成时间，权限及有效策略继续实时读取。Pipeline Trace 和 Runtime Trace 的分批删除先选择到期身份，没有命中时不发起 DELETE；实际删除时再次校验到期条件。SQLite、保留期及清理批量保持一致。
+
+**English:** Log and Hook persistence, Skill audit, overview projection and bounded AIDR cleanup steps share two asynchronous slots per server event loop before worker/pool usage. Waiting work holds no connection, active cancellation waits for worker cleanup, and each collection batch ACK follows its commit. Shared admission can delay cleanup completion; permissions and effective policies remain live reads. Trace cleanup skips empty deletes and rechecks expiry conditions. SQLite, retention policies and batch limits remain unchanged.
+
+**English:** AIDR batches policy-receipt reads, deduplication and evidence inserts. Log operation projections fold evidence in arrival order before bulk writes; Coverage and Skill evidence retain their processing order. Batch receipts, evidence and projections commit together, conflicts roll back the entire batch, and durable ACKs follow successful commit. Policy versions and sequence bounds are checked for every record. MCP acquires both concurrency leases atomically and commits their release with the final audit.
 
 事件可选上报 `severity`（`info`、`low`、`medium`、`high`、`critical`）；轨迹按事件的明确严重性取最高值。
 安全扫描透传 Finding 严重性，模型网关透传 Prompt Security 判定，运行治理透传动作风险等级。
@@ -1393,6 +1425,8 @@ JSON Markdown 代码块、结构化对象、OpenAI 兼容的文本 content 数�
 `intent-inference@1` 规则版本、置信度和依据摘要；声明与推断不一致时只标记“可能不一致”，不会覆盖声明或
 自动形成 Finding。模型不可用、超时、策略阻止或输出无效只会形成稳定错误码和覆盖局限，不会让资产清单任务
 失败；但模型轮次、Token、费用和响应大小仍计入任务累计预算，预算、租约、取消和 Kill Switch 继续生效。
+模型返回后重新加载任务和 Worker 状态，校验当前任务租约，再累计用量、更新 Worker 心跳并记录推断审计；
+模型调用期间释放数据库连接，输出格式修复调用也遵循同一处理流程。
 DSL 没有创建时间时不会用扫描时间代替，而是保存
 `not_exposed_by_source`。Workspace ID 在普通详情响应中默认脱敏。
 
@@ -2755,6 +2789,22 @@ UI 人工复验：中英文分别检查列表/详情切换、长名称路径和�
 
 Skill 行为接口按需读取认证元数据：优先查询设备部署的版本，其次查询所有精确同名候选；名称和部署映射均缺失但有摘要时，仍保留完整候选范围。认证查询不加载扫描报告。空列表、来源或摘要缺失时直接返回对应状态。同一请求内复用相同来源与摘要的认证、候选查询、摘要与验签结果，下次请求及后台核对重新读取当前注册、批准和撤销状态；认证筛选仍在核对后执行。
 
+后台每批最多 50 条、列表每组最多 25 条，先完成本组认证计算，再在短事务中保存核对结论、检查历史和告警；列表每组提交后再计算下一组，仍最多检查 200 条并保留原分页游标。某组写入失败时，该组核对结论、历史和告警一起回滚，已提交组保留。写入比较原证据内容并检查记录尚未到期，并发新证据或清理优先，旧核对结果不覆盖它们。缓存仅限当前请求或后台轮次，下一次核对重新读取平台状态。
+
+条件更新成功后，当前会话复用本次写入的值，避免在持有写锁时逐条重读完整用量；条件不匹配时仍重新读取当前记录。需要关闭旧告警时，在本组首次成功更新取得写锁后统一查询该组告警，随后与核对结论、历史一起提交。告警查询结果只用于当前批次，不跨事务复用。
+
+**English:** Successful conditional updates synchronize the current session with the values just written, avoiding full-row rereads while holding the writer. Conflicting evidence still reloads the current record. Existing alerts are fetched together after the batch owns the writer, then resolved atomically with checks and history; the alert snapshot is confined to that batch.
+
+后台审计与日志/Hook 采集共用当前服务事件循环内的两个异步准入名额，先排队再启动数据库工作线程，减少同时竞争 SQLite 写锁的后台任务。每批事务完成并关闭会话后释放名额，取消任务也等待正在执行的数据库工作结束。准入仅控制本进程资源占用，幂等和跨进程并发正确性仍由数据库校验保证。
+
+**English:** Background Skill audit and log/Hook ingestion share two asynchronous admission slots per server event loop. Work queues before entering a database worker, and the slot is released after the batch transaction and session finish, including on cancellation. This bounds local resource use; database checks continue to enforce idempotency and cross-process concurrency correctness.
+
+Skill 证据回查在 SQLite 内按设备、产品入口、会话和原生调用 ID 的活动记录索引定位候选，每 32 条输入合并一次日志和 Hook 查询；每次调用、每种来源仍独立最多读取 65 条候选，聚合证据仍最多 64 条。候选继续核对用户范围、原生 Agent 和必要的 turn 身份，并按来源内 ID 顺序处理；同批后续证据按原顺序合并，保留冲突和乱序判断。索引由启动时的幂等建索引流程补齐，不重写原始证据或上传回执；首次为大量历史数据建索引可能增加启动耗时和磁盘占用。上传仍在整个批次提交成功后返回持久化 ACK。
+
+后台审计按最早到期顺序追赶。每批提交后重新判断积压，下批使用新的数据库会话和认证缓存，重新读取批准、撤销与授权状态。一次连续追赶最多 4 批，批间让出 10 毫秒；累计运行达到 0.5 秒后不再启动下一批。该预算在批次完成后检查，不强行中断正在执行的核对或事务。有积压时等待 100 毫秒继续，无积压或失败时等待 1 秒；失败批次回滚、已提交批次保留。到期顺序兼顾新证据与周期复核，不承诺固定告警时延。
+
+**English — evidence lookup and audit catch-up:** SQLite indexes locate active evidence by device, product, session and native call. Groups of up to 32 inputs share source queries, while each call/source retains its own 65-candidate limit and each activity retains at most 64 evidence references. User scope, native Agent and required turn identities remain checked; source order, late delivery and conflicting evidence are preserved. Startup adds missing indexes idempotently without rewriting evidence or receipts; initial index creation can increase startup time and disk usage. Uploads acknowledge durability only after the entire batch commits. Background review processes the oldest due records in separate transactions of up to 50, reloading authorization and certification caches per batch. A pass starts at most four batches, yielding 10 ms between batches, and stops starting batches once 0.5 seconds has elapsed. This is a cooperative budget, not an interruption of an active transaction. Remaining work retries after 100 ms; idle or failed passes wait one second. Failed batches roll back while earlier committed batches remain durable.
+
 人工验收：打开有记录和无记录的会话，检查 Skill 行为加载与“重新核对”；切换行为、认证筛选并加载更多，确认记录和游标正常。在隔离测试环境变更批准或撤销状态，下次重新核对应立即反映变化，重复核对不新增重复告警。简体中文及英文界面分别检查。
 
 **English — query performance:** Skill activity reads certification metadata on demand, selecting the deployed version first or all exact-name candidates. Evidence with a digest but no name or deployment mapping retains the full candidate scope. Scan reports are excluded. Empty lists and incomplete evidence need no registry lookup. Candidate results are reused within a request only; subsequent requests and background checks read current approval and revocation state before certification filtering. Manually verify populated/empty sessions, recheck, filters and pagination in both languages; use an isolated environment to verify changed certification and alert deduplication.
@@ -2765,6 +2815,10 @@ Skill 行为接口按需读取认证元数据：优先查询设备部署的版�
 ## 平台总览 / Platform overview
 
 平台总览按当前账号的模块权限展示注册智能体、受管 Skill、MCP 服务、配置模型和在线客户端。智能体及客户端沿用现有归属范围；超级管理员可查看全量，其他账号只统计本人创建的智能体及本人注册的客户端。客户端在线依据最近 10 分钟心跳。
+
+客户端和智能体列表按最多 200 个可见对象分组读取关联信息，策略、部门、凭证和告警在每次请求中重新查询。客户端告警仍按客户端、Agent 类型和 Skill 的最新事件判断，并保留分类治理与 AIDR 活跃告警的原有计数规则。总览按客户端汇总各来源的有效证据后合并计数；运行链路普通事件列表只读取脱敏内容，原文查看继续使用独立授权与审计入口。页面 API 的隔离测试口径及人工验收项目见[页面查询基准](benchmarks/2026-10-17-page-queries.md)。
+
+**English:** Client and Agent lists load related metadata in groups of up to 200 visible entities. Policies, departments, credentials and alerts are read afresh on each request. Client issues retain the latest-event, classification-governance and active-AIDR-alert rules. The overview groups retained evidence by client before combining sources. Ordinary trace event pages read redacted payloads; raw content retains its separate authorization and audit path. See the linked page-query benchmark for measurement limits and manual checks.
 
 待处理事项汇总 Skill 人工审核与未过期的 MCP 调用审批。标签展示完整待办数量，列表每类展示最近 20 条并分页；高风险提示只统计当前标签下已加载的待办。点击 MCP 待办直接打开对应审批详情。最近活动展示近 7 天最新 8 条 Skill / MCP 审计及安全扫描任务状态，仅包含事件、对象和时间等摘要；扫描任务沿用所属用户、用户组及安全审计角色的可见范围，入口打开对应任务。
 

@@ -70,14 +70,14 @@ def test_qoder_native_call_link_requires_same_user_session_and_tool(service):
     assert next(r for r in rows if r['key']=='unassigned')['hook_count']==1
 
 
-def test_qoder_session_skill_list_keeps_both_raw_sources(service, monkeypatch):
+def test_qoder_session_skill_list_keeps_both_raw_sources(service):
     from backend.aidr_models import AidrSkillUse
     client, factory = service
-    monkeypatch.setattr('backend.aidr_skill_usage.registry_manager',lambda:None)
-    monkeypatch.setattr('backend.aidr_skill_usage.refresh',lambda db,row,manager,settings=None:{'id':str(row.id),'agent':row.agent})
+    payload = json.dumps({'skill':{'behavior':'invocation','name':'sample','basis':'tool_input.skill'},
+                          'evidence':[], 'turn_id':'', 'stage':'attempted', 'identity_ambiguous':False})
     with factory() as db:
         for entry in ('qoder-hooks','qoder-cli','qoder-work'):
-            db.add(AidrSkillUse(client_id='one',call_key=entry,agent=entry,session_id='s',behavior='invocation',payload_json='{}'))
+            db.add(AidrSkillUse(client_id='one',call_key=entry,agent=entry,session_id='s',behavior='invocation',payload_json=payload))
         db.commit()
     response=client.get(BASE+'/skill-uses',params={'agent':'qoder-hooks','session_id':'s'})
     assert response.status_code==200

@@ -1,7 +1,10 @@
 """Lifecycle authorization, bounded expiry and immutable replay expectations."""
 import copy
+import asyncio
 import json
 from datetime import datetime, timedelta
+
+import pytest
 
 from backend import auth, iam, models
 from backend.aidr_enforcement import AidrRuntimeRecord
@@ -13,6 +16,37 @@ from tests.test_aidr_content import configure, event_batch
 from tests.test_aidr_enforcement import event as runtime_event
 from tests.test_aidr_hooks import hook_batch, send
 from tests.test_aidr_operations import event as operation_event, upload, operations
+
+
+def test_background_expiry_releases_connection_between_tables(service, monkeypatch):
+    from backend import aidr_retention, sqlite_db
+    from backend.aidr_models import AidrOperation
+    from backend.services.gateway_db import run_sync
+    client, factory = service
+    configure(factory, lifecycle={'enabled': True, 'retention_days': 1})
+    assert upload(client, operation_event('tool_call')).status_code == 200
+    with factory() as db:
+        for model in (models.AidrEvent, AidrOperation):
+            db.query(model).update({'received_at': datetime.utcnow() - timedelta(days=2)})
+        db.commit()
+    engine = factory.kw['bind']
+    interleaved = []
+
+    async def step(function, *args):
+        result = await run_sync(function, *args)
+        assert engine.pool.checkedout() == 0
+        await run_sync(interleaved.append, True)
+        return result
+
+    monkeypatch.setattr(sqlite_db, 'SessionLocal', factory)
+    monkeypatch.setattr(aidr_retention, 'run_sync', step)
+    async def scenario():
+        assert await asyncio.wait_for(aidr_retention.cleanup_once(), 3) is False
+    asyncio.run(scenario())
+    assert len(interleaved) >= 2
+    with factory() as db:
+        row = db.query(models.AidrEvent).one()
+        assert row.expired_at and row.payload_json == '{}'
 
 
 def lifecycle_policy(client, sequence='0', **applied):
@@ -54,6 +88,40 @@ def test_platform_expiry_does_not_exceed_per_table_budget(service):
         assert counts['aidr_operations'] == 500
         assert db.query(AidrOperation).filter(AidrOperation.expired_at.is_(None)).count() == 1
         assert expire_once(db, now)['aidr_operations'] == 1
+
+
+def test_retention_commits_completed_tables_and_resumes_after_failure(service, monkeypatch):
+    from backend import aidr_overview
+    _, factory = service
+    now = datetime.utcnow()
+    with factory() as db:
+        db.add(models.AidrEvent(client_id='one', logical_id='a' * 64, content_hash='original-log-hash',
+            agent='codex', kind='tool_call', payload_json='{"body":"old"}', received_at=now-timedelta(days=8)))
+        db.add(AidrHookEvent(client_id='one', stream_id='a' * 32, event_id='b' * 32, source_seq=1,
+            content_hash='original-hook-hash', payload_json='{"body":"old"}', received_at=now-timedelta(days=8)))
+        db.commit()
+    original_remove = aidr_overview.remove_evidence
+
+    def fail_hooks(db, source, ids):
+        if source == 'hooks':
+            raise RuntimeError('injected maintenance failure')
+        return original_remove(db, source, ids)
+
+    monkeypatch.setattr(aidr_overview, 'remove_evidence', fail_hooks)
+    with factory() as db:
+        with pytest.raises(RuntimeError):
+            expire_once(db, now)
+        db.rollback()
+    with factory() as db:
+        assert db.query(models.AidrEvent).one().payload_json == '{}'
+        assert db.query(AidrHookEvent).one().expired_at is None
+    monkeypatch.setattr(aidr_overview, 'remove_evidence', original_remove)
+    with factory() as db:
+        counts = expire_once(db, now)
+        assert counts['aidr_events'] == 0 and counts['aidr_hook_events'] == 1
+        assert db.query(AidrHookEvent).one().payload_json == '{}'
+        assert db.query(models.AidrEvent).one().content_hash == 'original-log-hash'
+        assert db.query(AidrHookEvent).one().content_hash == 'original-hook-hash'
 
 
 def test_lifecycle_defaults_negotiation_forgery_and_backlog(service):

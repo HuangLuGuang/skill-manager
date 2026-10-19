@@ -1,8 +1,12 @@
 """Bounded, explicitly selected audit text and separate content presentation."""
 import copy
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator, model_serializer
+
+# Audit text permits tab and LF within the ASCII control range.
+INVALID_TEXT_CONTROLS = re.compile(r'[\x00-\x08\x0b-\x1f]')
 
 CONTENT_FIELDS = {
     'command_body': {'input.command', 'input.cmd', 'input.code'},
@@ -63,7 +67,7 @@ class Content(BaseModel):
     def check(self):
         if self.source_field not in CONTENT_FIELDS[self.kind] or len(self.text.encode()) > 32768:
             raise ValueError('audit_content_field_invalid')
-        if any(ord(c) < 32 and c not in '\n\t' for c in self.text):
+        if INVALID_TEXT_CONTROLS.search(self.text):
             raise ValueError('audit_content_control_invalid')
         return self
 

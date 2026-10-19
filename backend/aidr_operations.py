@@ -4,9 +4,21 @@ import base64
 import hashlib
 import json
 from datetime import datetime, timezone
-from sqlalchemy import select
+from sqlalchemy import select, lambda_stmt
 from sqlalchemy.dialects.sqlite import insert
 from .aidr_models import AidrOperation, AidrEvent, AidrAuditState
+
+
+def _operation_upsert():
+    stmt = insert(AidrOperation.__table__)
+    return stmt.on_conflict_do_update(index_elements=['client_id', 'operation_key'], set_={
+        name: stmt.excluded[name] for name in (
+            'client_id', 'operation_key', 'agent', 'session_id', 'tool', 'result_status',
+            'latest_at', 'payload_json', 'received_at', 'expired_at')
+    })
+
+
+_OPERATION_UPSERT = lambda_stmt(_operation_upsert)
 
 
 def dump(value):
@@ -33,6 +45,32 @@ def merge_operation(conn, client_id, event):
     table=AidrOperation.__table__
     key=operation_key(client_id,event)
     prior=conn.execute(select(table).where(table.c.client_id==client_id,table.c.operation_key==key)).mappings().first()
+    values = _operation_values(client_id, key, prior, event)
+    if values is not None:
+        stmt=insert(table).values(**values)
+        conn.execute(stmt.on_conflict_do_update(index_elements=['client_id','operation_key'],set_=values))
+
+
+def merge_operations(conn, client_id, events):
+    """Fold evidence in arrival order, then write each affected operation once."""
+    events = [event for event in events if event['kind'] in {'tool_call', 'tool_result'}]
+    if not events:
+        return
+    table = AidrOperation.__table__
+    keys = {operation_key(client_id, event) for event in events}
+    prior = {row['operation_key']: row for row in conn.execute(select(table).where(
+        table.c.client_id == client_id, table.c.operation_key.in_(keys))).mappings()}
+    changed = {}
+    for event in events:
+        key = operation_key(client_id, event)
+        values = _operation_values(client_id, key, prior.get(key), event)
+        if values is not None:
+            prior[key] = changed[key] = values
+    if changed:
+        conn.execute(_OPERATION_UPSERT, list(changed.values()))
+
+
+def _operation_values(client_id, key, prior, event):
     expired = prior and prior['expired_at'] is not None
     view=json.loads(prior['payload_json']) if prior and not expired else {'call':None,'result':None,'seen_ids':[],'conflicting_evidence':False,'evidence_truncated':False}
     if expired:
@@ -61,8 +99,7 @@ def merge_operation(conn, client_id, event):
         status=behavior['status'] if behavior else {'success':'reported_complete','error':'reported_error'}.get(result['outcome'],'unknown')
     latest=max(stamp(event['observed_at']),prior['latest_at'] if prior else '')
     values=dict(client_id=client_id,operation_key=key,agent=event['agent'],session_id=event['session_id'],tool=call['tool'] if call else '',result_status=status,latest_at=latest,payload_json=dump(view),received_at=datetime.utcnow(),expired_at=None)
-    stmt=insert(table).values(**values)
-    conn.execute(stmt.on_conflict_do_update(index_elements=['client_id','operation_key'],set_=values))
+    return values
 
 
 def backfill_operations(conn):

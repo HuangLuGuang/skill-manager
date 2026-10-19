@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from agent_manager.api.router import get_manager
 from agent_manager.core.manager import AgentManager
@@ -80,7 +80,9 @@ def overview(
         result["runtime"]["mcp_denied_today"] = audits.filter(
             models.McpCallAudit.created_at >= today, models.McpCallAudit.created_at <= now,
             models.McpCallAudit.status == "denied").count()
-        for row in audits.filter(models.McpCallAudit.created_at >= now - timedelta(days=7),
+        for row in audits.options(load_only(models.McpCallAudit.id, models.McpCallAudit.status,
+                models.McpCallAudit.tool_name, models.McpCallAudit.gateway_slug,
+                models.McpCallAudit.created_at, models.McpCallAudit.approval_request_id)).filter(models.McpCallAudit.created_at >= now - timedelta(days=7),
                                  models.McpCallAudit.created_at <= now).order_by(
                 models.McpCallAudit.created_at.desc(), models.McpCallAudit.id.desc()).limit(8):
             activity.append({"id": f"mcp-{row.id}", "source": "mcp", "event": row.status,
@@ -90,7 +92,9 @@ def overview(
     if "scans:view" in permissions and settings.AGENT_SECURITY_SCANNING_ENABLED:
         result["activity_sources"].append("scan")
         occurred_at = func.coalesce(models.SecurityScanTask.completed_at, models.SecurityScanTask.updated_at)
-        for row in _accessible_tasks_query(db, user).filter(
+        for row in _accessible_tasks_query(db, user).options(load_only(
+                models.SecurityScanTask.id, models.SecurityScanTask.task_id, models.SecurityScanTask.status,
+                models.SecurityScanTask.target_id, models.SecurityScanTask.completed_at, models.SecurityScanTask.updated_at)).filter(
                 occurred_at >= now - timedelta(days=7), occurred_at <= now,
         ).order_by(occurred_at.desc(), models.SecurityScanTask.id.desc()).limit(8):
             activity.append({"id": f"scan-{row.task_id}", "source": "scan", "event": row.status,
@@ -104,15 +108,16 @@ def overview(
         assets["clients"] = {"total": clients.count(), "online": clients.filter(
             models.ManagedClient.last_seen_at >= now - _CLIENT_ONLINE_WINDOW).count()}
         visible = clients.with_entities(models.ManagedClient.client_id).subquery()
-        sources = []
+        reporting_clients = set()
         evidence_count = 0
         for model in (AidrEvent, AidrHookEvent):
-            records = db.query(model).filter(
+            records = db.query(model.client_id, func.count(model.id)).filter(
                 model.client_id.in_(select(visible.c.client_id)), model.received_at >= now - timedelta(hours=24),
                 model.received_at <= now, model.expired_at.is_(None))
-            evidence_count += records.count()
-            sources.append(records.with_entities(model.client_id))
-        result["runtime"]["aidr"] = {"reporting_clients": sources[0].union(sources[1]).count(),
+            for client_id, count in records.group_by(model.client_id):
+                evidence_count += count
+                reporting_clients.add(client_id)
+        result["runtime"]["aidr"] = {"reporting_clients": len(reporting_clients),
             "records": evidence_count, "hours": 24}
 
     if "privacy_audit:view" in permissions:

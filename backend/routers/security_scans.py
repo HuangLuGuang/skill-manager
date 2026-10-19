@@ -4551,6 +4551,9 @@ async def infer_dify_agent_intent(
         owner_group_id=task.owner_group_id,
     )
 
+    # Upstream DB phases detach caller snapshots. Reattach the worker so lease
+    # checks reload its state and the completion heartbeat is persisted.
+    db.add(worker)
     db.expire_all()
     task = _task_or_404(db, task_id)
     _verify_lease(task, worker, body.lease_token)

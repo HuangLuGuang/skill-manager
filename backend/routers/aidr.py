@@ -9,9 +9,11 @@ from fastapi import APIRouter, Depends, Header, Path, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, func
-from ..aidr_operations import merge_operation, present, encode_cursor, decode_cursor, stamp
+from sqlalchemy import and_, or_, func, lambda_stmt
+from ..aidr_operations import merge_operations, present, encode_cursor, decode_cursor, stamp
 from starlette.concurrency import run_in_threadpool
+from ..services.gateway_db import run_db
+from ..services.aidr_ingest import run_ingest
 
 from .. import auth, models, aidr_policy
 from ..aidr_products import BY_ID, LogAgentID
@@ -36,6 +38,11 @@ from .access_tokens import resolve_access_token
 from .clients import _client_or_404, _ensure_visible, _operation
 
 router = APIRouter(prefix="/v1/clients/{client_id}/aidr", tags=["aidr"])
+
+_BATCH_INSERT = lambda_stmt(lambda: insert(models.AidrBatch.__table__).on_conflict_do_nothing(
+    index_elements=['client_id', 'stream_id', 'batch_id']))
+_EVENT_INSERT = lambda_stmt(lambda: insert(models.AidrEvent.__table__).on_conflict_do_nothing(
+    index_elements=['client_id', 'logical_id']))
 global_tool_router = APIRouter(prefix='/v1/aidr/tool-policy', tags=['aidr'])
 
 
@@ -105,9 +112,9 @@ def audit_overview_details(client_id: str, source: str = Query('hooks', pattern=
 
 @router.post("/hooks:batch")
 async def hook_batch(client_id: str, request: Request, authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    device = await run_in_threadpool(runtime_device, db, client_id, authorization, request, "aidr:report-events")
+    device = await run_db(db, runtime_device, db, client_id, authorization, request, "aidr:report-events")
     raw = await bounded_body(request)
-    return await run_in_threadpool(aidr_hooks.save, db, device, raw)
+    return await run_ingest(db, aidr_hooks.save, db, device, raw)
 
 
 @router.get("/hooks")
@@ -191,7 +198,7 @@ def skill_uses(client_id: str, agent: str = Query(max_length=32), session_id: st
                db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     device_for_user(db, client_id, user)
     from ..aidr_models import AidrSkillUse
-    from ..aidr_skill_usage import refresh, registry_manager
+    from ..aidr_skill_usage import refresh_batch, registry_manager
     entries = ('qoder-hooks', 'qoder-cli') if agent == 'qoder-hooks' else (agent,)
     query = db.query(AidrSkillUse).filter_by(client_id=client_id, session_id=session_id, expired_at=None).filter(AidrSkillUse.agent.in_(entries))
     if after:
@@ -208,17 +215,23 @@ def skill_uses(client_id: str, agent: str = Query(max_length=32), session_id: st
     items, cursor = [], after
     manager = registry_manager()
     settings = aidr_policy.current(db, client_id)['skill_audit']
-    for row in rows[:200]:
-        item = refresh(db, row, manager, settings)
-        cursor = row.id
-        if (not turn_id or item.get('turn_id') == turn_id) and (not certification or item.get('certification', {}).get('status') == certification) and (not result or item['stage'] == result):
-            items.append(item)
-        if len(items) == limit:
-            break
+    checked = 0
+    while checked < min(len(rows), 200) and len(items) < limit:
+        # Compute registry/file checks before the first write, then commit a
+        # bounded group. Never inspect more rows than the remaining page slots.
+        group = rows[checked:checked + min(25, limit - len(items), 200 - checked)]
+        refreshed = refresh_batch(db, group, manager, settings)
+        for item in refreshed:
+            if (item.get('stage') and (not turn_id or item.get('turn_id') == turn_id)
+                    and (not certification or item.get('certification', {}).get('status') == certification)
+                    and (not result or item['stage'] == result)):
+                items.append(item)
+        cursor = group[-1].id
+        checked += len(group)
+        db.commit()
     more = bool(rows and cursor != rows[-1].id)
-    db.commit()
     return {'items':items,'has_more':more,'next_cursor':str(cursor) if more else '',
-            'search_complete':not more, 'checked_count':next((i+1 for i, row in enumerate(rows) if row.id == cursor), 0),
+            'search_complete':not more, 'checked_count':checked,
             'checks':'fresh_registry_with_observed_content','mode':'audit'}
 
 
@@ -464,37 +477,74 @@ async def bounded_body(request):
     return b"".join(chunks)
 
 
+def _save_events(db, client_id, stream_id, records, receipts):
+    """Persist one consecutive event group under the batch's existing writer lock."""
+    from ..aidr_skill_usage import merge_many
+
+    for record, value, _, _, _ in records:
+        aidr_policy.validate(db, client_id, stream_id, int(record.sequence), value.behavior, receipts=receipts)
+        if value.message:
+            aidr_policy.validate_receipt(db, client_id, stream_id, int(record.sequence), value.message.policy, receipts=receipts)
+    logical_ids = {value.logical_event_id for _, value, _, _, _ in records}
+    existing = {row.logical_id: row for row in db.query(models.AidrEvent).filter(
+        models.AidrEvent.client_id == client_id, models.AidrEvent.logical_id.in_(logical_ids)).all()}
+    new = {}
+    for _, value, _, payload, identity_hash in records:
+        if value.logical_event_id not in existing:
+            new.setdefault(value.logical_event_id, dict(client_id=client_id, logical_id=value.logical_event_id,
+                content_hash=identity_hash, agent=value.agent, kind=value.kind, payload_json=payload))
+    if new:
+        db.execute(_EVENT_INSERT, list(new.values()))
+        existing.update({row.logical_id: row for row in db.query(models.AidrEvent).filter(
+            models.AidrEvent.client_id == client_id, models.AidrEvent.logical_id.in_(new)).all()})
+    events, rows = [], []
+    for _, value, projected, _, identity_hash in records:
+        row = existing[value.logical_event_id]
+        if row.expired_at is None and row.content_hash != identity_hash and not same_log_source(row.payload_json, value):
+            db.rollback()
+            fail(409, "event_conflict", "逻辑事件身份对应不同内容", "Logical event identity has different content")
+        if value.logical_event_id in new:
+            new.pop(value.logical_event_id)
+            events.append(projected)
+            rows.append(row)
+    merge_operations(db.connection(), client_id, events)
+    merge_many(db, "log", rows)
+
+
 def save_batch(db, device, stream_id, batch_id, raw):
+    from itertools import groupby
+
     body_digest = hashlib.sha256(raw).hexdigest()
     batch, values = parse_batch(raw)
+    prepared = []
+    policies = []
+    for record, value in zip(batch.records, values):
+        projected = value.model_dump(exclude_none=True)
+        payload = dump(projected)
+        prepared.append((record, value, projected, payload, digest(logical_projection(value)) if isinstance(value, Event) else digest(payload)))
+        if isinstance(value, Event):
+            if value.behavior and value.behavior.version >= 3:
+                policies.append(value.behavior.policy)
+            if value.message:
+                policies.append(value.message.policy)
     # SQLite upsert obtains a writer lock before checking duplicates, keeping
     # concurrent retries and a crash before commit atomic at the database level.
-    result = db.execute(insert(models.AidrBatch).values(client_id=device.client_id, stream_id=stream_id, batch_id=batch_id, digest=body_digest, record_count=len(batch.records)).on_conflict_do_nothing(index_elements=["client_id", "stream_id", "batch_id"]))
+    result = db.execute(_BATCH_INSERT, dict(client_id=device.client_id, stream_id=stream_id,
+        batch_id=batch_id, digest=body_digest, record_count=len(batch.records)))
     row = db.query(models.AidrBatch).filter_by(client_id=device.client_id, stream_id=stream_id, batch_id=batch_id).one()
     if row.digest != body_digest:
         db.rollback()
         fail(409, "idempotency_conflict", "同一批次标识对应不同内容", "Idempotency key has different content")
     if result.rowcount:
-        for record, value in zip(batch.records, values):
-            payload = dump(value.model_dump(exclude_none=True))
-            if isinstance(value, Event):
-                aidr_policy.validate(db, device.client_id, stream_id, int(record.sequence), value.behavior)
-                if value.message:
-                    aidr_policy.validate_receipt(db, device.client_id, stream_id, int(record.sequence), value.message.policy)
-                identity_hash = digest(logical_projection(value))
-                inserted_event = db.execute(insert(models.AidrEvent).values(client_id=device.client_id, logical_id=value.logical_event_id, content_hash=identity_hash, agent=value.agent, kind=value.kind, payload_json=payload).on_conflict_do_nothing(index_elements=["client_id", "logical_id"]))
-                existing = db.query(models.AidrEvent).filter_by(client_id=device.client_id, logical_id=value.logical_event_id).one()
-                if existing.expired_at is None and existing.content_hash != identity_hash and not same_log_source(existing.payload_json, value):
-                    db.rollback()
-                    fail(409, "event_conflict", "逻辑事件身份对应不同内容", "Logical event identity has different content")
-                if inserted_event.rowcount:
-                    merge_operation(db.connection(),device.client_id,value.model_dump(exclude_none=True))
-                    from ..aidr_skill_usage import merge as merge_skill_use
-                    merge_skill_use(db, "log", existing)
-            else:
+        receipts = aidr_policy.load_receipts(db, policies)
+        # Coverage can repair prior events, so preserve its position between groups.
+        for is_event, group in groupby(prepared, key=lambda item: isinstance(item[1], Event)):
+            if is_event:
+                _save_events(db, device.client_id, stream_id, list(group), receipts)
+                continue
+            for record, value, _, payload, content_hash in group:
                 from ..aidr_turns import apply as apply_turn_links
                 apply_turn_links(db, device.client_id, value)
-                content_hash = digest(payload)
                 db.execute(insert(models.AidrCoverageRecord).values(client_id=device.client_id, stream_id=stream_id, record_id=record.record_id, payload_json=payload, content_hash=content_hash).on_conflict_do_nothing(index_elements=["client_id", "stream_id", "record_id"]))
                 existing = db.query(models.AidrCoverageRecord).filter_by(client_id=device.client_id, stream_id=stream_id, record_id=record.record_id).one()
                 if existing.content_hash != content_hash:
@@ -508,11 +558,11 @@ def save_batch(db, device, stream_id, batch_id, raw):
 
 @router.post("/events:batch")
 async def events_batch(client_id: str, request: Request, authorization: str | None = Header(None), idempotency_key: str = Header(""), x_aidr_stream_id: str = Header(""), db: Session = Depends(get_db)):
-    device = await run_in_threadpool(runtime_device, db, client_id, authorization, request, "aidr:report-events")
+    device = await run_db(db, runtime_device, db, client_id, authorization, request, "aidr:report-events")
     if not re.fullmatch(r"[0-9a-f]{64}", idempotency_key) or not re.fullmatch(r"[0-9a-f]{32}", x_aidr_stream_id):
         fail(400, "batch_identity_invalid", "缺少有效的批次或采集实例标识", "Invalid batch or collection stream identity")
     raw = await bounded_body(request)
-    return await run_in_threadpool(save_batch, db, device, x_aidr_stream_id, idempotency_key, raw)
+    return await run_ingest(db, save_batch, db, device, x_aidr_stream_id, idempotency_key, raw)
 
 
 @router.get("/status")

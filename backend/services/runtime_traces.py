@@ -4,16 +4,17 @@ import hashlib
 import json
 import logging
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from threading import RLock
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .. import models
+from .retention import BATCH_SIZE, delete_batch
 from ..agentic_risk_taxonomy import MAPPING_VERSION, enrich_risk_codes
 from ..api_errors import ApiError
 from ..config import settings
@@ -47,11 +48,10 @@ def ingest_transaction(db: Session):
     with _INGEST_LOCK:
         try:
             yield
+            db.commit()
         except Exception:
             db.rollback()
             raise
-        else:
-            db.commit()
 
 
 def _record_publish_failure(exc: Exception) -> None:
@@ -223,6 +223,8 @@ def _ingest_batch_locked(
     commit: bool = True,
 ) -> dict[str, Any]:
     _normalize_schema_version(batch.schema_version)
+    if trace.expires_at <= datetime.utcnow():
+        raise ApiError(404, "runtime_trace.not_found", "调用轨迹不存在", "Runtime trace not found")
     batch_fingerprint = _fingerprint(_fingerprint_payload(batch))
     existing_batch = (
         db.query(models.RuntimeTraceIngestBatch)
@@ -450,95 +452,121 @@ def ingest_batch(
         )
 
 
-def publish_events_best_effort(db: Session, events: list[RuntimeTraceInternalEvent]) -> str | None:
-    """Publish gateway/governance events without ever failing the primary request."""
+def publish_events_best_effort(db: Session, events: list[RuntimeTraceInternalEvent], *, commit: bool = True) -> str | None:
+    """Publish optional events; commit=False joins the caller's locked transaction.
+
+    Joined callers own rollback and the best-effort exception boundary.
+    """
     if not events or not settings.RUNTIME_TRACE_ENABLED:
         return None
     _METRICS["publish_attempts"] += 1
     try:
-        first = events[0]
-        trace_id = first.trace_id or _new_id("trc")
-        trace = create_trace(
-            db,
-            trace_id=trace_id,
-            tenant_id=first.tenant_id,
-            agent_id=first.agent_id,
-            session_id=first.session_id,
-            owner_user_id=first.owner_user_id,
-            owner_group_id=first.owner_group_id,
-            created_by="internal_gateway",
-            commit=False,
-        )
-        inputs = [
-            RuntimeTraceEventInput(
-                event_id=item.event_id or _new_id("evt"),
-                event_time=item.event_time or datetime.utcnow(),
-                source=item.source,
-                type=item.type,
-                turn_id=item.turn_id,
-                step_id=item.step_id,
-                request_id=item.request_id,
-                call_id=item.call_id,
-                parent_call_id=item.parent_call_id,
-                status=item.status,
-                tool_name=item.tool_name,
-                duration_ms=item.duration_ms,
-                severity=item.severity,
-                risk_codes=item.risk_codes,
-                payload=item.payload,
-                redacted_payload=item.redacted_payload,
+        # Take the trace lock before create_trace flushes a SQLite write.
+        with ingest_transaction(db) if commit else nullcontext():
+            first = events[0]
+            trace_id = first.trace_id or _new_id("trc")
+            trace = create_trace(
+                db,
+                trace_id=trace_id,
+                tenant_id=first.tenant_id,
+                agent_id=first.agent_id,
+                session_id=first.session_id,
+                owner_user_id=first.owner_user_id,
+                owner_group_id=first.owner_group_id,
+                created_by="internal_gateway",
+                commit=False,
             )
-            for item in events
-        ]
-        ingest_batch(
-            db,
-            trace,
-            RuntimeTraceBatchCreate(batch_id=_new_id("bat"), events=inputs),
-            expected_agent_id=first.agent_id,
-        )
-        return trace_id
+            inputs = [
+                RuntimeTraceEventInput(
+                    event_id=item.event_id or _new_id("evt"),
+                    event_time=item.event_time or datetime.utcnow(),
+                    source=item.source,
+                    type=item.type,
+                    turn_id=item.turn_id,
+                    step_id=item.step_id,
+                    request_id=item.request_id,
+                    call_id=item.call_id,
+                    parent_call_id=item.parent_call_id,
+                    status=item.status,
+                    tool_name=item.tool_name,
+                    duration_ms=item.duration_ms,
+                    severity=item.severity,
+                    risk_codes=item.risk_codes,
+                    payload=item.payload,
+                    redacted_payload=item.redacted_payload,
+                )
+                for item in events
+            ]
+            ingest_batch(
+                db,
+                trace,
+                RuntimeTraceBatchCreate(batch_id=_new_id("bat"), events=inputs),
+                expected_agent_id=first.agent_id,
+                commit=False,
+            )
+            return trace_id
     except Exception as exc:  # best-effort boundary is intentional
+        if not commit:
+            # The caller owns the trace lock and rollback boundary.
+            raise
         db.rollback()
         _record_publish_failure(exc)
         return None
 
 
-def cleanup_expired(db: Session, *, now: datetime | None = None) -> dict[str, int]:
+def cleanup_expired(db: Session, *, now: datetime | None = None, limit: int = BATCH_SIZE) -> dict[str, int | bool]:
+    """Bound child rows as well as sessions; each table releases its write lock."""
+    if not 1 <= limit <= BATCH_SIZE:
+        raise ValueError("runtime_trace_retention_budget_invalid")
     now = now or datetime.utcnow()
-    expired_export_count = (
-        db.query(models.RuntimeTraceExport)
-        .filter(models.RuntimeTraceExport.expires_at <= now)
-        .delete(synchronize_session=False)
-    )
     trace_ids = [
         row[0]
         for row in db.query(models.RuntimeTraceSession.trace_id)
         .filter(models.RuntimeTraceSession.expires_at <= now)
+        .order_by(models.RuntimeTraceSession.expires_at, models.RuntimeTraceSession.id)
+        .limit(limit)
         .all()
     ]
-    if not trace_ids:
+    counts = {}
+    children = (
+        ("exports", models.RuntimeTraceExport),
+        ("payloads", models.RuntimeTracePayload),
+        ("events", models.RuntimeTraceEvent),
+        ("batches", models.RuntimeTraceIngestBatch),
+        ("authorizations", models.RuntimeTraceRawExportAuthorization),
+    )
+    for name, model in children:
+        predicate = model.trace_id.in_(trace_ids)
+        if model is models.RuntimeTraceExport:
+            predicate = or_(predicate, model.expires_at <= now)
+        counts[name] = delete_batch(db, model, predicate, limit=limit)
         db.commit()
-        return {"traces": 0, "events": 0, "payloads": 0, "exports": expired_export_count, "batches": 0}
-    db.query(models.GatewaySessionFingerprint).filter(models.GatewaySessionFingerprint.request_id.in_(
-        db.query(models.GatewaySessionRequest.request_id).filter(models.GatewaySessionRequest.trace_id.in_(trace_ids))
-    )).delete(synchronize_session=False)
-    db.query(models.GatewaySessionRequest).filter(models.GatewaySessionRequest.trace_id.in_(trace_ids)).delete(synchronize_session=False)
-    db.query(models.GatewaySessionGroup).filter(models.GatewaySessionGroup.trace_id.in_(trace_ids)).delete(synchronize_session=False)
-    db.query(models.GatewaySessionScope).filter(~db.query(models.GatewaySessionGroup).filter(
-        models.GatewaySessionGroup.scope_id == models.GatewaySessionScope.scope_id
-    ).exists()).delete(synchronize_session=False)
-    counts = {
-        "events": db.query(models.RuntimeTraceEvent).filter(models.RuntimeTraceEvent.trace_id.in_(trace_ids)).delete(synchronize_session=False),
-        "payloads": db.query(models.RuntimeTracePayload).filter(models.RuntimeTracePayload.trace_id.in_(trace_ids)).delete(synchronize_session=False),
-        "exports": expired_export_count
-        + db.query(models.RuntimeTraceExport)
-        .filter(models.RuntimeTraceExport.trace_id.in_(trace_ids))
-        .delete(synchronize_session=False),
-        "batches": db.query(models.RuntimeTraceIngestBatch).filter(models.RuntimeTraceIngestBatch.trace_id.in_(trace_ids)).delete(synchronize_session=False),
-    }
-    counts["traces"] = db.query(models.RuntimeTraceSession).filter(models.RuntimeTraceSession.trace_id.in_(trace_ids)).delete(synchronize_session=False)
+    requests = db.query(models.GatewaySessionRequest.request_id).filter(models.GatewaySessionRequest.trace_id.in_(trace_ids))
+    delete_batch(db, models.GatewaySessionFingerprint,
+                 models.GatewaySessionFingerprint.request_id.in_(requests), limit=limit)
+    db.commit()
+    delete_batch(db, models.GatewaySessionRequest,
+                 models.GatewaySessionRequest.trace_id.in_(trace_ids) & ~db.query(models.GatewaySessionFingerprint).filter(
+                     models.GatewaySessionFingerprint.request_id == models.GatewaySessionRequest.request_id).exists(), limit=limit)
+    db.commit()
+    delete_batch(db, models.GatewaySessionGroup,
+                 models.GatewaySessionGroup.trace_id.in_(trace_ids) & ~db.query(models.GatewaySessionRequest).filter(
+                     models.GatewaySessionRequest.trace_id == models.GatewaySessionGroup.trace_id).exists(), limit=limit)
+    db.commit()
+    removed_scopes = delete_batch(db, models.GatewaySessionScope, ~db.query(models.GatewaySessionGroup).filter(
+        models.GatewaySessionGroup.scope_id == models.GatewaySessionScope.scope_id).exists(), limit=limit)
+    db.commit()
+    removable = db.query(models.RuntimeTraceSession).filter(models.RuntimeTraceSession.trace_id.in_(trace_ids))
+    for model in [*(model for _, model in children), models.GatewaySessionGroup]:
+        removable = removable.filter(~db.query(model).filter(model.trace_id == models.RuntimeTraceSession.trace_id).exists())
+    counts["traces"] = removable.delete(synchronize_session=False) if trace_ids else 0
     db.commit()
     _METRICS["traces_cleaned"] += counts["traces"]
+    counts["more"] = bool(
+        removed_scopes == limit
+        or db.query(models.RuntimeTraceSession.id).filter(models.RuntimeTraceSession.expires_at <= now).first()
+        or db.query(models.RuntimeTraceExport.id).filter(models.RuntimeTraceExport.expires_at <= now).first()
+    )
     return counts
 
 
