@@ -1719,6 +1719,18 @@ flowchart LR
 更详细的 agent 侧签名对接，见：
 - [agent-signature-verification.md](../docs/agent-signature-verification.md)
 
+### 详情中的内容指纹 / Content fingerprint in Skill details
+
+在 Skill 详情打开“检测报告 → 完整性校验”，内容指纹的存在性和预览均取当前版本的
+`content_fingerprint`。导入处理生成指纹后，待审核、已拒绝和已批准的版本均可展示；预览显示前
+24 个字符及省略号，空值或历史缺失字段显示“否”和“-”。数字签名在批准时生成，完整性校验操作依据
+`signature` 是否存在启用。
+
+**English:** Open Detection Report → Integrity Verification in Skill details. Fingerprint presence and preview use
+`content_fingerprint` from the selected version. Once import processing generates it, pending, rejected and approved
+versions can all display it. The preview shows the first 24 characters followed by an ellipsis; empty or missing values
+show “No” and “-”. Approval generates the digital signature, and the verification action is enabled when `signature` exists.
+
 ---
 
 ## 10. Sandbox 架构

@@ -111,6 +111,8 @@ make sandbox-runtime-build
 
 ## 前端注意事项
 
+- Skill 详情完整性校验的内容指纹存在性与预览读取当前版本 `content_fingerprint`，预览前 24 字符加省略号，空值或缺失显示否及 `-`；数字签名校验操作依据 `signature`。双语标签使用 `skillDetail.fingerprintExists` 与 `skillDetail.fingerprintPreview`。
+
 - 策略页风险判定模式的总体说明放在标签旁的悬浮帮助中，按上下文判断项、判为恶意项、AI 复核分组；双语文案使用 `policySettings.modeHelp`，中文严重度沿用“中等”“高”。
 - 前端使用 Vue 3 Composition API、Vite、Ant Design Vue。
 - 管理平台和桌面客户端的所有新增或修改页面必须同时提供简体中文和英文。中文系统名固定为“智能体生命周期管理系统”，英文系统名固定为“Agent Manager”。

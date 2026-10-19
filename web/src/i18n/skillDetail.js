@@ -1,5 +1,7 @@
 export const skillDetailMessages = {
   'zh-CN': {
+    fingerprintExists: '内容指纹是否存在',
+    fingerprintPreview: '内容指纹预览',
     sandboxErrorOutput: '错误输出',
     suppressed: {
       title: '已过滤噪声明细（{count}）',
@@ -59,6 +61,8 @@ export const skillDetailMessages = {
     autoApproval: '策略自动批准', cachedAutoApproval: '复用结果 · 策略自动批准', pendingReview: '待审核',
   },
   'en-US': {
+    fingerprintExists: 'Does the content fingerprint exist?',
+    fingerprintPreview: 'Content fingerprint preview',
     sandboxErrorOutput: 'Error output',
     suppressed: {
       title: 'Filtered noise details ({count})',
