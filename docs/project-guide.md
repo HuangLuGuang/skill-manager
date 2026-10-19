@@ -1954,6 +1954,8 @@ When LLM analysis starts, the execution information retains `llm:{provider}` eve
 
 截图中 LLM 给出无明显风险，但数据外传发现项根据本次配置被归为判为恶意，最终仍为恶意风险。Sandbox 在此例中跳过，不能据此认为它已观察到恶意执行；应结合原始代码上下文复核。
 
+规则扫描的“规则分析器”按本次报告的 `analyzers_used` 展示基础扫描和本地规则分析器，零发现项也保留已记录的分析器。规则发现项合并顶层与本地结果，并去除同一发现项的重复副本，保留不同文件、行号和原始证据（包括 `snippet`、`code_snippet`、`evidence`）；命中数按去重后的结果计算。历史报告仅有顶层规则结果时仍可查看；缺少分析器记录时，根据已保存的本地分析结果展示对应来源。切换 Skill 版本后，名称和发现项均来自该版本报告。
+
 “扫描结果”内可切换规则扫描、深度扫描、Sandbox 和 LLM 分析。skipped、unavailable、failed 不能解释为安全；例如勾选 Sandbox 后，没有可执行入口仍会跳过。
 
 ![基础信息与检测选项（示例数据）](../web/public/docs/screenshots/zh-CN/skill-basic-info.png)

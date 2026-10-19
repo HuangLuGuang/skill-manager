@@ -257,3 +257,5 @@ make sandbox-runtime-build
 - Skill AI 分析的 `llm.timeout_seconds` 为输入准备、模型调用与结果处理共用的总预算；内部网关请求使用供应商超时与剩余预算的较小值，总超时取消并清理请求，报告以 `llm_analysis_timeout` 编码展示双语原因。
 
 - LLM 供应商请求超时使用本次报告的 `llm_provider_timeout` 原因编码，在详情 LLM 项提供双语说明并保留已有原始错误；异常无文本时同样显示可识别原因。
+
+- Skill 详情规则分析器按本次报告记录展示；规则发现项合并顶层与本地结果并去除同一发现项副本，保留不同位置及 `snippet`、`code_snippet`、`evidence` 原始证据，兼容仅含顶层结果的历史报告。
