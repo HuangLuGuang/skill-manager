@@ -9,9 +9,10 @@ from collections import OrderedDict
 from threading import RLock
 from datetime import datetime, timezone, timedelta
 
-from sqlalchemy import Column, Integer, String, Text, Index, select, func, text
+from sqlalchemy import Column, Integer, String, Text, Index, select, func, text, union_all
 from sqlalchemy.dialects.sqlite import insert
-from starlette.concurrency import run_in_threadpool
+from .services.gateway_db import run_sync
+from .services.aidr_ingest import admission
 from .sqlite_db import Base
 from .aidr_models import AidrEvent, AidrHookEvent
 from .aidr_operations import operation_key
@@ -145,82 +146,133 @@ def project(source, row):
                 command_counts_json=json.dumps(command_counts(behavior), sort_keys=True, separators=(',', ':')))
 
 
-def bucket_change(db, operation, delta):
-    dims = {k: operation[k] for k in ('client_id', 'source', 'product', 'tool', 'command')}
-    dims['hour'] = operation['at'] // 3600 * 3600
-    key = digest(dims)
-    table = OverviewBucket.__table__
-    stmt = insert(table).values(key=key, **dims, calls=delta, failures=delta * operation['failed'])
-    db.execute(stmt.on_conflict_do_update(index_elements=['key'], set_={
-        'calls': table.c.calls + delta, 'failures': table.c.failures + delta * operation['failed']}))
-    db.execute(table.delete().where(table.c.key == key, table.c.calls == 0))
-    counts = json.loads(operation['command_counts_json'])
-    for program, count in counts.items():
-        dims = {k: operation[k] for k in ('client_id', 'source', 'product')}
-        dims.update(hour=operation['at'] // 3600 * 3600, program=program)
-        key = digest(dims)
-        table = OverviewCommandBucket.__table__
-        amount = delta * count
-        stmt = insert(table).values(key=key, **dims, occurrences=amount)
-        db.execute(stmt.on_conflict_do_update(index_elements=['key'], set_={'occurrences': table.c.occurrences + amount}))
-        db.execute(table.delete().where(table.c.key == key, table.c.occurrences == 0))
-
-
 def reconcile(db, key):
-    if not key:
-        return
+    reconcile_many(db, [key])
+
+
+def reconcile_many(db, keys):
+    keys = sorted({key for key in keys if key})
     table = OverviewOperation.__table__
-    prior = db.execute(select(table).where(table.c.key == key)).mappings().first()
-    rows = db.execute(select(OverviewEvidence.__table__).where(OverviewEvidence.operation_key == key).limit(34)).mappings().all()
-    calls = [r for r in rows if r['phase'] == 'call']
-    # Multiple distinct pre-events are ambiguous, not two verified invocations.
-    current = None
-    if len(rows) < 34 and len(calls) == 1 and calls[0]['at']:
-        call = calls[0]
-        results = [r for r in rows if r['phase'] == 'result']
-        current = dict(key=key, **{k: call[k] for k in ('client_id', 'source', 'product', 'at', 'tool', 'command', 'command_counts_json', 'record_id')},
-                       failed=int(len(results) == 1 and results[0]['outcome'] == 'failed'))
-    if prior and (not current or any(prior[k] != v for k, v in current.items())):
-        bucket_change(db, prior, -1)
-        db.execute(table.delete().where(table.c.key == key))
-    if current and (not prior or any(prior[k] != v for k, v in current.items())):
-        bucket_change(db, current, 1)
-        db.execute(insert(table).values(**current))
+    evidence = OverviewEvidence.__table__
+    # Keep the per-call bound of 34 evidence rows while batching indexed lookups.
+    for offset in range(0, len(keys), 50):
+        part = keys[offset:offset + 50]
+        prior = {row['key']: row for row in db.execute(select(table).where(table.c.key.in_(part))).mappings()}
+        queries = [select(select(evidence).where(evidence.c.operation_key == key).limit(34).subquery()) for key in part]
+        rows = {key: [] for key in part}
+        for row in db.execute(union_all(*queries)).mappings():
+            rows[row['operation_key']].append(row)
+        changes, removed, saved = [], [], []
+        for key in part:
+            old = prior.get(key)
+            items = rows[key]
+            calls = [r for r in items if r['phase'] == 'call']
+            current = None
+            # Multiple distinct pre-events remain ambiguous.
+            if len(items) < 34 and len(calls) == 1 and calls[0]['at']:
+                call = calls[0]
+                results = [r for r in items if r['phase'] == 'result']
+                current = dict(key=key, **{k: call[k] for k in ('client_id', 'source', 'product', 'at', 'tool', 'command', 'command_counts_json', 'record_id')},
+                               failed=int(len(results) == 1 and results[0]['outcome'] == 'failed'))
+            if old and (not current or any(old[k] != v for k, v in current.items())):
+                changes.append((old, -1))
+                removed.append(key)
+            if current and (not old or any(old[k] != v for k, v in current.items())):
+                changes.append((current, 1))
+                saved.append(current)
+        _change_buckets(db, changes)
+        if removed:
+            db.execute(table.delete().where(table.c.key.in_(removed)))
+        if saved:
+            db.execute(insert(table), saved)
 
 
 def remove_evidence(db, source, ids):
     if not ids:
         return
+    # Serialize with projection before reading its operation keys. Expiry must
+    # also cover a projection that was waiting to publish these same records.
+    state = OverviewWatermark.__table__
+    db.execute(state.update().where(state.c.source == source).values(position=state.c.position))
     table = OverviewEvidence.__table__
-    keys = db.execute(select(table.c.operation_key).where(table.c.source == source, table.c.record_id.in_(ids))).scalars().all()
+    keys = set(db.execute(select(table.c.operation_key).where(table.c.source == source, table.c.record_id.in_(ids))).scalars()) - {''}
     db.execute(table.delete().where(table.c.source == source, table.c.record_id.in_(ids)))
-    for key in set(keys):
-        reconcile(db, key)
+    if not keys:
+        return
+    remaining = set(db.execute(select(table.c.operation_key).where(table.c.operation_key.in_(keys)).distinct()).scalars())
+    _remove_complete_operations(db, keys - remaining)
+    reconcile_many(db, remaining)
+
+
+def _remove_complete_operations(db, keys):
+    """Subtract expired operations in batches, keeping partial evidence reconciliation."""
+    if not keys:
+        return
+    table = OverviewOperation.__table__
+    rows = db.execute(select(table).where(table.c.key.in_(keys))).mappings().all()
+    _change_buckets(db, [(row, -1) for row in rows])
+    db.execute(table.delete().where(table.c.key.in_(keys)))
+
+
+def _change_buckets(db, changes):
+    totals, commands = {}, {}
+    for row, delta in changes:
+        dims = {k: row[k] for k in ('client_id', 'source', 'product', 'tool', 'command')}
+        dims['hour'] = row['at'] // 3600 * 3600
+        key = digest(dims)
+        bucket = totals.setdefault(key, dict(key=key, **dims, calls=0, failures=0))
+        bucket['calls'] += delta
+        bucket['failures'] += delta * row['failed']
+        for program, count in json.loads(row['command_counts_json']).items():
+            dims = {k: row[k] for k in ('client_id', 'source', 'product')}
+            dims.update(hour=row['at'] // 3600 * 3600, program=program)
+            key = digest(dims)
+            bucket = commands.setdefault(key, dict(key=key, **dims, occurrences=0))
+            bucket['occurrences'] += delta * count
+    for model, groups, fields, zero in (
+        (OverviewBucket, totals, ('calls', 'failures'), 'calls'),
+        (OverviewCommandBucket, commands, ('occurrences',), 'occurrences'),
+    ):
+        if groups:
+            buckets = model.__table__
+            stmt = insert(buckets)
+            db.execute(stmt.on_conflict_do_update(index_elements=['key'], set_={
+                field: buckets.c[field] + stmt.excluded[field] for field in fields}), list(groups.values()))
+            db.execute(buckets.delete().where(buckets.c.key.in_(groups), buckets.c[zero] == 0))
 
 
 def advance(db, limit=250):
     """Bounded, restartable backfill/live update, independent of page requests."""
-    more = False
+    state = OverviewWatermark.__table__
+    prepared = []
+    # Raw log/Hook bodies are immutable except for retention. Parse both sources
+    # before acquiring the writer; recheck progress and expiry before publishing.
     for source, model in (('hooks', AidrHookEvent), ('logs', AidrEvent)):
-        state = OverviewWatermark.__table__
         ceiling = db.query(func.max(model.id)).scalar() or 0
-        db.execute(insert(state).values(source=source, position=0, updated_at=0, initial_ceiling=ceiling).on_conflict_do_nothing())
-        # Serialize read/project/watermark across workers before reading position.
-        db.execute(state.update().where(state.c.source == source).values(position=state.c.position))
-        position = db.execute(select(state.c.position).where(state.c.source == source)).scalar_one()
+        position = db.execute(select(state.c.position).where(state.c.source == source)).scalar_one_or_none() or 0
         rows = db.query(model).filter(model.id > position).order_by(model.id).limit(limit).all()
-        keys = set()
-        for row in rows:
-            if row.expired_at is not None or row.payload_json == '{}':
-                continue
-            values = project(source, row)
-            db.execute(insert(OverviewEvidence).values(**values).on_conflict_do_nothing())
-            keys.add(values['operation_key'])
-        for key in keys:
-            reconcile(db, key)
+        values = [project(source, row) for row in rows if row.expired_at is None and row.payload_json != '{}']
+        prepared.append((source, model, ceiling, position, rows[-1].id if rows else position, len(rows) == limit, values))
+    more = False
+    for source, model, ceiling, position, last, full, values in prepared:
+        db.execute(insert(state).values(source=source, position=0, updated_at=0, initial_ceiling=ceiling).on_conflict_do_nothing())
+        # Serialize publication with other workers and retention. A changed
+        # watermark means this source must be prepared again on the next pass.
+        db.execute(state.update().where(state.c.source == source).values(position=state.c.position))
+        if db.execute(select(state.c.position).where(state.c.source == source)).scalar_one() != position:
+            more = True
+            continue
+        if values:
+            candidates = db.execute(select(model.id, model.expired_at, model.payload_json != '{}').where(
+                model.id.in_([value['record_id'] for value in values])))
+            live = {record_id for record_id, expired_at, has_body in candidates if expired_at is None and has_body}
+            values = [value for value in values if value['record_id'] in live]
+        if values:
+            db.execute(insert(OverviewEvidence.__table__).on_conflict_do_nothing(), values)
+        reconcile_many(db, [value['operation_key'] for value in values])
         db.execute(state.update().where(state.c.source == source).values(
-            position=rows[-1].id if rows else position, updated_at=int(datetime.now(timezone.utc).timestamp())))
-        more |= len(rows) == limit
+            position=last, updated_at=int(datetime.now(timezone.utc).timestamp())))
+        more |= full
     db.commit()
     return more
 
@@ -419,7 +471,8 @@ def tick():
 async def projection_loop():
     while True:
         try:
-            more = await run_in_threadpool(tick)
+            async with admission():
+                more = await run_sync(tick)
         except Exception:
             logging.getLogger(__name__).exception('aidr_overview_projection_failed')
             more = False

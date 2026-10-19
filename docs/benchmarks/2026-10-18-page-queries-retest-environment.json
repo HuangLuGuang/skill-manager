@@ -1,0 +1,379 @@
+{
+  "status": "environment_gate_not_met",
+  "measured_runs": 0,
+  "source_and_harness_unchanged": true,
+  "cleanup": {
+    "authorization": "normal quit VS Code and stop idle development backend; retain Codex and network proxy",
+    "vscode_exited": true,
+    "dev_server_pids_exited": true,
+    "codex_running": true,
+    "network_proxy_running": true
+  },
+  "rules": {
+    "preflight_seconds": 30,
+    "cpu_median_max": 25,
+    "cpu_peak_max": 35,
+    "available_gib_min": 3,
+    "swap_in_mib_max": 30,
+    "swap_out_mib_max": 10,
+    "runtime_available_gib_min": 2,
+    "runtime_swap_in_mib_max": 128,
+    "runtime_swap_out_mib_max": 32,
+    "runtime_external_cpu_median_max": 15
+  },
+  "preflight_summary": [
+    {
+      "cpu_median": 31.85,
+      "cpu_peak": 46.7,
+      "available_gib_min": 4.3265838623046875,
+      "swap_in_mib": 6.84375,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "cpu_median": 28.799999999999997,
+      "cpu_peak": 30.2,
+      "available_gib_min": 4.422882080078125,
+      "swap_in_mib": 0.296875,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "cpu_median": 28.6,
+      "cpu_peak": 29.4,
+      "available_gib_min": 4.466094970703125,
+      "swap_in_mib": 3.375,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "cpu_median": 28.65,
+      "cpu_peak": 29.0,
+      "available_gib_min": 4.4766693115234375,
+      "swap_in_mib": 10.65625,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "cpu_median": 27.799999999999997,
+      "cpu_peak": 29.1,
+      "available_gib_min": 4.485809326171875,
+      "swap_in_mib": 1.609375,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "cpu_median": 28.950000000000003,
+      "cpu_peak": 33.6,
+      "available_gib_min": 4.4713592529296875,
+      "swap_in_mib": 0.671875,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "cpu_median": 29.4,
+      "cpu_peak": 31.1,
+      "available_gib_min": 4.5521087646484375,
+      "swap_in_mib": 0.8125,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "cpu_median": 29.299999999999997,
+      "cpu_peak": 30.8,
+      "available_gib_min": 4.472808837890625,
+      "swap_in_mib": 0.25,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "cpu_median": 28.9,
+      "cpu_peak": 31.3,
+      "available_gib_min": 4.44140625,
+      "swap_in_mib": 0.4375,
+      "swap_out_mib": 0.0,
+      "passed": false
+    }
+  ],
+  "preflights": [
+    {
+      "samples": [
+        {
+          "cpu": 46.7,
+          "available_gib": 4.3265838623046875
+        },
+        {
+          "cpu": 32.9,
+          "available_gib": 4.3516387939453125
+        },
+        {
+          "cpu": 31.9,
+          "available_gib": 4.3755340576171875
+        },
+        {
+          "cpu": 31.8,
+          "available_gib": 4.444000244140625
+        },
+        {
+          "cpu": 29.2,
+          "available_gib": 4.508087158203125
+        },
+        {
+          "cpu": 29.7,
+          "available_gib": 4.554107666015625
+        }
+      ],
+      "swap_in_mib": 6.84375,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "samples": [
+        {
+          "cpu": 30.2,
+          "available_gib": 4.4576873779296875
+        },
+        {
+          "cpu": 29.9,
+          "available_gib": 4.5471954345703125
+        },
+        {
+          "cpu": 27.5,
+          "available_gib": 4.5508575439453125
+        },
+        {
+          "cpu": 28.7,
+          "available_gib": 4.5992279052734375
+        },
+        {
+          "cpu": 28.9,
+          "available_gib": 4.422882080078125
+        },
+        {
+          "cpu": 28.2,
+          "available_gib": 4.4253692626953125
+        }
+      ],
+      "swap_in_mib": 0.296875,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "samples": [
+        {
+          "cpu": 29.4,
+          "available_gib": 4.5428466796875
+        },
+        {
+          "cpu": 27.8,
+          "available_gib": 4.599029541015625
+        },
+        {
+          "cpu": 27.4,
+          "available_gib": 4.626708984375
+        },
+        {
+          "cpu": 28.8,
+          "available_gib": 4.466094970703125
+        },
+        {
+          "cpu": 28.4,
+          "available_gib": 4.5592803955078125
+        },
+        {
+          "cpu": 29.3,
+          "available_gib": 4.6247100830078125
+        }
+      ],
+      "swap_in_mib": 3.375,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "samples": [
+        {
+          "cpu": 28.7,
+          "available_gib": 4.4967193603515625
+        },
+        {
+          "cpu": 29.0,
+          "available_gib": 4.5942535400390625
+        },
+        {
+          "cpu": 28.6,
+          "available_gib": 4.6634368896484375
+        },
+        {
+          "cpu": 27.8,
+          "available_gib": 4.630401611328125
+        },
+        {
+          "cpu": 28.9,
+          "available_gib": 4.4766693115234375
+        },
+        {
+          "cpu": 28.1,
+          "available_gib": 4.5650482177734375
+        }
+      ],
+      "swap_in_mib": 10.65625,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "samples": [
+        {
+          "cpu": 27.7,
+          "available_gib": 4.6646728515625
+        },
+        {
+          "cpu": 27.9,
+          "available_gib": 4.6256103515625
+        },
+        {
+          "cpu": 29.1,
+          "available_gib": 4.485809326171875
+        },
+        {
+          "cpu": 27.7,
+          "available_gib": 4.5791473388671875
+        },
+        {
+          "cpu": 28.3,
+          "available_gib": 4.6685638427734375
+        },
+        {
+          "cpu": 27.6,
+          "available_gib": 4.6499786376953125
+        }
+      ],
+      "swap_in_mib": 1.609375,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "samples": [
+        {
+          "cpu": 28.8,
+          "available_gib": 4.4939117431640625
+        },
+        {
+          "cpu": 33.6,
+          "available_gib": 4.551300048828125
+        },
+        {
+          "cpu": 28.7,
+          "available_gib": 4.6134490966796875
+        },
+        {
+          "cpu": 29.7,
+          "available_gib": 4.4713592529296875
+        },
+        {
+          "cpu": 29.1,
+          "available_gib": 4.5759124755859375
+        },
+        {
+          "cpu": 27.8,
+          "available_gib": 4.721527099609375
+        }
+      ],
+      "swap_in_mib": 0.671875,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "samples": [
+        {
+          "cpu": 29.4,
+          "available_gib": 4.5521087646484375
+        },
+        {
+          "cpu": 31.1,
+          "available_gib": 4.586822509765625
+        },
+        {
+          "cpu": 29.8,
+          "available_gib": 4.644439697265625
+        },
+        {
+          "cpu": 27.6,
+          "available_gib": 4.6815032958984375
+        },
+        {
+          "cpu": 29.4,
+          "available_gib": 4.570159912109375
+        },
+        {
+          "cpu": 28.2,
+          "available_gib": 4.6327056884765625
+        }
+      ],
+      "swap_in_mib": 0.8125,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "samples": [
+        {
+          "cpu": 29.4,
+          "available_gib": 4.6807098388671875
+        },
+        {
+          "cpu": 28.7,
+          "available_gib": 4.6994476318359375
+        },
+        {
+          "cpu": 29.2,
+          "available_gib": 4.5453643798828125
+        },
+        {
+          "cpu": 27.7,
+          "available_gib": 4.6566314697265625
+        },
+        {
+          "cpu": 30.8,
+          "available_gib": 4.69805908203125
+        },
+        {
+          "cpu": 29.4,
+          "available_gib": 4.472808837890625
+        }
+      ],
+      "swap_in_mib": 0.25,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "samples": [
+        {
+          "cpu": 30.5,
+          "available_gib": 4.570709228515625
+        },
+        {
+          "cpu": 28.0,
+          "available_gib": 4.6371612548828125
+        },
+        {
+          "cpu": 28.7,
+          "available_gib": 4.6035003662109375
+        },
+        {
+          "cpu": 29.1,
+          "available_gib": 4.44140625
+        },
+        {
+          "cpu": 31.3,
+          "available_gib": 4.460113525390625
+        },
+        {
+          "cpu": 28.6,
+          "available_gib": 4.498748779296875
+        }
+      ],
+      "swap_in_mib": 0.4375,
+      "swap_out_mib": 0.0,
+      "passed": false
+    }
+  ]
+}

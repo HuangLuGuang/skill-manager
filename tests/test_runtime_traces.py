@@ -123,6 +123,23 @@ def test_gateway_request_details_preserve_trace_permissions_and_pagination(trace
     assert client.get(url + '/requests').status_code == 403
 
 
+def test_expired_trace_unavailable_while_background_deletion_is_pending(trace_api):
+    client, factory, _, _, _ = trace_api
+    with factory() as db:
+        db.add(models.RuntimeTraceSession(trace_id='expired-trace', tenant_id='tenant', session_id='expired',
+            expires_at=datetime.utcnow() - timedelta(seconds=1)))
+        db.add(models.RuntimeTraceExport(trace_id='expired-trace', export_id='old-export', requested_by='admin',
+            redaction_level='redacted', content_encrypted='body', sha256='digest', size_bytes=4,
+            expires_at=datetime.utcnow() + timedelta(days=1)))
+        db.commit()
+    assert client.get('/api/v1/runtime-traces').json()['total'] == 0
+    for path in ('/expired-trace', '/expired-trace/requests', '/exports/old-export/download'):
+        response = client.get('/api/v1/runtime-traces' + path)
+        assert response.status_code == 404, response.text
+    with factory() as db:
+        assert db.query(models.RuntimeTraceSession).count() == 1
+
+
 def _create(client: TestClient, plain: str) -> str:
     response = client.post(
         "/api/v1/runtime-traces",
@@ -466,8 +483,10 @@ def test_severity_conflict_and_maximum_aggregation_are_explicit(trace_api):
 
 
 def test_runtime_publishers_and_sdk_transmit_severity(monkeypatch):
+    from contextlib import nullcontext
     published = []
-    monkeypatch.setattr(llm_gateway, "publish_events_best_effort", lambda _db, events: published.extend(events))
+    monkeypatch.setattr(llm_gateway, "ingest_transaction", lambda _db: nullcontext())
+    monkeypatch.setattr(llm_gateway, "publish_events_best_effort", lambda _db, events, **_: published.extend(events))
     llm_gateway._publish_model_runtime_trace(
         None, key=None, trace_context={"session_id": "s"}, tenant_id="t", request_id="r",
         model_name="model", prompt_security={"risk_level": "HIGH", "risk_codes": ["prompt_injection"]},

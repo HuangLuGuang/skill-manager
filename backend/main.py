@@ -57,6 +57,8 @@ from .security_audit import append_security_audit, ensure_audit_signing_key
 from .security_target_migration import migrate_security_target_classification
 from .security_worker_bootstrap import bootstrap_builtin_security_worker_once
 from .services.runtime_traces import cleanup_expired
+from .services.retention import retention_loop
+from .services.pipeline_trace_retention import cleanup_once as cleanup_pipeline_traces_once
 from .sqlite_db import Base, SessionLocal, engine
 from .task_runtime import init_default_tasks
 
@@ -89,28 +91,25 @@ def warmup_skill_scanner() -> None:
     warmup_scanner(manager.policy.scanner_policy)
 
 
-def cleanup_runtime_traces_once() -> None:
+def cleanup_runtime_traces_once() -> bool:
     db = SessionLocal()
     try:
-        cleanup_expired(db)
+        return cleanup_expired(db)["more"]
     finally:
         db.close()
 
 
 async def runtime_trace_retention_loop() -> None:
-    while True:
-        await asyncio.sleep(3600)
-        try:
-            cleanup_runtime_traces_once()
-        except Exception as exc:
-            logger.warning("runtime trace retention cleanup failed: %s", type(exc).__name__)
+    await retention_loop(cleanup_runtime_traces_once, "runtime trace")
 
 
 @asynccontextmanager
 async def application_lifespan(_: FastAPI):
     warmup_skill_scanner()
-    cleanup_runtime_traces_once()
     retention_task = asyncio.create_task(runtime_trace_retention_loop())
+    pipeline_retention_task = asyncio.create_task(retention_loop(cleanup_pipeline_traces_once, "pipeline trace"))
+    from .request_leases import cleanup_expired_leases
+    lease_retention_task = asyncio.create_task(retention_loop(cleanup_expired_leases, "request leases"))
     from .aidr_retention import retention_loop as aidr_retention_loop
     aidr_retention_task = asyncio.create_task(aidr_retention_loop())
     from .aidr_skill_usage import audit_loop
@@ -123,6 +122,8 @@ async def application_lifespan(_: FastAPI):
         yield
     finally:
         retention_task.cancel()
+        pipeline_retention_task.cancel()
+        lease_retention_task.cancel()
         aidr_retention_task.cancel()
         skill_audit_task.cancel()
         overview_task.cancel()
@@ -131,6 +132,10 @@ async def application_lifespan(_: FastAPI):
             await asset_task
         with suppress(asyncio.CancelledError):
             await retention_task
+        with suppress(asyncio.CancelledError):
+            await pipeline_retention_task
+        with suppress(asyncio.CancelledError):
+            await lease_retention_task
         with suppress(asyncio.CancelledError):
             await aidr_retention_task
         with suppress(asyncio.CancelledError):

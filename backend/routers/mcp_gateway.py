@@ -14,21 +14,21 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from jsonschema import ValidationError, validate
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from .. import auth, models, schemas
 from ..api_errors import ApiError
 from ..agent_mcp import ensure_agent_mcp_scope
 from ..config import settings
 from ..mcp_validation import field_issue, fields_error
-from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
+from ..request_leases import LeaseLimitExceeded, LeaseRequest, acquire_leases, release_leases, delete_leases
 from ..runtime_trace_schemas import RuntimeTraceInternalEvent
 from ..security_audit import append_security_audit
+from ..services.gateway_db import run_db, run_sync
 from ..services.runtime_traces import best_effort_trace_publisher, publish_events_best_effort
 from ..sqlite_db import get_db
 from .access_tokens import (
     _json_loads,
-    acquire_access_token_slot,
-    release_access_token_slot,
     resolve_access_token,
 )
 from .llm_gateway import _mask_secret, _protect_secret, _unprotect_secret
@@ -445,8 +445,14 @@ async def _post_upstream(
     payload: dict,
     session_id: str | None = None,
     protocol_version: str = MCP_PROTOCOL_VERSION,
+    *,
+    client: httpx.AsyncClient | None = None,
 ) -> tuple[dict, str | None]:
-    resolved = _validate_resolved_endpoint(server.endpoint)
+    if client is None:
+        async with httpx.AsyncClient(timeout=server.timeout_seconds, follow_redirects=False,
+                                     trust_env=not bool(getattr(server, "_scan_resolved_ips", None))) as owned:
+            return await _post_upstream(server, payload, session_id, protocol_version, client=owned)
+    resolved = await run_in_threadpool(_validate_resolved_endpoint, server.endpoint)
     scan_addresses = getattr(server, "_scan_resolved_ips", None)
     if scan_addresses is not None and set(resolved) != set(scan_addresses):
         raise ValueError("MCP scan DNS snapshot changed")
@@ -468,24 +474,30 @@ async def _post_upstream(
         headers["Host"] = original.netloc.decode("ascii")
         extensions["sni_hostname"] = original.host
         endpoint = str(original.copy_with(host=scan_addresses[0]))
-    async with httpx.AsyncClient(timeout=server.timeout_seconds, follow_redirects=False, trust_env=not bool(scan_addresses)) as client:
-        async with client.stream("POST", endpoint, json=payload, headers=headers, extensions=extensions) as response:
-            content = bytearray()
-            async for chunk in response.aiter_bytes():
-                content.extend(chunk)
-                if len(content) > max_bytes:
-                    raise ValueError(f"上游 MCP 响应超过限制: {max_bytes // 1024} KB")
-            buffered = httpx.Response(
-                status_code=response.status_code,
-                headers=response.headers,
-                content=bytes(content),
-                request=response.request,
-            )
+    async with client.stream("POST", endpoint, json=payload, headers=headers, extensions=extensions) as response:
+        content = bytearray()
+        async for chunk in response.aiter_bytes():
+            content.extend(chunk)
+            if len(content) > max_bytes:
+                raise ValueError(f"上游 MCP 响应超过限制: {max_bytes // 1024} KB")
+        buffered = httpx.Response(
+            status_code=response.status_code,
+            headers=response.headers,
+            content=bytes(content),
+            request=response.request,
+        )
     return _parse_upstream_response(buffered, payload.get("id")), buffered.headers.get("Mcp-Session-Id") or session_id
 
 
 async def _call_upstream(server: models.McpServer, method: str, params: dict) -> dict:
-    # ponytail: initialize per call keeps the MVP stateless; cache sessions only when measured latency requires it.
+    # Reuse TCP within one protocol exchange; sessions and credentials remain
+    # scoped to this invocation, and every step still validates the destination.
+    async with httpx.AsyncClient(timeout=server.timeout_seconds, follow_redirects=False,
+                                 trust_env=not bool(getattr(server, "_scan_resolved_ips", None))) as client:
+        return await _exchange_upstream(server, method, params, client)
+
+
+async def _exchange_upstream(server, method, params, client):
     request_id = uuid.uuid4().hex
     initialized, session_id = await _post_upstream(
         server,
@@ -499,6 +511,7 @@ async def _call_upstream(server: models.McpServer, method: str, params: dict) ->
                 "clientInfo": {"name": "agent-manager", "version": "0.1.0"},
             },
         },
+        client=client,
     )
     if initialized.get("error"):
         return initialized
@@ -510,12 +523,14 @@ async def _call_upstream(server: models.McpServer, method: str, params: dict) ->
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         session_id,
         protocol_version,
+        client=client,
     )
     result, _ = await _post_upstream(
         server,
         {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params},
         session_id,
         protocol_version,
+        client=client,
     )
     return result
 
@@ -1481,7 +1496,7 @@ async def invoke_gateway(
     }.get(method)
     if not required_scope:
         return _jsonrpc_error(request_id, -32601, "Method not found")
-    token = resolve_access_token(
+    token = await run_db(db, resolve_access_token,
         db,
         authorization,
         required_scope=required_scope,
@@ -1492,6 +1507,25 @@ async def invoke_gateway(
 
 
 async def invoke_gateway_with_token(
+    gateway_slug: str,
+    body: dict,
+    request: Request,
+    response: Response,
+    token: models.AccessToken,
+    db: Session,
+    *,
+    apply_gateway_policy: bool = True,
+):
+    prepared = await run_db(
+        db, _prepare_gateway_invocation, gateway_slug, body, request, response, token, db,
+        apply_gateway_policy=apply_gateway_policy,
+    )
+    if callable(prepared):
+        return await prepared()
+    return prepared
+
+
+def _prepare_gateway_invocation(
     gateway_slug: str,
     body: dict,
     request: Request,
@@ -1710,35 +1744,16 @@ async def invoke_gateway_with_token(
         approval_request_id=approval_request_id,
         status="running",
     )
-    acquire_access_token_slot(token)
-    tool_lease_id = None
-    trace_result = None
-    try:
-        try:
-            tool_lease_id = acquire_lease(
-                "mcp_tool", tool.id, "call", tool.max_concurrent, ttl_seconds=server.timeout_seconds + 30, bind=db.get_bind()
-            )
-        except LeaseLimitExceeded:
-            audit.status = "denied"
-            audit.error = "MCP Tool 并发调用数已达上限"
-            return _jsonrpc_error(request_id, -32004, audit.error)
-        upstream = await _call_upstream(server, "tools/call", {"name": tool.name, "arguments": arguments})
-        trace_result = upstream
-        audit.status = "error" if upstream.get("error") else "success"
-        if upstream.get("error"):
-            audit.error = str(upstream["error"].get("message", "上游 MCP 返回错误"))[:1000]
-        upstream["id"] = request_id
-        return upstream
-    except Exception as exc:
-        audit.status = "error"
-        audit.error = str(exc)[:1000]
-        return _jsonrpc_error(request_id, -32000, "上游 MCP 调用失败")
-    finally:
-        release_lease(tool_lease_id, bind=db.get_bind())
-        release_access_token_slot(token)
+    bind = db.get_bind()
+    # Values used by the network phase stay loaded after the transaction ends.
+    db.commit()
+
+    def finish(trace_result, lease_ids):
         audit.duration_ms = round((time.perf_counter() - started) * 1000, 2)
+        delete_leases(db.connection(), lease_ids)
         db.add(audit)
         db.commit()
+        lease_ids.clear()
         _publish_mcp_runtime_trace(
             db,
             token=token,
@@ -1754,3 +1769,55 @@ async def invoke_gateway_with_token(
             duration_ms=audit.duration_ms,
             severity=tool.risk_level,
         )
+
+    async def execute():
+        lease_ids = []
+        trace_result = None
+        try:
+            # Store both leases before run_sync propagates request cancellation.
+            def acquire_slots():
+                nonlocal lease_ids
+                lease_ids = acquire_leases([
+                    LeaseRequest("access_token", token.id, "request", token.max_concurrent_requests),
+                    LeaseRequest("mcp_tool", tool.id, "call", tool.max_concurrent, server.timeout_seconds + 30),
+                ], bind=bind)
+            try:
+                await run_sync(acquire_slots)
+            except LeaseLimitExceeded as exc:
+                if exc.subject_type == "access_token":
+                    raise ApiError(429, "credential.concurrency_limit", "接入凭证并发请求数已达上限",
+                                   "The credential concurrency limit has been reached") from exc
+                audit.status = "denied"
+                audit.error = "MCP Tool 并发调用数已达上限"
+                return _jsonrpc_error(request_id, -32004, audit.error)
+            upstream = await _call_upstream(server, "tools/call", {"name": tool.name, "arguments": arguments})
+            trace_result = upstream
+            audit.status = "error" if upstream.get("error") else "success"
+            if upstream.get("error"):
+                audit.error = str(upstream["error"].get("message", "上游 MCP 返回错误"))[:1000]
+            upstream["id"] = request_id
+            return upstream
+        except HTTPException as exc:
+            if not lease_ids:
+                raise
+            audit.status = "error"
+            audit.error = str(exc)[:1000]
+            return _jsonrpc_error(request_id, -32000, "上游 MCP 调用失败")
+        except Exception as exc:
+            audit.status = "error"
+            audit.error = str(exc)[:1000]
+            return _jsonrpc_error(request_id, -32000, "上游 MCP 调用失败")
+        except BaseException:
+            audit.status = "error"
+            audit.error = "gateway.request_interrupted"
+            raise
+        finally:
+            try:
+                if audit.status != "running":
+                    await run_db(db, finish, trace_result, lease_ids)
+            finally:
+                # Audit failure must not leave successful acquisitions occupied.
+                if lease_ids:
+                    await run_sync(release_leases, lease_ids, bind=bind)
+
+    return execute

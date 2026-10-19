@@ -1,0 +1,7758 @@
+{
+  "control_high_limited": {
+    "config": {
+      "cleanup_start": "replay",
+      "diagnostics": false,
+      "clients": 100,
+      "upload_concurrency": 4,
+      "historical_rows": 10000,
+      "body_bytes": 1024,
+      "batch_records": 10,
+      "batch_seconds": 5,
+      "gateway_rps": 5,
+      "baseline_seconds": 20,
+      "steady_seconds": 30,
+      "offline_seconds": 20,
+      "replay_seconds": 60,
+      "recovery_seconds": 20,
+      "drain_seconds": 120,
+      "port": 62051,
+      "mock_port": 62052,
+      "source_sha256": "1714bd9199377eb06fb7797c73540bc6100d38324470c81a90e6aebdf19b45fb",
+      "git_head": "239d84a1b13f9e882f700c6c8f5c55a4d499a051"
+    },
+    "environment": {
+      "platform": "macOS-27.0-arm64-arm-64bit",
+      "python": "3.12.9 (main, Mar 17 2025, 21:36:21) [Clang 20.1.0 ]",
+      "cpu_count": 10,
+      "memory_bytes": 17179869184,
+      "sqlite_version": "3.47.1",
+      "workers": 1
+    },
+    "phases": [
+      {
+        "name": "baseline",
+        "started": 1792033188.455492,
+        "ended": 1792033208.4568949,
+        "generated": 0,
+        "acked": 0,
+        "db": {
+          "aidr_events": {
+            "live": 10000
+          },
+          "aidr_hook_events": {
+            "live": 10000
+          },
+          "aidr_operations": {
+            "live": 10000
+          },
+          "llm_pipeline_traces": 10000,
+          "runtime_trace_events": 10000,
+          "runtime_trace_sessions": 1,
+          "fresh_logs": 0,
+          "fresh_hooks": 0,
+          "batch_records": {
+            "aidr_batches": 0,
+            "aidr_hook_batches": 0
+          },
+          "files_bytes": {
+            "backend.db": 171585536,
+            "backend.db-wal": 18663632
+          }
+        }
+      },
+      {
+        "name": "steady",
+        "started": 1792033208.493199,
+        "ended": 1792033238.494432,
+        "generated": 12000,
+        "acked": 4570,
+        "db": {
+          "aidr_events": {
+            "live": 12590
+          },
+          "aidr_hook_events": {
+            "live": 11980
+          },
+          "aidr_operations": {
+            "live": 11295
+          },
+          "llm_pipeline_traces": 10000,
+          "runtime_trace_events": 10000,
+          "runtime_trace_sessions": 1,
+          "fresh_logs": 2590,
+          "fresh_hooks": 1990,
+          "batch_records": {
+            "aidr_batches": 2590,
+            "aidr_hook_batches": 1990
+          },
+          "files_bytes": {
+            "backend.db": 208109568,
+            "backend.db-wal": 18663632
+          }
+        }
+      },
+      {
+        "name": "offline",
+        "started": 1792033238.5186298,
+        "ended": 1792033258.520277,
+        "generated": 20020,
+        "acked": 4610,
+        "db": {
+          "aidr_events": {
+            "live": 12600
+          },
+          "aidr_hook_events": {
+            "live": 12010
+          },
+          "aidr_operations": {
+            "live": 11300
+          },
+          "llm_pipeline_traces": 10000,
+          "runtime_trace_events": 10000,
+          "runtime_trace_sessions": 1,
+          "fresh_logs": 2600,
+          "fresh_hooks": 2010,
+          "batch_records": {
+            "aidr_batches": 2600,
+            "aidr_hook_batches": 2010
+          },
+          "files_bytes": {
+            "backend.db": 210944000,
+            "backend.db-wal": 18663632
+          }
+        }
+      },
+      {
+        "name": "replay_cleanup",
+        "started": 1792033258.5403142,
+        "ended": 1792033318.543502,
+        "generated": 44020,
+        "acked": 11020,
+        "db": {
+          "aidr_events": {
+            "expired": 10000,
+            "live": 5820
+          },
+          "aidr_hook_events": {
+            "expired": 10000,
+            "live": 5210
+          },
+          "aidr_operations": {
+            "expired": 10000,
+            "live": 2910
+          },
+          "llm_pipeline_traces": 0,
+          "runtime_trace_events": 0,
+          "runtime_trace_sessions": 0,
+          "fresh_logs": 5820,
+          "fresh_hooks": 5210,
+          "batch_records": {
+            "aidr_batches": 5820,
+            "aidr_hook_batches": 5210
+          },
+          "files_bytes": {
+            "backend.db": 231596032,
+            "backend.db-wal": 25099072
+          }
+        }
+      },
+      {
+        "name": "recovery",
+        "started": 1792033318.595376,
+        "ended": 1792033338.596426,
+        "generated": 52040,
+        "acked": 14290,
+        "db": {
+          "aidr_events": {
+            "expired": 10000,
+            "live": 7400
+          },
+          "aidr_hook_events": {
+            "expired": 10000,
+            "live": 6890
+          },
+          "aidr_operations": {
+            "expired": 10000,
+            "live": 3700
+          },
+          "llm_pipeline_traces": 0,
+          "runtime_trace_events": 0,
+          "runtime_trace_sessions": 0,
+          "fresh_logs": 7400,
+          "fresh_hooks": 6890,
+          "batch_records": {
+            "aidr_batches": 7400,
+            "aidr_hook_batches": 6890
+          },
+          "files_bytes": {
+            "backend.db": 256102400,
+            "backend.db-wal": 25099072
+          }
+        }
+      }
+    ],
+    "summary": {
+      "baseline": {
+        "logs": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 101,
+            "mean": 237.49,
+            "p50": 148.637,
+            "p95": 742.542,
+            "p99": 1247.2,
+            "max": 1359.157
+          },
+          "scheduled_latency_ms": {
+            "count": 101,
+            "mean": 241.129,
+            "p50": 149.224,
+            "p95": 767.312,
+            "p99": 1257.303,
+            "max": 1360.979
+          },
+          "launch_lag_ms": {
+            "count": 101,
+            "mean": 3.638,
+            "p50": 1.119,
+            "p95": 10.102,
+            "p99": 46.819,
+            "max": 147.774
+          },
+          "statuses": {
+            "200": 101
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 101,
+            "mean": 412.054,
+            "p50": 295.422,
+            "p95": 1065.853,
+            "p99": 1379.781,
+            "max": 1468.061
+          },
+          "scheduled_latency_ms": {
+            "count": 101,
+            "mean": 416.414,
+            "p50": 296.976,
+            "p95": 1067.368,
+            "p99": 1383.304,
+            "max": 1474.528
+          },
+          "launch_lag_ms": {
+            "count": 101,
+            "mean": 4.36,
+            "p50": 1.456,
+            "p95": 7.144,
+            "p99": 51.898,
+            "max": 165.186
+          },
+          "statuses": {
+            "200": 101
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 101,
+            "mean": 60.218,
+            "p50": 56.59,
+            "p95": 83.624,
+            "p99": 153.461,
+            "max": 178.908
+          },
+          "scheduled_latency_ms": {
+            "count": 101,
+            "mean": 64.909,
+            "p50": 58.144,
+            "p95": 98.344,
+            "p99": 180.698,
+            "max": 256.375
+          },
+          "launch_lag_ms": {
+            "count": 101,
+            "mean": 4.691,
+            "p50": 1.754,
+            "p95": 8.556,
+            "p99": 54.242,
+            "max": 169.956
+          },
+          "statuses": {
+            "200": 101
+          },
+          "errors": {}
+        }
+      },
+      "steady": {
+        "logs": {
+          "latency_ms": {
+            "count": 360,
+            "mean": 190.851,
+            "p50": 101.584,
+            "p95": 550.41,
+            "p99": 1483.453,
+            "max": 4726.847
+          },
+          "scheduled_latency_ms": {
+            "count": 360,
+            "mean": 190.851,
+            "p50": 101.584,
+            "p95": 550.41,
+            "p99": 1483.453,
+            "max": 4726.847
+          },
+          "launch_lag_ms": {
+            "count": 360,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 360
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 301,
+            "mean": 196.979,
+            "p50": 102.24,
+            "p95": 628.104,
+            "p99": 1807.825,
+            "max": 4344.694
+          },
+          "scheduled_latency_ms": {
+            "count": 301,
+            "mean": 196.979,
+            "p50": 102.24,
+            "p95": 628.104,
+            "p99": 1807.825,
+            "max": 4344.694
+          },
+          "launch_lag_ms": {
+            "count": 301,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 301
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 150,
+            "mean": 1733.185,
+            "p50": 1024.561,
+            "p95": 5988.05,
+            "p99": 8248.17,
+            "max": 9156.888
+          },
+          "scheduled_latency_ms": {
+            "count": 150,
+            "mean": 1735.959,
+            "p50": 1024.935,
+            "p95": 5988.505,
+            "p99": 8249.001,
+            "max": 9157.248
+          },
+          "launch_lag_ms": {
+            "count": 150,
+            "mean": 2.773,
+            "p50": 0.53,
+            "p95": 4.944,
+            "p99": 73.372,
+            "max": 87.607
+          },
+          "statuses": {
+            "200": 150
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 150,
+            "mean": 1891.219,
+            "p50": 1185.861,
+            "p95": 5891.942,
+            "p99": 7682.628,
+            "max": 9034.216
+          },
+          "scheduled_latency_ms": {
+            "count": 150,
+            "mean": 1894.778,
+            "p50": 1226.943,
+            "p95": 5893.078,
+            "p99": 7683.996,
+            "max": 9035.732
+          },
+          "launch_lag_ms": {
+            "count": 150,
+            "mean": 3.559,
+            "p50": 1.232,
+            "p95": 5.6,
+            "p99": 73.44,
+            "max": 105.611
+          },
+          "statuses": {
+            "200": 150
+          },
+          "errors": {
+            "{'code': -32000, 'message': '上游 MCP 调用失败'}": 1
+          }
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 150,
+            "mean": 59.213,
+            "p50": 56.794,
+            "p95": 68.418,
+            "p99": 135.735,
+            "max": 192.83
+          },
+          "scheduled_latency_ms": {
+            "count": 150,
+            "mean": 64.467,
+            "p50": 58.441,
+            "p95": 79.283,
+            "p99": 223.883,
+            "max": 336.921
+          },
+          "launch_lag_ms": {
+            "count": 150,
+            "mean": 5.254,
+            "p50": 1.677,
+            "p95": 7.984,
+            "p99": 108.767,
+            "max": 144.091
+          },
+          "statuses": {
+            "200": 150
+          },
+          "errors": {}
+        }
+      },
+      "offline": {
+        "logs": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 961.626,
+            "p50": 196.749,
+            "p95": 3303.145,
+            "p99": 4440.665,
+            "max": 4720.045
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 1060.207,
+            "p50": 208.288,
+            "p95": 4329.078,
+            "p99": 4511.943,
+            "max": 4721.442
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 98.582,
+            "p50": 0.532,
+            "p95": 967.75,
+            "p99": 1176.37,
+            "max": 1299.261
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 1221.783,
+            "p50": 502.493,
+            "p95": 4052.807,
+            "p99": 4585.736,
+            "max": 5459.087
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 1321.676,
+            "p50": 510.947,
+            "p95": 4680.015,
+            "p99": 5479.663,
+            "max": 5703.714
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 99.893,
+            "p50": 2.582,
+            "p95": 966.529,
+            "p99": 1158.307,
+            "max": 1250.84
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {
+            "{'code': -32000, 'message': '上游 MCP 调用失败'}": 10
+          }
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 128.337,
+            "p50": 59.03,
+            "p95": 340.488,
+            "p99": 944.559,
+            "max": 1920.886
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 233.638,
+            "p50": 63.708,
+            "p95": 1501.074,
+            "p99": 2091.007,
+            "max": 2180.502
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 105.3,
+            "p50": 4.088,
+            "p95": 967.311,
+            "p99": 1171.705,
+            "max": 1258.633
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        }
+      },
+      "replay_cleanup": {
+        "logs": {
+          "latency_ms": {
+            "count": 323,
+            "mean": 412.897,
+            "p50": 167.717,
+            "p95": 1737.184,
+            "p99": 2393.538,
+            "max": 3462.214
+          },
+          "scheduled_latency_ms": {
+            "count": 323,
+            "mean": 412.897,
+            "p50": 167.717,
+            "p95": 1737.184,
+            "p99": 2393.538,
+            "max": 3462.214
+          },
+          "launch_lag_ms": {
+            "count": 323,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 323
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 323,
+            "mean": 330.245,
+            "p50": 125.293,
+            "p95": 1571.519,
+            "p99": 2677.409,
+            "max": 3219.888
+          },
+          "scheduled_latency_ms": {
+            "count": 323,
+            "mean": 330.245,
+            "p50": 125.293,
+            "p95": 1571.519,
+            "p99": 2677.409,
+            "max": 3219.888
+          },
+          "launch_lag_ms": {
+            "count": 323,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 323
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 300,
+            "mean": 2494.151,
+            "p50": 1976.496,
+            "p95": 6337.002,
+            "p99": 7927.043,
+            "max": 10609.324
+          },
+          "scheduled_latency_ms": {
+            "count": 300,
+            "mean": 2498.719,
+            "p50": 1976.928,
+            "p95": 6343.446,
+            "p99": 7932.608,
+            "max": 10609.75
+          },
+          "launch_lag_ms": {
+            "count": 300,
+            "mean": 4.568,
+            "p50": 0.486,
+            "p95": 10.562,
+            "p99": 125.702,
+            "max": 217.056
+          },
+          "statuses": {
+            "200": 294,
+            "500": 6
+          },
+          "errors": {
+            "server.internal_error": 6
+          }
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 300,
+            "mean": 2671.426,
+            "p50": 1850.105,
+            "p95": 6792.354,
+            "p99": 9664.445,
+            "max": 11739.995
+          },
+          "scheduled_latency_ms": {
+            "count": 300,
+            "mean": 2677.289,
+            "p50": 1853.252,
+            "p95": 6808.259,
+            "p99": 9666.271,
+            "max": 11741.225
+          },
+          "launch_lag_ms": {
+            "count": 300,
+            "mean": 5.863,
+            "p50": 1.158,
+            "p95": 21.773,
+            "p99": 72.55,
+            "max": 342.447
+          },
+          "statuses": {
+            "200": 300
+          },
+          "errors": {
+            "{'code': -32000, 'message': '上游 MCP 调用失败'}": 7
+          }
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 300,
+            "mean": 60.464,
+            "p50": 57.117,
+            "p95": 75.924,
+            "p99": 142.689,
+            "max": 185.473
+          },
+          "scheduled_latency_ms": {
+            "count": 300,
+            "mean": 67.819,
+            "p50": 58.73,
+            "p95": 114.232,
+            "p99": 277.953,
+            "max": 543.049
+          },
+          "launch_lag_ms": {
+            "count": 300,
+            "mean": 7.355,
+            "p50": 1.628,
+            "p95": 24.23,
+            "p99": 135.427,
+            "max": 357.577
+          },
+          "statuses": {
+            "200": 300
+          },
+          "errors": {}
+        }
+      },
+      "recovery": {
+        "logs": {
+          "latency_ms": {
+            "count": 159,
+            "mean": 245.504,
+            "p50": 126.574,
+            "p95": 832.563,
+            "p99": 2009.729,
+            "max": 2242.92
+          },
+          "scheduled_latency_ms": {
+            "count": 159,
+            "mean": 245.504,
+            "p50": 126.574,
+            "p95": 832.563,
+            "p99": 2009.729,
+            "max": 2242.92
+          },
+          "launch_lag_ms": {
+            "count": 159,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 159
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 167,
+            "mean": 246.537,
+            "p50": 111.308,
+            "p95": 1026.375,
+            "p99": 2264.169,
+            "max": 3036.092
+          },
+          "scheduled_latency_ms": {
+            "count": 167,
+            "mean": 246.537,
+            "p50": 111.308,
+            "p95": 1026.375,
+            "p99": 2264.169,
+            "max": 3036.092
+          },
+          "launch_lag_ms": {
+            "count": 167,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 167
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 1993.233,
+            "p50": 1723.177,
+            "p95": 4346.236,
+            "p99": 5873.262,
+            "max": 6924.334
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 1996.744,
+            "p50": 1724.266,
+            "p95": 4346.509,
+            "p99": 5873.551,
+            "max": 6924.776
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 3.511,
+            "p50": 0.491,
+            "p95": 6.618,
+            "p99": 81.882,
+            "max": 97.477
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 1890.197,
+            "p50": 1521.867,
+            "p95": 3871.115,
+            "p99": 5715.078,
+            "max": 6715.276
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 1894.815,
+            "p50": 1522.78,
+            "p95": 3908.022,
+            "p99": 5715.622,
+            "max": 6716.249
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 4.618,
+            "p50": 1.216,
+            "p95": 14.734,
+            "p99": 85.819,
+            "max": 101.475
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 61.226,
+            "p50": 56.612,
+            "p95": 83.25,
+            "p99": 174.554,
+            "max": 237.105
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 67.217,
+            "p50": 58.354,
+            "p95": 104.503,
+            "p99": 282.075,
+            "max": 321.985
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 5.991,
+            "p50": 1.647,
+            "p95": 30.21,
+            "p99": 87.798,
+            "max": 107.75
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        }
+      },
+      "drain": {
+        "logs": {
+          "latency_ms": {
+            "count": 1017,
+            "mean": 244.829,
+            "p50": 126.961,
+            "p95": 875.244,
+            "p99": 1713.623,
+            "max": 3436.718
+          },
+          "scheduled_latency_ms": {
+            "count": 1017,
+            "mean": 244.829,
+            "p50": 126.961,
+            "p95": 875.244,
+            "p99": 1713.623,
+            "max": 3436.718
+          },
+          "launch_lag_ms": {
+            "count": 1017,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 1017
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 1009,
+            "mean": 223.398,
+            "p50": 114.113,
+            "p95": 933.115,
+            "p99": 1758.291,
+            "max": 3984.828
+          },
+          "scheduled_latency_ms": {
+            "count": 1009,
+            "mean": 223.398,
+            "p50": 114.113,
+            "p95": 933.115,
+            "p99": 1758.291,
+            "max": 3984.828
+          },
+          "launch_lag_ms": {
+            "count": 1009,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 1009
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 600,
+            "mean": 1899.949,
+            "p50": 1540.655,
+            "p95": 4733.098,
+            "p99": 5674.072,
+            "max": 10891.332
+          },
+          "scheduled_latency_ms": {
+            "count": 600,
+            "mean": 1902.811,
+            "p50": 1541.35,
+            "p95": 4734.107,
+            "p99": 5675.245,
+            "max": 10894.037
+          },
+          "launch_lag_ms": {
+            "count": 600,
+            "mean": 2.861,
+            "p50": 1.146,
+            "p95": 5.126,
+            "p99": 37.45,
+            "max": 184.144
+          },
+          "statuses": {
+            "200": 600
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 600,
+            "mean": 1803.013,
+            "p50": 1547.218,
+            "p95": 4154.823,
+            "p99": 5701.71,
+            "max": 8180.629
+          },
+          "scheduled_latency_ms": {
+            "count": 600,
+            "mean": 1807.658,
+            "p50": 1548.7,
+            "p95": 4183.389,
+            "p99": 5704.959,
+            "max": 8181.838
+          },
+          "launch_lag_ms": {
+            "count": 600,
+            "mean": 4.645,
+            "p50": 1.776,
+            "p95": 8.369,
+            "p99": 106.645,
+            "max": 288.215
+          },
+          "statuses": {
+            "200": 600
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 600,
+            "mean": 60.546,
+            "p50": 56.903,
+            "p95": 74.278,
+            "p99": 133.172,
+            "max": 389.461
+          },
+          "scheduled_latency_ms": {
+            "count": 600,
+            "mean": 66.184,
+            "p50": 59.087,
+            "p95": 90.656,
+            "p99": 232.986,
+            "max": 441.88
+          },
+          "launch_lag_ms": {
+            "count": 600,
+            "mean": 5.638,
+            "p50": 2.258,
+            "p95": 11.965,
+            "p99": 107.473,
+            "max": 300.408
+          },
+          "statuses": {
+            "200": 600
+          },
+          "errors": {}
+        }
+      }
+    },
+    "final": {
+      "aidr_events": {
+        "expired": 10000,
+        "live": 16620
+      },
+      "aidr_hook_events": {
+        "expired": 10000,
+        "live": 16010
+      },
+      "aidr_operations": {
+        "expired": 10000,
+        "live": 8310
+      },
+      "llm_pipeline_traces": 0,
+      "runtime_trace_events": 0,
+      "runtime_trace_sessions": 0,
+      "fresh_logs": 16620,
+      "fresh_hooks": 16010,
+      "batch_records": {
+        "aidr_batches": 16620,
+        "aidr_hook_batches": 16010
+      },
+      "files_bytes": {
+        "backend.db": 401317888,
+        "backend.db-wal": 25099072
+      }
+    },
+    "state": {
+      "phase": "drain",
+      "generating": false,
+      "done": true,
+      "generated": 52060,
+      "acked": 32590,
+      "replayed": 400,
+      "bad_acks": 0,
+      "bytes": 133138555
+    },
+    "drain_complete": false,
+    "integrity": {
+      "expected_per_channel": 26030,
+      "persisted_logs": 16620,
+      "persisted_hooks": 16010,
+      "remaining_outbox_files": 1947,
+      "bad_acks": 0
+    },
+    "ack_age_ms": {
+      "logs": {
+        "count": 1659,
+        "mean": 94684.432,
+        "p50": 98484.356,
+        "p95": 163680.478,
+        "p99": 167957.197,
+        "max": 169781.863
+      },
+      "hooks": {
+        "count": 1600,
+        "mean": 99833.008,
+        "p50": 102349.446,
+        "p95": 165874.321,
+        "p99": 170239.29,
+        "max": 172379.035
+      }
+    },
+    "cleanup": [
+      {
+        "name": "pipeline trace",
+        "started": 1792033258.5478709,
+        "duration_ms": 18.731117248535156,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033258.8193002,
+        "duration_ms": 588.1106853485107,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033258.5495198,
+        "duration_ms": 1312.732219696045,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033259.659948,
+        "duration_ms": 257.3890686035156,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033260.21331,
+        "duration_ms": 21.544933319091797,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033260.11636,
+        "duration_ms": 819.2970752716064,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033260.4883578,
+        "duration_ms": 477.48422622680664,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033258.549984,
+        "duration_ms": 2518.360137939453,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033261.2430432,
+        "duration_ms": 12.719869613647461,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033261.515064,
+        "duration_ms": 353.2440662384033,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033261.21683,
+        "duration_ms": 750.6999969482422,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033261.395765,
+        "duration_ms": 731.7888736724854,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033262.14014,
+        "duration_ms": 11.242866516113281,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033262.482115,
+        "duration_ms": 489.0158176422119,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033262.391565,
+        "duration_ms": 825.1688480377197,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033263.2818902,
+        "duration_ms": 58.209896087646484,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033262.226437,
+        "duration_ms": 1269.2627906799316,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033263.479709,
+        "duration_ms": 32.54818916320801,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033263.619798,
+        "duration_ms": 17.947912216186523,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033263.89088,
+        "duration_ms": 558.527946472168,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033263.748252,
+        "duration_ms": 815.8650398254395,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033264.71162,
+        "duration_ms": 27.919769287109375,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033264.830574,
+        "duration_ms": 756.8678855895996,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033265.0006819,
+        "duration_ms": 593.8241481781006,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033263.76502,
+        "duration_ms": 1933.4230422973633,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033265.837515,
+        "duration_ms": 708.5719108581543,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033265.925847,
+        "duration_ms": 779.7420024871826,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033265.983774,
+        "duration_ms": 877.0859241485596,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033266.982878,
+        "duration_ms": 16.82305335998535,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033267.285119,
+        "duration_ms": 48.171043395996094,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033267.5891368,
+        "duration_ms": 44.36826705932617,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033267.9199328,
+        "duration_ms": 787.5163555145264,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033267.1413388,
+        "duration_ms": 1598.548173904419,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033268.9844558,
+        "duration_ms": 227.58722305297852,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033269.468873,
+        "duration_ms": 20.982980728149414,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033266.7963939,
+        "duration_ms": 3340.2011394500732,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033270.411169,
+        "duration_ms": 799.144983291626,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033268.9953868,
+        "duration_ms": 2303.0121326446533,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033271.530644,
+        "duration_ms": 1439.2330646514893,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033271.5935109,
+        "duration_ms": 1690.5930042266846,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033273.327917,
+        "duration_ms": 959.5997333526611,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033273.734752,
+        "duration_ms": 1671.942949295044,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033274.5409431,
+        "duration_ms": 1814.4168853759766,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033275.762081,
+        "duration_ms": 783.8940620422363,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033276.801551,
+        "duration_ms": 574.4838714599609,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033276.614971,
+        "duration_ms": 768.6271667480469,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033277.687217,
+        "duration_ms": 777.7910232543945,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033278.736396,
+        "duration_ms": 982.1407794952393,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033280.066538,
+        "duration_ms": 970.1409339904785,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033277.6782029,
+        "duration_ms": 3549.8480796813965,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033281.3635619,
+        "duration_ms": 1132.7362060546875,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033281.585014,
+        "duration_ms": 1338.7467861175537,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033282.8072069,
+        "duration_ms": 1287.5251770019531,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033283.99787,
+        "duration_ms": 122.10488319396973,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033284.4723232,
+        "duration_ms": 432.4967861175537,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033284.4706402,
+        "duration_ms": 2120.7356452941895,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033285.323568,
+        "duration_ms": 1468.4889316558838,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033287.050186,
+        "duration_ms": 1722.3501205444336,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033287.317375,
+        "duration_ms": 1621.474027633667,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033289.2255192,
+        "duration_ms": 16.545772552490234,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033289.2728472,
+        "duration_ms": 35.5687141418457,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033289.713293,
+        "duration_ms": 31.334877014160156,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033329.5190752,
+        "duration_ms": 145.81561088562012,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033349.2491279,
+        "duration_ms": 282.12523460388184,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033349.859373,
+        "duration_ms": 3261.9829177856445,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033389.664855,
+        "duration_ms": 252.59709358215332,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033409.5378811,
+        "duration_ms": 29.384851455688477,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033413.139597,
+        "duration_ms": 2183.511257171631,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033449.945107,
+        "duration_ms": 3.9000511169433594,
+        "more": false,
+        "error": null
+      }
+    ],
+    "replay": {
+      "reconnected_at": 1792033258.5402932,
+      "backlog_records": 15410,
+      "drained_at": 1792033378.8388102
+    },
+    "application_sha256": "e15a178e6a35292787c55c45c5b1d6fb1bc3ac49bf628e4c3b28afc967429a95",
+    "application_files": 204,
+    "resource_summary": {
+      "backend_cpu": 146.3,
+      "backend_rss": 236978176,
+      "driver_cpu": 18.1,
+      "driver_rss": 86425600
+    },
+    "event_loop_lag_ms": {
+      "threshold": 100,
+      "count": 6,
+      "max": 1573.4589580097236,
+      "blocked_stack_bytes": 0
+    },
+    "successful_requests": {
+      "baseline": {
+        "llm": {
+          "success": 101,
+          "total": 101,
+          "latency_ms": {
+            "count": 101,
+            "p50": 148.637,
+            "p95": 742.542,
+            "p99": 1247.2,
+            "max": 1359.157
+          }
+        },
+        "mcp": {
+          "success": 101,
+          "total": 101,
+          "latency_ms": {
+            "count": 101,
+            "p50": 295.422,
+            "p95": 1065.853,
+            "p99": 1379.781,
+            "max": 1468.061
+          }
+        },
+        "direct": {
+          "success": 101,
+          "total": 101,
+          "latency_ms": {
+            "count": 101,
+            "p50": 56.59,
+            "p95": 83.624,
+            "p99": 153.461,
+            "max": 178.908
+          }
+        },
+        "logs": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        },
+        "hooks": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        }
+      },
+      "steady": {
+        "llm": {
+          "success": 150,
+          "total": 150,
+          "latency_ms": {
+            "count": 150,
+            "p50": 1024.561,
+            "p95": 5988.05,
+            "p99": 8248.17,
+            "max": 9156.888
+          }
+        },
+        "mcp": {
+          "success": 149,
+          "total": 150,
+          "latency_ms": {
+            "count": 149,
+            "p50": 1184.651,
+            "p95": 5898.791,
+            "p99": 7686.723,
+            "max": 9034.216
+          }
+        },
+        "direct": {
+          "success": 150,
+          "total": 150,
+          "latency_ms": {
+            "count": 150,
+            "p50": 56.794,
+            "p95": 68.418,
+            "p99": 135.735,
+            "max": 192.83
+          }
+        },
+        "logs": {
+          "success": 360,
+          "total": 360,
+          "latency_ms": {
+            "count": 360,
+            "p50": 101.584,
+            "p95": 550.41,
+            "p99": 1483.453,
+            "max": 4726.847
+          }
+        },
+        "hooks": {
+          "success": 301,
+          "total": 301,
+          "latency_ms": {
+            "count": 301,
+            "p50": 102.24,
+            "p95": 628.104,
+            "p99": 1807.825,
+            "max": 4344.694
+          }
+        }
+      },
+      "offline": {
+        "llm": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 196.749,
+            "p95": 3303.145,
+            "p99": 4440.665,
+            "max": 4720.045
+          }
+        },
+        "mcp": {
+          "success": 90,
+          "total": 100,
+          "latency_ms": {
+            "count": 90,
+            "p50": 375.648,
+            "p95": 4092.313,
+            "p99": 4673.953,
+            "max": 5459.087
+          }
+        },
+        "direct": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 59.03,
+            "p95": 340.488,
+            "p99": 944.559,
+            "max": 1920.886
+          }
+        },
+        "logs": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        },
+        "hooks": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        }
+      },
+      "replay_cleanup": {
+        "llm": {
+          "success": 294,
+          "total": 300,
+          "latency_ms": {
+            "count": 294,
+            "p50": 1885.459,
+            "p95": 6398.448,
+            "p99": 7951.515,
+            "max": 10609.324
+          }
+        },
+        "mcp": {
+          "success": 293,
+          "total": 300,
+          "latency_ms": {
+            "count": 293,
+            "p50": 1819.666,
+            "p95": 6806.035,
+            "p99": 9742.127,
+            "max": 11739.995
+          }
+        },
+        "direct": {
+          "success": 300,
+          "total": 300,
+          "latency_ms": {
+            "count": 300,
+            "p50": 57.117,
+            "p95": 75.924,
+            "p99": 142.689,
+            "max": 185.473
+          }
+        },
+        "logs": {
+          "success": 323,
+          "total": 323,
+          "latency_ms": {
+            "count": 323,
+            "p50": 167.717,
+            "p95": 1737.184,
+            "p99": 2393.538,
+            "max": 3462.214
+          }
+        },
+        "hooks": {
+          "success": 323,
+          "total": 323,
+          "latency_ms": {
+            "count": 323,
+            "p50": 125.293,
+            "p95": 1571.519,
+            "p99": 2677.409,
+            "max": 3219.888
+          }
+        }
+      },
+      "recovery": {
+        "llm": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 1723.177,
+            "p95": 4346.236,
+            "p99": 5873.262,
+            "max": 6924.334
+          }
+        },
+        "mcp": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 1521.867,
+            "p95": 3871.115,
+            "p99": 5715.078,
+            "max": 6715.276
+          }
+        },
+        "direct": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 56.612,
+            "p95": 83.25,
+            "p99": 174.554,
+            "max": 237.105
+          }
+        },
+        "logs": {
+          "success": 159,
+          "total": 159,
+          "latency_ms": {
+            "count": 159,
+            "p50": 126.574,
+            "p95": 832.563,
+            "p99": 2009.729,
+            "max": 2242.92
+          }
+        },
+        "hooks": {
+          "success": 167,
+          "total": 167,
+          "latency_ms": {
+            "count": 167,
+            "p50": 111.308,
+            "p95": 1026.375,
+            "p99": 2264.169,
+            "max": 3036.092
+          }
+        }
+      },
+      "drain": {
+        "llm": {
+          "success": 600,
+          "total": 600,
+          "latency_ms": {
+            "count": 600,
+            "p50": 1540.655,
+            "p95": 4733.098,
+            "p99": 5674.072,
+            "max": 10891.332
+          }
+        },
+        "mcp": {
+          "success": 600,
+          "total": 600,
+          "latency_ms": {
+            "count": 600,
+            "p50": 1547.218,
+            "p95": 4154.823,
+            "p99": 5701.71,
+            "max": 8180.629
+          }
+        },
+        "direct": {
+          "success": 600,
+          "total": 600,
+          "latency_ms": {
+            "count": 600,
+            "p50": 56.903,
+            "p95": 74.278,
+            "p99": 133.172,
+            "max": 389.461
+          }
+        },
+        "logs": {
+          "success": 1017,
+          "total": 1017,
+          "latency_ms": {
+            "count": 1017,
+            "p50": 126.961,
+            "p95": 875.244,
+            "p99": 1713.623,
+            "max": 3436.718
+          }
+        },
+        "hooks": {
+          "success": 1009,
+          "total": 1009,
+          "latency_ms": {
+            "count": 1009,
+            "p50": 114.113,
+            "p95": 933.115,
+            "p99": 1758.291,
+            "max": 3984.828
+          }
+        }
+      }
+    },
+    "cleanup_summary": {
+      "runtime trace": {
+        "errors": 0,
+        "complete_seconds": 31.195,
+        "batch_duration_ms": {
+          "count": 22,
+          "p50": 1403.618,
+          "p95": 3224.802,
+          "p99": 3489.396,
+          "max": 3549.848
+        }
+      },
+      "aidr": {
+        "errors": 0,
+        "complete_seconds": 30.693,
+        "batch_duration_ms": {
+          "count": 23,
+          "p50": 959.6,
+          "p95": 2090.104,
+          "p99": 3071.919,
+          "max": 3340.201
+        }
+      },
+      "pipeline trace": {
+        "errors": 0,
+        "complete_seconds": 10.942,
+        "batch_duration_ms": {
+          "count": 24,
+          "p50": 102.013,
+          "p95": 751.854,
+          "p99": 785.728,
+          "max": 787.516
+        }
+      }
+    },
+    "post_run": {
+      "request_leases": 0,
+      "mcp_error_counts": {
+        "All connection attempts failed": 18
+      }
+    },
+    "raw_directory": "outputs/performance/2026-10-15-gateway-contention-fix/control_high_limited"
+  },
+  "lower_limited": {
+    "config": {
+      "cleanup_start": "replay",
+      "diagnostics": false,
+      "clients": 100,
+      "upload_concurrency": 4,
+      "historical_rows": 10000,
+      "body_bytes": 1024,
+      "batch_records": 10,
+      "batch_seconds": 20,
+      "gateway_rps": 1,
+      "baseline_seconds": 20,
+      "steady_seconds": 30,
+      "offline_seconds": 20,
+      "replay_seconds": 60,
+      "recovery_seconds": 20,
+      "drain_seconds": 120,
+      "port": 56981,
+      "mock_port": 56982,
+      "source_sha256": "326d3f643b977bf429623ef57e54336958cfd16a7d6674ae46b2af24abf5a546",
+      "git_head": "239d84a1b13f9e882f700c6c8f5c55a4d499a051"
+    },
+    "environment": {
+      "platform": "macOS-27.0-arm64-arm-64bit",
+      "python": "3.12.9 (main, Mar 17 2025, 21:36:21) [Clang 20.1.0 ]",
+      "cpu_count": 10,
+      "memory_bytes": 17179869184,
+      "sqlite_version": "3.47.1",
+      "workers": 1
+    },
+    "phases": [
+      {
+        "name": "baseline",
+        "started": 1792033507.1915379,
+        "ended": 1792033527.192863,
+        "generated": 0,
+        "acked": 0,
+        "db": {
+          "aidr_events": {
+            "live": 10000
+          },
+          "aidr_hook_events": {
+            "live": 10000
+          },
+          "aidr_operations": {
+            "live": 10000
+          },
+          "llm_pipeline_traces": 10000,
+          "runtime_trace_events": 10000,
+          "runtime_trace_sessions": 1,
+          "fresh_logs": 0,
+          "fresh_hooks": 0,
+          "batch_records": {
+            "aidr_batches": 0,
+            "aidr_hook_batches": 0
+          },
+          "files_bytes": {
+            "backend.db": 170004480,
+            "backend.db-wal": 18663632
+          }
+        }
+      },
+      {
+        "name": "steady",
+        "started": 1792033527.252128,
+        "ended": 1792033557.252908,
+        "generated": 3000,
+        "acked": 3000,
+        "db": {
+          "aidr_events": {
+            "live": 11500
+          },
+          "aidr_hook_events": {
+            "live": 11500
+          },
+          "aidr_operations": {
+            "live": 10750
+          },
+          "llm_pipeline_traces": 10000,
+          "runtime_trace_events": 10000,
+          "runtime_trace_sessions": 1,
+          "fresh_logs": 1500,
+          "fresh_hooks": 1500,
+          "batch_records": {
+            "aidr_batches": 1500,
+            "aidr_hook_batches": 1500
+          },
+          "files_bytes": {
+            "backend.db": 191987712,
+            "backend.db-wal": 18663632
+          }
+        }
+      },
+      {
+        "name": "offline",
+        "started": 1792033557.270046,
+        "ended": 1792033577.2707782,
+        "generated": 5020,
+        "acked": 3010,
+        "db": {
+          "aidr_events": {
+            "live": 11510
+          },
+          "aidr_hook_events": {
+            "live": 11500
+          },
+          "aidr_operations": {
+            "live": 10755
+          },
+          "llm_pipeline_traces": 10000,
+          "runtime_trace_events": 10000,
+          "runtime_trace_sessions": 1,
+          "fresh_logs": 1510,
+          "fresh_hooks": 1500,
+          "batch_records": {
+            "aidr_batches": 1510,
+            "aidr_hook_batches": 1500
+          },
+          "files_bytes": {
+            "backend.db": 192573440,
+            "backend.db-wal": 18663632
+          }
+        }
+      },
+      {
+        "name": "replay_cleanup",
+        "started": 1792033577.2892601,
+        "ended": 1792033637.3121002,
+        "generated": 11020,
+        "acked": 11000,
+        "db": {
+          "aidr_events": {
+            "expired": 10000,
+            "live": 5500
+          },
+          "aidr_hook_events": {
+            "expired": 10000,
+            "live": 5500
+          },
+          "aidr_operations": {
+            "expired": 10000,
+            "live": 2750
+          },
+          "llm_pipeline_traces": 0,
+          "runtime_trace_events": 0,
+          "runtime_trace_sessions": 0,
+          "fresh_logs": 5500,
+          "fresh_hooks": 5500,
+          "batch_records": {
+            "aidr_batches": 5500,
+            "aidr_hook_batches": 5500
+          },
+          "files_bytes": {
+            "backend.db": 219672576,
+            "backend.db-wal": 23941352
+          }
+        }
+      },
+      {
+        "name": "recovery",
+        "started": 1792033637.422271,
+        "ended": 1792033657.4264011,
+        "generated": 13020,
+        "acked": 13020,
+        "db": {
+          "aidr_events": {
+            "expired": 10000,
+            "live": 6510
+          },
+          "aidr_hook_events": {
+            "expired": 10000,
+            "live": 6510
+          },
+          "aidr_operations": {
+            "expired": 10000,
+            "live": 3255
+          },
+          "llm_pipeline_traces": 0,
+          "runtime_trace_events": 0,
+          "runtime_trace_sessions": 0,
+          "fresh_logs": 6510,
+          "fresh_hooks": 6510,
+          "batch_records": {
+            "aidr_batches": 6510,
+            "aidr_hook_batches": 6510
+          },
+          "files_bytes": {
+            "backend.db": 234819584,
+            "backend.db-wal": 23941352
+          }
+        }
+      }
+    ],
+    "summary": {
+      "baseline": {
+        "logs": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 21,
+            "mean": 133.229,
+            "p50": 121.905,
+            "p95": 181.2,
+            "p99": 220.044,
+            "max": 229.755
+          },
+          "scheduled_latency_ms": {
+            "count": 21,
+            "mean": 134.651,
+            "p50": 124.195,
+            "p95": 183.168,
+            "p99": 221.162,
+            "max": 230.661
+          },
+          "launch_lag_ms": {
+            "count": 21,
+            "mean": 1.422,
+            "p50": 1.154,
+            "p95": 2.761,
+            "p99": 6.334,
+            "max": 7.228
+          },
+          "statuses": {
+            "200": 21
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 21,
+            "mean": 248.618,
+            "p50": 241.448,
+            "p95": 299.346,
+            "p99": 336.878,
+            "max": 346.262
+          },
+          "scheduled_latency_ms": {
+            "count": 21,
+            "mean": 250.205,
+            "p50": 241.848,
+            "p95": 300.579,
+            "p99": 338.039,
+            "max": 347.404
+          },
+          "launch_lag_ms": {
+            "count": 21,
+            "mean": 1.587,
+            "p50": 1.234,
+            "p95": 2.542,
+            "p99": 7.159,
+            "max": 8.313
+          },
+          "statuses": {
+            "200": 21
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 21,
+            "mean": 56.348,
+            "p50": 56.541,
+            "p95": 59.12,
+            "p99": 59.333,
+            "max": 59.387
+          },
+          "scheduled_latency_ms": {
+            "count": 21,
+            "mean": 58.204,
+            "p50": 57.741,
+            "p95": 62.795,
+            "p99": 64.931,
+            "max": 65.465
+          },
+          "launch_lag_ms": {
+            "count": 21,
+            "mean": 1.856,
+            "p50": 1.588,
+            "p95": 3.409,
+            "p99": 6.99,
+            "max": 7.885
+          },
+          "statuses": {
+            "200": 21
+          },
+          "errors": {}
+        }
+      },
+      "steady": {
+        "logs": {
+          "latency_ms": {
+            "count": 251,
+            "mean": 65.566,
+            "p50": 28.915,
+            "p95": 191.907,
+            "p99": 863.397,
+            "max": 1417.108
+          },
+          "scheduled_latency_ms": {
+            "count": 251,
+            "mean": 65.566,
+            "p50": 28.915,
+            "p95": 191.907,
+            "p99": 863.397,
+            "max": 1417.108
+          },
+          "launch_lag_ms": {
+            "count": 251,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 251
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 250,
+            "mean": 40.191,
+            "p50": 22.292,
+            "p95": 95.27,
+            "p99": 496.755,
+            "max": 1417.719
+          },
+          "scheduled_latency_ms": {
+            "count": 250,
+            "mean": 40.191,
+            "p50": 22.292,
+            "p95": 95.27,
+            "p99": 496.755,
+            "max": 1417.719
+          },
+          "launch_lag_ms": {
+            "count": 250,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 250
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 30,
+            "mean": 281.036,
+            "p50": 158.356,
+            "p95": 753.727,
+            "p99": 1636.815,
+            "max": 1945.866
+          },
+          "scheduled_latency_ms": {
+            "count": 30,
+            "mean": 284.427,
+            "p50": 159.371,
+            "p95": 754.235,
+            "p99": 1677.723,
+            "max": 2003.205
+          },
+          "launch_lag_ms": {
+            "count": 30,
+            "mean": 3.391,
+            "p50": 1.215,
+            "p95": 7.711,
+            "p99": 44.299,
+            "max": 57.339
+          },
+          "statuses": {
+            "200": 30
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 30,
+            "mean": 393.205,
+            "p50": 237.573,
+            "p95": 1221.187,
+            "p99": 1556.859,
+            "max": 1636.145
+          },
+          "scheduled_latency_ms": {
+            "count": 30,
+            "mean": 397.028,
+            "p50": 240.43,
+            "p95": 1244.941,
+            "p99": 1570.037,
+            "max": 1637.579
+          },
+          "launch_lag_ms": {
+            "count": 30,
+            "mean": 3.823,
+            "p50": 1.57,
+            "p95": 17.168,
+            "p99": 35.468,
+            "max": 41.928
+          },
+          "statuses": {
+            "200": 30
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 30,
+            "mean": 63.286,
+            "p50": 55.739,
+            "p95": 66.556,
+            "p99": 207.658,
+            "max": 262.782
+          },
+          "scheduled_latency_ms": {
+            "count": 30,
+            "mean": 73.298,
+            "p50": 57.586,
+            "p95": 73.537,
+            "p99": 376.679,
+            "max": 500.002
+          },
+          "launch_lag_ms": {
+            "count": 30,
+            "mean": 10.012,
+            "p50": 1.798,
+            "p95": 9.19,
+            "p99": 172.662,
+            "max": 237.219
+          },
+          "statuses": {
+            "200": 30
+          },
+          "errors": {}
+        }
+      },
+      "offline": {
+        "logs": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 20,
+            "mean": 150.638,
+            "p50": 121.584,
+            "p95": 169.14,
+            "p99": 593.224,
+            "max": 699.245
+          },
+          "scheduled_latency_ms": {
+            "count": 20,
+            "mean": 152.236,
+            "p50": 122.795,
+            "p95": 170.394,
+            "p99": 594.443,
+            "max": 700.456
+          },
+          "launch_lag_ms": {
+            "count": 20,
+            "mean": 1.597,
+            "p50": 1.259,
+            "p95": 2.195,
+            "p99": 5.84,
+            "max": 6.751
+          },
+          "statuses": {
+            "200": 20
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 20,
+            "mean": 279.473,
+            "p50": 236.666,
+            "p95": 321.372,
+            "p99": 880.349,
+            "max": 1020.093
+          },
+          "scheduled_latency_ms": {
+            "count": 20,
+            "mean": 281.456,
+            "p50": 240.862,
+            "p95": 323.341,
+            "p99": 882.323,
+            "max": 1022.068
+          },
+          "launch_lag_ms": {
+            "count": 20,
+            "mean": 1.983,
+            "p50": 1.7,
+            "p95": 6.033,
+            "p99": 6.527,
+            "max": 6.65
+          },
+          "statuses": {
+            "200": 20
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 20,
+            "mean": 55.411,
+            "p50": 55.303,
+            "p95": 59.028,
+            "p99": 61.145,
+            "max": 61.675
+          },
+          "scheduled_latency_ms": {
+            "count": 20,
+            "mean": 57.564,
+            "p50": 56.73,
+            "p95": 64.085,
+            "p99": 65.416,
+            "max": 65.748
+          },
+          "launch_lag_ms": {
+            "count": 20,
+            "mean": 2.153,
+            "p50": 1.768,
+            "p95": 2.85,
+            "p99": 7.331,
+            "max": 8.451
+          },
+          "statuses": {
+            "200": 20
+          },
+          "errors": {}
+        }
+      },
+      "replay_cleanup": {
+        "logs": {
+          "latency_ms": {
+            "count": 400,
+            "mean": 222.809,
+            "p50": 53.29,
+            "p95": 1333.127,
+            "p99": 2643.634,
+            "max": 4593.026
+          },
+          "scheduled_latency_ms": {
+            "count": 400,
+            "mean": 222.809,
+            "p50": 53.29,
+            "p95": 1333.127,
+            "p99": 2643.634,
+            "max": 4593.026
+          },
+          "launch_lag_ms": {
+            "count": 400,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 400
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 400,
+            "mean": 145.224,
+            "p50": 41.485,
+            "p95": 895.816,
+            "p99": 1737.143,
+            "max": 2660.072
+          },
+          "scheduled_latency_ms": {
+            "count": 400,
+            "mean": 145.224,
+            "p50": 41.485,
+            "p95": 895.816,
+            "p99": 1737.143,
+            "max": 2660.072
+          },
+          "launch_lag_ms": {
+            "count": 400,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 400
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 60,
+            "mean": 902.616,
+            "p50": 345.562,
+            "p95": 3227.235,
+            "p99": 5427.668,
+            "max": 5679.545
+          },
+          "scheduled_latency_ms": {
+            "count": 60,
+            "mean": 912.272,
+            "p50": 346.674,
+            "p95": 3230.945,
+            "p99": 5428.828,
+            "max": 5680.762
+          },
+          "launch_lag_ms": {
+            "count": 60,
+            "mean": 9.656,
+            "p50": 1.262,
+            "p95": 29.785,
+            "p99": 184.772,
+            "max": 254.296
+          },
+          "statuses": {
+            "200": 60
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 60,
+            "mean": 1030.148,
+            "p50": 415.459,
+            "p95": 3181.318,
+            "p99": 4615.936,
+            "max": 4747.737
+          },
+          "scheduled_latency_ms": {
+            "count": 60,
+            "mean": 1041.079,
+            "p50": 420.634,
+            "p95": 3265.711,
+            "p99": 4617.464,
+            "max": 4749.207
+          },
+          "launch_lag_ms": {
+            "count": 60,
+            "mean": 10.931,
+            "p50": 1.693,
+            "p95": 30.98,
+            "p99": 177.193,
+            "max": 239.53
+          },
+          "statuses": {
+            "200": 60
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 60,
+            "mean": 63.219,
+            "p50": 56.429,
+            "p95": 75.434,
+            "p99": 228.724,
+            "max": 259.093
+          },
+          "scheduled_latency_ms": {
+            "count": 60,
+            "mean": 74.865,
+            "p50": 58.324,
+            "p95": 207.195,
+            "p99": 346.779,
+            "max": 385.337
+          },
+          "launch_lag_ms": {
+            "count": 60,
+            "mean": 11.647,
+            "p50": 1.823,
+            "p95": 44.109,
+            "p99": 184.818,
+            "max": 255.011
+          },
+          "statuses": {
+            "200": 60
+          },
+          "errors": {}
+        }
+      },
+      "recovery": {
+        "logs": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 55.538,
+            "p50": 29.292,
+            "p95": 202.23,
+            "p99": 503.046,
+            "max": 509.109
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 55.538,
+            "p50": 29.292,
+            "p95": 202.23,
+            "p99": 503.046,
+            "max": 509.109
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 101,
+            "mean": 27.114,
+            "p50": 23.062,
+            "p95": 49.458,
+            "p99": 69.019,
+            "max": 87.144
+          },
+          "scheduled_latency_ms": {
+            "count": 101,
+            "mean": 27.114,
+            "p50": 23.062,
+            "p95": 49.458,
+            "p99": 69.019,
+            "max": 87.144
+          },
+          "launch_lag_ms": {
+            "count": 101,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 101
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 20,
+            "mean": 186.016,
+            "p50": 136.589,
+            "p95": 583.142,
+            "p99": 678.313,
+            "max": 702.106
+          },
+          "scheduled_latency_ms": {
+            "count": 20,
+            "mean": 188.331,
+            "p50": 137.41,
+            "p95": 585.518,
+            "p99": 699.544,
+            "max": 728.051
+          },
+          "launch_lag_ms": {
+            "count": 20,
+            "mean": 2.315,
+            "p50": 1.182,
+            "p95": 2.936,
+            "p99": 21.344,
+            "max": 25.945
+          },
+          "statuses": {
+            "200": 20
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 20,
+            "mean": 284.053,
+            "p50": 234.43,
+            "p95": 712.176,
+            "p99": 761.596,
+            "max": 773.951
+          },
+          "scheduled_latency_ms": {
+            "count": 20,
+            "mean": 287.039,
+            "p50": 235.618,
+            "p95": 715.464,
+            "p99": 789.647,
+            "max": 808.193
+          },
+          "launch_lag_ms": {
+            "count": 20,
+            "mean": 2.986,
+            "p50": 1.399,
+            "p95": 4.042,
+            "p99": 28.202,
+            "max": 34.242
+          },
+          "statuses": {
+            "200": 20
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 20,
+            "mean": 62.002,
+            "p50": 55.527,
+            "p95": 64.589,
+            "p99": 168.32,
+            "max": 194.253
+          },
+          "scheduled_latency_ms": {
+            "count": 20,
+            "mean": 65.349,
+            "p50": 56.796,
+            "p95": 68.152,
+            "p99": 198.706,
+            "max": 231.345
+          },
+          "launch_lag_ms": {
+            "count": 20,
+            "mean": 3.348,
+            "p50": 1.746,
+            "p95": 4.328,
+            "p99": 30.539,
+            "max": 37.092
+          },
+          "statuses": {
+            "200": 20
+          },
+          "errors": {}
+        }
+      },
+      "drain": {
+        "logs": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        }
+      }
+    },
+    "final": {
+      "aidr_events": {
+        "expired": 10000,
+        "live": 6510
+      },
+      "aidr_hook_events": {
+        "expired": 10000,
+        "live": 6510
+      },
+      "aidr_operations": {
+        "expired": 10000,
+        "live": 3255
+      },
+      "llm_pipeline_traces": 0,
+      "runtime_trace_events": 0,
+      "runtime_trace_sessions": 0,
+      "fresh_logs": 6510,
+      "fresh_hooks": 6510,
+      "batch_records": {
+        "aidr_batches": 6510,
+        "aidr_hook_batches": 6510
+      },
+      "files_bytes": {
+        "backend.db": 234819584,
+        "backend.db-wal": 23941352
+      }
+    },
+    "state": {
+      "phase": "drain",
+      "generating": false,
+      "done": true,
+      "generated": 13020,
+      "acked": 13020,
+      "replayed": 200,
+      "bad_acks": 0,
+      "bytes": 33266175
+    },
+    "drain_complete": true,
+    "integrity": {
+      "expected_per_channel": 6510,
+      "persisted_logs": 6510,
+      "persisted_hooks": 6510,
+      "remaining_outbox_files": 0,
+      "bad_acks": 0
+    },
+    "ack_age_ms": {
+      "logs": {
+        "count": 651,
+        "mean": 3260.287,
+        "p50": 90.456,
+        "p95": 15773.186,
+        "p99": 19103.367,
+        "max": 21489.828
+      },
+      "hooks": {
+        "count": 651,
+        "mean": 4773.868,
+        "p50": 157.769,
+        "p95": 20036.599,
+        "p99": 24233.98,
+        "max": 25448.746
+      }
+    },
+    "cleanup": [
+      {
+        "name": "pipeline trace",
+        "started": 1792033577.350656,
+        "duration_ms": 31.137943267822266,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033577.3467362,
+        "duration_ms": 826.7626762390137,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033577.635668,
+        "duration_ms": 586.8868827819824,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033577.3537521,
+        "duration_ms": 1216.460943222046,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033578.570237,
+        "duration_ms": 96.78506851196289,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033578.9184582,
+        "duration_ms": 11.295795440673828,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033578.424551,
+        "duration_ms": 767.3261165618896,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033579.1811671,
+        "duration_ms": 17.934799194335938,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033578.822976,
+        "duration_ms": 420.32670974731445,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033579.452269,
+        "duration_ms": 160.07494926452637,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033579.441738,
+        "duration_ms": 878.730058670044,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033579.4997408,
+        "duration_ms": 827.4881839752197,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033579.86347,
+        "duration_ms": 774.8198509216309,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033580.889152,
+        "duration_ms": 24.42193031311035,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033580.571969,
+        "duration_ms": 477.6780605316162,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033580.579314,
+        "duration_ms": 492.4781322479248,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033581.1655831,
+        "duration_ms": 10.351896286010742,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033581.429148,
+        "duration_ms": 12.934207916259766,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033581.696755,
+        "duration_ms": 48.87700080871582,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033581.997802,
+        "duration_ms": 48.58589172363281,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033582.303212,
+        "duration_ms": 1195.188045501709,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033583.749674,
+        "duration_ms": 242.29907989501953,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033581.301621,
+        "duration_ms": 2790.7729148864746,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033584.3434691,
+        "duration_ms": 576.8229961395264,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033584.243972,
+        "duration_ms": 1010.4498863220215,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033581.3295722,
+        "duration_ms": 3926.212787628174,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033585.513758,
+        "duration_ms": 76.73001289367676,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033585.170939,
+        "duration_ms": 621.5829849243164,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033585.8468301,
+        "duration_ms": 75.51002502441406,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033586.174316,
+        "duration_ms": 15.65694808959961,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033585.514372,
+        "duration_ms": 876.4269351959229,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033586.043343,
+        "duration_ms": 449.462890625,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033586.441609,
+        "duration_ms": 71.15316390991211,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033586.652096,
+        "duration_ms": 69.13900375366211,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033586.7651598,
+        "duration_ms": 365.83518981933594,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033586.9747782,
+        "duration_ms": 184.33570861816406,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033587.383306,
+        "duration_ms": 10.915994644165039,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033587.411524,
+        "duration_ms": 1443.7248706817627,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033586.742362,
+        "duration_ms": 2972.299814224243,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033589.340959,
+        "duration_ms": 814.1701221466064,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033589.965255,
+        "duration_ms": 3908.864974975586,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033594.124335,
+        "duration_ms": 484.88688468933105,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033590.4746618,
+        "duration_ms": 4264.137268066406,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033595.029043,
+        "duration_ms": 465.34013748168945,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033594.8593578,
+        "duration_ms": 846.4791774749756,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033595.7466931,
+        "duration_ms": 372.3459243774414,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033595.956757,
+        "duration_ms": 538.55299949646,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033596.3691268,
+        "duration_ms": 243.699312210083,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033596.863432,
+        "duration_ms": 119.49896812438965,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033596.747417,
+        "duration_ms": 1215.8129215240479,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033598.213403,
+        "duration_ms": 762.9680633544922,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033599.236521,
+        "duration_ms": 1151.304006576538,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033600.640196,
+        "duration_ms": 846.0988998413086,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033601.7371252,
+        "duration_ms": 677.1457195281982,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033597.2331488,
+        "duration_ms": 5198.131322860718,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033602.664396,
+        "duration_ms": 702.4750709533691,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033602.684185,
+        "duration_ms": 714.2119407653809,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033603.650883,
+        "duration_ms": 659.066915512085,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033603.6173701,
+        "duration_ms": 867.63596534729,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033604.735927,
+        "duration_ms": 98.90580177307129,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033604.563773,
+        "duration_ms": 2301.3880252838135,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033607.116565,
+        "duration_ms": 16.64900779724121,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033647.3977652,
+        "duration_ms": 1.2149810791015625,
+        "more": false,
+        "error": null
+      }
+    ],
+    "replay": {
+      "reconnected_at": 1792033577.289183,
+      "backlog_records": 2010,
+      "drained_at": 1792033589.9948952
+    },
+    "application_sha256": "f0742f9b09af8563bc426b668f8bb5f8d2793a36720efe9ef7582fc3627561e5",
+    "application_files": 204,
+    "resource_summary": {
+      "backend_cpu": 108.3,
+      "backend_rss": 210370560,
+      "driver_cpu": 9.8,
+      "driver_rss": 50806784
+    },
+    "event_loop_lag_ms": {
+      "threshold": 100,
+      "count": 1,
+      "max": 140.20274998620152,
+      "blocked_stack_bytes": 0
+    },
+    "successful_requests": {
+      "baseline": {
+        "llm": {
+          "success": 21,
+          "total": 21,
+          "latency_ms": {
+            "count": 21,
+            "p50": 121.905,
+            "p95": 181.2,
+            "p99": 220.044,
+            "max": 229.755
+          }
+        },
+        "mcp": {
+          "success": 21,
+          "total": 21,
+          "latency_ms": {
+            "count": 21,
+            "p50": 241.448,
+            "p95": 299.346,
+            "p99": 336.878,
+            "max": 346.262
+          }
+        },
+        "direct": {
+          "success": 21,
+          "total": 21,
+          "latency_ms": {
+            "count": 21,
+            "p50": 56.541,
+            "p95": 59.12,
+            "p99": 59.333,
+            "max": 59.387
+          }
+        },
+        "logs": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        },
+        "hooks": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        }
+      },
+      "steady": {
+        "llm": {
+          "success": 30,
+          "total": 30,
+          "latency_ms": {
+            "count": 30,
+            "p50": 158.356,
+            "p95": 753.727,
+            "p99": 1636.815,
+            "max": 1945.866
+          }
+        },
+        "mcp": {
+          "success": 30,
+          "total": 30,
+          "latency_ms": {
+            "count": 30,
+            "p50": 237.573,
+            "p95": 1221.187,
+            "p99": 1556.859,
+            "max": 1636.145
+          }
+        },
+        "direct": {
+          "success": 30,
+          "total": 30,
+          "latency_ms": {
+            "count": 30,
+            "p50": 55.739,
+            "p95": 66.556,
+            "p99": 207.658,
+            "max": 262.782
+          }
+        },
+        "logs": {
+          "success": 251,
+          "total": 251,
+          "latency_ms": {
+            "count": 251,
+            "p50": 28.915,
+            "p95": 191.907,
+            "p99": 863.397,
+            "max": 1417.108
+          }
+        },
+        "hooks": {
+          "success": 250,
+          "total": 250,
+          "latency_ms": {
+            "count": 250,
+            "p50": 22.292,
+            "p95": 95.27,
+            "p99": 496.755,
+            "max": 1417.719
+          }
+        }
+      },
+      "offline": {
+        "llm": {
+          "success": 20,
+          "total": 20,
+          "latency_ms": {
+            "count": 20,
+            "p50": 121.584,
+            "p95": 169.14,
+            "p99": 593.224,
+            "max": 699.245
+          }
+        },
+        "mcp": {
+          "success": 20,
+          "total": 20,
+          "latency_ms": {
+            "count": 20,
+            "p50": 236.666,
+            "p95": 321.372,
+            "p99": 880.349,
+            "max": 1020.093
+          }
+        },
+        "direct": {
+          "success": 20,
+          "total": 20,
+          "latency_ms": {
+            "count": 20,
+            "p50": 55.303,
+            "p95": 59.028,
+            "p99": 61.145,
+            "max": 61.675
+          }
+        },
+        "logs": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        },
+        "hooks": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        }
+      },
+      "replay_cleanup": {
+        "llm": {
+          "success": 60,
+          "total": 60,
+          "latency_ms": {
+            "count": 60,
+            "p50": 345.562,
+            "p95": 3227.235,
+            "p99": 5427.668,
+            "max": 5679.545
+          }
+        },
+        "mcp": {
+          "success": 60,
+          "total": 60,
+          "latency_ms": {
+            "count": 60,
+            "p50": 415.459,
+            "p95": 3181.318,
+            "p99": 4615.936,
+            "max": 4747.737
+          }
+        },
+        "direct": {
+          "success": 60,
+          "total": 60,
+          "latency_ms": {
+            "count": 60,
+            "p50": 56.429,
+            "p95": 75.434,
+            "p99": 228.724,
+            "max": 259.093
+          }
+        },
+        "logs": {
+          "success": 400,
+          "total": 400,
+          "latency_ms": {
+            "count": 400,
+            "p50": 53.29,
+            "p95": 1333.127,
+            "p99": 2643.634,
+            "max": 4593.026
+          }
+        },
+        "hooks": {
+          "success": 400,
+          "total": 400,
+          "latency_ms": {
+            "count": 400,
+            "p50": 41.485,
+            "p95": 895.816,
+            "p99": 1737.143,
+            "max": 2660.072
+          }
+        }
+      },
+      "recovery": {
+        "llm": {
+          "success": 20,
+          "total": 20,
+          "latency_ms": {
+            "count": 20,
+            "p50": 136.589,
+            "p95": 583.142,
+            "p99": 678.313,
+            "max": 702.106
+          }
+        },
+        "mcp": {
+          "success": 20,
+          "total": 20,
+          "latency_ms": {
+            "count": 20,
+            "p50": 234.43,
+            "p95": 712.176,
+            "p99": 761.596,
+            "max": 773.951
+          }
+        },
+        "direct": {
+          "success": 20,
+          "total": 20,
+          "latency_ms": {
+            "count": 20,
+            "p50": 55.527,
+            "p95": 64.589,
+            "p99": 168.32,
+            "max": 194.253
+          }
+        },
+        "logs": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 29.292,
+            "p95": 202.23,
+            "p99": 503.046,
+            "max": 509.109
+          }
+        },
+        "hooks": {
+          "success": 101,
+          "total": 101,
+          "latency_ms": {
+            "count": 101,
+            "p50": 23.062,
+            "p95": 49.458,
+            "p99": 69.019,
+            "max": 87.144
+          }
+        }
+      },
+      "drain": {
+        "llm": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        },
+        "mcp": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        },
+        "direct": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        },
+        "logs": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        },
+        "hooks": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        }
+      }
+    },
+    "cleanup_summary": {
+      "runtime trace": {
+        "errors": 0,
+        "complete_seconds": 29.779,
+        "batch_duration_ms": {
+          "count": 20,
+          "p50": 686.639,
+          "p95": 4310.837,
+          "p99": 5020.672,
+          "max": 5198.131
+        }
+      },
+      "aidr": {
+        "errors": 0,
+        "complete_seconds": 27.488,
+        "batch_duration_ms": {
+          "count": 21,
+          "p50": 767.326,
+          "p95": 2972.3,
+          "p99": 3721.552,
+          "max": 3908.865
+        }
+      },
+      "pipeline trace": {
+        "errors": 0,
+        "complete_seconds": 10.044,
+        "batch_duration_ms": {
+          "count": 22,
+          "p50": 60.015,
+          "p95": 998.668,
+          "p99": 1156.393,
+          "max": 1195.188
+        }
+      }
+    },
+    "post_run": {
+      "request_leases": 0,
+      "mcp_error_counts": {}
+    },
+    "raw_directory": "outputs/performance/2026-10-15-gateway-contention-fix/lower_limited"
+  },
+  "high_limited": {
+    "config": {
+      "cleanup_start": "replay",
+      "diagnostics": false,
+      "clients": 100,
+      "upload_concurrency": 4,
+      "historical_rows": 10000,
+      "body_bytes": 1024,
+      "batch_records": 10,
+      "batch_seconds": 5,
+      "gateway_rps": 5,
+      "baseline_seconds": 20,
+      "steady_seconds": 30,
+      "offline_seconds": 20,
+      "replay_seconds": 60,
+      "recovery_seconds": 20,
+      "drain_seconds": 120,
+      "port": 58394,
+      "mock_port": 58395,
+      "source_sha256": "326d3f643b977bf429623ef57e54336958cfd16a7d6674ae46b2af24abf5a546",
+      "git_head": "239d84a1b13f9e882f700c6c8f5c55a4d499a051"
+    },
+    "environment": {
+      "platform": "macOS-27.0-arm64-arm-64bit",
+      "python": "3.12.9 (main, Mar 17 2025, 21:36:21) [Clang 20.1.0 ]",
+      "cpu_count": 10,
+      "memory_bytes": 17179869184,
+      "sqlite_version": "3.47.1",
+      "workers": 1
+    },
+    "phases": [
+      {
+        "name": "baseline",
+        "started": 1792033683.977986,
+        "ended": 1792033703.979889,
+        "generated": 0,
+        "acked": 0,
+        "db": {
+          "aidr_events": {
+            "live": 10000
+          },
+          "aidr_hook_events": {
+            "live": 10000
+          },
+          "aidr_operations": {
+            "live": 10000
+          },
+          "llm_pipeline_traces": 10000,
+          "runtime_trace_events": 10000,
+          "runtime_trace_sessions": 1,
+          "fresh_logs": 0,
+          "fresh_hooks": 0,
+          "batch_records": {
+            "aidr_batches": 0,
+            "aidr_hook_batches": 0
+          },
+          "files_bytes": {
+            "backend.db": 171610112,
+            "backend.db-wal": 18663632
+          }
+        }
+      },
+      {
+        "name": "steady",
+        "started": 1792033704.023752,
+        "ended": 1792033734.024281,
+        "generated": 12000,
+        "acked": 5290,
+        "db": {
+          "aidr_events": {
+            "live": 12970
+          },
+          "aidr_hook_events": {
+            "live": 12320
+          },
+          "aidr_operations": {
+            "live": 11485
+          },
+          "llm_pipeline_traces": 10000,
+          "runtime_trace_events": 10000,
+          "runtime_trace_sessions": 1,
+          "fresh_logs": 2970,
+          "fresh_hooks": 2320,
+          "batch_records": {
+            "aidr_batches": 2970,
+            "aidr_hook_batches": 2320
+          },
+          "files_bytes": {
+            "backend.db": 213671936,
+            "backend.db-wal": 18663632
+          }
+        }
+      },
+      {
+        "name": "offline",
+        "started": 1792033734.04369,
+        "ended": 1792033754.0448341,
+        "generated": 20020,
+        "acked": 5330,
+        "db": {
+          "aidr_events": {
+            "live": 12990
+          },
+          "aidr_hook_events": {
+            "live": 12340
+          },
+          "aidr_operations": {
+            "live": 11495
+          },
+          "llm_pipeline_traces": 10000,
+          "runtime_trace_events": 10000,
+          "runtime_trace_sessions": 1,
+          "fresh_logs": 2990,
+          "fresh_hooks": 2340,
+          "batch_records": {
+            "aidr_batches": 2990,
+            "aidr_hook_batches": 2340
+          },
+          "files_bytes": {
+            "backend.db": 216285184,
+            "backend.db-wal": 18663632
+          }
+        }
+      },
+      {
+        "name": "replay_cleanup",
+        "started": 1792033754.066109,
+        "ended": 1792033814.0671391,
+        "generated": 44020,
+        "acked": 15050,
+        "db": {
+          "aidr_events": {
+            "expired": 10000,
+            "live": 7840
+          },
+          "aidr_hook_events": {
+            "expired": 10000,
+            "live": 7210
+          },
+          "aidr_operations": {
+            "expired": 10000,
+            "live": 3920
+          },
+          "llm_pipeline_traces": 0,
+          "runtime_trace_events": 0,
+          "runtime_trace_sessions": 0,
+          "fresh_logs": 7850,
+          "fresh_hooks": 7210,
+          "batch_records": {
+            "aidr_batches": 7850,
+            "aidr_hook_batches": 7210
+          },
+          "files_bytes": {
+            "backend.db": 260636672,
+            "backend.db-wal": 23591152
+          }
+        }
+      },
+      {
+        "name": "recovery",
+        "started": 1792033814.091676,
+        "ended": 1792033834.092813,
+        "generated": 52040,
+        "acked": 19160,
+        "db": {
+          "aidr_events": {
+            "expired": 10000,
+            "live": 10030
+          },
+          "aidr_hook_events": {
+            "expired": 10000,
+            "live": 9440
+          },
+          "aidr_operations": {
+            "expired": 10000,
+            "live": 5015
+          },
+          "llm_pipeline_traces": 0,
+          "runtime_trace_events": 0,
+          "runtime_trace_sessions": 0,
+          "fresh_logs": 10030,
+          "fresh_hooks": 9440,
+          "batch_records": {
+            "aidr_batches": 10030,
+            "aidr_hook_batches": 9440
+          },
+          "files_bytes": {
+            "backend.db": 294445056,
+            "backend.db-wal": 23591152
+          }
+        }
+      }
+    ],
+    "summary": {
+      "baseline": {
+        "logs": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 101,
+            "mean": 220.144,
+            "p50": 123.696,
+            "p95": 811.573,
+            "p99": 1011.597,
+            "max": 1345.13
+          },
+          "scheduled_latency_ms": {
+            "count": 101,
+            "mean": 225.143,
+            "p50": 124.821,
+            "p95": 831.331,
+            "p99": 1019.03,
+            "max": 1347.397
+          },
+          "launch_lag_ms": {
+            "count": 101,
+            "mean": 4.999,
+            "p50": 1.136,
+            "p95": 9.739,
+            "p99": 100.026,
+            "max": 119.33
+          },
+          "statuses": {
+            "200": 101
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 101,
+            "mean": 375.242,
+            "p50": 258.926,
+            "p95": 1080.376,
+            "p99": 1330.316,
+            "max": 1506.054
+          },
+          "scheduled_latency_ms": {
+            "count": 101,
+            "mean": 382.336,
+            "p50": 260.608,
+            "p95": 1090.069,
+            "p99": 1331.74,
+            "max": 1513.316
+          },
+          "launch_lag_ms": {
+            "count": 101,
+            "mean": 7.095,
+            "p50": 1.574,
+            "p95": 18.927,
+            "p99": 104.425,
+            "max": 230.829
+          },
+          "statuses": {
+            "200": 101
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 101,
+            "mean": 60.347,
+            "p50": 55.637,
+            "p95": 74.326,
+            "p99": 144.695,
+            "max": 264.354
+          },
+          "scheduled_latency_ms": {
+            "count": 101,
+            "mean": 67.861,
+            "p50": 58.223,
+            "p95": 151.677,
+            "p99": 272.338,
+            "max": 299.595
+          },
+          "launch_lag_ms": {
+            "count": 101,
+            "mean": 7.514,
+            "p50": 1.845,
+            "p95": 24.428,
+            "p99": 106.493,
+            "max": 210.27
+          },
+          "statuses": {
+            "200": 101
+          },
+          "errors": {}
+        }
+      },
+      "steady": {
+        "logs": {
+          "latency_ms": {
+            "count": 399,
+            "mean": 158.543,
+            "p50": 71.328,
+            "p95": 585.69,
+            "p99": 1343.408,
+            "max": 2356.197
+          },
+          "scheduled_latency_ms": {
+            "count": 399,
+            "mean": 158.543,
+            "p50": 71.328,
+            "p95": 585.69,
+            "p99": 1343.408,
+            "max": 2356.197
+          },
+          "launch_lag_ms": {
+            "count": 399,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 399
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 334,
+            "mean": 170.122,
+            "p50": 65.844,
+            "p95": 903.307,
+            "p99": 1311.971,
+            "max": 1982.447
+          },
+          "scheduled_latency_ms": {
+            "count": 334,
+            "mean": 170.122,
+            "p50": 65.844,
+            "p95": 903.307,
+            "p99": 1311.971,
+            "max": 1982.447
+          },
+          "launch_lag_ms": {
+            "count": 334,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 334
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 150,
+            "mean": 2355.132,
+            "p50": 2223.069,
+            "p95": 4742.988,
+            "p99": 5714.728,
+            "max": 6532.681
+          },
+          "scheduled_latency_ms": {
+            "count": 150,
+            "mean": 2362.649,
+            "p50": 2223.878,
+            "p95": 4744.584,
+            "p99": 5718.402,
+            "max": 6533.847
+          },
+          "launch_lag_ms": {
+            "count": 150,
+            "mean": 7.517,
+            "p50": 1.081,
+            "p95": 4.504,
+            "p99": 199.482,
+            "max": 340.111
+          },
+          "statuses": {
+            "200": 150
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 150,
+            "mean": 2260.824,
+            "p50": 2314.989,
+            "p95": 4268.159,
+            "p99": 4768.588,
+            "max": 5529.599
+          },
+          "scheduled_latency_ms": {
+            "count": 150,
+            "mean": 2271.676,
+            "p50": 2316.221,
+            "p95": 4269.712,
+            "p99": 4770.98,
+            "max": 5534.486
+          },
+          "launch_lag_ms": {
+            "count": 150,
+            "mean": 10.852,
+            "p50": 1.676,
+            "p95": 15.266,
+            "p99": 247.389,
+            "max": 345.917
+          },
+          "statuses": {
+            "200": 149,
+            "ReadError": 1
+          },
+          "errors": {
+            "ReadError": 1
+          }
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 150,
+            "mean": 66.188,
+            "p50": 56.872,
+            "p95": 89.225,
+            "p99": 312.056,
+            "max": 489.815
+          },
+          "scheduled_latency_ms": {
+            "count": 150,
+            "mean": 77.859,
+            "p50": 58.856,
+            "p95": 132.944,
+            "p99": 576.774,
+            "max": 771.041
+          },
+          "launch_lag_ms": {
+            "count": 150,
+            "mean": 11.671,
+            "p50": 2.202,
+            "p95": 20.822,
+            "p99": 250.271,
+            "max": 342.18
+          },
+          "statuses": {
+            "200": 150
+          },
+          "errors": {}
+        }
+      },
+      "offline": {
+        "logs": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 169.181,
+            "p50": 121.961,
+            "p95": 314.702,
+            "p99": 550.368,
+            "max": 2144.483
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 171.107,
+            "p50": 123.113,
+            "p95": 315.624,
+            "p99": 552.087,
+            "max": 2145.661
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 1.925,
+            "p50": 1.154,
+            "p95": 4.008,
+            "p99": 35.021,
+            "max": 38.413
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 315.801,
+            "p50": 256.78,
+            "p95": 460.702,
+            "p99": 694.92,
+            "max": 3226.784
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 318.844,
+            "p50": 258.152,
+            "p95": 462.574,
+            "p99": 698.842,
+            "max": 3228.475
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 3.043,
+            "p50": 1.628,
+            "p95": 10.601,
+            "p99": 22.816,
+            "max": 35.399
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 60.855,
+            "p50": 56.638,
+            "p95": 92.31,
+            "p99": 123.605,
+            "max": 174.443
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 64.486,
+            "p50": 58.429,
+            "p95": 104.038,
+            "p99": 146.034,
+            "max": 178.822
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 3.632,
+            "p50": 1.854,
+            "p95": 11.183,
+            "p99": 31.593,
+            "max": 35.638
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        }
+      },
+      "replay_cleanup": {
+        "logs": {
+          "latency_ms": {
+            "count": 487,
+            "mean": 260.056,
+            "p50": 113.798,
+            "p95": 1018.734,
+            "p99": 2264.119,
+            "max": 3442.709
+          },
+          "scheduled_latency_ms": {
+            "count": 487,
+            "mean": 260.056,
+            "p50": 113.798,
+            "p95": 1018.734,
+            "p99": 2264.119,
+            "max": 3442.709
+          },
+          "launch_lag_ms": {
+            "count": 487,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 487
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 489,
+            "mean": 231.291,
+            "p50": 96.483,
+            "p95": 964.486,
+            "p99": 2272.488,
+            "max": 3127.341
+          },
+          "scheduled_latency_ms": {
+            "count": 489,
+            "mean": 231.291,
+            "p50": 96.483,
+            "p95": 964.486,
+            "p99": 2272.488,
+            "max": 3127.341
+          },
+          "launch_lag_ms": {
+            "count": 489,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 489
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 300,
+            "mean": 2879.78,
+            "p50": 2816.438,
+            "p95": 5842.594,
+            "p99": 7627.956,
+            "max": 8627.627
+          },
+          "scheduled_latency_ms": {
+            "count": 300,
+            "mean": 2885.247,
+            "p50": 2830.767,
+            "p95": 5843.727,
+            "p99": 7629.098,
+            "max": 8628.958
+          },
+          "launch_lag_ms": {
+            "count": 300,
+            "mean": 5.467,
+            "p50": 1.15,
+            "p95": 4.679,
+            "p99": 191.44,
+            "max": 404.763
+          },
+          "statuses": {
+            "200": 300
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 300,
+            "mean": 2816.7,
+            "p50": 2820.098,
+            "p95": 5414.229,
+            "p99": 6769.698,
+            "max": 7924.651
+          },
+          "scheduled_latency_ms": {
+            "count": 300,
+            "mean": 2823.129,
+            "p50": 2822.294,
+            "p95": 5416.822,
+            "p99": 6771.192,
+            "max": 7926.283
+          },
+          "launch_lag_ms": {
+            "count": 300,
+            "mean": 6.429,
+            "p50": 1.818,
+            "p95": 7.897,
+            "p99": 179.381,
+            "max": 406.435
+          },
+          "statuses": {
+            "200": 300
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 300,
+            "mean": 67.132,
+            "p50": 57.134,
+            "p95": 79.891,
+            "p99": 433.242,
+            "max": 837.396
+          },
+          "scheduled_latency_ms": {
+            "count": 300,
+            "mean": 74.922,
+            "p50": 59.453,
+            "p95": 91.64,
+            "p99": 532.569,
+            "max": 1031.713
+          },
+          "launch_lag_ms": {
+            "count": 300,
+            "mean": 7.789,
+            "p50": 2.365,
+            "p95": 11.507,
+            "p99": 194.533,
+            "max": 408.969
+          },
+          "statuses": {
+            "200": 300
+          },
+          "errors": {}
+        }
+      },
+      "recovery": {
+        "logs": {
+          "latency_ms": {
+            "count": 222,
+            "mean": 155.267,
+            "p50": 71.821,
+            "p95": 582.051,
+            "p99": 1302.939,
+            "max": 1739.149
+          },
+          "scheduled_latency_ms": {
+            "count": 222,
+            "mean": 155.267,
+            "p50": 71.821,
+            "p95": 582.051,
+            "p99": 1302.939,
+            "max": 1739.149
+          },
+          "launch_lag_ms": {
+            "count": 222,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 222
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 223,
+            "mean": 210.497,
+            "p50": 68.229,
+            "p95": 889.414,
+            "p99": 2462.629,
+            "max": 4000.399
+          },
+          "scheduled_latency_ms": {
+            "count": 223,
+            "mean": 210.497,
+            "p50": 68.229,
+            "p95": 889.414,
+            "p99": 2462.629,
+            "max": 4000.399
+          },
+          "launch_lag_ms": {
+            "count": 223,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 223
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 2275.263,
+            "p50": 2151.952,
+            "p95": 4610.089,
+            "p99": 5552.214,
+            "max": 5936.281
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 2276.39,
+            "p50": 2154.859,
+            "p95": 4610.392,
+            "p99": 5552.902,
+            "max": 5936.612
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 1.127,
+            "p50": 1.01,
+            "p95": 2.088,
+            "p99": 7.196,
+            "max": 11.375
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 1751.869,
+            "p50": 1564.253,
+            "p95": 3594.171,
+            "p99": 4343.673,
+            "max": 4490.786
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 1754.11,
+            "p50": 1568.584,
+            "p95": 3596.048,
+            "p99": 4353.743,
+            "max": 4492.667
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 2.241,
+            "p50": 1.712,
+            "p95": 5.972,
+            "p99": 12.306,
+            "max": 12.629
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 58.765,
+            "p50": 56.917,
+            "p95": 64.698,
+            "p99": 103.264,
+            "max": 126.903
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 61.752,
+            "p50": 59.424,
+            "p95": 71.775,
+            "p99": 108.237,
+            "max": 134.592
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 2.987,
+            "p50": 2.374,
+            "p95": 7.692,
+            "p99": 13.387,
+            "max": 17.322
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        }
+      },
+      "drain": {
+        "logs": {
+          "latency_ms": {
+            "count": 1331,
+            "mean": 181.093,
+            "p50": 75.113,
+            "p95": 718.21,
+            "p99": 1719.397,
+            "max": 6870.818
+          },
+          "scheduled_latency_ms": {
+            "count": 1331,
+            "mean": 181.093,
+            "p50": 75.113,
+            "p95": 718.21,
+            "p99": 1719.397,
+            "max": 6870.818
+          },
+          "launch_lag_ms": {
+            "count": 1331,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 1331
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 1313,
+            "mean": 177.038,
+            "p50": 66.141,
+            "p95": 752.443,
+            "p99": 1775.95,
+            "max": 6160.275
+          },
+          "scheduled_latency_ms": {
+            "count": 1313,
+            "mean": 177.038,
+            "p50": 66.141,
+            "p95": 752.443,
+            "p99": 1775.95,
+            "max": 6160.275
+          },
+          "launch_lag_ms": {
+            "count": 1313,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 1313
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 600,
+            "mean": 1971.97,
+            "p50": 1699.063,
+            "p95": 4660.846,
+            "p99": 7185.229,
+            "max": 10586.506
+          },
+          "scheduled_latency_ms": {
+            "count": 600,
+            "mean": 1976.549,
+            "p50": 1702.557,
+            "p95": 4662.044,
+            "p99": 7186.373,
+            "max": 10587.773
+          },
+          "launch_lag_ms": {
+            "count": 600,
+            "mean": 4.58,
+            "p50": 1.125,
+            "p95": 3.781,
+            "p99": 79.377,
+            "max": 478.553
+          },
+          "statuses": {
+            "200": 600
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 600,
+            "mean": 1763.064,
+            "p50": 1550.888,
+            "p95": 4119.449,
+            "p99": 5753.836,
+            "max": 6943.124
+          },
+          "scheduled_latency_ms": {
+            "count": 600,
+            "mean": 1769.573,
+            "p50": 1552.581,
+            "p95": 4120.104,
+            "p99": 5756.493,
+            "max": 6948.387
+          },
+          "launch_lag_ms": {
+            "count": 600,
+            "mean": 6.509,
+            "p50": 1.68,
+            "p95": 8.338,
+            "p99": 115.361,
+            "max": 529.677
+          },
+          "statuses": {
+            "200": 599,
+            "ReadError": 1
+          },
+          "errors": {
+            "ReadError": 1
+          }
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 600,
+            "mean": 59.966,
+            "p50": 56.444,
+            "p95": 69.074,
+            "p99": 134.203,
+            "max": 330.269
+          },
+          "scheduled_latency_ms": {
+            "count": 600,
+            "mean": 67.604,
+            "p50": 58.556,
+            "p95": 87.405,
+            "p99": 268.447,
+            "max": 948.828
+          },
+          "launch_lag_ms": {
+            "count": 600,
+            "mean": 7.638,
+            "p50": 2.253,
+            "p95": 10.274,
+            "p99": 116.963,
+            "max": 637.887
+          },
+          "statuses": {
+            "200": 600
+          },
+          "errors": {}
+        }
+      }
+    },
+    "final": {
+      "aidr_events": {
+        "expired": 10000,
+        "live": 21410
+      },
+      "aidr_hook_events": {
+        "expired": 10000,
+        "live": 21030
+      },
+      "aidr_operations": {
+        "expired": 10000,
+        "live": 10705
+      },
+      "llm_pipeline_traces": 0,
+      "runtime_trace_events": 0,
+      "runtime_trace_sessions": 0,
+      "fresh_logs": 21410,
+      "fresh_hooks": 21030,
+      "batch_records": {
+        "aidr_batches": 21410,
+        "aidr_hook_batches": 21030
+      },
+      "files_bytes": {
+        "backend.db": 471527424,
+        "backend.db-wal": 23591152
+      }
+    },
+    "state": {
+      "phase": "drain",
+      "generating": false,
+      "done": true,
+      "generated": 52040,
+      "acked": 42180,
+      "replayed": 580,
+      "bad_acks": 0,
+      "bytes": 133087370
+    },
+    "drain_complete": false,
+    "integrity": {
+      "expected_per_channel": 26020,
+      "persisted_logs": 21410,
+      "persisted_hooks": 21030,
+      "remaining_outbox_files": 986,
+      "bad_acks": 0
+    },
+    "ack_age_ms": {
+      "logs": {
+        "count": 2139,
+        "mean": 79120.701,
+        "p50": 86033.652,
+        "p95": 138002.242,
+        "p99": 141965.494,
+        "max": 145402.406
+      },
+      "hooks": {
+        "count": 2079,
+        "mean": 83343.426,
+        "p50": 89082.186,
+        "p95": 139949.485,
+        "p99": 144384.523,
+        "max": 147292.193
+      }
+    },
+    "cleanup": [
+      {
+        "name": "pipeline trace",
+        "started": 1792033754.0655,
+        "duration_ms": 27.11009979248047,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033754.3475919,
+        "duration_ms": 56.516170501708984,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033754.0651882,
+        "duration_ms": 1004.9347877502441,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033755.320565,
+        "duration_ms": 746.8647956848145,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033754.068455,
+        "duration_ms": 2051.287889480591,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033754.6552699,
+        "duration_ms": 1812.9651546478271,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033756.3728309,
+        "duration_ms": 389.9681568145752,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033756.7200441,
+        "duration_ms": 50.64702033996582,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033757.013898,
+        "duration_ms": 329.13804054260254,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033757.0219631,
+        "duration_ms": 785.9838008880615,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033758.063369,
+        "duration_ms": 214.4770622253418,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033758.541091,
+        "duration_ms": 33.644914627075195,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033756.332627,
+        "duration_ms": 2529.4408798217773,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033758.830455,
+        "duration_ms": 48.796892166137695,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033757.596396,
+        "duration_ms": 1574.6262073516846,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033759.111454,
+        "duration_ms": 509.9608898162842,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033759.423209,
+        "duration_ms": 221.52304649353027,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033759.933235,
+        "duration_ms": 318.15290451049805,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033759.130595,
+        "duration_ms": 1283.764123916626,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033759.8725529,
+        "duration_ms": 590.2469158172607,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033760.504538,
+        "duration_ms": 123.6870288848877,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033760.66771,
+        "duration_ms": 29.854774475097656,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033761.0882611,
+        "duration_ms": 64.60285186767578,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033761.431982,
+        "duration_ms": 12.455940246582031,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033760.7130911,
+        "duration_ms": 775.9308815002441,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033760.88888,
+        "duration_ms": 633.5687637329102,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033761.7150779,
+        "duration_ms": 17.24410057067871,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033761.8135092,
+        "duration_ms": 106.68778419494629,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033762.2474859,
+        "duration_ms": 8.921146392822266,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033762.348293,
+        "duration_ms": 176.79286003112793,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033761.740542,
+        "duration_ms": 848.1249809265137,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033762.559118,
+        "duration_ms": 40.91286659240723,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033762.885366,
+        "duration_ms": 77.39496231079102,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033763.247542,
+        "duration_ms": 15.446186065673828,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033763.7343092,
+        "duration_ms": 21.0878849029541,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033764.0790458,
+        "duration_ms": 11.92617416381836,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033764.426028,
+        "duration_ms": 9.546995162963867,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033762.8402822,
+        "duration_ms": 1689.3417835235596,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033764.7182028,
+        "duration_ms": 67.68321990966797,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033762.7926452,
+        "duration_ms": 2525.0797271728516,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033764.781982,
+        "duration_ms": 696.3489055633545,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033765.5875,
+        "duration_ms": 217.21792221069336,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033766.14163,
+        "duration_ms": 143.36419105529785,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033765.728574,
+        "duration_ms": 591.5999412536621,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033766.5716171,
+        "duration_ms": 3840.3048515319824,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033770.663775,
+        "duration_ms": 736.8929386138916,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033771.7244039,
+        "duration_ms": 471.3871479034424,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033772.44725,
+        "duration_ms": 816.1110877990723,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033773.516902,
+        "duration_ms": 660.2010726928711,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033774.4267159,
+        "duration_ms": 718.7960147857666,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033766.581675,
+        "duration_ms": 9812.095880508423,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033775.395749,
+        "duration_ms": 2164.6599769592285,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033777.8111649,
+        "duration_ms": 821.2931156158447,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033776.659852,
+        "duration_ms": 2662.9419326782227,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033778.884136,
+        "duration_ms": 1063.5161399841309,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033780.198714,
+        "duration_ms": 939.5129680633545,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033781.397988,
+        "duration_ms": 78.77087593078613,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033779.752894,
+        "duration_ms": 1871.5059757232666,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033781.894956,
+        "duration_ms": 719.9578285217285,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033782.894198,
+        "duration_ms": 2173.5172271728516,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033785.329366,
+        "duration_ms": 48.712968826293945,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033785.669408,
+        "duration_ms": 1663.3899211883545,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033824.7896771,
+        "duration_ms": 253.8008689880371,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033841.478354,
+        "duration_ms": 113.78097534179688,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033847.340794,
+        "duration_ms": 220.55292129516602,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033885.061048,
+        "duration_ms": 60.66417694091797,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792033901.592957,
+        "duration_ms": 89.69497680664062,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792033907.56294,
+        "duration_ms": 2052.9661178588867,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792033945.140872,
+        "duration_ms": 16.14212989807129,
+        "more": false,
+        "error": null
+      }
+    ],
+    "replay": {
+      "reconnected_at": 1792033754.066087,
+      "backlog_records": 14690,
+      "drained_at": 1792033843.766227
+    },
+    "application_sha256": "f0742f9b09af8563bc426b668f8bb5f8d2793a36720efe9ef7582fc3627561e5",
+    "application_files": 204,
+    "resource_summary": {
+      "backend_cpu": 127.3,
+      "backend_rss": 225296384,
+      "driver_cpu": 16.6,
+      "driver_rss": 94240768
+    },
+    "event_loop_lag_ms": {
+      "threshold": 100,
+      "count": 2,
+      "max": 332.3386250413023,
+      "blocked_stack_bytes": 0
+    },
+    "successful_requests": {
+      "baseline": {
+        "llm": {
+          "success": 101,
+          "total": 101,
+          "latency_ms": {
+            "count": 101,
+            "p50": 123.696,
+            "p95": 811.573,
+            "p99": 1011.597,
+            "max": 1345.13
+          }
+        },
+        "mcp": {
+          "success": 101,
+          "total": 101,
+          "latency_ms": {
+            "count": 101,
+            "p50": 258.926,
+            "p95": 1080.376,
+            "p99": 1330.316,
+            "max": 1506.054
+          }
+        },
+        "direct": {
+          "success": 101,
+          "total": 101,
+          "latency_ms": {
+            "count": 101,
+            "p50": 55.637,
+            "p95": 74.326,
+            "p99": 144.695,
+            "max": 264.354
+          }
+        },
+        "logs": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        },
+        "hooks": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        }
+      },
+      "steady": {
+        "llm": {
+          "success": 150,
+          "total": 150,
+          "latency_ms": {
+            "count": 150,
+            "p50": 2223.069,
+            "p95": 4742.988,
+            "p99": 5714.728,
+            "max": 6532.681
+          }
+        },
+        "mcp": {
+          "success": 149,
+          "total": 150,
+          "latency_ms": {
+            "count": 149,
+            "p50": 2329.527,
+            "p95": 4275.567,
+            "p99": 4769.714,
+            "max": 5529.599
+          }
+        },
+        "direct": {
+          "success": 150,
+          "total": 150,
+          "latency_ms": {
+            "count": 150,
+            "p50": 56.872,
+            "p95": 89.225,
+            "p99": 312.056,
+            "max": 489.815
+          }
+        },
+        "logs": {
+          "success": 399,
+          "total": 399,
+          "latency_ms": {
+            "count": 399,
+            "p50": 71.328,
+            "p95": 585.69,
+            "p99": 1343.408,
+            "max": 2356.197
+          }
+        },
+        "hooks": {
+          "success": 334,
+          "total": 334,
+          "latency_ms": {
+            "count": 334,
+            "p50": 65.844,
+            "p95": 903.307,
+            "p99": 1311.971,
+            "max": 1982.447
+          }
+        }
+      },
+      "offline": {
+        "llm": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 121.961,
+            "p95": 314.702,
+            "p99": 550.368,
+            "max": 2144.483
+          }
+        },
+        "mcp": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 256.78,
+            "p95": 460.702,
+            "p99": 694.92,
+            "max": 3226.784
+          }
+        },
+        "direct": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 56.638,
+            "p95": 92.31,
+            "p99": 123.605,
+            "max": 174.443
+          }
+        },
+        "logs": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        },
+        "hooks": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        }
+      },
+      "replay_cleanup": {
+        "llm": {
+          "success": 300,
+          "total": 300,
+          "latency_ms": {
+            "count": 300,
+            "p50": 2816.438,
+            "p95": 5842.594,
+            "p99": 7627.956,
+            "max": 8627.627
+          }
+        },
+        "mcp": {
+          "success": 300,
+          "total": 300,
+          "latency_ms": {
+            "count": 300,
+            "p50": 2820.098,
+            "p95": 5414.229,
+            "p99": 6769.698,
+            "max": 7924.651
+          }
+        },
+        "direct": {
+          "success": 300,
+          "total": 300,
+          "latency_ms": {
+            "count": 300,
+            "p50": 57.134,
+            "p95": 79.891,
+            "p99": 433.242,
+            "max": 837.396
+          }
+        },
+        "logs": {
+          "success": 487,
+          "total": 487,
+          "latency_ms": {
+            "count": 487,
+            "p50": 113.798,
+            "p95": 1018.734,
+            "p99": 2264.119,
+            "max": 3442.709
+          }
+        },
+        "hooks": {
+          "success": 489,
+          "total": 489,
+          "latency_ms": {
+            "count": 489,
+            "p50": 96.483,
+            "p95": 964.486,
+            "p99": 2272.488,
+            "max": 3127.341
+          }
+        }
+      },
+      "recovery": {
+        "llm": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 2151.952,
+            "p95": 4610.089,
+            "p99": 5552.214,
+            "max": 5936.281
+          }
+        },
+        "mcp": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 1564.253,
+            "p95": 3594.171,
+            "p99": 4343.673,
+            "max": 4490.786
+          }
+        },
+        "direct": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 56.917,
+            "p95": 64.698,
+            "p99": 103.264,
+            "max": 126.903
+          }
+        },
+        "logs": {
+          "success": 222,
+          "total": 222,
+          "latency_ms": {
+            "count": 222,
+            "p50": 71.821,
+            "p95": 582.051,
+            "p99": 1302.939,
+            "max": 1739.149
+          }
+        },
+        "hooks": {
+          "success": 223,
+          "total": 223,
+          "latency_ms": {
+            "count": 223,
+            "p50": 68.229,
+            "p95": 889.414,
+            "p99": 2462.629,
+            "max": 4000.399
+          }
+        }
+      },
+      "drain": {
+        "llm": {
+          "success": 600,
+          "total": 600,
+          "latency_ms": {
+            "count": 600,
+            "p50": 1699.063,
+            "p95": 4660.846,
+            "p99": 7185.229,
+            "max": 10586.506
+          }
+        },
+        "mcp": {
+          "success": 599,
+          "total": 600,
+          "latency_ms": {
+            "count": 599,
+            "p50": 1552.738,
+            "p95": 4119.963,
+            "p99": 5755.383,
+            "max": 6943.124
+          }
+        },
+        "direct": {
+          "success": 600,
+          "total": 600,
+          "latency_ms": {
+            "count": 600,
+            "p50": 56.444,
+            "p95": 69.074,
+            "p99": 134.203,
+            "max": 330.269
+          }
+        },
+        "logs": {
+          "success": 1331,
+          "total": 1331,
+          "latency_ms": {
+            "count": 1331,
+            "p50": 75.113,
+            "p95": 718.21,
+            "p99": 1719.397,
+            "max": 6870.818
+          }
+        },
+        "hooks": {
+          "success": 1313,
+          "total": 1313,
+          "latency_ms": {
+            "count": 1313,
+            "p50": 66.141,
+            "p95": 752.443,
+            "p99": 1775.95,
+            "max": 6160.275
+          }
+        }
+      }
+    },
+    "cleanup_summary": {
+      "runtime trace": {
+        "errors": 0,
+        "complete_seconds": 33.264,
+        "batch_duration_ms": {
+          "count": 22,
+          "p50": 511.768,
+          "p95": 2656.049,
+          "p99": 8310.774,
+          "max": 9812.096
+        }
+      },
+      "aidr": {
+        "errors": 0,
+        "complete_seconds": 27.412,
+        "batch_duration_ms": {
+          "count": 23,
+          "p50": 746.865,
+          "p95": 2492.963,
+          "p99": 3551.915,
+          "max": 3840.305
+        }
+      },
+      "pipeline trace": {
+        "errors": 0,
+        "complete_seconds": 10.72,
+        "batch_duration_ms": {
+          "count": 24,
+          "p50": 44.855,
+          "p95": 1209.097,
+          "p99": 1691.249,
+          "max": 1812.965
+        }
+      }
+    },
+    "post_run": {
+      "request_leases": 0,
+      "mcp_error_counts": {}
+    },
+    "raw_directory": "outputs/performance/2026-10-15-gateway-contention-fix/high_limited"
+  },
+  "high_unbounded": {
+    "config": {
+      "cleanup_start": "replay",
+      "diagnostics": false,
+      "clients": 100,
+      "upload_concurrency": 100,
+      "historical_rows": 10000,
+      "body_bytes": 1024,
+      "batch_records": 10,
+      "batch_seconds": 5,
+      "gateway_rps": 5,
+      "baseline_seconds": 20,
+      "steady_seconds": 30,
+      "offline_seconds": 20,
+      "replay_seconds": 60,
+      "recovery_seconds": 20,
+      "drain_seconds": 120,
+      "port": 63917,
+      "mock_port": 63918,
+      "source_sha256": "326d3f643b977bf429623ef57e54336958cfd16a7d6674ae46b2af24abf5a546",
+      "git_head": "239d84a1b13f9e882f700c6c8f5c55a4d499a051"
+    },
+    "environment": {
+      "platform": "macOS-27.0-arm64-arm-64bit",
+      "python": "3.12.9 (main, Mar 17 2025, 21:36:21) [Clang 20.1.0 ]",
+      "cpu_count": 10,
+      "memory_bytes": 17179869184,
+      "sqlite_version": "3.47.1",
+      "workers": 1
+    },
+    "phases": [
+      {
+        "name": "baseline",
+        "started": 1792033979.440207,
+        "ended": 1792033999.441817,
+        "generated": 0,
+        "acked": 0,
+        "db": {
+          "aidr_events": {
+            "live": 10000
+          },
+          "aidr_hook_events": {
+            "live": 10000
+          },
+          "aidr_operations": {
+            "live": 10000
+          },
+          "llm_pipeline_traces": 10000,
+          "runtime_trace_events": 10000,
+          "runtime_trace_sessions": 1,
+          "fresh_logs": 0,
+          "fresh_hooks": 0,
+          "batch_records": {
+            "aidr_batches": 0,
+            "aidr_hook_batches": 0
+          },
+          "files_bytes": {
+            "backend.db": 171581440,
+            "backend.db-wal": 18663632
+          }
+        }
+      },
+      {
+        "name": "steady",
+        "started": 1792033999.4654589,
+        "ended": 1792034029.466856,
+        "generated": 12000,
+        "acked": 6160,
+        "db": {
+          "aidr_events": {
+            "live": 13320
+          },
+          "aidr_hook_events": {
+            "live": 12840
+          },
+          "aidr_operations": {
+            "live": 11660
+          },
+          "llm_pipeline_traces": 10000,
+          "runtime_trace_events": 10000,
+          "runtime_trace_sessions": 1,
+          "fresh_logs": 3320,
+          "fresh_hooks": 2840,
+          "batch_records": {
+            "aidr_batches": 3320,
+            "aidr_hook_batches": 2840
+          },
+          "files_bytes": {
+            "backend.db": 218169344,
+            "backend.db-wal": 18663632
+          }
+        }
+      },
+      {
+        "name": "offline",
+        "started": 1792034029.489512,
+        "ended": 1792034049.490009,
+        "generated": 20020,
+        "acked": 7160,
+        "db": {
+          "aidr_events": {
+            "live": 13840
+          },
+          "aidr_hook_events": {
+            "live": 13320
+          },
+          "aidr_operations": {
+            "live": 11920
+          },
+          "llm_pipeline_traces": 10000,
+          "runtime_trace_events": 10000,
+          "runtime_trace_sessions": 1,
+          "fresh_logs": 3840,
+          "fresh_hooks": 3320,
+          "batch_records": {
+            "aidr_batches": 3840,
+            "aidr_hook_batches": 3320
+          },
+          "files_bytes": {
+            "backend.db": 229171200,
+            "backend.db-wal": 18663632
+          }
+        }
+      },
+      {
+        "name": "replay_cleanup",
+        "started": 1792034049.5106041,
+        "ended": 1792034109.511342,
+        "generated": 44020,
+        "acked": 18790,
+        "db": {
+          "aidr_events": {
+            "expired": 4500,
+            "live": 15290
+          },
+          "aidr_hook_events": {
+            "expired": 4000,
+            "live": 15230
+          },
+          "aidr_operations": {
+            "expired": 4000,
+            "live": 10895
+          },
+          "llm_pipeline_traces": 0,
+          "runtime_trace_events": 0,
+          "runtime_trace_sessions": 0,
+          "fresh_logs": 9790,
+          "fresh_hooks": 9230,
+          "batch_records": {
+            "aidr_batches": 9790,
+            "aidr_hook_batches": 9230
+          },
+          "files_bytes": {
+            "backend.db": 293482496,
+            "backend.db-wal": 18663632
+          }
+        }
+      },
+      {
+        "name": "recovery",
+        "started": 1792034109.539358,
+        "ended": 1792034129.540564,
+        "generated": 52040,
+        "acked": 21680,
+        "db": {
+          "aidr_events": {
+            "expired": 6000,
+            "live": 15280
+          },
+          "aidr_hook_events": {
+            "expired": 6000,
+            "live": 14720
+          },
+          "aidr_operations": {
+            "expired": 5500,
+            "live": 10140
+          },
+          "llm_pipeline_traces": 0,
+          "runtime_trace_events": 0,
+          "runtime_trace_sessions": 0,
+          "fresh_logs": 11280,
+          "fresh_hooks": 10720,
+          "batch_records": {
+            "aidr_batches": 11280,
+            "aidr_hook_batches": 10720
+          },
+          "files_bytes": {
+            "backend.db": 315813888,
+            "backend.db-wal": 18663632
+          }
+        }
+      }
+    ],
+    "summary": {
+      "baseline": {
+        "logs": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 101,
+            "mean": 122.054,
+            "p50": 116.766,
+            "p95": 151.406,
+            "p99": 212.602,
+            "max": 292.916
+          },
+          "scheduled_latency_ms": {
+            "count": 101,
+            "mean": 122.964,
+            "p50": 117.603,
+            "p95": 152.55,
+            "p99": 213.518,
+            "max": 294.355
+          },
+          "launch_lag_ms": {
+            "count": 101,
+            "mean": 0.91,
+            "p50": 1.021,
+            "p95": 1.483,
+            "p99": 1.958,
+            "max": 4.443
+          },
+          "statuses": {
+            "200": 101
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 101,
+            "mean": 251.163,
+            "p50": 252.998,
+            "p95": 274.176,
+            "p99": 290.88,
+            "max": 334.796
+          },
+          "scheduled_latency_ms": {
+            "count": 101,
+            "mean": 252.451,
+            "p50": 253.79,
+            "p95": 278.169,
+            "p99": 292.541,
+            "max": 336.562
+          },
+          "launch_lag_ms": {
+            "count": 101,
+            "mean": 1.288,
+            "p50": 1.343,
+            "p95": 1.862,
+            "p99": 2.335,
+            "max": 3.993
+          },
+          "statuses": {
+            "200": 101
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 101,
+            "mean": 54.74,
+            "p50": 54.812,
+            "p95": 57.677,
+            "p99": 63.383,
+            "max": 63.491
+          },
+          "scheduled_latency_ms": {
+            "count": 101,
+            "mean": 56.239,
+            "p50": 56.128,
+            "p95": 59.768,
+            "p99": 65.459,
+            "max": 66.992
+          },
+          "launch_lag_ms": {
+            "count": 101,
+            "mean": 1.5,
+            "p50": 1.535,
+            "p95": 2.146,
+            "p99": 3.045,
+            "max": 3.61
+          },
+          "statuses": {
+            "200": 101
+          },
+          "errors": {}
+        }
+      },
+      "steady": {
+        "logs": {
+          "latency_ms": {
+            "count": 484,
+            "mean": 3086.693,
+            "p50": 2908.603,
+            "p95": 5522.783,
+            "p99": 6845.072,
+            "max": 10484.18
+          },
+          "scheduled_latency_ms": {
+            "count": 484,
+            "mean": 3086.693,
+            "p50": 2908.603,
+            "p95": 5522.783,
+            "p99": 6845.072,
+            "max": 10484.18
+          },
+          "launch_lag_ms": {
+            "count": 484,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 484
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 432,
+            "mean": 3339.065,
+            "p50": 3512.389,
+            "p95": 5283.7,
+            "p99": 7072.085,
+            "max": 8202.019
+          },
+          "scheduled_latency_ms": {
+            "count": 432,
+            "mean": 3339.065,
+            "p50": 3512.389,
+            "p95": 5283.7,
+            "p99": 7072.085,
+            "max": 8202.019
+          },
+          "launch_lag_ms": {
+            "count": 432,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 432
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 150,
+            "mean": 11353.547,
+            "p50": 11892.072,
+            "p95": 14638.905,
+            "p99": 15987.215,
+            "max": 16456.147
+          },
+          "scheduled_latency_ms": {
+            "count": 150,
+            "mean": 11355.046,
+            "p50": 11892.646,
+            "p95": 14639.565,
+            "p99": 15990.646,
+            "max": 16456.733
+          },
+          "launch_lag_ms": {
+            "count": 150,
+            "mean": 1.499,
+            "p50": 0.552,
+            "p95": 3.998,
+            "p99": 22.421,
+            "max": 41.26
+          },
+          "statuses": {
+            "200": 150
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 150,
+            "mean": 11733.422,
+            "p50": 12335.414,
+            "p95": 14662.462,
+            "p99": 15630.183,
+            "max": 16908.112
+          },
+          "scheduled_latency_ms": {
+            "count": 150,
+            "mean": 11735.532,
+            "p50": 12336.239,
+            "p95": 14663.565,
+            "p99": 15631.477,
+            "max": 16909.1
+          },
+          "launch_lag_ms": {
+            "count": 150,
+            "mean": 2.11,
+            "p50": 1.194,
+            "p95": 5.831,
+            "p99": 22.867,
+            "max": 43.577
+          },
+          "statuses": {
+            "200": 150
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 150,
+            "mean": 58.546,
+            "p50": 57.44,
+            "p95": 67.949,
+            "p99": 84.599,
+            "max": 97.441
+          },
+          "scheduled_latency_ms": {
+            "count": 150,
+            "mean": 61.1,
+            "p50": 59.622,
+            "p95": 75.423,
+            "p99": 98.818,
+            "max": 117.881
+          },
+          "launch_lag_ms": {
+            "count": 150,
+            "mean": 2.554,
+            "p50": 1.547,
+            "p95": 5.896,
+            "p99": 23.301,
+            "max": 46.28
+          },
+          "statuses": {
+            "200": 150
+          },
+          "errors": {}
+        }
+      },
+      "offline": {
+        "logs": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 0
+          },
+          "scheduled_latency_ms": {
+            "count": 0
+          },
+          "launch_lag_ms": {
+            "count": 0
+          },
+          "statuses": {},
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 2057.683,
+            "p50": 236.468,
+            "p95": 7230.274,
+            "p99": 7749.549,
+            "max": 7855.092
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 2059.067,
+            "p50": 241.271,
+            "p95": 7230.537,
+            "p99": 7750.159,
+            "max": 7855.435
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 1.384,
+            "p50": 0.534,
+            "p95": 5.471,
+            "p99": 12.566,
+            "max": 19.266
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 2176.395,
+            "p50": 340.205,
+            "p95": 7333.919,
+            "p99": 8154.496,
+            "max": 8363.398
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 2180.958,
+            "p50": 362.832,
+            "p95": 7336.216,
+            "p99": 8155.674,
+            "max": 8364.311
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 4.562,
+            "p50": 3.049,
+            "p95": 13.832,
+            "p99": 27.811,
+            "max": 42.385
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 67.487,
+            "p50": 63.465,
+            "p95": 98.414,
+            "p99": 125.629,
+            "max": 171.93
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 75.189,
+            "p50": 67.73,
+            "p95": 118.155,
+            "p99": 178.916,
+            "max": 196.819
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 7.702,
+            "p50": 5.414,
+            "p95": 20.221,
+            "p99": 57.634,
+            "max": 63.397
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        }
+      },
+      "replay_cleanup": {
+        "logs": {
+          "latency_ms": {
+            "count": 667,
+            "mean": 4948.25,
+            "p50": 5166.778,
+            "p95": 7082.847,
+            "p99": 8198.015,
+            "max": 9732.258
+          },
+          "scheduled_latency_ms": {
+            "count": 667,
+            "mean": 4948.25,
+            "p50": 5166.778,
+            "p95": 7082.847,
+            "p99": 8198.015,
+            "max": 9732.258
+          },
+          "launch_lag_ms": {
+            "count": 667,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 667
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 624,
+            "mean": 4864.082,
+            "p50": 5038.823,
+            "p95": 7219.478,
+            "p99": 8722.364,
+            "max": 9890.558
+          },
+          "scheduled_latency_ms": {
+            "count": 624,
+            "mean": 4864.082,
+            "p50": 5038.823,
+            "p95": 7219.478,
+            "p99": 8722.364,
+            "max": 9890.558
+          },
+          "launch_lag_ms": {
+            "count": 624,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 624
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 300,
+            "mean": 15034.375,
+            "p50": 15016.616,
+            "p95": 18835.94,
+            "p99": 19881.542,
+            "max": 22110.504
+          },
+          "scheduled_latency_ms": {
+            "count": 300,
+            "mean": 15037.029,
+            "p50": 15017.219,
+            "p95": 18837.344,
+            "p99": 19882.003,
+            "max": 22110.785
+          },
+          "launch_lag_ms": {
+            "count": 300,
+            "mean": 2.654,
+            "p50": 0.507,
+            "p95": 2.46,
+            "p99": 12.436,
+            "max": 361.87
+          },
+          "statuses": {
+            "200": 300
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 300,
+            "mean": 16171.744,
+            "p50": 16211.343,
+            "p95": 19808.394,
+            "p99": 21245.363,
+            "max": 23142.509
+          },
+          "scheduled_latency_ms": {
+            "count": 300,
+            "mean": 16176.052,
+            "p50": 16212.106,
+            "p95": 19809.772,
+            "p99": 21246.508,
+            "max": 23143.594
+          },
+          "launch_lag_ms": {
+            "count": 300,
+            "mean": 4.308,
+            "p50": 1.139,
+            "p95": 3.813,
+            "p99": 28.664,
+            "max": 363.293
+          },
+          "statuses": {
+            "200": 300
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 300,
+            "mean": 62.287,
+            "p50": 58.929,
+            "p95": 71.92,
+            "p99": 142.154,
+            "max": 371.571
+          },
+          "scheduled_latency_ms": {
+            "count": 300,
+            "mean": 67.178,
+            "p50": 60.395,
+            "p95": 75.737,
+            "p99": 177.242,
+            "max": 717.208
+          },
+          "launch_lag_ms": {
+            "count": 300,
+            "mean": 4.891,
+            "p50": 1.447,
+            "p95": 4.925,
+            "p99": 28.889,
+            "max": 368.381
+          },
+          "statuses": {
+            "200": 300
+          },
+          "errors": {}
+        }
+      },
+      "recovery": {
+        "logs": {
+          "latency_ms": {
+            "count": 199,
+            "mean": 4359.862,
+            "p50": 4120.989,
+            "p95": 5454.054,
+            "p99": 6268.333,
+            "max": 9676.185
+          },
+          "scheduled_latency_ms": {
+            "count": 199,
+            "mean": 4359.862,
+            "p50": 4120.989,
+            "p95": 5454.054,
+            "p99": 6268.333,
+            "max": 9676.185
+          },
+          "launch_lag_ms": {
+            "count": 199,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 199
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 222,
+            "mean": 4289.241,
+            "p50": 4108.128,
+            "p95": 5459.669,
+            "p99": 5858.697,
+            "max": 7318.97
+          },
+          "scheduled_latency_ms": {
+            "count": 222,
+            "mean": 4289.241,
+            "p50": 4108.128,
+            "p95": 5459.669,
+            "p99": 5858.697,
+            "max": 7318.97
+          },
+          "launch_lag_ms": {
+            "count": 222,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 222
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 11974.063,
+            "p50": 11681.755,
+            "p95": 14291.365,
+            "p99": 16452.032,
+            "max": 20187.695
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 11976.171,
+            "p50": 11682.407,
+            "p95": 14291.92,
+            "p99": 16452.298,
+            "max": 20188.237
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 2.109,
+            "p50": 0.501,
+            "p95": 1.342,
+            "p99": 35.794,
+            "max": 88.073
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 12744.03,
+            "p50": 12626.821,
+            "p95": 14816.48,
+            "p99": 15870.58,
+            "max": 19047.94
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 12746.79,
+            "p50": 12627.982,
+            "p95": 14817.792,
+            "p99": 15871.663,
+            "max": 19049.605
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 2.761,
+            "p50": 1.129,
+            "p95": 1.993,
+            "p99": 36.835,
+            "max": 90.148
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 100,
+            "mean": 63.714,
+            "p50": 60.421,
+            "p95": 71.845,
+            "p99": 98.971,
+            "max": 242.246
+          },
+          "scheduled_latency_ms": {
+            "count": 100,
+            "mean": 66.882,
+            "p50": 62.12,
+            "p95": 75.516,
+            "p99": 173.6,
+            "max": 249.27
+          },
+          "launch_lag_ms": {
+            "count": 100,
+            "mean": 3.168,
+            "p50": 1.436,
+            "p95": 3.289,
+            "p99": 37.284,
+            "max": 90.803
+          },
+          "statuses": {
+            "200": 100
+          },
+          "errors": {}
+        }
+      },
+      "drain": {
+        "logs": {
+          "latency_ms": {
+            "count": 1292,
+            "mean": 4517.27,
+            "p50": 4435.789,
+            "p95": 6599.603,
+            "p99": 7388.732,
+            "max": 9879.966
+          },
+          "scheduled_latency_ms": {
+            "count": 1292,
+            "mean": 4517.27,
+            "p50": 4435.789,
+            "p95": 6599.603,
+            "p99": 7388.732,
+            "max": 9879.966
+          },
+          "launch_lag_ms": {
+            "count": 1292,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 1292
+          },
+          "errors": {}
+        },
+        "hooks": {
+          "latency_ms": {
+            "count": 1318,
+            "mean": 4428.577,
+            "p50": 4357.674,
+            "p95": 6477.436,
+            "p99": 7148.297,
+            "max": 9589.065
+          },
+          "scheduled_latency_ms": {
+            "count": 1318,
+            "mean": 4428.577,
+            "p50": 4357.674,
+            "p95": 6477.436,
+            "p99": 7148.297,
+            "max": 9589.065
+          },
+          "launch_lag_ms": {
+            "count": 1318,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
+          },
+          "statuses": {
+            "200": 1318
+          },
+          "errors": {}
+        },
+        "llm": {
+          "latency_ms": {
+            "count": 600,
+            "mean": 13236.277,
+            "p50": 13378.446,
+            "p95": 16832.467,
+            "p99": 18518.408,
+            "max": 19471.194
+          },
+          "scheduled_latency_ms": {
+            "count": 600,
+            "mean": 13237.892,
+            "p50": 13379.626,
+            "p95": 16832.93,
+            "p99": 18519.604,
+            "max": 19472.147
+          },
+          "launch_lag_ms": {
+            "count": 600,
+            "mean": 1.615,
+            "p50": 1.146,
+            "p95": 1.945,
+            "p99": 9.167,
+            "max": 180.151
+          },
+          "statuses": {
+            "200": 600
+          },
+          "errors": {}
+        },
+        "mcp": {
+          "latency_ms": {
+            "count": 600,
+            "mean": 14105.932,
+            "p50": 14199.281,
+            "p95": 17727.04,
+            "p99": 18670.115,
+            "max": 20286.189
+          },
+          "scheduled_latency_ms": {
+            "count": 600,
+            "mean": 14108.166,
+            "p50": 14200.576,
+            "p95": 17728.59,
+            "p99": 18672.069,
+            "max": 20290.64
+          },
+          "launch_lag_ms": {
+            "count": 600,
+            "mean": 2.234,
+            "p50": 1.679,
+            "p95": 2.5,
+            "p99": 10.328,
+            "max": 180.89
+          },
+          "statuses": {
+            "200": 600
+          },
+          "errors": {}
+        },
+        "direct": {
+          "latency_ms": {
+            "count": 600,
+            "mean": 60.929,
+            "p50": 58.927,
+            "p95": 69.582,
+            "p99": 106.569,
+            "max": 273.338
+          },
+          "scheduled_latency_ms": {
+            "count": 600,
+            "mean": 63.504,
+            "p50": 60.741,
+            "p95": 72.033,
+            "p99": 112.02,
+            "max": 454.477
+          },
+          "launch_lag_ms": {
+            "count": 600,
+            "mean": 2.574,
+            "p50": 1.922,
+            "p95": 2.962,
+            "p99": 15.013,
+            "max": 181.14
+          },
+          "statuses": {
+            "200": 600
+          },
+          "errors": {}
+        }
+      }
+    },
+    "final": {
+      "aidr_events": {
+        "expired": 10000,
+        "live": 23600
+      },
+      "aidr_hook_events": {
+        "expired": 10000,
+        "live": 23060
+      },
+      "aidr_operations": {
+        "expired": 10000,
+        "live": 11800
+      },
+      "llm_pipeline_traces": 0,
+      "runtime_trace_events": 0,
+      "runtime_trace_sessions": 0,
+      "fresh_logs": 23600,
+      "fresh_hooks": 23060,
+      "batch_records": {
+        "aidr_batches": 23600,
+        "aidr_hook_batches": 23060
+      },
+      "files_bytes": {
+        "backend.db": 502276096,
+        "backend.db-wal": 18663632
+      }
+    },
+    "state": {
+      "phase": "drain",
+      "generating": false,
+      "done": true,
+      "generated": 52040,
+      "acked": 46380,
+      "replayed": 600,
+      "bad_acks": 0,
+      "bytes": 133087370
+    },
+    "drain_complete": false,
+    "integrity": {
+      "expected_per_channel": 26020,
+      "persisted_logs": 23600,
+      "persisted_hooks": 23060,
+      "remaining_outbox_files": 566,
+      "bad_acks": 0
+    },
+    "ack_age_ms": {
+      "logs": {
+        "count": 2342,
+        "mean": 70408.347,
+        "p50": 75525.557,
+        "p95": 129156.332,
+        "p99": 134583.574,
+        "max": 139796.935
+      },
+      "hooks": {
+        "count": 2296,
+        "mean": 74464.701,
+        "p50": 79429.45,
+        "p95": 132208.479,
+        "p99": 136835.917,
+        "max": 144146.373
+      }
+    },
+    "cleanup": [
+      {
+        "name": "pipeline trace",
+        "started": 1792034049.5485172,
+        "duration_ms": 16.721725463867188,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034049.9525068,
+        "duration_ms": 78.36127281188965,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034051.4168692,
+        "duration_ms": 372.6308345794678,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034052.439908,
+        "duration_ms": 99.11680221557617,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034049.547489,
+        "duration_ms": 2993.4029579162598,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034049.543721,
+        "duration_ms": 3416.5449142456055,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034053.951518,
+        "duration_ms": 234.27295684814453,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034053.953747,
+        "duration_ms": 2028.6450386047363,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034055.119206,
+        "duration_ms": 1392.077922821045,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034057.718476,
+        "duration_ms": 152.80699729919434,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034058.5850759,
+        "duration_ms": 295.67909240722656,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034053.21202,
+        "duration_ms": 6007.1070194244385,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034059.969846,
+        "duration_ms": 273.2410430908203,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034061.241473,
+        "duration_ms": 111.2220287322998,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034057.35565,
+        "duration_ms": 4146.646022796631,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034062.36569,
+        "duration_ms": 35.269975662231445,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034063.9836411,
+        "duration_ms": 22.662878036499023,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034062.572566,
+        "duration_ms": 2429.9728870391846,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034065.4078028,
+        "duration_ms": 49.12829399108887,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034066.368555,
+        "duration_ms": 171.71192169189453,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034059.472959,
+        "duration_ms": 7106.806039810181,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034066.7275362,
+        "duration_ms": 11.34800910949707,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034068.002184,
+        "duration_ms": 203.14908027648926,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034068.32941,
+        "duration_ms": 11.51275634765625,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034070.229486,
+        "duration_ms": 73.29201698303223,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034070.120349,
+        "duration_ms": 476.3062000274658,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034071.2201731,
+        "duration_ms": 63.256025314331055,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034071.762089,
+        "duration_ms": 239.78805541992188,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034072.617527,
+        "duration_ms": 89.15519714355469,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034066.831788,
+        "duration_ms": 6051.056861877441,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034073.6557388,
+        "duration_ms": 16.802072525024414,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034074.557018,
+        "duration_ms": 11.441946029663086,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034075.394061,
+        "duration_ms": 18.92685890197754,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034076.071844,
+        "duration_ms": 26.217937469482422,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034076.8761759,
+        "duration_ms": 76.76506042480469,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034077.673721,
+        "duration_ms": 28.97787094116211,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034078.58784,
+        "duration_ms": 22.945880889892578,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034073.134271,
+        "duration_ms": 6958.978176116943,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034080.338092,
+        "duration_ms": 155.7018756866455,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034081.725174,
+        "duration_ms": 34.40594673156738,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034084.455575,
+        "duration_ms": 114.11905288696289,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034086.696897,
+        "duration_ms": 1308.154821395874,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034080.3492632,
+        "duration_ms": 9245.139837265015,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034090.170016,
+        "duration_ms": 1674.7210025787354,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034093.908617,
+        "duration_ms": 737.1981143951416,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034095.756671,
+        "duration_ms": 409.2118740081787,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034089.845344,
+        "duration_ms": 7412.049770355225,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034098.020998,
+        "duration_ms": 3576.2500762939453,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034097.516671,
+        "duration_ms": 8123.80313873291,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034105.8899431,
+        "duration_ms": 7905.776739120483,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034114.0491369,
+        "duration_ms": 5886.949062347412,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034120.3298151,
+        "duration_ms": 5686.057806015015,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034126.272589,
+        "duration_ms": 5260.010004043579,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034131.78394,
+        "duration_ms": 3870.6398010253906,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034138.954018,
+        "duration_ms": 4.563808441162109,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034135.906137,
+        "duration_ms": 6276.9529819488525,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034142.434366,
+        "duration_ms": 5387.382984161377,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034148.074055,
+        "duration_ms": 10163.115978240967,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034162.621844,
+        "duration_ms": 251.24096870422363,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034158.48722,
+        "duration_ms": 5634.9921226501465,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034164.372654,
+        "duration_ms": 5793.6999797821045,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034170.416471,
+        "duration_ms": 8654.17504310608,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034179.333382,
+        "duration_ms": 8766.079902648926,
+        "more": true,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034188.354513,
+        "duration_ms": 2466.12811088562,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "pipeline trace",
+        "started": 1792034200.373515,
+        "duration_ms": 27.627229690551758,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "runtime trace",
+        "started": 1792034223.715361,
+        "duration_ms": 857.7699661254883,
+        "more": false,
+        "error": null
+      },
+      {
+        "name": "aidr",
+        "started": 1792034250.8221262,
+        "duration_ms": 1340.7597541809082,
+        "more": false,
+        "error": null
+      }
+    ],
+    "replay": {
+      "reconnected_at": 1792034049.510512,
+      "backlog_records": 12860,
+      "drained_at": 1792034126.92305
+    },
+    "application_sha256": "f0742f9b09af8563bc426b668f8bb5f8d2793a36720efe9ef7582fc3627561e5",
+    "application_files": 204,
+    "resource_summary": {
+      "backend_cpu": 153.5,
+      "backend_rss": 263045120,
+      "driver_cpu": 31.9,
+      "driver_rss": 96698368
+    },
+    "event_loop_lag_ms": {
+      "threshold": 100,
+      "count": 8,
+      "max": 147.89358398411423,
+      "blocked_stack_bytes": 0
+    },
+    "successful_requests": {
+      "baseline": {
+        "llm": {
+          "success": 101,
+          "total": 101,
+          "latency_ms": {
+            "count": 101,
+            "p50": 116.766,
+            "p95": 151.406,
+            "p99": 212.602,
+            "max": 292.916
+          }
+        },
+        "mcp": {
+          "success": 101,
+          "total": 101,
+          "latency_ms": {
+            "count": 101,
+            "p50": 252.998,
+            "p95": 274.176,
+            "p99": 290.88,
+            "max": 334.796
+          }
+        },
+        "direct": {
+          "success": 101,
+          "total": 101,
+          "latency_ms": {
+            "count": 101,
+            "p50": 54.812,
+            "p95": 57.677,
+            "p99": 63.383,
+            "max": 63.491
+          }
+        },
+        "logs": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        },
+        "hooks": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        }
+      },
+      "steady": {
+        "llm": {
+          "success": 150,
+          "total": 150,
+          "latency_ms": {
+            "count": 150,
+            "p50": 11892.072,
+            "p95": 14638.905,
+            "p99": 15987.215,
+            "max": 16456.147
+          }
+        },
+        "mcp": {
+          "success": 150,
+          "total": 150,
+          "latency_ms": {
+            "count": 150,
+            "p50": 12335.414,
+            "p95": 14662.462,
+            "p99": 15630.183,
+            "max": 16908.112
+          }
+        },
+        "direct": {
+          "success": 150,
+          "total": 150,
+          "latency_ms": {
+            "count": 150,
+            "p50": 57.44,
+            "p95": 67.949,
+            "p99": 84.599,
+            "max": 97.441
+          }
+        },
+        "logs": {
+          "success": 484,
+          "total": 484,
+          "latency_ms": {
+            "count": 484,
+            "p50": 2908.603,
+            "p95": 5522.783,
+            "p99": 6845.072,
+            "max": 10484.18
+          }
+        },
+        "hooks": {
+          "success": 432,
+          "total": 432,
+          "latency_ms": {
+            "count": 432,
+            "p50": 3512.389,
+            "p95": 5283.7,
+            "p99": 7072.085,
+            "max": 8202.019
+          }
+        }
+      },
+      "offline": {
+        "llm": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 236.468,
+            "p95": 7230.274,
+            "p99": 7749.549,
+            "max": 7855.092
+          }
+        },
+        "mcp": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 340.205,
+            "p95": 7333.919,
+            "p99": 8154.496,
+            "max": 8363.398
+          }
+        },
+        "direct": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 63.465,
+            "p95": 98.414,
+            "p99": 125.629,
+            "max": 171.93
+          }
+        },
+        "logs": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        },
+        "hooks": {
+          "success": 0,
+          "total": 0,
+          "latency_ms": {
+            "count": 0
+          }
+        }
+      },
+      "replay_cleanup": {
+        "llm": {
+          "success": 300,
+          "total": 300,
+          "latency_ms": {
+            "count": 300,
+            "p50": 15016.616,
+            "p95": 18835.94,
+            "p99": 19881.542,
+            "max": 22110.504
+          }
+        },
+        "mcp": {
+          "success": 300,
+          "total": 300,
+          "latency_ms": {
+            "count": 300,
+            "p50": 16211.343,
+            "p95": 19808.394,
+            "p99": 21245.363,
+            "max": 23142.509
+          }
+        },
+        "direct": {
+          "success": 300,
+          "total": 300,
+          "latency_ms": {
+            "count": 300,
+            "p50": 58.929,
+            "p95": 71.92,
+            "p99": 142.154,
+            "max": 371.571
+          }
+        },
+        "logs": {
+          "success": 667,
+          "total": 667,
+          "latency_ms": {
+            "count": 667,
+            "p50": 5166.778,
+            "p95": 7082.847,
+            "p99": 8198.015,
+            "max": 9732.258
+          }
+        },
+        "hooks": {
+          "success": 624,
+          "total": 624,
+          "latency_ms": {
+            "count": 624,
+            "p50": 5038.823,
+            "p95": 7219.478,
+            "p99": 8722.364,
+            "max": 9890.558
+          }
+        }
+      },
+      "recovery": {
+        "llm": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 11681.755,
+            "p95": 14291.365,
+            "p99": 16452.032,
+            "max": 20187.695
+          }
+        },
+        "mcp": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 12626.821,
+            "p95": 14816.48,
+            "p99": 15870.58,
+            "max": 19047.94
+          }
+        },
+        "direct": {
+          "success": 100,
+          "total": 100,
+          "latency_ms": {
+            "count": 100,
+            "p50": 60.421,
+            "p95": 71.845,
+            "p99": 98.971,
+            "max": 242.246
+          }
+        },
+        "logs": {
+          "success": 199,
+          "total": 199,
+          "latency_ms": {
+            "count": 199,
+            "p50": 4120.989,
+            "p95": 5454.054,
+            "p99": 6268.333,
+            "max": 9676.185
+          }
+        },
+        "hooks": {
+          "success": 222,
+          "total": 222,
+          "latency_ms": {
+            "count": 222,
+            "p50": 4108.128,
+            "p95": 5459.669,
+            "p99": 5858.697,
+            "max": 7318.97
+          }
+        }
+      },
+      "drain": {
+        "llm": {
+          "success": 600,
+          "total": 600,
+          "latency_ms": {
+            "count": 600,
+            "p50": 13378.446,
+            "p95": 16832.467,
+            "p99": 18518.408,
+            "max": 19471.194
+          }
+        },
+        "mcp": {
+          "success": 600,
+          "total": 600,
+          "latency_ms": {
+            "count": 600,
+            "p50": 14199.281,
+            "p95": 17727.04,
+            "p99": 18670.115,
+            "max": 20286.189
+          }
+        },
+        "direct": {
+          "success": 600,
+          "total": 600,
+          "latency_ms": {
+            "count": 600,
+            "p50": 58.927,
+            "p95": 69.582,
+            "p99": 106.569,
+            "max": 273.338
+          }
+        },
+        "logs": {
+          "success": 1292,
+          "total": 1292,
+          "latency_ms": {
+            "count": 1292,
+            "p50": 4435.789,
+            "p95": 6599.603,
+            "p99": 7388.732,
+            "max": 9879.966
+          }
+        },
+        "hooks": {
+          "success": 1318,
+          "total": 1318,
+          "latency_ms": {
+            "count": 1318,
+            "p50": 4357.674,
+            "p95": 6477.436,
+            "p99": 7148.297,
+            "max": 9589.065
+          }
+        }
+      }
+    },
+    "cleanup_summary": {
+      "runtime trace": {
+        "errors": 0,
+        "complete_seconds": 52.05,
+        "batch_duration_ms": {
+          "count": 22,
+          "p50": 330.226,
+          "p95": 3547.108,
+          "p99": 4026.863,
+          "max": 4146.646
+        }
+      },
+      "aidr": {
+        "errors": 0,
+        "complete_seconds": 141.277,
+        "batch_duration_ms": {
+          "count": 22,
+          "p50": 6029.082,
+          "p95": 9221.187,
+          "p99": 9970.341,
+          "max": 10163.116
+        }
+      },
+      "pipeline trace": {
+        "errors": 0,
+        "complete_seconds": 28.154,
+        "batch_duration_ms": {
+          "count": 23,
+          "p50": 63.256,
+          "p95": 364.936,
+          "p99": 1167.8,
+          "max": 1392.078
+        }
+      }
+    },
+    "post_run": {
+      "request_leases": 0,
+      "mcp_error_counts": {}
+    },
+    "raw_directory": "outputs/performance/2026-10-15-gateway-contention-fix/high_unbounded"
+  }
+}

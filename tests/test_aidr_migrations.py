@@ -28,6 +28,8 @@ def legacy_database(tmp_path):
         c.exec_driver_sql('DROP INDEX ix_aidr_hook_product_arrival')
         c.exec_driver_sql('DROP INDEX ix_aidr_hook_batch_latest')
         c.exec_driver_sql('DROP INDEX ix_aidr_hook_source_call')
+        for name in ('ix_aidr_log_skill_evidence', 'ix_aidr_hook_skill_evidence'):
+            c.exec_driver_sql(f'DROP INDEX {name}')
         for name in ('ix_aidr_operation_session_turns', 'ix_aidr_runtime_page', 'ix_aidr_runtime_agent_roots', 'ix_aidr_runtime_instance_sequence'):
             c.exec_driver_sql(f'DROP INDEX {name}')
         for model in (models.AidrEvent, models.AidrCoverageRecord):
@@ -65,6 +67,7 @@ def test_upgrade_preserves_all_evidence_and_is_repeatable(tmp_path):
         assert c.exec_driver_sql("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='ix_aidr_hook_session_turns'").scalar() == 1
         for name in ('ix_aidr_hook_product_arrival', 'ix_aidr_hook_batch_latest',
                      'ix_aidr_hook_source_call',
+                     'ix_aidr_log_skill_evidence', 'ix_aidr_hook_skill_evidence',
                      'ix_aidr_operation_device_page', 'ix_aidr_hook_active_page', 'ix_aidr_operation_product_sessions'):
             assert c.exec_driver_sql("SELECT count(*) FROM sqlite_master WHERE type='index' AND name=?", (name,)).scalar() == 1
         receipt_plan = c.exec_driver_sql("EXPLAIN QUERY PLAN SELECT id FROM aidr_hook_batches WHERE client_id='old' AND stream_id='stream' AND received_at>='2026-01-01' ORDER BY id DESC LIMIT 1").all()
