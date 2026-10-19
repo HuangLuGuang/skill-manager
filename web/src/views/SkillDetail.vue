@@ -239,10 +239,10 @@
           <a-tabs v-model:activeKey="analysisTab" class="analysis-result-tabs" type="card">
             <a-tab-pane key="rule" :tab="$t('decisionFlow.ruleScan')">
                 <a-card id="rule-analysis-section" size="small" :title="$t('legacy.1hpgf7r')">
-                  <template v-if="behavioralAnalysis">
+                  <template v-if="behavioralAnalysis || localStaticAnalysis || ruleAnalyzerNames.length || ruleAnalysisFindings.length">
                     <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered>
                       <a-descriptions-item :label="$t('legacy.5p87cu')">
-                        {{ localStaticAnalysis?.scanned_file_count ?? behavioralAnalysis.scanned_file_count ?? behavioralScannedFiles.length }}
+                        {{ localStaticAnalysis?.scanned_file_count ?? behavioralAnalysis?.scanned_file_count ?? (behavioralAnalysis ? behavioralScannedFiles.length : '-') }}
                       </a-descriptions-item>
                       <a-descriptions-item :label="$t('legacy.7yxhns')">
                         {{ ruleAnalysisFindings.length }}
@@ -253,8 +253,10 @@
                         </a-tag>
                       </a-descriptions-item>
                       <a-descriptions-item :label="$t('legacy.13tfl8g')">
-                        <a-tag color="blue">behavioral:local</a-tag>
-                        <a-tag v-if="localStaticAnalysis" color="cyan">agent-manager-local</a-tag>
+                        <a-space v-if="ruleAnalyzerNames.length" wrap :size="[0, 8]">
+                          <a-tag v-for="name in ruleAnalyzerNames" :key="name" :color="name === 'agent-manager-local' ? 'cyan' : 'blue'">{{ name }}</a-tag>
+                        </a-space>
+                        <span v-else>{{ $t('decisionFlow.unrecorded') }}</span>
                       </a-descriptions-item>
                     </a-descriptions>
                     <a-collapse
@@ -1946,6 +1948,16 @@ const behavioralAnalysis = computed(() => scanReport.value?.behavioral_analysis 
 const behavioralFindings = computed(() => behavioralAnalysis.value?.findings || [])
 const behavioralScannedFiles = computed(() => behavioralAnalysis.value?.scanned_files || [])
 const localStaticAnalysis = computed(() => scanReport.value?.local_static_analysis || null)
+// 按本次记录展示规则分析器，兼容仅保存本地分析结果的旧报告。
+const ruleAnalyzerNames = computed(() => {
+  const recorded = scanReport.value?.analyzers_used || detail.value?.vetting?.analyzers_used || []
+  const names = recorded.filter(name => ['static_analyzer', 'bytecode', 'pipeline', 'behavioral:local', 'agent-manager-local', 'basic'].includes(name))
+  if (!recorded.length) {
+    if (behavioralAnalysis.value) names.push('behavioral:local')
+    if (localStaticAnalysis.value) names.push('agent-manager-local')
+  }
+  return [...new Set(names)]
+})
 const normalizeRuleFinding = (item) => ({
   ...item,
   title: item.title || item.rule_id || item.rule || phrase('legacy.10qlo3g'),
@@ -1963,11 +1975,22 @@ const topLevelRuleFindings = computed(() => {
   return findings.filter(isRuleFinding).map(normalizeRuleFinding)
 })
 const ruleAnalysisFindings = computed(() => {
-  const nested = [
-    ...behavioralFindings.value,
-    ...(localStaticAnalysis.value?.findings || []),
-  ].map(normalizeRuleFinding)
-  return nested.length ? nested : topLevelRuleFindings.value
+  // 合并基础与本地规则，去掉顶层报告包含的同一发现项副本。
+  const findings = [
+    ...topLevelRuleFindings.value,
+    ...behavioralFindings.value.map(normalizeRuleFinding),
+    ...(localStaticAnalysis.value?.findings || []).map(normalizeRuleFinding),
+  ]
+  const seen = new Set()
+  return findings.filter(item => {
+    const key = JSON.stringify([
+      item.source || item.analyzer || '', item.rule, item.file, item.line,
+      item.severity, item.title, item.message, item.category, item.code_snippet, item.snippet, item.evidence,
+    ])
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 })
 const groupedRuleAnalysisFindings = computed(() => groupFindingsByClassification(ruleAnalysisFindings.value))
 const nonEmptyRuleClassificationKeys = computed(() => groupedRuleAnalysisFindings.value.map(group => group.key))
