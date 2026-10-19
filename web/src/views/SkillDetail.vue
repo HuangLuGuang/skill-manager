@@ -720,8 +720,9 @@
 
         <a-tab-pane key="signature" :tab="$t('legacy.y6whtf')">
           <a-descriptions :column="1" size="small" bordered>
-            <a-descriptions-item :label="$t('legacy.s9rtfe')">{{ detail?.signature ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
-            <a-descriptions-item :label="$t('legacy.14ju5sj')">{{ detail?.signature ? `${detail.signature.slice(0, 24)}...` : '-' }}</a-descriptions-item>
+            <!-- 内容指纹在导入时生成，展示使用当前版本的指纹字段。 -->
+            <a-descriptions-item :label="$t('skillDetail.fingerprintExists')">{{ detail?.content_fingerprint ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
+            <a-descriptions-item :label="$t('skillDetail.fingerprintPreview')">{{ detail?.content_fingerprint ? `${detail.content_fingerprint.slice(0, 24)}...` : '-' }}</a-descriptions-item>
             <a-descriptions-item :label="$t('legacy.1a9csig')">{{ signatureResult ? (signatureResult.valid ? $t('legacy.j666m6') : $t('legacy.12db3qz')) : $t('legacy.39zt54') }}</a-descriptions-item>
           </a-descriptions>
         </a-tab-pane>
