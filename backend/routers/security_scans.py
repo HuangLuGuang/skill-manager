@@ -565,6 +565,7 @@ def _task_response(row: models.SecurityScanTask, *, include_live_cases: bool = F
         "conversation_mode": raw_options.get("conversation_mode", "single_turn"),
         "reset_session": bool(raw_options.get("reset_session", True)),
         "prompt_configured": bool(raw_options.get("prompt")),
+        "protected_output_marker_count": len(raw_options.get("protected_output_markers") or []),
         "metadata_only": bool(raw_options.get("metadata_only", False)),
         "side_effect_tool_calls": raw_options.get("side_effect_tool_calls"),
         "upstream_dynamic_mode": raw_options.get("upstream_dynamic_mode"),
@@ -1997,6 +1998,10 @@ def _validate_scan_task_request(
         )
     if body.scan_kind in {"agent_risk_scan", "llm_redteam_scan"} or (body.scan_kind == "mcp_risk_scan" and body.mcp_mode != "metadata"):
         validate_evaluation_model(db, body.evaluation_model)
+    if body.protected_output_markers and body.scan_kind != "agent_risk_scan":
+        raise ApiError(422, "agent_security.output_markers_agent_only",
+                       "受保护输出标记仅适用于智能体动态扫描",
+                       "Protected output markers apply only to Agent dynamic scans")
     if body.scan_kind == "mcp_risk_scan":
         if target.target_type not in {MCP_GATEWAY_TARGET_TYPE, "mcp_source"}:
             raise ApiError(409, "agent_security.mcp_scan_target_required", "请选择已登记的 MCP 目标", "Select a registered MCP target")
@@ -2170,6 +2175,7 @@ def _validate_scan_task_request(
         "language": body.language,
         "skills": body.skills,
         "prompt": body.prompt,
+        "protected_output_markers": list(dict.fromkeys(body.protected_output_markers)),
         "conversation_mode": body.conversation_mode,
         "reset_session": body.reset_session,
         "initial_session_id": continuation_state,
@@ -2923,6 +2929,7 @@ def _comparison_coverage(task: models.SecurityScanTask) -> tuple[str, dict[str, 
             "conversation_mode": options.get("conversation_mode", "single_turn"),
             "reset_session": bool(options.get("reset_session", True)),
             "prompt_sha256": hash_value(str(options.get("prompt") or "")),
+            "protected_output_markers_sha256": hash_value(json_dumps(sorted(options.get("protected_output_markers") or []))),
             "metadata_only": bool(options.get("metadata_only", False)),
             "side_effect_tool_calls": options.get("side_effect_tool_calls"),
             "upstream_dynamic_mode": options.get("upstream_dynamic_mode"),

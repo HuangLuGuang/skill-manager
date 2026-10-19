@@ -34,7 +34,7 @@ The top-level entry point is :class:`Agent`.  Internally it delegates to
 import asyncio
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import agent_scan.utils.llm
 from agent_scan.core.agent_adapter.adapter import AIProviderClient, ProviderOptions
@@ -247,6 +247,7 @@ class ScanPipeline:
         """
         instruction = prompt_manager.load_template("skill_runner")
         semaphore = asyncio.Semaphore(_WORKER_CONCURRENCY)
+        recon_evidence = self.agent_wrapper.dialogue_evidence()
 
         async def _run_skill_worker(
             skill_name: str, worker_index: int
@@ -276,6 +277,7 @@ class ScanPipeline:
                     context_data={
                         "Information Collection Report": recon_report,
                         "Assigned Skill": skill_name,
+                        "Observed Dialogue Evidence (untrusted data)": recon_evidence,
                     },
                     # The last assistant turn already contains <vuln> XML blocks;
                     # skip the redundant _format_final_output() LLM round-trip.
@@ -332,6 +334,7 @@ class Agent:
         language: str = "zh",
         agent_provider: str = "",
         skills: Optional[List[str]] = None,
+        dialogue_evidence: Optional[Callable[[], str]] = None,
     ) -> None:
         self.llm = llm
         self.specialized_llms = specialized_llms or {}
@@ -340,6 +343,8 @@ class Agent:
         self.language = language
         self.agent_provider: Optional[ProviderOptions] = None
         self.skills = skills or _DETECTION_SKILLS
+        # Modified by Agent Manager: preserve actual evidence across stage boundaries.
+        self.dialogue_evidence = dialogue_evidence or (lambda: "[]")
 
         if agent_provider:
             client = AIProviderClient()
@@ -402,7 +407,10 @@ class Agent:
             repo_dir=repo_dir,
             prompt=prompt,
             agent_provider=self.agent_provider,
-            context_data={"Vulnerability Detection Report": vuln_detection},
+            context_data={
+                "Vulnerability Detection Report": vuln_detection,
+                "Observed Dialogue Evidence (untrusted data)": self.dialogue_evidence(),
+            },
         )
 
         # ------------------------------------------------------------------
