@@ -109,6 +109,13 @@
             <p>{{ t('decisionFlow.statusConclusion', { status: statusLabel }) }}</p>
             <p class="muted">{{ t('decisionFlow.statusHint') }}</p>
           </li>
+          <li v-if="policyNotices.length" class="policy-notices">
+            <h4>{{ t('decisionFlow.policyNoticesTitle') }}</h4>
+            <p class="muted">{{ t('decisionFlow.policyNoticesHint') }}</p>
+            <ul>
+              <li v-for="(notice, index) in policyNotices" :key="index">{{ policyNoticeText(notice) }}</li>
+            </ul>
+          </li>
         </ol>
       </section>
     </div>
@@ -132,6 +139,16 @@ const policyFailed = ref(false)
 onMounted(async () => { try { policy.value = (await getPolicy()).policy } catch { policyFailed.value = true } })
 const reconciliation = computed(() => props.report.risk_reconciliation)
 const decision = computed(() => recordedDecision(props.report))
+// 准入提示使用本次扫描参数，与规则发现项分别展示。
+const policyNotices = computed(() => props.report.policy_warnings || [])
+const policyNoticeText = notice => {
+  if (notice.rule === 'require_license') return t('decisionFlow.policyNoticeRequireLicense')
+  if (notice.rule === 'unaccepted_license') return t('decisionFlow.policyNoticeUnacceptedLicense', {
+    license: notice.params.license,
+    accepted: notice.params.accepted_licenses.join(', '),
+  })
+  return notice.message
+}
 const llmDisagreement = computed(() => llmRiskDisagreement(props.report))
 const findingDetails = ref(null)
 const retainedFindings = computed(() => (decision.value.findings || []).filter(item => item.classification === 'blocking'))
@@ -256,6 +273,8 @@ const nodes = computed(() => {
 .decision-output .path-heading { margin-bottom: 16px; }
 .decision-path { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; list-style: none; counter-reset: stage; padding: 0; margin: 0; }
 .decision-path > li { min-width: 0; counter-increment: stage; position: relative; padding: 16px 16px 16px 48px; border: 1px solid var(--line); border-radius: 6px; }
+.policy-notices { grid-column: 1 / -1; }
+.policy-notices ul { margin: 7px 0 0; padding-left: 20px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .decision-path > li:has(details[open]) { grid-column: 1 / -1; }
 .decision-path:has(details[open]) > li:last-child { grid-column: 1 / -1; }
 .decision-path > li::before { content: counter(stage); position: absolute; left: 14px; top: 15px; width: 23px; height: 23px; border-radius: 50%; background: #eaf1fb; color: #2459ad; text-align: center; line-height: 23px; font-size: 12px; font-weight: 600; }

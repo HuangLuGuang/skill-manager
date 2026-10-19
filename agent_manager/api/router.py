@@ -38,6 +38,7 @@ from agent_manager.core.manager import AgentManager, findings_summary_from_repor
 from agent_manager.core.models import RegistryEntry, SkillOrigin, SkillStatus, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.policy_simulation import PolicySimulationRequest, simulate_policy
+from agent_manager.core.policy_warnings import get_policy_warnings
 from agent_manager.core.prompt_models import PromptStatus
 from agent_manager.core.sandbox import (
     SandboxConfig,
@@ -69,13 +70,16 @@ def _get_upload_jobs(mgr):
     with _upload_jobs_lock:
         if root not in _upload_jobs:
             def process_item(payload, raw_path):
+                # 每项上传开始时固定当前管理器，已开始扫描继续使用原实例。
+                current = _manager
+                active = current if current is not None and current.registry.data_dir == root else mgr
                 body = RemoteImportSubmitRequest(**payload)
                 skill_dir = Path(raw_path).resolve()
                 session_root = root / "upload_import_sessions" / body.session_id
                 if not _is_within_root(skill_dir, session_root):
                     raise ValueError("Path is outside upload import session")
                 result = _submit_directory_for_processing(
-                    mgr, BackgroundTasks(), skill_dir,
+                    active, BackgroundTasks(), skill_dir,
                     SourceInfo(origin=SkillOrigin(body.origin), author=body.author, channel="upload_zip"),
                     body.use_behavioral, body.use_llm, body.use_sandbox, body.use_skillspector, body.judgement_mode,
                 )
@@ -1707,6 +1711,9 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
     if entry is None:
         raise HTTPException(status_code=404, detail="Skill not found")
     report = entry.vetting.scan_report if entry.vetting else {}
+    report = {**report, "policy_warnings": get_policy_warnings(
+        report, entry.vetting.policy_notes if entry.vetting else [],
+    )}
     deep = report.get("skillspector_analysis")
     if (
         isinstance(deep, dict)

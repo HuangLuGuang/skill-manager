@@ -235,6 +235,7 @@ class PolicyViolation(BaseModel):
     rule: str
     message: str
     blocking: bool = True     # If True, prevents approval
+    params: dict[str, Any] = Field(default_factory=dict)
 
 
 class ReviewRequest(BaseModel):
