@@ -382,6 +382,7 @@ def _check_manifest_policy(
         violations.append(PolicyViolation(
             rule="unaccepted_license",
             message=f"License {license_val!r} is not in the accepted list: {policy._data['accepted_licenses']}",
+            params={"license": license_val, "accepted_licenses": list(policy._data["accepted_licenses"])},
             blocking=False,
         ))
 
@@ -1081,6 +1082,10 @@ class VettingPipeline:
         if progress_callback:
             progress_callback("finalizing")
         violations = _check_manifest_policy(allowed_tools, license_val, self.policy)
+        # 本次准入提示保存编码与参数，供页面及 PDF 按语言展示。
+        scan_report["policy_warnings"] = [
+            violation.model_dump(mode="json") for violation in violations if not violation.blocking
+        ]
         policy_notes = [
             f"{'[BLOCK]' if violation.blocking else '[WARN]'} {violation.rule}: {violation.message}"
             for violation in violations

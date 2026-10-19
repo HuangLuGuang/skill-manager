@@ -2085,6 +2085,23 @@ ZIP 中存在软链接时，页面展示路径清单，可选择“跳过软链�
 
 许可证缺失或不被接受、工具数量超限、工具不在允许列表为非阻断告警；页面明确展示其提示作用。明确禁止权限检查的是 Skill 声明，不是运行时权限隔离。`auto_approve_max_risk` 仅参与 Prompt 自动批准，`trusted_authors` 尚未用于 Skill 自动放行，两者不在 Skill 策略页提供编辑控件，兼容字段与其他未展示字段在保存时保留。
 
+### 准入策略说明 / Admission policy notes
+
+实际判定过程在“判定依据”的四项依据之后，按本次扫描记录增加第5项“策略说明”，沿用普通卡片样式，逐条展示非阻断原因；无提示时隐藏。许可证缺失仅在本次策略要求检查时产生准入提示，规则扫描发现项仍在扫描结果中展示。页面及中英文 PDF 使用同次报告的稳定规则编码和参数，许可证标识保持原文。旧报告在读取时解析已有策略备注，保留当时接受的许可证列表，不回写存储；应用当前策略需重新扫描。
+
+PDF 在“策略说明 / Policy Notes”小节统一列出准入提示和分析备注。
+
+ZIP 上传队列在策略保存后更新后续任务使用的管理器，复用已有队列和线程；已经开始的扫描使用原实例完成。扫描报告 JSON 新增 `policy_warnings`，兼容已有数据库及 Docker 部署，无需表结构迁移。
+
+The decision trace adds “Policy Notes” after its four existing basis cards when this scan recorded non-blocking admission notices. The page and localized PDFs preserve the scan’s license identifiers and accepted list. Historical notices are read from stored notes without rewriting reports. Saving policy refreshes subsequent ZIP work while keeping the existing queue, thread and in-flight scan instance. The report JSON extension requires no database migration.
+
+人工 UI 验收 / Manual UI checks：
+
+- 查看许可证缺失、不被接受与合规样例：第5项按实际记录显示或隐藏，单独提示不改变原准入规则。
+- 切换版本、刷新与中英文：提示跟随当前报告；导出 PDF 对照参数及语言。
+- 窄屏和较长许可证值：列表自然换行，卡片及编号布局正常。
+
+
 ### 12.7 扫描器接入
 
 用于客户侧批量扫描本地 skills：

@@ -33,6 +33,7 @@ from reportlab.platypus import (
 )
 
 from agent_manager.core.models import AuditEvent, RegistryEntry, ScanRun
+from agent_manager.core.policy_warnings import format_policy_warning, get_policy_warnings
 
 BRAND_RED = colors.HexColor("#DC0012")
 BRAND_DARK = colors.HexColor("#303946")
@@ -1332,9 +1333,14 @@ def _policy_and_integrity(
     )
     story.append(_label_value_table(rows, styles))
     notes = entry.vetting.policy_notes if entry.vetting else []
-    if notes:
+    report = entry.vetting.scan_report if entry.vetting else {}
+    warnings = get_policy_warnings(report, notes)
+    remaining_notes = [note for note in notes if not str(note).startswith("[WARN]")]
+    if warnings or remaining_notes:
+        # 策略说明统一列出本次准入提示和分析备注。
         story.append(_subsection("策略说明" if language == "zh-CN" else "Policy Notes", styles))
-        story.extend(_bullet(_localized_policy_note(note, language), styles) for note in notes)
+        story.extend(_bullet(format_policy_warning(item, language), styles) for item in warnings)
+        story.extend(_bullet(_localized_policy_note(note, language), styles) for note in remaining_notes)
     story.extend(_section("8. 完整性与可信校验" if language == "zh-CN" else "8. Integrity and Trust", styles))
     integrity = (
         [

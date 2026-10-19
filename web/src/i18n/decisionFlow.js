@@ -1,5 +1,9 @@
 export const decisionFlowMessages = {
   'zh-CN': {
+    policyNoticesTitle: '策略说明',
+    policyNoticesHint: '以下提示单独命中不会直接拒绝 Skill。',
+    policyNoticeRequireLicense: 'Skill 声明缺少策略要求的许可证字段。',
+    policyNoticeUnacceptedLicense: '许可证 {license} 不在本次扫描接受的许可证列表中：{accepted}。',
     helpRiskFloor: '存在“判为恶意”的发现或采用严格模式时，LLM 不能降低工具初判。',
     scanResults: '扫描结果', ruleScan: '规则扫描', llmAnalysis: 'LLM 分析',
     reportTitle: '检测报告', viewTrace: '查看判定过程',
@@ -46,6 +50,10 @@ export const decisionFlowMessages = {
     data_exfiltration: '数据外传', supply_chain: '供应链', prompt_injection: '提示注入', tool_misuse: '工具滥用', network: '网络访问', credential_access: '凭据访问', dynamic_execution: '动态执行', excessive_permissions: '权限过大', documented_external_api: '文档外部 API', dependency: '依赖', runtime: '运行环境',
   },
   'en-US': {
+    policyNoticesTitle: 'Policy Notes',
+    policyNoticesHint: 'These notices alone do not reject the Skill.',
+    policyNoticeRequireLicense: 'The Skill manifest is missing the license field required by policy.',
+    policyNoticeUnacceptedLicense: 'License {license} is not in the licenses accepted for this scan: {accepted}.',
     helpRiskFloor: 'LLM cannot lower tool risk when findings are classified as malicious or strict mode is used.',
     scanResults: 'Scan results', ruleScan: 'Rule scan', llmAnalysis: 'LLM analysis',
     reportTitle: 'Detection Report', viewTrace: 'View decision trace',
