@@ -4,6 +4,7 @@
       <template #title>
         <a-page-header :title="$t('credentials.pageTitle')" :sub-title="$t('credentials.pageSubtitle')">
           <template #extra>
+            <a-button v-if="pageAllowed('/external-access')" @click="router.push('/external-access?tab=tokens')">{{ $t('externalAccess.title') }}</a-button>
             <a-button :loading="loading || optionsLoading" @click="refreshAll">{{ $t('credentials.refresh') }}</a-button>
             <a-button v-if="hasAccess('credentials:create')" type="primary" @click="openCreate()">{{ $t('credentials.createAction') }}</a-button>
           </template>
@@ -53,6 +54,7 @@
             <a-select-option v-for="scenario in credentialScenarios" :key="scenario.tokenType" :value="scenario.tokenType">
               {{ scenario.title }}
             </a-select-option>
+            <a-select-option value="openapi">{{ $t('externalAccess.tokens') }}</a-select-option>
           </a-select>
           <span class="inventory-count">{{ $t('credentials.recordCount', { count: tokens.length }) }}</span>
         </a-space>
@@ -580,7 +582,7 @@ const formatTime = formatDateTime
 const sameScopes = (left, right) =>
   left.length === right.length && [...left].sort().every((scope, index) => scope === [...right].sort()[index])
 const scenarioByTokenType = value => credentialScenarios.value.find(item => item.tokenType === value)
-const tokenTypeLabel = value => scenarioByTokenType(value)?.title || value
+const tokenTypeLabel = value => value === 'openapi' ? t('externalAccess.tokens') : scenarioByTokenType(value)?.title || value
 const typeTagColor = value => ({ agent_runtime: 'cyan', model_gateway: 'blue', mcp_gateway: 'purple', scanner: 'orange', client: 'default' }[value] || 'default')
 const statusLabel = value => ({ active: t('credentials.active'), disabled: t('credentials.disabled'), revoked: t('credentials.revoked') }[value] || value)
 const statusColor = value => ({ active: 'green', disabled: 'orange', revoked: 'red' }[value] || 'default')
@@ -589,6 +591,7 @@ const agentDisplay = agentId => {
   return agent ? `${agent.name}（${agent.agent_id}）` : agentId
 }
 const callerBinding = record => {
+  if (record.token_type === 'openapi') return record.platform_id
   if (record.bound_agent_id) return agentDisplay(record.bound_agent_id)
   if (record.bound_client_id) return t('credentials.boundClientValue', { client: record.bound_client_id })
   if (record.group_id) return t('credentials.boundGroupValue', { group: record.group_id })
@@ -596,6 +599,7 @@ const callerBinding = record => {
   return t('credentials.noBinding')
 }
 const accessSummary = record => {
+  if (record.token_type === 'openapi') return (record.scopes || []).map(scope => ({ label: t(`externalAccess.scopeNames.${scope}`), color: 'blue' }))
   const scopes = record.scopes || []
   const items = []
   if (scopes.some(scope => scope.startsWith('runtime:'))) items.push({ label: t('credentials.runtimeAccess'), color: 'cyan' })

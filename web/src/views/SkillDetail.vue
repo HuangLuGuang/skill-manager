@@ -2511,6 +2511,7 @@ const originLabel = (value) => ({
   unknown: phrase('legacy.1lpnuh4'),
 }[value] || value || '-')
 const sourceChannelLabel = (value) => ({
+  external_api: t('externalAccess.sources.external_api'),
   scanner: phrase('legacy.7ucd4c'),
   agent_manager_client: 'Agent Manager Client',
   upload_zip: phrase('legacy.17o43lg'),

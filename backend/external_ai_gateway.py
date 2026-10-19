@@ -10,7 +10,7 @@ import secrets
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 from sqlalchemy.orm import Session
@@ -60,6 +60,15 @@ def sign(token_value: str, value: str) -> str:
     return hmac.new(token_value.encode(), value.encode(), hashlib.sha256).hexdigest()
 
 
+def signed_request_url(url: str, method: str, body: bytes, token_id: str, token_value: str) -> str:
+    parsed = urlsplit(url)
+    timestamp, nonce = str(int(time.time())), secrets.token_hex(8)
+    signature = sign(token_value, string_to_sign(method, parsed.path, parsed.query, body, timestamp, nonce, token_id))
+    query = "&".join(part for part in (parsed.query, f"tokenid={quote(token_id, safe='')}",
+        f"timestamp={timestamp}", f"nonce={nonce}", f"signature={signature}") if part)
+    return parsed._replace(query=query).geturl()
+
+
 @dataclass
 class GatewayResponse:
     status_code: int
@@ -83,28 +92,13 @@ class SignedClient:
         )
         if len(body) > BODY_LIMIT:
             raise ApiError(413, "external_gateway.body_too_large", "外部网关请求体超过 1 MiB", "External gateway request body exceeds 1 MiB")
-        timestamp = str(int(time.time()))
-        nonce = secrets.token_hex(8)
-        signature = sign(
-            self._token_value,
-            string_to_sign(method, wire_path, query, body, timestamp, nonce, self.token_id),
-        )
-        signed_query = "&".join(
-            part
-            for part in (
-                query,
-                f"tokenid={self.token_id}",
-                f"timestamp={timestamp}",
-                f"nonce={nonce}",
-                f"signature={signature}",
-            )
-            if part
-        )
+        url = signed_request_url(f"{self.base_url}{wire_path}" + ("?" + query if query else ""),
+                                 method, body, self.token_id, self._token_value)
         headers = {"Content-Type": "application/json"} if body else {}
         try:
             response = httpx.request(
                 method.upper(),
-                f"{self.base_url}{wire_path}?{signed_query}",
+                url,
                 content=body or None,
                 headers=headers,
                 timeout=self.timeout,

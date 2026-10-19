@@ -3,6 +3,7 @@
 该独立进程同时支持：
 
 - `control_plane_validation`：P1 任务领取、租约、预算和回传协议验证。
+- 开放接口连接验证：带 `openapi_connection_test` 标记的控制面任务调用 `connection_probe.py`，使用登记版本的凭据和模型向 `/chat/completions` 发送最小文本对话，返回网络、TLS、认证和协议检查。HTTP 的 TLS 项为 `skipped`，HTTPS 验证证书。任务沿用原生租约、预算、地址范围和生产授权。
 - `agent_risk_scan`：锁定 AI-Infra-Guard `v4.6.0` 的 Agent 动态风险扫描。
 - `mcp_risk_scan`：元数据检查、只读源码快速/完整审计、四阶段动态扫描及 Crescendo/TAP 多轮红队。
   发起任务时选择模型网关中已启用的评估模型，并可分别选择分析模型和攻击模型。
@@ -30,6 +31,8 @@ Worker 生成临时 X25519 密钥对并登记公钥；Backend 只在任务领取
 Worker、任务、凭据和租约到期时间绑定的 AES-GCM 密封信封。目标凭据不会以数据库密文或长期
 明文出现在任务载荷、日志或 API 响应中。
 
+开放接口任务固定受理时的目标和凭据版本；登记更新为新版本建立独立目标及凭据，已受理任务继续使用原版本。领取时检查固定凭据仍有效，停用或吊销后阻止执行。Backend 与 Worker 需同步升级，配置和调用流程见[智能体开放接口](../../docs/external-agent-integration.md#智能体开放接口--agent-open-api)。
+
 Agent 和 LLM 扫描在创建时选择网关评估模型。Worker 使用任务租约调用控制面的任务专属评估接口，供应商密钥保留在 Backend；模型调用复用网关隐私策略和审计。
 
 ## 构建与运行
@@ -52,6 +55,10 @@ docker compose up -d
 ```bash
 .venv-security-worker/bin/python services/agent-security-worker/worker.py
 ```
+
+Agent评测适配器按所选检查项采集开始、完成和异常事件，将不可变计数快照放入租约心跳的 `scan_progress`。采集入口复用Agent Scan的检测阶段调用，准备与复核阶段不增加用例计数。心跳成功后才记录已上报快照，传输失败由后续心跳重发；长调用期间由后台续租线程发送最新计数。只上报计数，不包含对话或模型响应。Backend领取新一轮重试时清理上一轮进度，终态查询按保存的用例统计。此功能需要一起更新Backend、Worker和Web；配置与数据库结构不变。
+
+**English:** The Agent adapter tracks selected detection checks as they start, finish or fail, and sends immutable count snapshots in lease heartbeat `scan_progress`. Reconnaissance and review do not add cases. A snapshot is marked reported only after a successful heartbeat; subsequent heartbeats retry failed sends, and the keepalive thread publishes during long calls. Only counts are sent, without dialogue or model responses. The Backend clears prior-attempt progress on a new claim and uses persisted cases for terminal counts. Update Backend, Worker and Web together; configuration and database structure are unchanged.
 
 镜像和 Compose 都配置了健康检查。Worker 只有在成功完成控制面领取/心跳后才刷新 `/tmp` 中的
 健康标记；长任务期间，成功续租也会刷新该标记，避免正常扫描被误判为失联。控制面持续不可达时

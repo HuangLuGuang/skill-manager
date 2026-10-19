@@ -69,6 +69,9 @@ def test_create_list_and_update_department_agent(tmp_path):
     assert created["department_name"] == "风控部"
     assert created["skill_names"] == ["risk-screening-deep-trace"]
     assert created["origin_type"] == "platform"
+    assert created["registration_source"] == "console"
+    assert client.get("/agents/assets", params={"registration_source": "external_api"}).json()["items"] == []
+    assert client.get("/agents/assets", params={"registration_source": "console"}).json()["items"][0]["agent_id"] == created["agent_id"]
 
     list_response = client.get("/agents", params={"department_group_id": group_id})
     assert list_response.status_code == 200

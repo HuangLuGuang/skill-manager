@@ -1,5 +1,433 @@
 # External Agent Integration
 
+## 检测与评测方案管理 / Scan & Evaluation Profiles
+
+在“系统设置 → 开放 API 管理 → 检测与评测方案”中切换“Skill 检测”和“智能体评测”，查看现有方案或新增、编辑方案。页面直接使用开放接口读取的配置文件：Skill为注册表目录的 `openapi-skills.json`（或 `OPENAPI_SKILL_CONFIG`），智能体为Backend `DATA_DIR` 下的 `openapi-agents.json`（或 `OPENAPI_AGENT_CONFIG`）。文件不存在时列表为空，首次保存创建文件。
+
+Skill方案支持接入方授权、检测模块、风险判定模式和恶意规则。智能体方案支持接入方授权、原生评测策略、已启用的评判模型、检查项、对话模式、语言、执行审批和恶意规则。执行审批仍在任务提交时校验目标、凭据和有效期。恶意规则按行填写双方确认的规则编码。
+
+保存只修改对应方案，保留文件中的其他方案、`partners`、`callbacks` 和 `gateways`。修改方案内容时自动生成新的字符串版本；内容不变则保留版本。新提交任务读取最新方案，已受理任务、报告、回调及网关报文使用保存的快照。文件损坏时显示错误；并发编辑冲突返回409，页面保留草稿。文件保存采用进程间锁和原子替换。直接修改文件时应与页面编辑错开，并为变更内容设置新的 `version`。
+
+管理接口使用管理台登录和 `external_access:view/create/update` 权限，创建与修改写入管理审计；不新增数据库表。Backend进程需有配置文件及父目录的读写权限，容器部署应将配置保存在持久化可写目录。
+
+| 方法与路径 | 说明 |
+| --- | --- |
+| `GET /api/v1/external-access/profiles/options` | 评测策略、已启用模型和检查项选项 |
+| `GET /api/v1/external-access/profiles/{kind}` | 方案列表 `items` 与配置修订标识 `revision`；kind为skill或agent |
+| `POST /api/v1/external-access/profiles/{kind}` | 新增方案；请求包含 `profile_id`、列表返回的 `revision` 和 `settings` |
+| `PUT /api/v1/external-access/profiles/{kind}` | 修改方案，使用相同请求结构；settings为该方案完整配置，不含version |
+
+新增及修改返回最新列表和修订标识，方案含自动生成的 `version`。配置引用、字段和类型无效返回422，重复编号或修订冲突返回409，方案不存在返回404，存储不可读写返回503，错误均包含稳定 `error_code`。
+
+**English:** System Settings → Open API Management → Scan & Evaluation Profiles reads the existing Skill and Agent configuration files. Add, view or edit authorized partners, analyzer switches, judgement mode and malicious rules for Skills, or evaluation policy, enabled evaluator model, checks, conversation mode, language, approval and malicious rules for Agents. Execution approval is validated against the actual target, credential and validity window at submission. Other profiles and partner/callback/gateway sections are preserved. Changed settings receive a new string version; unchanged saves retain their version. Existing tasks, reports and outbound payloads retain their snapshots. Invalid files are reported without overwriting them. Revision conflicts return 409 and retain the form draft. Writes use an inter-process lock and atomic replacement. Coordinate direct file edits with page edits and assign a new version to changed settings. The APIs above use management authentication and `external_access:view/create/update`, with management auditing and no new database tables. Store files in a persistent directory writable by the Backend, including its parent directory. Requests contain `profile_id`, the latest `revision`, and complete `settings` without `version`; responses contain updated `items` and `revision`.
+
+人工验收 / Manual UI checklist:
+
+- [ ] 中英文：切换两类方案，检查现有配置、接入方、检测项和版本显示；英文长文案及窄屏表格、弹窗可读。 / Switch both profile types in Chinese and English; check existing values and long labels at narrow widths.
+- [ ] 新增和编辑：检查开关、策略、模型、检查项、恶意规则和审批保存后的回显，取消编辑不写入。 / Verify saved settings, including approvals, and cancellation without writes.
+- [ ] 连续点击保存仅提交一次；无效字段保留草稿，并发编辑显示冲突。 / Verify single submission, retained invalid drafts and concurrent-edit conflict feedback.
+- [ ] 只读角色可查看方案，创建及修改权限分别生效；保存产生管理审计。 / Check read-only access, separate create/update permissions and management audit records.
+- [ ] 修改方案后提交新任务使用新版本，旧任务及报告仍显示原版本。 / Verify new submissions use the new version and existing tasks and reports retain the old version.
+
+## Skill 开放接口 / Skill Open API
+
+| 方法与路径 | 权限 | 返回内容 |
+| --- | --- | --- |
+| `POST /openapi/v1/skill-scans` | `openapi:skill-submit` | HTTP 202，`task_id`、`business_request_id`、`status`、`created_at` |
+| `GET /openapi/v1/skill-scans/{task_id}` | `openapi:skill-read` | 任务状态、模块进度、报告就绪状态及回调状态 |
+| `GET /openapi/v1/skill-scans/{task_id}/result` | `openapi:skill-read` | 本次报告摘要、`risk_level`、覆盖情况和五档明细计数 |
+| `GET /openapi/v1/skill-scans/{task_id}/findings?limit=50` | `openapi:skill-read` | `items` 和 `next_cursor`；后续页传入 `cursor`，`limit` 为1～200 |
+
+成功响应为 `{"request_id":"…","data":{…}}`，失败响应为 `{"request_id":"…","error":{"code":"…","message":"…","retryable":false}}`。字段错误另含 `error.details`。结果执行中返回409/RESULT_NOT_READY；终态无报告返回409/REPORT_UNAVAILABLE。认证及参数异常沿用统一调用日志记录。
+
+可传入1～64位字母、数字、短横线或下划线组成的 `X-Request-ID`，响应头与正文原样返回；省略时生成追踪号。调用日志为每次请求保存独立编号，并用 `client_request_id` 记录调用方追踪号；列表支持两种编号查询，来源关联沿用内部编号。无效、停用、吊销或过期的 ACCESS_TOKEN 返回401/UNAUTHORIZED；权限、部门或接入方授权不足返回403/FORBIDDEN。429响应包含 `Retry-After`，字段错误按业务字段名定位。
+
+**English:** An optional `X-Request-ID` contains 1–64 letters, digits, hyphens or underscores and is echoed in the response header and body. Without it, the service generates a trace ID. Each request keeps its own internal record ID and optional `client_request_id`; logs can be searched by either, while source links retain the internal ID. Invalid, disabled, revoked or expired ACCESS_TOKEN credentials return 401/UNAUTHORIZED; authorization failures return 403/FORBIDDEN. Rate-limit responses include `Retry-After`, and validation errors identify business fields.
+
+接入方仅可查询本接入方且凭证已授权部门的任务；同一接入方换发凭证后，可继续读取授权部门的历史任务。调用日志关联实际 Skill 版本及业务流水，可跳转到 Skill 详情。
+
+### 检测方案配置 / Scan profile configuration
+
+在注册表数据目录保存 `openapi-skills.json`，也可通过 `OPENAPI_SKILL_CONFIG` 指定文件路径。回调在页面配置后，文件中的callbacks可为空对象；旧文件引用保留兼容。配置中的 `platform_ids` 使用“接入方管理”中创建的标识。提交时校验配置并保存方案版本、检测开关、当前策略和回调配置版本。
+
+```json
+{
+  "profiles": {
+    "skill_standard": {
+      "version": "1",
+      "platform_ids": ["agent-development"],
+      "use_behavioral": false,
+      "use_llm": false,
+      "use_sandbox": true,
+      "use_skillspector": false,
+      "judgement_mode": "balanced",
+      "malicious_rule_ids": []
+    }
+  },
+  "callbacks": {
+    "devplat_result": {
+      "version": "1",
+      "platform_ids": ["agent-development"]
+    }
+  }
+}
+```
+
+`malicious_rule_ids` 填写双方确认的恶意行为规则编号：命中编号且报告包含证据摘要时输出 `malicious`；其他非 info 风险或模型风险信号输出 `suspicious`；规定模块全部完成且没有上述风险时输出 `benign`，检查不完整且无风险依据时为 null。明细 `severity` 保留五档严重度。直接修改检测配置或恶意行为规则时更新 `version`，页面保存自动生成新版本。
+
+Sandbox 沿用系统运行配置及策略要求；LLM 需系统启用并配置。模块失败、不可用、关闭或跳过均反映在 `analyzers`、`coverage` 和 `limitations`。服务重启后，外部任务持有的执行租约到期可恢复未完成扫描；已完成扫描从对应扫描快照生成报告。回调按任务绑定的接收端版本自动发送，配置和重试操作见下文“回调与同步”。
+
+### 调用示例 / Request example
+
+ZIP 根目录包含有效 `SKILL.md`。`ACCESS_TOKEN` 使用已创建的访问凭证，`BASE_URL` 使用实际 HTTP 或 HTTPS 地址；`file_sha256` 替换为 ZIP 字节的实际哈希。
+
+```json
+{
+  "business_request_id": "devplat-skill-001",
+  "skill_id": "customer-service",
+  "skill_version": "1.0.0",
+  "department_id": "dept_001",
+  "profile_id": "skill_standard",
+  "callback_id": "devplat_result",
+  "file_sha256": "<REPLACE_WITH_ACTUAL_SHA256>"
+}
+```
+
+将上述内容保存为 `metadata.json`：
+
+```bash
+curl -X POST "$BASE_URL/openapi/v1/skill-scans" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -F 'file=@skill.zip;type=application/zip' \
+  -F 'metadata=<metadata.json'
+
+curl "$BASE_URL/openapi/v1/skill-scans/$TASK_ID" -H "Authorization: Bearer $ACCESS_TOKEN"
+curl "$BASE_URL/openapi/v1/skill-scans/$TASK_ID/result" -H "Authorization: Bearer $ACCESS_TOKEN"
+curl "$BASE_URL/openapi/v1/skill-scans/$TASK_ID/findings?limit=50" -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+人工验收：中英文下检查开放 API 管理的调用日志、失败原因和 Skill 详情跳转；验证成功上传、哈希不匹配、越权部门、凭证换发、复扫及原报告查询。真实检测器、Sandbox、LLM 和现场网络另行联调。
+
+**English:** Configure profiles and callback references in `openapi-skills.json` in the registry data directory, or set `OPENAPI_SKILL_CONFIG`. Authorize partner IDs explicitly. Submission freezes profile settings, policy and callback configuration version. Assign a new profile version when editing the file; the management page generates it automatically. A configured malicious rule with recorded evidence yields `malicious`; other non-info findings or model risk signals yield `suspicious`. Complete checks without these risks yield `benign`; incomplete checks without risk evidence yield null. Finding severity stays unchanged. Sandbox and LLM use system configuration and enablement. Missing or failed analyzers affect coverage. Execution leases allow unfinished owned scans to resume after restart; completed reports are projected from immutable run snapshots. The shared delivery service sends frozen callback payloads; receiver configuration and retry handling are described in Callbacks & Sync below. The examples above submit a ZIP with a root SKILL.md and query the returned task ID. Manually verify bilingual request logs, error reasons, Skill links, department isolation, credential rotation and historical reports after rescanning.
+
+## 智能体开放接口 / Agent Open API
+
+回调与网关在页面管理，文件中的callbacks和gateways可为空对象。partners中的运行参数仍由文件配置。 / Manage callbacks and gateways in the UI; their file sections may be empty. Partner runtime settings remain file-based.
+
+评测执行中，Worker通过租约心跳上报 `scan_progress.observed_total/completed/running/errors`。每个所选检查项计为一个用例，准备与复核阶段的对话不增加用例数；执行异常计入completed和errors。`GET /openapi/v1/agent-evaluations/{task_id}` 与管理台读取相同运行计数；上报尚未到达时为0。终态开放接口使用报告快照的用例统计，管理台从保存的用例读取，running归零。percent保持null；页面进度条表示检查项完成比例，报告汇总期间任务仍为运行中。重试按本轮计数重新开始。
+
+**English:** During evaluation, lease heartbeats carry `scan_progress.observed_total/completed/running/errors`. Each selected check counts as one case; reconnaissance and review dialogue do not add cases. Execution errors count as both completed and errors. The Open API and management page read the same live counts, initially zero until reported. Terminal Open API counts come from the frozen report, and management counts from persisted cases, with running set to zero. Percent remains null; the page bar shows check completion while report generation can still be running. Retries start fresh counts for the new attempt.
+
+受影响页面人工验收 / Manual UI checks:
+
+- [ ] 中英文任务列表与详情：检查排队、执行中、错误及完成数量，3秒刷新后保持一致。 / Verify queued, running, error and completed counts in both languages and both views after refresh.
+- [ ] 全部检查结束时显示汇总报告，终态数量与报告一致；重试从本轮计数开始。 / Verify report generation, terminal report counts and fresh counts on retry.
+- [ ] 英文长文案、窄屏表格与详情可读；切换任务或关闭详情后不会显示旧任务的进度。 / Check long English labels, narrow layouts and task switching.
+
+智能体开发平台使用同一接入方的 ACCESS_TOKEN 完成登记、连接验证和评测。接入方与部门权限、来源记录和调用日志复用开放 API 管理。
+
+| 接口 | 权限 | 返回内容 |
+| --- | --- | --- |
+| `POST /openapi/v1/agents` | `openapi:agent-manage` | HTTP 201，登记信息、`target_revision`、连接状态 |
+| `PUT /openapi/v1/agents/{agent_id}` | `openapi:agent-manage` | 更新后的登记信息和版本 |
+| `GET /openapi/v1/agents/{agent_id}` | `openapi:agent-read` | 登记信息及当前版本连接状态 |
+| `POST /openapi/v1/agents/{agent_id}/connection-tests` | `openapi:connection-test` | HTTP 202，`test_id`、版本、受理时间 |
+| `GET /openapi/v1/connection-tests/{test_id}` | `openapi:connection-test` | 网络、TLS、认证及协议检查，`ready`、有效期和错误 |
+| `POST /openapi/v1/agent-evaluations` | `openapi:evaluation-submit` | HTTP 202，任务、方案版本和 `evaluation_sequence` |
+| `GET /openapi/v1/agent-evaluations/{task_id}` | `openapi:evaluation-read` | 状态、进度、报告就绪状态和投递状态 |
+| `GET /openapi/v1/agent-evaluations/{task_id}/result` | `openapi:evaluation-read` | 冻结的报告摘要、总体风险、评分详情和数量统计 |
+| `GET /openapi/v1/agent-evaluations/{task_id}/cases` | `openapi:evaluation-read` | 用例 `items`、`next_cursor` |
+| `GET /openapi/v1/agent-evaluations/{task_id}/findings` | `openapi:evaluation-read` | 风险明细 `items`、`next_cursor` |
+
+成功响应使用 `request_id` 和 `data`；错误使用 `request_id` 和 `error`。用例、明细分页默认50条，`limit` 为1～200，下一页传入上次响应的 `cursor`。游标绑定具体报告和明细类型。
+
+### 服务端配置
+
+在 Backend 的 `DATA_DIR` 下保存 `openapi-agents.json`，或设置 `OPENAPI_AGENT_CONFIG` 指向受控配置文件。先在管理台配置接入方与部门、评测策略和已启用的评判模型；目标网络范围与策略网络范围都需要覆盖实际智能体地址。下面的标识和网段均需替换为现场值。
+
+```json
+{
+  "partners": {
+    "agent-development-platform": {
+      "allowed_cidrs": ["10.10.0.0/16"],
+      "connection_policy_ids": {"test": "test-connection-policy"},
+      "connection_approval_ids": {},
+      "connection_ttl_seconds": 300
+    }
+  },
+  "profiles": {
+    "agent-standard": {
+      "version": "1",
+      "platform_ids": ["agent-development-platform"],
+      "policy_id": "test-evaluation-policy",
+      "evaluation_model": "enabled-judge-model",
+      "skills": ["data-leakage-detection"],
+      "conversation_mode": "single_turn",
+      "language": "zh",
+      "malicious_rule_ids": []
+    }
+  },
+  "callbacks": {},
+  "gateways": {}
+}
+```
+
+连接策略按 `environment` 选择，应允许对话且采用可执行对话的模式；评测方案指定原生策略、检查项和评判模型。生产环境沿用原生维护窗口、目标范围、专用凭据和单次执行审批：连接验证通过 `connection_approval_ids[agent_id]` 绑定审批，评测通过方案中的 `approval_id` 绑定另一次审批。登记更新产生新的目标与凭据版本，生产授权需对应当前版本。
+
+直接修改方案文件时更新 `version`，页面保存自动生成新版本。`malicious_rule_ids` 配置双方确认的恶意行为规则编码：命中规则、存在对话证据或证据摘要且明细状态为 `open` 时总体为 `malicious`；其他待处置非 `info` 风险为 `suspicious`；规定检查完成且无上述风险为 `benign`；检查不足且无风险证据时为 `null`。`risk_score` 保留原生评分详情，明细 `severity` 保持原分级。
+
+每次登记更新递增 `target_revision`；PUT 除 `agent_id` 外沿用登记字段，省略 `api_key` 时保留已有有效密钥。已受理任务保存目标、凭据、登记、方案及投递配置版本。凭据加密保存，由原生 Worker 密封信封通道下发；旧任务继续使用受理时的配置。
+
+开放接口评测由任务租约认证 Worker，评判模型代理按接入方、提交凭证及部门授权校验，并使用任务所属部门的隐私策略。接入方、凭证或部门授权失效后停止模型调用；登记更新不改变已受理任务的目标快照。
+
+### 调用顺序
+
+将下面占位值替换为接入方的实际配置，目标密钥只在登记或更新请求中传入。
+
+```http
+POST /openapi/v1/agents
+Authorization: Bearer <ACCESS_TOKEN>
+Content-Type: application/json
+
+{
+  "agent_id": "service-agent-001",
+  "name": "客户服务智能体",
+  "department_id": "operations",
+  "department_name": "客户服务部",
+  "owner": "customer-service-team",
+  "environment": "test",
+  "endpoint_url": "http://agent.example.com/v1",
+  "protocol": "openai_chat_completions",
+  "model": "service-agent",
+  "api_key": "<TARGET_API_KEY>",
+  "gateway_agent_id": "gateway-agent-001"
+}
+```
+
+登记响应返回上述公开字段、`target_revision`、`credential_configured`、`connection_status` 和时间，密钥不会返回。以返回的版本发起连接验证：
+
+```http
+POST /openapi/v1/agents/service-agent-001/connection-tests
+Authorization: Bearer <ACCESS_TOKEN>
+Content-Type: application/json
+
+{"target_revision": 1}
+```
+
+用响应中的 `data.test_id` 查询连接结果。Worker 使用登记的基础地址追加 `/chat/completions`，携带目标密钥和模型，发送最小文本对话；HTTP 的 TLS 检查为 `skipped`，HTTPS 校验证书。当 `ready=true` 且尚未到 `expires_at` 时发起评测：
+
+```http
+POST /openapi/v1/agent-evaluations
+Authorization: Bearer <ACCESS_TOKEN>
+Content-Type: application/json
+
+{
+  "business_request_id": "evaluation-20261019-001",
+  "agent_id": "service-agent-001",
+  "target_revision": 1,
+  "connection_test_id": "<data.test_id>",
+  "profile_id": "agent-standard",
+  "callback_id": "platform-results",
+  "gateway_id": "ai-security-gateway"
+}
+```
+
+以返回的 `data.task_id` 查询进度、结果、用例和明细。版本不匹配返回 `TARGET_REVISION_CONFLICT`；连接未通过、过期或属于其他登记时返回 `CONNECTION_TEST_REQUIRED`。进度使用 Worker 已上报的计数，尚无计数时为0，无法计算百分比时为 `null`；终态计数来自报告快照。报告、用例、风险明细、待回调事件和待网关同步内容使用同一份终态数据。后续人工处置明细不改写这份外部报告。
+
+两类待投递记录由共用投递服务发送；进度查询同步返回实际发送次数、下次重试时间和回执状态。接收端配置、历史版本和失败重投见下文。
+
+**English:** The ten Agent APIs reuse partner-scoped ACCESS_TOKEN authorization, department mappings, provenance and request logs. Configure `openapi-agents.json` in Backend `DATA_DIR`, or set `OPENAPI_AGENT_CONFIG`. Profiles select native policies, checks and an enabled judge model. Connection policies are selected by environment; production tests and evaluations require separate native approvals. Registration updates increment the revision and preserve accepted tasks' target and credential versions. A Worker verifies Chat Completions connectivity using the sealed target credential. Submit evaluations only with a successful, unexpired test for the current revision. Reports freeze overall `risk_level`, the original `risk_score`, cases and findings together with outbound payloads. The shared delivery service sends callbacks and gateway reports, validates receipts and persists retries and attempt history.
+
+人工验收 / Manual UI checklist：
+
+- [ ] 通过接口登记、更新智能体，在中英文智能体页面核对名称、部门、外部编号及登记来源，按接入方筛选。
+- [ ] 发起评测后，在扫描页面核对发起来源、接入方、业务流水、状态和关联请求。
+- [ ] 在开放 API 管理的调用日志中筛选登记、连接和评测接口，核对成功/失败记录及智能体、扫描任务跳转。
+- [ ] 换发同一接入方凭证后查询历史报告；核对跨接入方和未授权部门的拒绝结果。
+
+## 回调配置 / Callback configuration
+
+在“开放 API 管理 → 回调配置”新增配置，填写名称、callback_id、所属接入方、完整HTTP/HTTPS地址、接收方提供的Bearer令牌及通知类型（Skill检测、智能体评测）。可授权一个或多个接入方，配置可同时用于两类通知。保存后直接在任务提交中传入callback_id，无需再编辑配置文件的callbacks引用。
+
+名称用于页面识别，可以修改；回调配置编号（callback_id）创建时自行填写唯一值，例如callback_01，创建后保持不变。将编号提供给智能体开发平台，在提交Skill检测或智能体评测任务的callback_id字段中传入，系统据此选择回调地址和认证。列表在名称下标注callback_id，新增和编辑表单展示用途及示例。
+
+**English:** The name is an editable display label. Choose a unique callback_id, such as callback_01, when creating the configuration; it stays unchanged. Give this ID to the Agent development platform to include in the callback_id field of Skill scan or Agent evaluation submissions. It selects the callback URL and authentication. The list labels the ID, and the form explains its use with an example.
+
+令牌加密保存，页面和管理接口只显示掩码；编辑时留空保留原值。编辑自动生成接收端新版本，已受理任务及其重试保留原版本。停用或删除后停止后续投递，历史版本与记录保留；已发出的请求按实际回执完成记录。重新启用后可手动重投失败记录。删除后的callback_id保留用于历史追溯，新配置使用新编号。
+
+管理接口使用管理台登录认证及external_access权限；外部任务仍使用既有ACCESS_TOKEN、接入方、部门及来源校验。
+
+| 管理接口 | 权限 | 请求与响应 |
+| --- | --- | --- |
+| GET /api/v1/external-access/callbacks | view | 返回items，包括名称、callback_id、接入方、地址、掩码、通知类型、enabled、revision、版本和时间。 |
+| POST /api/v1/external-access/callbacks | create | 提交下方配置字段，返回HTTP 201及配置。 |
+| PUT /api/v1/external-access/callbacks/{callback_id} | update | 提交name、platform_ids、url、notification_types、enabled、revision及可选bearer_token；令牌省略/null/空字符串保留，返回新版本配置。 |
+| PATCH /api/v1/external-access/callbacks/{callback_id}/state | update | 提交enabled与revision，返回更新后的配置。 |
+| DELETE /api/v1/external-access/callbacks/{callback_id}?revision=… | delete | 删除配置，返回callback_id和deleted=true；保留历史记录。 |
+| POST /api/v1/external-access/callbacks/{callback_id}/test | update | 提交revision、platform_id和notification_type，返回HTTP 202及投递记录。 |
+
+创建示例：
+
+```json
+{
+  "name": "智能体开发平台结果通知",
+  "callback_id": "platform-results",
+  "platform_ids": ["agent-development-platform"],
+  "url": "http://developer.example.com/integration/v1/security-results",
+  "bearer_token": "<CALLBACK_TOKEN>",
+  "notification_types": ["skill_scan", "agent_evaluation"],
+  "enabled": true
+}
+```
+
+revision用于防止覆盖其他管理员已保存的编辑，发生409时刷新后重新编辑。callback_id创建后固定，名称和其他配置可编辑。测试选择一个已授权的接入方和通知类型，发送security-callback-test.v1、event_type=callback.test的独立通知；接收方返回HTTP 200及相同event_id、accepted=true。测试通知使用同一投递、回执及重试服务，记录purpose=test、task_id=null和管理台发起人；真实任务记录purpose=result及原任务ID。可从配置行打开投递记录，也可在调用日志中按配置编号和通知用途筛选。
+
+已有接收端版本升级后纳入回调配置，默认名称为callback_id、支持两类通知，最新创建版本作为当前配置；已有任务保留原绑定版本。尚未建立接收端的旧文件配置仍可读取，管理员应使用同一callback_id创建对应页面配置。页面配置存在后以页面为准，停用或删除不会转回旧文件配置。升级后核对当前版本和授权再接入新任务。
+
+**English:** Open API Management → Callback Configuration manages names, callback IDs, authorized partners, HTTP/HTTPS URLs, encrypted and masked Bearer tokens, notification types and enabled state. Saved IDs work directly with Skill and Agent submissions. Editing creates a receiver version; accepted tasks and retries retain their original version. An omitted, null or empty edit token retains the existing secret. Disable/delete stops future delivery while retaining history; in-flight requests finish with their actual receipt. Deleted IDs remain reserved for history. Management uses view/create/update/delete permissions; tests use update. Test notifications use security-callback-test.v1 and callback.test, with a matching event_id/accepted=true acknowledgement. They create purpose=test records without real tasks. Existing receivers migrate using their latest created version; accepted jobs keep their original bindings. Managed configurations take precedence over legacy file references.
+
+人工验证清单 / Manual UI checklist：
+
+- [ ] 中英文列表标明callback_id；新增和编辑表单说明名称与编号的用途、示例及编号创建后不可修改，长说明正常换行。 / Check the labeled callback_id and name/ID guidance in both languages, including the example, immutable ID and wrapped help text.
+- [ ] 中英文新增与编辑名称、接入方、HTTP/HTTPS地址和两类通知；保存后的令牌为掩码，留空编辑保留，非法草稿保留且错误切换语言正确。 / Check create/edit fields, masking, blank-token preservation and localized validation.
+- [ ] 新旧任务分别使用编辑前后版本；未授权接入方或通知类型被拒绝；已有任务仍可查询原报告。 / Check version binding and partner/type authorization.
+- [ ] 测试通知与真实任务记录区分；核对认证、回执、时间、失败原因、自动重试和人工重投，重复点击只提交一次。 / Verify test/result separation, receipts, retry history and duplicate-click guards.
+- [ ] 停用、重新启用及删除后检查新提交与排队投递行为；历史记录保留。 / Check lifecycle effects and preserved history.
+- [ ] 查看角色不能创建、编辑、测试或删除；删除权限可单独配置；并发编辑冲突保留草稿。 / Verify permissions and concurrent edits.
+- [ ] 回调配置、网关配置表格在初始位置和左右滚动后，右侧操作列始终可见；中英文按钮完整换行，长名称和地址不撑开列宽。窄屏继续检查标签页、弹窗和记录抽屉。 / Check pinned right actions before and after horizontal scrolling in callback and gateway tables; verify wrapped buttons and long names/URLs in both languages, plus tabs, dialogs and drawers on narrow screens.
+
+## 回调与同步 / Callbacks & sync
+
+在“开放 API 管理 → 调用日志 → 回调与同步”查看 Skill 回调、智能体评测回调及 AI 安全网关同步。支持按类型、接入方、状态、任务编号、事件/同步编号和业务流水筛选；详情展示发送次数、失败原因、HTTP 状态、下次重试时间、每次发送记录及有效回执。失败记录可重新投递，保留之前的发送历史。
+
+### 网关配置 / Gateway configuration
+
+在“开放 API 管理 → 网关配置”选择已有且已启用的外部 AI 网关，填写结果同步配置编号（gateway_id）、所属接入方及结果同步接口路径。完整地址由网关管理地址与接口路径组成，支持实际HTTP/HTTPS地址。认证复用所选网关的Token ID、加密Token Value及HMAC-SHA256签名，页面展示Token ID与认证方式。gateway_id是智能体开发平台发起评测时填写的配置编号，例如ai_gateway_01；创建后固定。编辑自动创建新版本，已受理任务及重试保留原版本、原报告和风险明细，每次发送读取所关联网关的当前凭据。
+
+停用或删除后停止新任务引用和后续投递，历史记录保留；已发出的请求按实际回执记录。重新启用后可重投失败记录。删除后的编号保留用于追溯。每次编辑、启停、删除和测试提交当前revision，并发冲突返回409。关联的外部 AI 网关停用后，阻止新评测、测试通知和后续投递；重新启用后可重投失败记录。已被同步版本引用的外部 AI 网关保留历史关联，使用停用操作。
+
+| 管理接口 | 权限 | 请求与响应 |
+| --- | --- | --- |
+| GET /api/v1/external-access/gateways | view | 返回items，含gateway_id、external_gateway_id、name、binding_required、path_required、external_gateway_enabled、platform_ids、gateway_path、url、token_id、enabled、revision、version及创建/更新时间和发起人。 |
+| GET /api/v1/external-access/gateways/options | view | 返回已有外部 AI 网关的id、name、enabled、management_base_url、token_id，供选择和地址预览。 |
+| POST /api/v1/external-access/gateways | create | 提交下方配置字段，返回HTTP 201和完整配置。 |
+| PUT /api/v1/external-access/gateways/{gateway_id} | update | 提交external_gateway_id、platform_ids、gateway_path、enabled、revision，返回新版本配置。 |
+| PATCH /api/v1/external-access/gateways/{gateway_id}/state | update | 提交enabled与revision，返回更新后的配置。 |
+| DELETE /api/v1/external-access/gateways/{gateway_id}?revision=… | delete | 返回gateway_id与deleted=true，保留历史版本和投递。 |
+| POST /api/v1/external-access/gateways/{gateway_id}/test | update | 提交revision、platform_id，返回HTTP 202及投递记录。 |
+
+创建请求示例：
+
+```json
+{
+  "external_gateway_id": 1,
+  "gateway_id": "ai-security-gateway",
+  "platform_ids": ["agent-development-platform"],
+  "gateway_path": "/integration/v1/agent-evaluation-results",
+  "enabled": true
+}
+```
+
+external_gateway_id为所选外部 AI 网关整数ID；gateway_id为1～128字符的结果同步配置编号；gateway_agent_id为登记接口提供的网关智能体资产编号。接入方须已创建且不重复。gateway_path以单个/开头，填写接口路径，不含域名、查询参数或片段；完整地址最多2048字符。Token Value在外部 AI 网关配置中统一加密管理。发送按实际UTF-8报文计算签名，在查询参数携带tokenid、timestamp、nonce和signature。
+
+凭据轮换后，后续发送及重试使用更新后的凭据。管理地址变化时，旧地址投递记录DELIVERY_GATEWAY_ADDRESS_CHANGED；编辑保存同步配置后，新任务使用新地址版本，已有报告和投递记录保持原样。
+
+测试向已保存地址发送security-gateway-test.v1，event_type=gateway.test，请求包含sync_id、occurred_at、platform_id、gateway_id；接收方返回HTTP 200及`{"sync_id":"与请求一致","accepted":true}`。测试使用原投递服务，保存purpose=test、task_id=null、发起人、版本、时间、失败原因、回执及每次尝试，不创建评测任务或报告。真实报告仍使用agent-evaluation-result.v1及request_id/data回执。两类记录可在配置行或“调用日志 → 回调与同步”查询和重投。
+
+新配置沿用回调默认投递参数：10秒超时、60/300/900/3600/21600/86400秒重试间隔、10MiB报文上限，编辑保留原参数。升级补齐gateway_path列，保留旧版本、原地址、密文、事件和任务绑定；重复启动保留编辑及删除状态。旧配置显示“待配置接口路径”，无网关关联时先选择外部 AI 网关。补充路径保存后生成新版本并保持gateway_id，新任务和测试使用签名认证；升级前已受理的任务继续按原版本投递。
+
+| 投递接口 | 权限 | 内容 |
+| --- | --- | --- |
+| GET /api/v1/external-access/deliveries | view | 分页记录，支持kind/platform_id/status/task_id/message_id/business_request_id/config_id/purpose/page/page_size，每页1～100条。 |
+| GET /api/v1/external-access/deliveries/{delivery_id} | view | 记录详情、有效回执和attempt_records。 |
+| POST /api/v1/external-access/deliveries/{delivery_id}/retry | update | 使用原通知和配置版本重新开始一轮重试，保留累计发送次数和历史。 |
+
+**English:** Select an enabled external AI gateway and configure gateway_id, partners and gateway_path. The full HTTP/HTTPS destination combines its management URL and the API path. Authentication reuses its Token ID, encrypted Token Value and HMAC-SHA256 signing. Each attempt uses current credentials; reports and endpoint versions remain frozen. Credential rotation applies to subsequent attempts. A changed management URL stops delivery to the old destination with DELIVERY_GATEWAY_ADDRESS_CHANGED; save a new configuration version for new tasks. gateway_id is the stable ID supplied by the development platform; external_gateway_id is the internal gateway ID, and gateway_agent_id is the registered asset ID. Add a path to older configurations for new tasks; existing deliveries retain their original authentication and report. The options API exposes the gateway name, ID, enabled state, management URL and Token ID under external_access:view. Disabling the gateway blocks new evaluations, tests and subsequent deliveries. Referenced gateways remain available for history.
+
+人工验证清单 / Manual UI checklist：
+
+- [ ] 中英文选择已有网关，检查名称、gateway_id说明、旧配置补充路径提示、完整地址预览及Token ID；回调仍显示Bearer输入。 / Check gateway selection, stable ID help, legacy path prompts, URL preview and Token ID in both languages; callbacks retain their Bearer field.
+- [ ] 编辑路径或切换网关保持gateway_id，新旧任务使用对应版本和报告；轮换凭据后重试验签通过，变更管理地址后旧投递显示明确失败原因。 / Verify versioned paths and reports, current credentials after rotation, and visible failure after management URL changes.
+- [ ] 测试通知成功、401、错误回执、超时、自动与人工重试；核对用途、发起人、时间及尝试记录。 / Verify test acknowledgements, failures, retries and metadata.
+- [ ] 停用、恢复、删除与历史记录；只读/编辑/删除权限；并发编辑和重复点击。 / Check lifecycle, history, permissions, concurrent edits and duplicate clicks.
+- [ ] 中英文六个标签页、长地址、弹窗、投递抽屉及窄屏滚动；回调配置同步回归。 / Check six tabs, long text, dialogs, drawers, narrow layouts and callback regression.
+
+### 发送与回执
+
+Backend 启动共用投递循环，从已保存事件读取原始报文，验证报文摘要后发送；不会重新读取当前风险明细拼接报告。发送前保存租约和尝试记录，网络等待不持有数据库写事务。多进程共享数据库时按租约领取；进程中断后，未确认的尝试记录为中断，租约到期按重试策略恢复。
+
+回调请求携带 `Authorization: Bearer <CALLBACK_TOKEN>`。HTTP 200 且回执 `event_id` 与请求一致、`accepted=true` 时记为 `delivered`。网关同步使用所关联外部 AI 网关的Token ID/Token Value签名；HTTP 200 返回 `request_id/data`，其中 `data.sync_id/report_id/report_version` 一致、`status=accepted`，并包含有效的 `receipt_id/current/received_at` 时记为 `synced`。`current=false` 的历史报告回执也表示同步成功。
+
+网络异常、超时、408、429和5xx自动重试；429的 `Retry-After` 支持秒数或HTTP日期，下次发送不早于该时间。其他HTTP状态、无效回执或次数耗尽后为 `failed`。发送失败只改变投递状态，报告内容和扫描状态保持原值。中断恢复可能再次发送同一事件或同步编号，接收端应按该编号返回已保存结果的回执。
+
+没有报告的终态任务仍发送结果回调；网关同步记录 `REPORT_UNAVAILABLE`，不发送报文。投递记录保存HTTP状态、稳定错误码、时间和校验后的回执字段，省略认证头及接收端原始响应正文。
+
+**English:** Open API Management → Request Logs → Callbacks & Sync provides filters, validated receipts, attempt history and manual retries. Saved IDs resolve the current database version when a task is accepted. URLs use actual HTTP/HTTPS deployment addresses. Callbacks use encrypted Bearer tokens; gateway synchronization uses shared HMAC credentials. The dispatcher sends persisted payloads, leases work, validates acknowledgements and mirrors delivery state into task queries. Network failures, timeouts, 408, 429 and 5xx retry with configured delays; Retry-After is honored. Invalid receipts and other HTTP errors fail visibly. Manual retry preserves the message and history. Gateway acknowledgements with current=false are successful historical deliveries. The gateway product owns receiving, asset mapping, latest-report selection and risk-policy application.
+
+页面人工验收 / Manual UI checklist：
+
+- [ ] 中英文及窄屏下检查投递筛选、长编号/地址、详情、回执和发送记录。
+- [ ] 编辑回调或网关配置，确认任务使用对应版本；回调令牌保存后展示掩码，网关显示复用的Token ID和签名方式。
+- [ ] 验证401、错误回执、网络恢复、429等待及重试耗尽后的状态和失败重投；重复点击只安排一次。
+- [ ] 验证接入方/接收端停用和恢复；只读角色可查询，不能配置或重投。
+- [ ] 对照任务进度中的 `callback/gateway_sync`、页面状态与接收方回执，确认报告内容一致。
+
+## 外部接口认证与记录 / External API authentication and request logs
+
+管理员在“系统设置 → 开放 API 管理”的“接入方管理”标签页创建接入方，填写固定 `platform_id` 和名称，将智能体开发平台的部门编码映射到系统用户组。
+在“访问凭证”标签页创建凭证，选择接入方、可访问部门、接口权限和到期时间。明文只在创建后展示一次，交给智能体开发平台保存。
+统一凭证中心可查看这些 `openapi` 类型凭证；停用、启用和吊销沿用同一套凭证管理。
+
+接入方使用以下请求检查地址、凭证和当前授权。`BASE_URL` 使用部署现场的实际 HTTP 或 HTTPS 地址，`ACCESS_TOKEN` 使用管理员签发的凭证。
+
+```bash
+curl "$BASE_URL/openapi/v1/access-context" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+成功响应示例：
+
+```json
+{
+  "request_id": "c242c810-4b79-456d-8b39-a72aa160f00b",
+  "platform_id": "agent-development",
+  "scopes": ["openapi:skill-submit", "openapi:skill-read"],
+  "department_ids": ["operations"]
+}
+```
+
+`request_id` 由服务端生成，同时通过 `X-Request-ID` 响应头返回。接入方及授权部门从凭证取得。
+接口权限编码为 `openapi:skill-submit`、`openapi:skill-read`、`openapi:agent-manage`、`openapi:agent-read`、
+`openapi:connection-test`、`openapi:evaluation-submit`、`openapi:evaluation-read`，页面提供对应的中英文名称。
+
+“调用日志”显示请求编号、时间、认证接入方、凭证编号及前缀、方法、接口模板、来源 IP、HTTP 状态、耗时和错误码。
+已知凭证过期或停用后的请求保留可识别的凭证信息；无法识别的凭证显示“未识别”。记录省略认证头、查询字符串和请求响应正文。
+可按接入方、凭证、请求编号、接口、时间和关联业务筛选；列表与日期筛选统一使用北京时间。
+
+来源字段由服务端写入：智能体使用 `registration_source`，扫描任务使用 `trigger_source`，分别保存 `source_platform_id`、
+`source_token_id`、`source_request_id`，以及 `external_agent_id` 或 `external_task_id`。
+管理台创建、客户端发现、定时任务、资产变更和资产同步保留各自来源；已有对象的来源保持原值。
+外部接口的业务处理器通过公共认证上下文校验接口权限、部门，并关联业务记录；当前认证检查入口可用于验证凭证和调用记录链路。
+
+**English:** Create a partner in the Partner Management tab under System Settings → Open API Management, assigning a fixed `platform_id`, name and mappings from external department codes to system user groups.
+In the Access Credentials tab, issue an ACCESS_TOKEN with the desired partner, departments, permissions and expiry. Copy its plaintext when it is created and give it to the agent development platform.
+Use the actual deployment address and send `Authorization: Bearer ACCESS_TOKEN` to `GET /openapi/v1/access-context` to check connectivity and authorization.
+The response contains a server-generated request ID, partner ID, scopes and authorized department codes; the request ID is also returned in `X-Request-ID`.
+The Request Logs tab displays authenticated partner and credential metadata, endpoint templates, status, duration, IP and error codes, with filters and Beijing-time dates.
+Authentication headers, query strings and request/response bodies are omitted. Registration provenance and task trigger provenance are stored independently and link to request records.
+Historical sources remain unchanged. Business handlers use the shared authentication context for scope and department checks and attach their resolved business references.
+
+页面人工验收 / Manual UI checklist：
+
+- [ ] 中英文、宽屏及窄屏下检查接入方表单、部门映射、凭证表单、列表和详情；验证长名称、接口权限及日期完整显示。
+- [ ] 创建凭证后复制明文，关闭后确认列表只显示前缀；测试 HTTP 页面复制及失败提示。
+- [ ] 验证到期、停用、启用、吊销、换发及接入方停用；检查对应调用记录和失败原因。
+- [ ] 验证只读角色与凭证管理员的入口和按钮权限；检查时间、接口、接入方及凭证筛选、分页、空态和刷新。
+- [ ] 核对智能体登记来源、扫描发起来源及请求跳转；历史无来源显示“未记录”。
+
+**English:** Check Chinese/English and narrow/wide layouts; one-time plaintext and HTTP clipboard behavior; credential and partner lifecycle;
+read-only/administrator permissions; request filters, pagination, empty states and refresh; independent agent/task provenance and request links.
+
 Skill 检测期间，Scanner 结果轮询和客户端扫描状态长轮询只读取所需元数据，完整报告保留在详情查询。
 导入准备采用独立并发额度，验签每次读取已提交状态并保存审计。调度配置及混合负载验收见
 [API 响应说明](project-guide.md#114-skill-检测期间的-api-响应--api-responsiveness-during-skill-scans)。

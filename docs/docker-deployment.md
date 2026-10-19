@@ -654,3 +654,32 @@ docker compose down -v
 [管理员初始密码与升级](#管理员初始密码与升级)。
 
 Buildx 镜像构建最多尝试 3 次，失败后等待 5、10 秒，并复用构建缓存。这也覆盖 Dockerfile 构建器镜像和构建阶段内部解析基础镜像时的临时网络失败；持续失败仍会终止发布。
+## 外部接口入口 / External API routing
+
+网关配置 `deploy/nginx/default.conf` 将 `/openapi/` 转发到后端。更新部署时加载对应 Nginx 配置，
+使用已签发的 ACCESS_TOKEN 请求 `GET /openapi/v1/access-context`，再到“开放 API 管理 → 调用日志”核对请求编号。
+对接地址采用现场配置的 HTTP 或 HTTPS 地址。
+
+后端启动自动迁移开放接口的凭证、来源及调用记录字段，并创建接入方、Skill任务及待回调事件表、补齐索引。保留原 SQLite 文件及数据卷即可升级；字段、表和索引的这部分迁移失败时整体回滚，修复启动报错原因后重新启动。原生扫描报告快照表由 Registry 初始化创建。
+
+历史升级还会在字段补齐后修复客户端绑定、智能体创建人和续扫任务关联的索引；重复启动保留已有索引和业务数据。
+
+智能体开放接口升级需同时更新 Backend 和 Agent Security Worker 镜像，Worker 镜像包含 `connection_probe.py`，用于实际执行连接验证。Backend 启动自动创建 `external_agent_registrations`、`external_agent_jobs` 和 `external_gateway_events` 三张表。按[智能体开放接口配置](external-agent-integration.md#智能体开放接口--agent-open-api)在 Backend `DATA_DIR` 放置 `openapi-agents.json`，或通过 `OPENAPI_AGENT_CONFIG` 指定容器可读的挂载文件。先验证 Worker 能访问目标地址、原生策略及评判模型可用，再执行登记、连接验证、评测与结果查询联调。
+
+结果投递随Backend启动运行；`external_delivery_endpoints`、`external_deliveries`、`external_delivery_attempts`保存接收端版本和投递记录。升级按需补齐配置表、通知类型、用途、发起人、external_gateway_id及索引、gateway_path；重复启动保留已编辑或删除的配置。旧接收端按最新创建版本生成当前配置，历史任务、令牌密文、报告和事件保留。升级后在“回调配置”和“网关配置”核对当前版本及接入方授权、通知类型。网关配置选择已有外部 AI 网关并补充接口路径后生成新版本，继续使用原gateway_id；新任务和测试复用网关Token ID/Token Value签名，升级前已受理任务按原版本投递。确认Backend能访问网关管理地址与结果同步路径。管理地址变更后需保存新的同步配置版本。保留原数据卷和凭据加密配置，确保当前网关凭据和旧版本令牌可解密。多进程通过数据库租约协调发送；进程退出后的未确认发送按租约恢复。
+
+**English:** Startup transactionally migrates configuration and delivery metadata, including indexed external_gateway_id and gateway_path. Existing receivers become managed configurations using the latest created version; old task bindings, encrypted credentials, events and reports remain intact. Repeated startup preserves edits and deletions. Review partner/type authorization. Select an external AI gateway and add its result API path before new evaluations or tests. New versions reuse gateway Token ID/Token Value signing; previously accepted tasks keep their original authentication and snapshots. Save a new synchronization version after changing the management URL. Update Backend and Web together, retain the database and encryption configuration, and verify test notifications and real results.
+
+契约复核更新为调用日志增加 `client_request_id` 字段及非唯一索引，启动迁移保留旧记录和来源编号；已有报告与投递报文保持原值。The contract-alignment upgrade adds an indexed, non-unique `client_request_id` while preserving request history, source links and saved report/delivery payloads.
+
+**English:** The deployment gateway forwards `/openapi/` to the backend. Load the updated Nginx configuration,
+call `GET /openapi/v1/access-context` with an issued ACCESS_TOKEN, and verify the request ID in Open API Management → Request Logs.
+Use the deployment's configured HTTP or HTTPS address.
+
+Backend startup migrates Open API credential, provenance and request-log fields, creates integration tables and repairs missing indexes. Keep the existing SQLite files and data volumes when upgrading. This migration rolls back on failure; resolve the startup error and restart to retry. Registry initialization creates the native scan-run report table.
+
+Legacy upgrades also repair indexes for client bindings, Agent creators and continued scan tasks after adding their columns. Repeated startup preserves existing indexes and business records.
+
+Update both Backend and Agent Security Worker for the Agent APIs. The Worker image includes `connection_probe.py` for live connection checks. Startup creates the three Agent registration, external job and gateway-event tables. Place `openapi-agents.json` in Backend `DATA_DIR`, or set `OPENAPI_AGENT_CONFIG` to a readable mounted file. Verify Worker network access, native policies and the judge model before testing registration, connection verification, evaluation and report queries.
+
+The Backend starts the result dispatcher and migrates receiver-version, delivery and attempt-history tables while preserving existing reports and events. Manage current receivers in Callback Configuration and Gateway Configuration and verify Backend access to callback and gateway URLs. Historical events with missing configurations become failed records and can be retried after configuration. Preserve the data volume and credential-encryption settings. Database leases coordinate processes and recover unacknowledged attempts after interruption.

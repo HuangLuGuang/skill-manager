@@ -234,6 +234,9 @@
               <a-select-option value="all">{{ t('agentSecurityScans.allStatuses') }}</a-select-option>
               <a-select-option v-for="value in taskStatuses" :key="value" :value="value">{{ statusLabel(value) }}</a-select-option>
             </a-select>
+            <a-select v-model:value="taskSourceFilter" allow-clear class="filter-control" :placeholder="t('externalAccess.triggerSource')">
+              <a-select-option v-for="source in ['console', 'external_api', 'scheduled', 'asset_change', 'asset_sync', 'unknown']" :key="source" :value="source">{{ t(`externalAccess.sources.${source}`) }}</a-select-option>
+            </a-select>
             <a-select v-model:value="taskTargetFilter" allow-clear class="filter-control" :placeholder="t('agentSecurityScans.tasks.target')">
               <a-select-option v-for="target in targets" :key="target.target_id" :value="target.target_id">{{ target.name }}</a-select-option>
             </a-select>
@@ -243,7 +246,7 @@
           </div>
           <a-table
             :columns="taskColumns"
-            :scroll="{ x: 930 }"
+            :scroll="{ x: 1130 }"
             class="scan-task-table"
             :data-source="filteredTasks"
             :pagination="tablePagination"
@@ -256,6 +259,7 @@
                 <button class="id-link" type="button" :title="record.task_id" @click="openTaskDetail(record.task_id)">{{ record.task_id }}</button>
               </template>
               <template v-else-if="column.key === 'target_id'">{{ targetName(record.target_id) }}</template>
+              <template v-else-if="column.key === 'trigger_source'"><SourceAttribution :record="record" task /></template>
               <template v-else-if="column.key === 'evaluation_model'"><a-tooltip :title="record.scan_options?.evaluation_model"><span>{{ record.scan_options?.evaluation_model || '—' }}</span></a-tooltip></template>
               <template v-else-if="column.key === 'scan_kind'"><a-tag color="geekblue">{{ scanKindLabel(record.scan_kind) }}</a-tag></template>
               <template v-else-if="column.key === 'status'">
@@ -263,9 +267,10 @@
               </template>
               <template v-else-if="column.key === 'progress'">
                 <div class="usage-cell">
-                  <template v-if="record.scan_kind === 'llm_redteam_scan'">
+                  <template v-if="hasCaseProgress(record)">
                     <span>{{ progressLabel(record) }}</span>
                     <a-progress v-if="!terminalStatuses.has(record.status) || record.progress?.completed != null" :percent="progressPercent(record)" :show-info="false" size="small" />
+                    <span v-if="record.scan_kind === 'agent_risk_scan' && !terminalStatuses.has(record.status)" class="muted">{{ agentProgressLabel(record) }}</span>
                   </template>
                   <span v-else>{{ t('agentSecurityScans.tasks.roundUsage', { value: record.usage?.rounds || 0 }) }}</span>
                 </div>
@@ -837,12 +842,14 @@
       <template #extra><a-button :loading="exportingReport" :disabled="exportingReport || taskDetailLoading || !taskDetail" @click="exportReport"><template #icon><DownloadOutlined /></template>{{ t('agentSecurityScans.detail.exportPdf') }}</a-button></template>
       <a-spin :spinning="taskDetailLoading">
         <template v-if="taskDetail">
+          <SourceAttribution :record="taskDetail.task" task details />
           <section v-if="taskDetail.risk_score" class="task-risk-summary"><h3>{{ t('scanSchedule.taskScore') }} <strong>{{ taskDetail.risk_score.score ?? '—' }} / 100</strong></h3><a-tag>{{ t(`assetLifecycle.states.${taskDetail.risk_score.status}`) }}</a-tag><span>{{ t('scanSchedule.checks', { completed: taskDetail.risk_score.completed_checks, total: taskDetail.risk_score.total_checks }) }}</span><p>{{ t('scanSchedule.scoreHelp') }}</p><a-button v-if="targets.find(x => x.target_id === taskDetail.task.target_id)?.asset_type === 'agent'" @click="governance.openTarget({ target_id: taskDetail.task.target_id })">{{ t('scanSchedule.currentRisk') }}</a-button><a-collapse ghost><a-collapse-panel key="score" :header="t('scanSchedule.evidence')"><p>{{ t('assetLifecycle.formula') }}</p><a-list :data-source="taskDetail.risk_score.contributions"><template #renderItem="{ item }"><a-list-item><a @click="detailTab = 'findings'">{{ item.finding_id }}</a><span>{{ t(`assetLifecycle.states.${item.severity}`) }} · {{ item.points }}</span></a-list-item></template></a-list></a-collapse-panel></a-collapse></section>
           <p v-if="taskDetail.origins">{{ t('scanSchedule.origin') }}: <span v-for="(origin, i) in taskDetail.origins" :key="i"><a v-if="origin.schedule_id && !origin.deleted" @click="openOriginSchedule(origin.schedule_id)">{{ origin.name }}</a><span v-else>{{ origin.name || t(`scanSchedule.${origin.kind}`) }}</span> </span></p>
           <div class="detail-identity"><div><span>{{ t('agentSecurityScans.detail.task') }}</span><code>{{ taskDetail.task.task_id }}</code></div><a-tag :color="statusColor(taskDetail.task.status)">{{ statusLabel(taskDetail.task.status) }}</a-tag></div>
-          <section v-if="isLlmTaskDetail" class="live-scan-progress">
+          <section v-if="hasCaseProgress(taskDetail.task)" class="live-scan-progress">
             <strong>{{ progressLabel(taskDetail.task) }}</strong>
-            <span>{{ livePhaseLabel }}</span>
+            <span v-if="taskDetail.task.scan_kind === 'agent_risk_scan'">{{ agentProgressLabel(taskDetail.task) }}</span>
+            <span v-if="taskDetail.task.scan_kind !== 'agent_risk_scan'">{{ livePhaseLabel }}</span>
             <a-progress v-if="!terminalStatuses.has(taskDetail.task.status) || taskDetail.task.progress?.completed != null" :percent="progressPercent(taskDetail.task)" :show-info="false" />
             <span v-if="taskDetail.task.progress?.updated_at" class="muted">{{ t('agentSecurityScans.live.updated', { value: formatDateTime(taskDetail.task.progress.updated_at) }) }}</span>
             <a-alert v-if="liveRefreshError" type="warning" :message="liveRefreshError" />
@@ -1089,6 +1096,7 @@
 </template>
 
 <script setup>
+import SourceAttribution from '../components/SourceAttribution.vue'
 import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
 import { createRequestId } from '../utils/requestId'
@@ -1190,6 +1198,7 @@ const difyMcpBindingsLoading = ref(false)
 const difyMcpBindingOptions = ref({ snapshot_id: null, providers: [], servers: [], summary: {} })
 const targetSearch = ref('')
 const taskStatusFilter = ref('all')
+const taskSourceFilter = ref(undefined)
 const taskTargetFilter = ref(undefined)
 const taskKindFilter = ref(undefined)
 const findingTotal = ref(0)
@@ -1242,6 +1251,7 @@ const filteredTargets = computed(() => {
   return targets.value.filter(item => [item.name, item.target_id, item.target_type, item.environment, item.endpoint_url].some(value => String(value || '').toLowerCase().includes(query)))
 })
 const filteredTasks = computed(() => tasks.value.filter(item =>
+  (!taskSourceFilter.value || (item.trigger_source || 'unknown') === taskSourceFilter.value) &&
   (taskStatusFilter.value === 'all' || item.status === taskStatusFilter.value)
   && (!taskTargetFilter.value || item.target_id === taskTargetFilter.value)
   && (!taskKindFilter.value || item.scan_kind === taskKindFilter.value)))
@@ -1264,11 +1274,12 @@ const policyColumns = computed(() => [
 ])
 const taskColumns = computed(() => [
   { title: t('agentSecurityScans.detail.task'), key: 'task_id', width: 140, ellipsis: true },
+  { title: t('externalAccess.triggerSource'), key: 'trigger_source', width: 200 },
   { title: t('agentSecurityScans.tasks.target'), key: 'target_id', width: 115, ellipsis: true },
   { title: t('agentSecurityScans.tasks.kind'), key: 'scan_kind', width: 125 },
   { title: t('agentSecurityScans.scope.evaluator'), key: 'evaluation_model', width: 145, ellipsis: true },
   { title: t('agentSecurityScans.status'), key: 'status', width: 80 },
-  { title: t('agentSecurityScans.tasks.usage'), key: 'progress', width: 85 },
+  { title: t('agentSecurityScans.tasks.progressUsage'), key: 'progress', width: 180 },
   { title: t('agentSecurityScans.createdAt'), key: 'created_at', width: 150 },
   { title: t('agentSecurityScans.actions'), key: 'actions', width: 90, fixed: 'right' },
 ])
@@ -1411,6 +1422,7 @@ const detailDrawerOpen = ref(false)
 const detailTab = ref('summary')
 const taskDetailLoading = ref(false)
 const taskDetail = ref(null)
+let taskDetailRequest = 0
 const casePage = ref(1)
 const expandedCases = ref({})
 const caseReportRows = ref([])
@@ -1452,11 +1464,20 @@ let liveRefreshTimer
 let liveRefreshBusy = false
 let scanViewUnmounted = false
 const progressLabel = task => terminalStatuses.has(task.status) && task.progress?.completed == null
-  ? t('agentSecurityScans.live.unavailable') : task.progress?.planned
+  ? t('agentSecurityScans.live.unavailable') : task.progress?.planned || (task.scan_kind === 'agent_risk_scan' && task.progress?.completed != null)
   ? t('agentSecurityScans.live.count', { completed: task.progress.completed ?? 0, total: task.progress.planned })
   : t('agentSecurityScans.live.preparing')
 const progressPercent = task => task.progress?.planned
   ? Math.min(100, Math.round((task.progress.completed ?? 0) / task.progress.planned * 100)) : 0
+const hasCaseProgress = task => ['agent_risk_scan', 'llm_redteam_scan'].includes(task?.scan_kind)
+const agentProgressLabel = task => {
+  const progress = task.progress || {}
+  if (!terminalStatuses.has(task.status) && progress.planned > 0 && progress.completed >= progress.planned && !progress.running) return t('agentSecurityScans.live.report')
+  return t('agentSecurityScans.live.agentCounts', {
+    queued: terminalStatuses.has(task.status) ? 0 : Math.max(0, (progress.planned ?? 0) - (progress.completed ?? 0) - (progress.running ?? 0)),
+    running: progress.running ?? 0, errors: progress.errors ?? 0,
+  })
+}
 const livePhaseLabel = computed(() => {
   const task = taskDetail.value?.task
   if (!task) return ''
@@ -1475,8 +1496,9 @@ const refreshLiveScans = async () => {
     }
     const taskId = taskDetail.value?.task?.task_id
     if (detailDrawerOpen.value && taskId && !terminalStatuses.has(taskDetail.value.task.status)) {
+      const detailRequest = taskDetailRequest
       const detail = await getSecurityTask(taskId)
-      if (!scanViewUnmounted && detailDrawerOpen.value && taskDetail.value?.task?.task_id === taskId) taskDetail.value = detail
+      if (!scanViewUnmounted && detailDrawerOpen.value && detailRequest === taskDetailRequest && taskDetail.value?.task?.task_id === taskId) taskDetail.value = detail
     }
     liveRefreshError.value = ''
   } catch (error) { liveRefreshError.value = t('agentSecurityScans.live.refreshFailed') }
@@ -2071,7 +2093,21 @@ const openFindingFromRoute = async () => {
 const openDispositionModal = record => { dispositionFinding.value = record; Object.assign(dispositionForm, { status: record.status, comment: record.disposition_comment || '' }); dispositionModalOpen.value = true }
 const saveDisposition = async () => { if (submittingDisposition.value) return; submittingDisposition.value = true; try { await updateSecurityFinding(dispositionFinding.value.finding_id, { ...dispositionForm }); dispositionModalOpen.value = false; await loadFindings(findingPage.value); message.success(t('agentSecurityScans.saved')) } catch (error) { message.error(errorText(error)) } finally { submittingDisposition.value = false } }
 
-const openTaskDetail = async taskId => { detailTab.value = 'summary'; detailDrawerOpen.value = true; taskDetailLoading.value = true; taskDetail.value = null; try { taskDetail.value = await getSecurityTask(taskId) } catch (error) { message.error(errorText(error)) } finally { taskDetailLoading.value = false } }
+const openTaskDetail = async taskId => {
+  const request = ++taskDetailRequest
+  detailTab.value = 'summary'
+  detailDrawerOpen.value = true
+  taskDetailLoading.value = true
+  taskDetail.value = null
+  try {
+    const detail = await getSecurityTask(taskId)
+    if (request === taskDetailRequest && !scanViewUnmounted && detailDrawerOpen.value) taskDetail.value = detail
+  } catch (error) {
+    if (request === taskDetailRequest && !scanViewUnmounted && detailDrawerOpen.value) message.error(errorText(error))
+  } finally {
+    if (request === taskDetailRequest && !scanViewUnmounted) taskDetailLoading.value = false
+  }
+}
 const openComparison = async record => { comparisonTask.value = record; comparisonResult.value = null; comparisonBaselineId.value = undefined; comparisonModalOpen.value = true; if (comparisonBaselines.value.length) comparisonBaselineId.value = comparisonBaselines.value[0].task_id; await loadComparison() }
 let comparisonRequestId = 0
 const loadComparison = async () => {

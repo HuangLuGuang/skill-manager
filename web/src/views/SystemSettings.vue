@@ -6,6 +6,10 @@
       </template>
 
     <BrandingSettings />
+    <a-card v-if="pageAllowed('/external-access')" :title="$t('externalAccess.title')" style="margin-bottom: 20px">
+      <p>{{ $t('externalAccess.subtitle') }}</p>
+      <router-link to="/external-access">{{ $t('externalAccess.title') }}</router-link>
+    </a-card>
     <AidrRedactionSettings v-if="can('settings:view')" summary />
 
     <section class="health-panel">
