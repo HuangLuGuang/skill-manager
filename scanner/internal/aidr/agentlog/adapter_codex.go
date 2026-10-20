@@ -54,7 +54,44 @@ func parseCodex(raw []byte, c *Cursor) ([]draft, error) {
 			c.Turn = token(v.TurnID)
 		case "task_complete", "turn_aborted":
 			c.Turn = ""
-		case "item_completed", "token_count", "thread_settings_applied", "user_message", "agent_message", "agent_reasoning", "thread_goal_updated":
+		case "item_completed":
+			var completed struct {
+				Thread string `json:"thread_id"`
+				Turn   string `json:"turn_id"`
+				Item   struct {
+					Type     string `json:"type"`
+					ID       string `json:"id"`
+					Server   string `json:"server"`
+					Tool     string `json:"tool"`
+					Status   string `json:"status"`
+					ExitCode *int32 `json:"exit_code"`
+				} `json:"item"`
+			}
+			if json.Unmarshal(r.Payload, &completed) != nil || completed.Thread != c.Session || token(completed.Turn) == "" || token(completed.Item.ID) == "" {
+				return nil, nil
+			}
+			tool, status := "", ""
+			switch completed.Item.Type {
+			case "McpToolCall":
+				if token(completed.Item.Server) != "" && token(completed.Item.Tool) != "" && (completed.Item.Status == "failed" || completed.Item.Status == "completed") {
+					tool, status = "mcp__"+completed.Item.Server+"__"+completed.Item.Tool, completed.Item.Status
+				}
+			case "ImageView":
+				tool, status = "view_image", "completed"
+			case "CommandExecution":
+				if completed.Item.Status == "failed" || completed.Item.Status == "completed" {
+					tool, status = "Bash", completed.Item.Status
+				}
+			}
+			if tool != "" {
+				evidence := &ToolCompletion{Source: "codex.item_completed", Status: status}
+				if completed.Item.Type == "CommandExecution" {
+					evidence.ExitCode = completed.Item.ExitCode
+				}
+				content, _ := json.Marshal(evidence)
+				drafts = append(drafts, draft{Turn: completed.Turn, Call: completed.Item.ID, Kind: "tool_result", Tool: tool, Outcome: "unknown", Content: content, Time: at, Completion: evidence})
+			}
+		case "token_count", "thread_settings_applied", "user_message", "agent_message", "agent_reasoning", "thread_goal_updated":
 		default:
 			return nil, errors.New("aidr_log_schema_unsupported")
 		}
@@ -81,6 +118,10 @@ func parseCodex(raw []byte, c *Cursor) ([]draft, error) {
 				drafts = append(drafts, d)
 			}
 		case "reasoning", "agent_message":
+		case "additional_tools":
+			if !codexToolMetadata(r.Payload) {
+				return nil, errors.New("aidr_log_schema_unsupported")
+			}
 		default:
 			return nil, errors.New("aidr_log_schema_unsupported")
 		}
@@ -88,7 +129,7 @@ func parseCodex(raw []byte, c *Cursor) ([]draft, error) {
 	return validateDrafts(drafts)
 }
 
-func contextNeutralEnvelope(d *json.Decoder, response bool) bool {
+func contextNeutralEnvelope(d *json.Decoder, envelope string) bool {
 	tok, err := d.Token()
 	if err != nil || tok != json.Delim('{') {
 		return false
@@ -103,21 +144,24 @@ func contextNeutralEnvelope(d *json.Decoder, response bool) bool {
 			if d.Decode(&kind) != nil {
 				return false
 			}
-			if response {
+			if envelope == "event_msg" {
+				return kind == "item_completed"
+			}
+			if envelope == "response_item" {
 				switch kind {
-				case "function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output", "message", "agent_message", "reasoning":
+				case "function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output", "message", "agent_message", "reasoning", "additional_tools":
 					return true
 				default:
 					return false
 				}
 			}
-			if kind != "response_item" {
+			if kind != "response_item" && kind != "event_msg" {
 				return kind == "compacted" || kind == "world_state" || kind == "token_usage_record" || kind == "inter_agent_communication_metadata"
 			}
 			continue
 		}
-		if key == "payload" && kind == "response_item" {
-			return contextNeutralEnvelope(d, true)
+		if key == "payload" && (kind == "response_item" || kind == "event_msg") {
+			return contextNeutralEnvelope(d, kind)
 		}
 		var value json.RawMessage
 		if d.Decode(&value) != nil {
@@ -150,7 +194,7 @@ func quarantineCodex(raw []byte) (bool, bool) {
 		}
 		if kind == "response_item" {
 			switch subtype {
-			case "function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output", "reasoning", "message", "agent_message":
+			case "function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output", "reasoning", "message", "agent_message", "additional_tools":
 				return false, false
 			}
 			return true, true
@@ -169,6 +213,51 @@ func quarantineCodex(raw []byte) (bool, bool) {
 	default:
 		return true, true
 	}
+}
+
+// Tool declarations are metadata, not a session boundary or executed calls.
+func codexToolMetadata(raw []byte) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return false
+	}
+	for key := range fields {
+		switch key {
+		case "type", "id", "role", "tools":
+		default:
+			return false
+		}
+	}
+	var tools []json.RawMessage
+	return json.Unmarshal(fields["tools"], &tools) == nil && tools != nil
+}
+
+func codexMetadataReplay(f *os.File, s Source, c Cursor) bool {
+	if s.Agent != "codex" || c.ContextRepairVersion >= contextRepairVersion {
+		return false
+	}
+	if c.Session == "" {
+		for _, gap := range c.Gaps {
+			if gap == "aidr_log_record_too_large" {
+				return true
+			}
+		}
+	}
+	for _, gap := range c.RecoveryGaps {
+		if gap.Reason != "aidr_log_context_invalidated" || gap.End <= gap.Start || gap.End-gap.Start > 4<<20 {
+			continue
+		}
+		raw := make([]byte, gap.End-gap.Start)
+		if _, err := f.ReadAt(raw, gap.Start); err != nil || digest(string(raw)) != gap.EvidenceDigest {
+			continue
+		}
+		var record logRecord
+		var payload item
+		if json.Unmarshal(raw, &record) == nil && record.Type == "response_item" && json.Unmarshal(record.Payload, &payload) == nil && payload.Type == "additional_tools" && codexToolMetadata(record.Payload) {
+			return true
+		}
+	}
+	return false
 }
 
 // Recover metadata on upgrade without replaying events or moving the durable
@@ -262,7 +351,7 @@ func codexLogAdapter() logAdapter {
 	a := lineAdapter(parseCodex)
 	a.Model, a.ModelSource, a.DraftTurn = codexModel, "codex.turn_context", true
 	a.Restore = restoreModelProvider
-	a.PreservesContext = func(raw []byte) bool { return contextNeutralEnvelope(json.NewDecoder(bytes.NewReader(raw)), false) }
+	a.PreservesContext = func(raw []byte) bool { return contextNeutralEnvelope(json.NewDecoder(bytes.NewReader(raw)), "") }
 	a.Quarantine = quarantineCodex
 	a.Repair = func(c Cursor) bool {
 		if c.ContextRepairVersion >= contextRepairVersion || c.Offset == 0 || c.Session != "" {

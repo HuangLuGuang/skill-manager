@@ -88,7 +88,7 @@ func (s hookSupervision) valid() bool {
 
 func hookCorrectionRequired(code string) bool {
 	switch code {
-	case "aidr_upload_auth_rejected", "aidr_desktop_managed_binding_changed", "aidr_store_binding_mismatch", "aidr_hook_socket_exists", "aidr_store_busy", "aidr_plugin_version_unverified", "aidr_desktop_managed_authorization_required", "aidr_desktop_receiver_conflict", "aidr_desktop_retry_state_invalid", "aidr_desktop_retry_state_unwritable":
+	case "aidr_upload_access_rejected", "aidr_upload_auth_rejected", "aidr_desktop_managed_binding_changed", "aidr_store_binding_mismatch", "aidr_hook_socket_exists", "aidr_store_busy", "aidr_plugin_version_unverified", "aidr_desktop_managed_authorization_required", "aidr_desktop_receiver_conflict", "aidr_desktop_retry_state_invalid", "aidr_desktop_retry_state_unwritable":
 		return true
 	}
 	return false

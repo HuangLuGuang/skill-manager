@@ -125,15 +125,7 @@ func (c *Client) post(ctx context.Context, path string, raw []byte, headers map[
 	}
 	diagnostic.ServerCode = responseErrorCode(data)
 	if response.StatusCode == 401 || response.StatusCode == 403 {
-		// A device reporting pause is a reversible upload condition, not an
-		// invalid credential. Keep collecting locally and retry the frozen bytes.
-		var problem struct {
-			Code string `json:"error_code"`
-		}
-		if response.StatusCode == 403 && json.Unmarshal(data, &problem) == nil && problem.Code == "aidr.reporting_disabled" {
-			return nil, Result{Code: "aidr_upload_reporting_paused", Retryable: true}
-		}
-		return nil, Result{Code: "aidr_upload_auth_rejected"}
+		return nil, accessFailure(response.StatusCode, diagnostic.ServerCode)
 	}
 	if retryableHTTPStatus(response.StatusCode) {
 		return nil, Result{Code: "aidr_upload_server_unavailable", Retryable: true}
@@ -158,7 +150,22 @@ func retryableHTTPStatus(status int) bool {
 	return status == http.StatusNotFound || status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= 500
 }
 
-var serverErrorCode = regexp.MustCompile(`^aidr\.[a-z_]{1,80}$`)
+var serverErrorCode = regexp.MustCompile(`^(aidr|license|credential)\.[a-z_]{1,80}$`)
+
+func accessFailure(status int, code string) Result {
+	if status == http.StatusForbidden {
+		switch code {
+		case "aidr.reporting_disabled":
+			return Result{Code: "aidr_upload_reporting_paused", Retryable: true}
+		case "license.missing", "license.future", "license.feature_denied", "license.invalid", "license.untrusted_key", "license.deployment_mismatch", "license.customer_mismatch", "license.clock_rollback", "license.unavailable", "license.expired":
+			return Result{Code: "aidr_upload_license_" + strings.TrimPrefix(code, "license."), Retryable: true}
+		}
+	}
+	if strings.HasPrefix(code, "credential.") || code == "aidr.device_binding_mismatch" {
+		return Result{Code: "aidr_upload_auth_rejected"}
+	}
+	return Result{Code: "aidr_upload_access_rejected"}
+}
 
 func responseErrorCode(data []byte) string {
 	var problem struct {
@@ -320,9 +327,12 @@ func (c *Client) RefreshPolicy(ctx context.Context, s *localstore.Store) error {
 		return err
 	}
 	raw, _ := json.Marshal(map[string]string{"stream_id": stream, "last_sequence": fmt.Sprint(n), "applied_receipt": s.Policy().Receipt, "applied_after": after})
-	data, result := c.post(ctx, "audit-policy", raw, map[string]string{"X-AIDR-Policy-Schema": "2", "X-AIDR-Audit-Lifecycle": "1", "X-AIDR-Message-Capture": "1", "X-AIDR-Content-Options": "1", "X-AIDR-Model-Context": "1", "X-AIDR-Skill-Audit": "1"})
+	data, result := c.post(ctx, "audit-policy", raw, map[string]string{"X-AIDR-Policy-Schema": "2", "X-AIDR-Audit-Lifecycle": "1", "X-AIDR-Message-Capture": "1", "X-AIDR-Content-Options": "1", "X-AIDR-Model-Context": "1", "X-AIDR-Tool-Completion": "1", "X-AIDR-Command-Completion": "1", "X-AIDR-Skill-Audit": "1"})
 	if result.Code != "" {
 		c.policyCode = "aidr_policy_cached"
+		if result.Code == "aidr_upload_auth_rejected" || result.Code == "aidr_upload_access_rejected" {
+			return errors.New(result.Code)
+		}
 		return nil
 	}
 	var p agentlog.AuditPolicy

@@ -17,7 +17,7 @@ func TestBootstrapPreservesActionablePlatformErrorsWithoutLeakingDetails(t *test
 		{409, "aidr.system_collection_disabled", "aidr.system_collection_disabled"},
 		{503, "aidr.enforcement_signer_unavailable", "aidr.enforcement_signer_unavailable"},
 		{500, "private-server-details", "aidr_upload_server_unavailable"},
-		{403, "aidr.system_collection_disabled", "aidr_upload_auth_rejected"},
+		{403, "aidr.system_collection_disabled", "aidr_upload_access_rejected"},
 	} {
 		t.Run(test.code+fmt.Sprint(test.status), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

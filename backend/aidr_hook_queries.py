@@ -5,6 +5,7 @@ from sqlalchemy import func, or_, literal_column
 from .aidr_models import AidrHookEvent
 from .aidr_content import metadata_view
 from .aidr_hook_context import project as project_context, MAX_ID
+from .aidr_tool_completion import supplement
 
 FIELDS = ('agent', 'hook_event', 'session_id', 'tool', 'native_call_id')
 
@@ -59,7 +60,7 @@ def related(db, client_id, row):
         # expression directly before checking the rest of the source identity.
         literal_column("json_extract(payload_json, '$.event.native_call_id')") == event['native_call_id'],
         func.json_extract(AidrHookEvent.payload_json, '$.user_scope') == record['user_scope'])
-    for name in ('agent', 'session_id', 'tool', 'turn_id', 'native_agent_id'):
+    for name in ('agent', 'session_id', 'tool', 'native_agent_id') + (() if event['agent'] == 'codex' else ('turn_id',)):
         query = query.filter(func.coalesce(event_field(name), '') == event.get(name, ''))
     query = query.filter(event_field('kind').in_(('tool.pre', 'tool.post', 'tool.failure')))
     rows = query.order_by(AidrHookEvent.id).limit(33).all()
@@ -77,7 +78,14 @@ def related(db, client_id, row):
     if calls > 1 or outcomes > 1:
         result.update(relation='conflicting', code='identity_conflict')
     elif calls == outcomes == 1:
-        result.update(relation='matched', code='native_identity_matched')
+        turns = {json.loads(item.payload_json)['event'].get('turn_id') or '' for item in rows}
+        if event['agent'] == 'codex' and '' in turns:
+            result.update(code='identity_missing')
+        else:
+            result.update(relation='matched', code='cross_turn_native_identity_matched' if len(turns) > 1 else 'native_identity_matched')
     else:
         result.update(relation='incomplete', code='counterpart_missing')
+        evidence = supplement(db, row)
+        if evidence:
+            result['execution_evidence'] = evidence
     return result

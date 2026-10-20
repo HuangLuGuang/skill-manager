@@ -4,7 +4,7 @@ import base64
 import hashlib
 import json
 from datetime import datetime, timezone
-from sqlalchemy import select, lambda_stmt
+from sqlalchemy import select, lambda_stmt, func, or_
 from sqlalchemy.dialects.sqlite import insert
 from .aidr_models import AidrOperation, AidrEvent, AidrAuditState
 
@@ -40,20 +40,12 @@ def operation_key(client_id, event):
 
 
 def merge_operation(conn, client_id, event):
-    if event['kind'] not in {'tool_call', 'tool_result'}:
-        return
-    table=AidrOperation.__table__
-    key=operation_key(client_id,event)
-    prior=conn.execute(select(table).where(table.c.client_id==client_id,table.c.operation_key==key)).mappings().first()
-    values = _operation_values(client_id, key, prior, event)
-    if values is not None:
-        stmt=insert(table).values(**values)
-        conn.execute(stmt.on_conflict_do_update(index_elements=['client_id','operation_key'],set_=values))
+    merge_operations(conn, client_id, [event])
 
 
 def merge_operations(conn, client_id, events):
     """Fold evidence in arrival order, then write each affected operation once."""
-    events = [event for event in events if event['kind'] in {'tool_call', 'tool_result'}]
+    events = [event for event in events if event['kind'] in {'tool_call', 'tool_result'} and not event.get('completion')]
     if not events:
         return
     table = AidrOperation.__table__
@@ -68,6 +60,59 @@ def merge_operations(conn, client_id, events):
             prior[key] = changed[key] = values
     if changed:
         conn.execute(_OPERATION_UPSERT, list(changed.values()))
+    _repair_reparsed_codex_records(conn, client_id, events)
+
+
+def _record_identity(event):
+    fields = ('source_id', 'source_instance_id', 'record_offset', 'block',
+              'evidence_digest', 'native_call_id', 'content_digest', 'kind')
+    if any(event.get(k) is None for k in fields):
+        return None
+    return (*tuple(event[k] for k in fields), event.get('user_scope', ''))
+
+
+def _repair_reparsed_codex_records(conn, client_id, events):
+    """Replace only orphan projections proven to be the same physical record."""
+    events = [e for e in events if e['agent'] == 'codex']
+    if not events:
+        return
+    table = AidrOperation.__table__
+    times = {stamp(e['observed_at']) for e in events}
+    orphans = list(conn.execute(select(table).where(
+        table.c.client_id == client_id, table.c.agent == 'codex',
+        table.c.session_id == '', table.c.expired_at.is_(None),
+        table.c.latest_at.in_(times))).mappings())
+    if not orphans:
+        return
+    identities = corrected_codex_records(conn, client_id, {e['source_instance_id'] for e in events})
+    for row in orphans:
+        view = json.loads(row['payload_json'])
+        halves = [e for side in ('call', 'result') if (e := view.get(side))]
+        if len(halves) != 1 or any(view.get(k) for k in ('conflicting_evidence', 'evidence_truncated', 'history_expired')):
+            continue
+        if len(identities.get(_record_identity(halves[0]), ())) == 1:
+            conn.execute(table.delete().where(table.c.id == row['id']))
+
+
+def corrected_codex_records(conn, client_id, instances):
+    table = AidrOperation.__table__
+    corrected = []
+    # Include persisted corrections, including delivery from an older client later.
+    rows = conn.execute(select(table.c.payload_json).where(
+        table.c.client_id == client_id, table.c.agent == 'codex',
+        table.c.session_id != '', table.c.expired_at.is_(None),
+        or_(*(func.json_extract(table.c.payload_json, f'$.{side}.source_instance_id').in_(instances)
+              for side in ('call', 'result'))))).scalars()
+    for raw in rows:
+        view = json.loads(raw)
+        if not view.get('conflicting_evidence'):
+            corrected.extend(e for side in ('call', 'result') if (e := view.get(side)) and e['session_id'])
+    identities = {}
+    for e in corrected:
+        identity = _record_identity(e)
+        if identity is not None:
+            identities.setdefault(identity, {})[(e['session_id'], e['turn_id'])] = e
+    return identities
 
 
 def _operation_values(client_id, key, prior, event):

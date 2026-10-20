@@ -198,6 +198,7 @@ type Status struct {
 	CapacityCode             string `json:"capacity_code,omitempty"`
 	IntakeCode               string `json:"intake_code,omitempty"`
 	UploadCode               string `json:"upload_code,omitempty"`
+	NextRetryAt              string `json:"next_retry_at,omitempty"`
 	RetiredThrough           string `json:"retired_through,omitempty"`
 	CapacityWarning          string `json:"capacity_warning,omitempty"`
 	DatabaseBytes            int64  `json:"database_bytes"`

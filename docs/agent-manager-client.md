@@ -1499,3 +1499,55 @@ Hook 工具规则发布后持续有效，管理员更新时以更高版本替换
 - 仅审计模式工具正常执行；具体调用审批的取消、超时、消耗和撤销仍独立有效。
 - Qoder 两轮切换分别显示输入、最终回复、成功 / 失败工具结果、Hook / 日志模型 Auto；旧无原生轮次事件保持未归属。
 - Frozen Qoder coverage retries must retain their identity and receive durable ACK; new batches omit local parser links. Confirm both languages and narrow layouts.
+
+### 授权拒绝与采集恢复 / License rejection and collection recovery
+
+AIDR 将平台 License 暂不可用与设备凭证拒绝分开处理。已识别的 `license.*` 运行时错误保留具体原因，并使用现有退避（最长一分钟）重试；保留待发批次、游标及 ACK 身份，不消耗接收器重启次数。本地采集仍遵守已应用策略、容量与保留期。真实凭证拒绝、设备绑定错误及未知 401/403 保持暂停；未知拒绝不显示为凭证失效。诊断仅保存格式受限的稳定错误码，不保存原始响应或凭证。
+
+旧版持久暂停不会被升级盲目清除。修正平台授权后，通过 `agent-manager-client aidr-desktop --action retry-logs` 对日志通道发起一次恢复；Hook 使用 `--action retry`。以新 ACK、游标推进和平台持久记录确认恢复，不以进程存在代替送达证明。
+
+日志工作进程恢复时，新发现文件的起始时间取“最近 24 小时”和已有最后 ACK 中较早者；已有游标保持原采集范围。保留期水位、停用期间过滤与原文件缺失仍可能造成历史缺口，不能承诺全量补齐，也不清空队列或重置游标。
+
+**English:** Recognized runtime `license.*` failures preserve the specific reason and retry with existing backoff (up to one minute), without exhausting receiver restart attempts. Pending batches, cursors and ACK identities remain intact. Local collection continues subject to the applied policy, capacity and retention. Credential rejection, device-binding errors and unknown 401/403 responses remain suspended; unknown denials are not described as invalid credentials. Diagnostics retain bounded stable codes only, never response bodies or credentials.
+
+Upgrades do not blindly clear legacy suspension. After correcting platform authorization, request one log recovery with `agent-manager-client aidr-desktop --action retry-logs`; use `--action retry` for Hooks. Verify new ACKs, advancing cursors and platform records. For newly discovered files, resumed log workers use the earlier of the last ACK and the default 24-hour lookback. Existing cursors retain their original scope. Retention, disabled collection intervals and missing source files can still prevent complete backfill.
+
+### Codex 会话日志兼容与历史恢复 / Codex log compatibility and recovery
+
+Codex `0.163.0-alpha.10.2` 的 `response_item.additional_tools` 是工具定义元数据，不代表工具执行或会话切换。采集器跳过该元数据并保留原生会话、轮次和调用关联；既有 Codex 日志格式继续使用原解析路径。
+
+升级后，若旧游标保留的隔离记录能与原文件中的该元数据逐字节摘要核对，客户端会分批重读已提交区间，恢复遗漏的消息和会话身份。重读遵守采集范围、暂停边界及保留策略，进度可跨重启续接，不回退已提交游标。平台仅在客户端、来源实例、物理位置、调用 ID、内容及证据摘要一致时移除空会话的错误聚合，原始审计事件保留。源文件已删除、改写或不再保留时，不能保证历史恢复。
+
+Codex `0.163.0-alpha.10.2` emits tool definitions as `response_item.additional_tools`. These records are metadata, not tool executions or session boundaries. The collector skips them while preserving native session, turn and call identities; existing Codex log formats retain their parsing paths.
+
+After upgrade, quarantined metadata is verified against the original file and its recorded digest before bounded replay restores missing messages and identities. Replay respects capture scope, collection pause boundaries and retention, resumes across restarts, and preserves the committed cursor. The platform removes an orphan operation projection only when the client, source instance, physical position, call ID, content and evidence digests match. Original audit events remain unchanged. Historical recovery cannot be guaranteed for deleted, rewritten or expired source data.
+
+大型 `event_msg.item_completed` 超过单条读取上限时只记录内容缺口，保留会话和轮次；真正的会话/轮次边界仍按原规则处理。旧游标因超大记录丢失身份时，升级后分批重读并恢复可解析消息。超大记录本身仍受读取上限限制。
+
+历史重读同时核对 Skill 使用聚合。与已修正来源记录精确匹配的空会话重复项退出当前使用列表，原始事件、旧聚合及核验历史保留；证据不同或身份存在歧义时不合并。后台上传收到 ACK 不代表文件发现和读取已经完成，因此受管采集的起点独立持久化；重启继续使用该起点，历史保留边界仍控制可上传的时间范围。
+
+Oversized `event_msg.item_completed` records report a content gap while retaining session and turn context. Actual session and turn boundaries keep their existing handling. Upgrades replay old cursors whose identity was lost after oversized records, restoring parseable messages in bounded batches. The oversized record itself remains subject to the read limit.
+
+Replay also reconciles Skill usage projections. An orphan duplicate is retired from the active view only when it exactly matches a corrected source record; original events, prior projections and verification history remain stored. Different or ambiguous evidence is not merged. Upload ACKs do not imply discovery or intake completion, so managed intake persists its starting point independently across restarts. Retention continues to bound admissible history.
+
+### Codex 异步结束事件与仅 Hook 会话 / Async completion and Hook-only sessions
+
+Codex 异步命令退出后，应继续通过 `write_stdin` 取得最终结果。读取重定向的日志文件不能替代宿主收尾；跨轮次取回结果时，PostToolUse 可能报告取回结果所在轮次。平台在同一客户端、来源流、系统用户、Agent、会话、原生调用 ID、工具及子代理身份下，恰有一条 PreToolUse 和一条结束事件且双方轮次非空时，允许 Codex 跨轮次关联。时间线归到发起轮次，标注跨轮次完成，各原始轮次和事件不变；重复或缺失身份不跨轮次配对。旧客户端及既有历史事件无需重传或修改，其他 Agent 保留原关联规则。
+
+会话列表以当前保留证据分类。有日志时显示日志计数；只有 Hook 时显示“原因未知”，不能仅凭 SessionEnd 或文件不存在断言漏采或删除。具备正文查看权限并请求问题内容时，已采集的 Codex 后台建议提示标记可得到“推测为后台建议”分类；这是提示内容推断，不是宿主来源认证。没有正文权限、正文缺失或旧版本未采集标记时保持未知。平台目前没有采集宿主的 thread/delete 证据，因此不会自动判为源会话已删除。
+
+After an asynchronous Codex command exits, retrieve its final result using `write_stdin`. Reading redirected files does not finish the host tool lifecycle. A completion retrieved in a later turn can report that later turn ID. Codex Hooks may be linked across turns only when the client, stream, OS user, agent, session, native call ID, tool and subagent match, with exactly one pre-tool event and one outcome, both carrying nonempty turn IDs. The timeline uses the initiating turn and marks cross-turn completion while retaining original events and turn IDs. Ambiguous identities remain unpaired. Existing clients and historical events require no rewrite or re-upload; other agents retain their existing rules.
+
+Hook-only sessions show an unknown cause by default. SessionEnd or an absent source file alone does not prove collection loss or deletion. When authorized question content is requested, a captured Codex suggestion prompt marker can produce a background-suggestion inference. This is not authenticated host provenance. Missing content, restricted access and older clients without markers remain unknown. Host thread/delete evidence is not currently collected, so source deletion is not automatically asserted.
+
+### 结束 Hook 缺失时的执行证据 / Execution evidence without an end Hook
+
+Codex 的 MCP 错误返回和图片查看可能没有结束 Hook。会话时间线和 Hook 详情保留“结束 Hook 缺失”，另列执行状态、证据来源和记录 ID。经协商启用 `completion_schema=1` 后，客户端采集 `event_msg.item_completed` 中 MCP 和图片查看的最小完成元数据，不采集其中的参数或图片正文。原生完成记录不合并为普通工具结果，也不生成 Hook；`completed` 仅表示宿主报告完成，不表示业务执行成功。
+
+命令完成采集通过 `X-AIDR-Command-Completion: 1` 另行协商，服务端返回 `completion_schema=2` 后启用。`CommandExecution` 按 Hook 工具名 `Bash` 关联，保留原始 `completed` / `failed` 状态及可选 `exit_code`，同时显示退出码 0 和非零值；退出码缺失时不补 0，也不根据退出码覆盖宿主状态。完成证据不携带命令正文或聚合输出。旧客户端继续使用原协议；新客户端连接只支持第一版的服务端时保持第一版采集。能力升级会重新安排有界历史重读，旧版未完成的重读检查点不能跳过新增命令证据，MCP/图片证据身份保持不变。
+
+补充状态要求客户端、会话、轮次、调用 ID、工具与系统用户唯一匹配；重复来源、子代理或冲突身份保持未知。旧日志有唯一调用和结果时可补充已返回状态，但会明确标注推断关联；没有明确成败字段时保持成败未知。真实结束 Hook 到达后恢复正常 Hook 配对。仅保留 Hook 和原生完成元数据的会话标为“有原生完成证据”，不归为仅有 Hook；这不证明普通工具日志完整。旧客户端无需升级即可读取旧结果补充；新客户端对未声明支持的旧服务端不发送完成元数据。能力首次启用时，现存 Codex 文件按原采集起点和保留策略进行有界、可恢复重读，原始 Hook 和已存日志保持不变。
+
+**English:** Session timelines and Hook details retain “End Hook missing” while showing execution state, evidence source and record ID separately. Negotiated `completion_schema=1` collects minimal MCP/ImageView metadata from Codex `event_msg.item_completed`, excluding arguments and image bodies. Native completion records remain separate from ordinary tool results and never create Hooks. Completion does not imply business success. Unique client/session/turn/call/tool/user identity is required; ambiguous sources and subagents remain unresolved. Legacy tool results support explicitly inferred associations, with unknown outcomes when no explicit status exists. Real end Hooks restore normal pairing. Sessions retaining only Hooks and native completion metadata are labelled “Native completion evidence available”; this does not prove ordinary log completeness. Older clients remain supported, and new clients emit completion metadata only to supporting servers. First activation schedules bounded, resumable replay of existing Codex files within the original intake and retention boundaries.
+
+Command completion is separately negotiated using `X-AIDR-Command-Completion: 1` and enabled by `completion_schema=2`. `CommandExecution` links to the Hook tool name `Bash`, retaining the native completed/failed status and optional exit code. Zero and nonzero codes are displayed; absent codes stay absent, and codes never overwrite the native status. Command text and aggregated output are excluded from this evidence. Old clients retain their protocol, and new clients keep v1 collection against v1 servers. Upgrades schedule bounded history replay without reusing a v1 checkpoint that would skip command evidence; existing MCP/image identities remain unchanged.

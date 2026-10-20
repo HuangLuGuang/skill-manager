@@ -652,6 +652,8 @@ UI 验收 Todo（中英文）：检查预设/自定义编辑、行内修改、�
 
 会话列表默认通过元数据索引汇总当前设备的日志、消息和 Hook 数量，分页后只查找当前页会话的首条有效提问，避免为展示 20 个会话读取全部历史工具正文。关键词搜索仍按原有正文权限查询，保留完整会话计数；分页快照上限、过期过滤及正文访问审计保持有效。升级时自动添加索引，首次建索引耗时随历史数据量增长，不重写事件或清空队列。
 
+Codex 只有 Hook 的会话通过原生完成记录的专用索引，按设备、Agent 和会话 ID 检查补充证据，避免逐会话扫描设备的全部事件正文；仍按分页快照和有效期过滤，不改变原始 Hook 或执行状态证据。
+
 **English:** The default session list aggregates device metadata through indexes and resolves the first available question only for sessions on the selected page. Keyword searches retain content permissions and full-session counts. Snapshot ceilings, retention filters and content access auditing remain in effect. Upgrades add indexes once; index creation time depends on history size and does not rewrite events or clear queues.
 
 性能人工验收 / Performance checks：首次打开行为审计、刷新会话、Agent 筛选、提问关键词搜索、更多会话；核对加载提示、标题与各来源数量，并确认翻页期间新收到的提问不会混入旧快照。Check initial loading, refresh, Agent filtering, question search and pagination, including loading feedback, titles, counts and snapshot isolation.
@@ -2926,3 +2928,17 @@ Pending work combines Skill reviews and unexpired MCP call approvals. Tabs show 
 Runtime counters use the UTC calendar day and the audit statuses `blocked` for models and `denied` for MCP. AIDR shows retained log / Hook records received in the past 24 hours and distinct reporting clients, with an “In testing” label. Records do not equal unique operations or enforcement coverage.
 
 The charts show 7 / 30 UTC calendar days of requests recorded in `LlmUsageMetric`, including zero-filled dates, and current Skill risk distribution by latest version. Unassessed or unknown risk remains separate. The page shows its refresh time, retains previous data with an explicit warning on refresh failure, and offers retry when initial loading fails.
+
+### Codex 跨轮次 Hook 与会话证据分类
+
+Codex 异步工具的结束 Hook 可能属于取回结果的轮次。客户端审计按唯一原生调用身份关联前后事件，将时间线归到发起轮次并保留原始轮次；重复身份仍标为不确定。只有 Hook 的会话显示原因未知，有正文权限时可根据明确的后台建议提示标记显示推断分类，不以 SessionEnd 或缺少日志推断删除或漏采。旧客户端和历史记录通过读取时处理兼容，无需重传。详见 [客户端说明](agent-manager-client.md#codex-异步结束事件与仅-hook-会话--async-completion-and-hook-only-sessions)。
+
+**English:** Codex asynchronous outcomes can report the turn that retrieves the final result. Client audit links unique native call evidence across turns, places the timeline under the initiating turn, and preserves original turn IDs. Ambiguous identities remain unresolved. Hook-only sessions show an unknown cause; authorized prompt content may support a background-suggestion inference. SessionEnd or missing logs alone does not establish deletion or collection loss. Read-time handling supports existing clients and historical records without re-upload.
+
+结束 Hook 缺失时，时间线和 Hook 详情可单独显示来自 Codex 原生完成记录或旧工具结果的执行状态、来源和记录 ID，仍保留缺失标记，不伪造结束 Hook。新采集能力通过协议协商启用并有界重读本地保留历史；身份不唯一时不补充。完成不等于业务成功。
+
+命令原生完成采集使用第二版协商，补充 `CommandExecution` 的宿主状态和可选退出码，包括 0；缺失退出码保持未知。第一版 MCP/图片采集、旧客户端及历史证据保持兼容。
+
+**English:** Missing end Hooks remain visible. Timelines and Hook details can separately show execution status and provenance from native Codex completion records or legacy tool results. Negotiated collection supports bounded replay of retained local history. Ambiguous identities remain unresolved; completion does not imply business success.
+
+Negotiated v2 completion collection adds the native `CommandExecution` status and optional exit code, including zero. Missing codes remain unknown. V1 MCP/image collection, older clients and retained evidence remain compatible.

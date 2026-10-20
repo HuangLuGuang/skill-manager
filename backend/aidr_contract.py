@@ -69,7 +69,14 @@ class ModelContext(Contract):
     source: Annotated[str, AfterValidator(aidr_adapters.validate_model_source)]
 
 
+class ToolCompletion(Contract):
+    source: Literal["codex.item_completed"]
+    status: Literal["failed", "completed"]
+    exit_code: int | None = Field(default=None, ge=-(2**31), le=2**31-1)
+
+
 class Event(Contract):
+    completion: ToolCompletion | None = None
     model_context: ModelContext | None = None
     user_scope: str | None = Field(default=None, pattern=r'^(0|[1-9][0-9]{0,9})$')
     skill_use: SkillUse | None = None
@@ -102,6 +109,13 @@ class Event(Contract):
 
     @model_validator(mode="after")
     def consistent(self):
+        if self.completion and (self.agent != 'codex' or self.schema_version != 2
+                or self.kind != 'tool_result' or not self.tool or not self.session_id
+                or not self.turn_id or self.outcome != 'unknown' or not self.behavior
+                or not self.behavior.policy or not self.behavior.policy.completion_schema
+                or (self.tool == 'Bash' and self.behavior.policy.completion_schema != 2)
+                or (self.completion.exit_code is not None and self.tool != 'Bash')):
+            raise ValueError('completion_source_invalid')
         if self.model_context:
             if not any(getattr(self.model_context, k) for k in ('model', 'provider', 'reasoning_effort', 'reasoning_summary')):
                 raise ValueError('model_context_empty')
@@ -314,10 +328,13 @@ def logical_projection(event: Event) -> str:
         values.append(event.behavior.model_dump(exclude_none=True))
     if event.message:
         values.append(event.message.model_dump(exclude_none=True))
+    if event.completion:
+        values.append(event.completion.model_dump(exclude_none=True))
     return json.dumps(values, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
 
 
 def same_log_source(stored_payload: str, incoming: Event) -> bool:
     """A replay keeps its first projection when source identity and content match."""
     stored = json.loads(stored_payload)
-    return all(stored.get(name) == getattr(incoming, name) for name in LOG_SOURCE_FIELDS)
+    return (stored.get('completion') == (incoming.completion.model_dump(exclude_none=True) if incoming.completion else None)
+            and all(stored.get(name) == getattr(incoming, name) for name in LOG_SOURCE_FIELDS))
