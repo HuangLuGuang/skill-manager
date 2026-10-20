@@ -1061,6 +1061,8 @@ class VettingPipeline:
             "policy_snapshot": {
                 "judgement_mode": effective_judgement_mode,
                 "risk_classification": dict(self.policy.risk_classification),
+                # 拒绝提示保留本次禁止权限清单，避免后续策略变更影响历史说明。
+                "blocked_permissions": list(self.policy.blocked_permissions),
             },
             "strategy": reconciliation_strategy,
             "judgement_mode": effective_judgement_mode,

@@ -1,5 +1,9 @@
 export const decisionFlowMessages = {
   'zh-CN': {
+    declarationNoticesTitle: '声明检查提示',
+    toolCountExceeded: '声明的工具数量为 {count}，超过公司允许的上限 {limit}。',
+    toolNotInAllowlist: '声明的工具 {tool} 不在允许列表中：{allowed}。',
+    noAllowedTools: '无',
     policyNoticesTitle: '策略说明',
     policyNoticesHint: '以下提示单独命中不会直接拒绝 Skill。',
     policyNoticeRequireLicense: 'Skill 声明缺少策略要求的许可证字段。',
@@ -50,6 +54,10 @@ export const decisionFlowMessages = {
     data_exfiltration: '数据外传', supply_chain: '供应链', prompt_injection: '提示注入', tool_misuse: '工具滥用', network: '网络访问', credential_access: '凭据访问', dynamic_execution: '动态执行', excessive_permissions: '权限过大', documented_external_api: '文档外部 API', dependency: '依赖', runtime: '运行环境',
   },
   'en-US': {
+    declarationNoticesTitle: 'Declaration notices',
+    toolCountExceeded: 'The Skill declares {count} tools, exceeding the company limit of {limit}.',
+    toolNotInAllowlist: 'The declared tool {tool} is not in the allowlist: {allowed}.',
+    noAllowedTools: 'None',
     policyNoticesTitle: 'Policy Notes',
     policyNoticesHint: 'These notices alone do not reject the Skill.',
     policyNoticeRequireLicense: 'The Skill manifest is missing the license field required by policy.',

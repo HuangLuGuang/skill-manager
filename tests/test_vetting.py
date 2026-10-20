@@ -730,6 +730,7 @@ class TestVettingPipeline:
             "policy_snapshot": {
                 "judgement_mode": "balanced",
                 "risk_classification": CompanyPolicy({}).risk_classification,
+                "blocked_permissions": CompanyPolicy({}).blocked_permissions,
             },
             "strategy": "mode_aware_llm_judgement",
             "judgement_mode": "balanced",

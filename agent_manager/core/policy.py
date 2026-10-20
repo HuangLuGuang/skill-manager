@@ -217,6 +217,9 @@ class CompanyPolicy:
             violations.append(PolicyViolation(
                 rule="max_allowed_tools",
                 message=f"Skill declares {len(allowed_tools)} tools; policy allows at most {self.max_allowed_tools}",
+                # 数量超限仅提示，并保留本次计数和策略上限。
+                blocking=False,
+                params={"count": len(allowed_tools), "limit": self.max_allowed_tools},
             ))
 
         allowlist_lower = {t.lower() for t in self.allowed_tools_allowlist}
@@ -228,6 +231,9 @@ class CompanyPolicy:
                 violations.append(PolicyViolation(
                     rule="tool_not_in_allowlist",
                     message=f"Tool {tool!r} is not in the company allowlist",
+                    blocking=False,
+                    # 保存本次允许列表，供历史报告按实际扫描依据展示。
+                    params={"tool": tool, "allowed_tools_allowlist": list(self.allowed_tools_allowlist)},
                 ))
 
         declared_lower = {t.lower() for t in allowed_tools}
