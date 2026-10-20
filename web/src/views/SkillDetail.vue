@@ -1494,6 +1494,7 @@ const sandboxProbeColumns = computed(() => [
 
 const fetchDetail = async () => {
   const requestId = ++detailRequestId
+  loadedTabs.clear()
   ++diffRequestId
   loadedDiffKey = ''
   pendingDiffKey = ''
@@ -1520,16 +1521,8 @@ const fetchDetail = async () => {
     signatureResult.value = null
     loading.value = false
     await Promise.allSettled([
-      loadDetailResource(() => getAudit({ skill_id: versionId, since_hours: 720, limit: 50 }),
-        result => { auditRows.value = Array.isArray(result) ? result : [] }, loadingAudit),
       loadDetailResource(() => getSkillScanReport(versionId),
         result => { scanReport.value = result?.scan_report || null }, loadingScanReport),
-      loadDetailResource(() => getSkillContent(versionId),
-        result => { skillContent.value = result || null }, loadingContent),
-      loadDetailResource(() => getSkillFiles(versionId),
-        result => { skillFiles.value = result?.files || [] }, loadingFiles),
-      loadDetailResource(() => getSkillGovernanceCard(versionId),
-        result => { governanceCard.value = result || null }, loadingGovernanceCard),
       loadDetailResource(() => getSkillVersions(data.skill_id),
         result => { skillVersions.value = result?.items || []; initializeVersionDiff() }, loadingVersions),
     ])
@@ -1593,22 +1586,34 @@ const fetchScanReport = async () => {
 }
 
 const fetchSkillContent = async () => {
-  if (!detail.value) return
+  if (!detail.value || loadingContent.value) return
   return loadDetailResource(() => getSkillContent(currentVersionId.value),
-    result => { skillContent.value = result || null }, loadingContent, phrase('legacy.1iff97n'))
+    result => { skillContent.value = result || null; loadedTabs.add('content') }, loadingContent, phrase('legacy.1iff97n'))
 }
 
 const fetchSkillFiles = async () => {
-  if (!detail.value) return
+  if (!detail.value || loadingFiles.value) return
   return loadDetailResource(() => getSkillFiles(currentVersionId.value),
-    result => { skillFiles.value = result?.files || [] }, loadingFiles, phrase('legacy.1rirokg'))
+    result => { skillFiles.value = result?.files || []; loadedTabs.add('files') }, loadingFiles, phrase('legacy.1rirokg'))
 }
 
 const fetchGovernanceCard = async () => {
-  if (!detail.value) return
+  if (!detail.value || loadingGovernanceCard.value) return
   return loadDetailResource(() => getSkillGovernanceCard(currentVersionId.value),
-    result => { governanceCard.value = result || null }, loadingGovernanceCard, phrase('legacy.82xq4f'))
+    result => { governanceCard.value = result || null; loadedTabs.add('governance-card') }, loadingGovernanceCard, phrase('legacy.82xq4f'))
 }
+
+const loadedTabs = new Set()
+watch(() => [activeTab.value, detail.value?.version_id, detail.value?.skill_id], () => {
+  if (!detail.value || loadedTabs.has(activeTab.value)) return
+  if (activeTab.value === 'content') void fetchSkillContent()
+  else if (activeTab.value === 'files') void fetchSkillFiles()
+  else if (activeTab.value === 'governance-card') void fetchGovernanceCard()
+  else if (activeTab.value === 'audit' && !loadingAudit.value) {
+    void loadDetailResource(() => getAudit({ skill_id: currentVersionId.value, since_hours: 720, limit: 50 }),
+      result => { auditRows.value = Array.isArray(result) ? result : []; loadedTabs.add('audit') }, loadingAudit, phrase('legacy.qrrlus'))
+  }
+})
 
 const handleRefreshGovernanceCard = async () => {
   if (!detail.value) return

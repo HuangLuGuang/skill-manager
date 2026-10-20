@@ -1,5 +1,25 @@
 # Agent Manager Project Guide
 
+## 页面数据加载 / Page data loading
+
+用户组页只查询用户组列表；用户和隐私策略选项在打开新建或编辑弹窗时按权限加载，同次访问复用，刷新列表或保存后失效。选项加载失败保留草稿并可重试，详见[模型网关说明](model-gateway.md)。
+
+The user group page queries only its list. User and privacy policy options load with the caller's permissions when opening a create or edit dialog, are reused during the visit, and are invalidated after list refresh or save. Failed option requests preserve the draft and support retry; see the [model gateway guide](model-gateway.md).
+
+审计追踪的列表与筛选选项独立加载；筛选、翻页和排序只查询列表，手动刷新同时更新两者。选项查询失败可独立重试。两类查询共用来源权限和客户端归属限制，选项来自可见历史记录；列表保留筛选后的准确总数及跨来源稳定时间排序。
+
+Audit Trail loads its list and filter options independently. Filtering, pagination and sorting query only the list; manual refresh updates both. Options can be retried separately. Both queries enforce source permissions and client ownership. Options cover visible history; lists retain exact filtered totals and stable chronological ordering across sources.
+
+管理台按当前页面和标签读取业务数据。MCP 服务、网关和审计分别查询自身列表，编辑时再读取所需选项；开放 API 管理仅在凭证或接口调用标签查询对应记录。账号管理的筛选、排序和翻页复用选项，手动刷新及修改后重新读取。检测策略仅在本地 Docker 模式读取镜像列表，镜像读取独立于配置加载。
+
+安全扫描仅在目标页读取目标风险；计划任务页由计划列表组件维护列表及数量，复用正在进行的请求。其他阶段保留顶部统计所需数据。凭证中心保留列表名称所需的 Agent、模型查询，创建时按场景补充选项。
+
+Skill 详情先加载基础信息、检测报告和版本信息；原文、文件列表、治理卡和审计记录在首次打开对应标签时加载，同次查看复用结果。切换 Skill 或重新加载详情时重新读取，标签内的刷新操作仍可更新对应内容。
+
+**English:** The console loads data for the current page and tab. MCP servers, gateways and audit pages query their own lists and fetch editing options when needed. Open API credentials and inbound request records load on their respective tabs. Account filters, sorting and pagination reuse options; manual refresh and mutations reload them. Sandbox images load independently of configuration and only for local Docker mode.
+
+Target risk loads on the security scan targets page. The schedules component owns its list and count and shares in-flight requests; other stages retain data needed for navigation counts. Credential lists load Agent and model names, while configuration adds options for the selected scenario. Skill details initially load metadata, scan reports and versions; content, files, governance cards and audit records load on first opening their tabs and are reused during that visit. Switching Skills or reloading details resets this data; tab refresh actions remain available.
+
 ## 开放 API 管理 / Open API Management
 
 “网关配置”标签页选择已有外部 AI 网关，填写结果同步配置编号（gateway_id）、所属接入方及结果同步接口路径，支持创建、编辑、启停、删除和测试通知。完整地址由网关管理地址与接口路径组成，认证复用该网关的Token ID、Token Value及HMAC-SHA256签名。gateway_id是智能体开发平台发起评测时填写的结果同步配置编号，创建后保持不变。编辑生成新版本，已有任务保持原版本和报告；每次发送使用网关当前凭据。旧配置补充接口路径后可用于新任务。测试独立记录，接收方按security-gateway-test.v1返回匹配sync_id及accepted=true。操作与人工验收见[网关配置](external-agent-integration.md#网关配置--gateway-configuration)。

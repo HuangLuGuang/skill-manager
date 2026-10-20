@@ -1712,6 +1712,15 @@ class Registry:
         with self._lock, self._connect() as conn:
             self._insert_audit(conn, event, ignore_existing=True)
 
+    _governance_audit_predicates = ("event_id NOT LIKE 'client-event-%'", "COALESCE(json_extract(payload, '$.details.source'), '') != 'managed_client'")
+
+    def governance_audit_agents(self):
+        with self._read_connection() as conn:
+            return [row[0] for row in conn.execute(
+                "SELECT DISTINCT json_extract(payload, '$.details.agent_id') FROM skill_audit_events WHERE "
+                + ' AND '.join(self._governance_audit_predicates)
+            ) if row[0]]
+
     def governance_audit_page(self, *, since=None, q='', agent='', client_id='', category='', result='', limit=10, order='desc', matching_agent_ids=()):
         """Read original registry events for the federated governance view.
 
@@ -1719,14 +1728,14 @@ class Registry:
         the management database and must not bypass its visibility rules here.
         """
         if client_id or category not in ('', 'capability') or (agent and not agent.startswith('platform:')):
-            return {'items': [], 'total': 0, 'agents': []}
+            return {'items': [], 'total': 0}
         state = """CASE
             WHEN event_type IN ('skill_load_blocked','tool_blocked','skill_rejected') THEN 'deny'
             WHEN event_type IN ('skill_processing_failed','skill_auto_install_failed') THEN 'failed'
             WHEN event_type = 'skill_load_allowed' THEN 'allow'
             WHEN event_type IN ('skill_approved','skill_signature_verified','skill_processing_completed','skill_deployed') THEN 'success'
             ELSE 'recorded' END"""
-        clauses = ["event_id NOT LIKE 'client-event-%'", "COALESCE(json_extract(payload, '$.details.source'), '') != 'managed_client'"]
+        clauses = list(self._governance_audit_predicates)
         params = []
         def audit_timestamp(value):
             stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
@@ -1737,9 +1746,6 @@ class Registry:
         with self._read_connection() as conn:
             # Match the federated sort's precision; SQLite date functions round to milliseconds.
             conn.create_function('audit_timestamp', 1, audit_timestamp, deterministic=True)
-            agents = [row[0] for row in conn.execute(
-                "SELECT DISTINCT json_extract(payload, '$.details.agent_id') FROM skill_audit_events WHERE " + ' AND '.join(clauses)
-            ) if row[0]]
             if since:
                 clauses.append('audit_timestamp(timestamp) >= audit_timestamp(?)')
                 params.append(since.isoformat())
@@ -1760,7 +1766,7 @@ class Registry:
             total = conn.execute('SELECT count(*) FROM skill_audit_events WHERE ' + where, params).fetchone()[0]
             direction = 'ASC' if order == 'asc' else 'DESC'
             rows = conn.execute(f'SELECT payload, {state} AS result FROM skill_audit_events WHERE {where} ORDER BY audit_timestamp(timestamp) {direction}, event_id {direction} LIMIT ?', [*params, limit])
-            return {'items': [{**json.loads(row['payload']), 'result':row['result']} for row in rows], 'total':total, 'agents':agents}
+            return {'items': [{**json.loads(row['payload']), 'result':row['result']} for row in rows], 'total':total}
 
     def read_audit(
         self,

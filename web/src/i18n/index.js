@@ -170,6 +170,10 @@ export const i18n = createI18n({
         english: 'English',
       },
       modelGateway: {
+        groupOptions: {
+          loadFailed: '用户或隐私策略选项加载失败，请重试。已填写的内容会保留。',
+          retry: '重试',
+        },
         catalog: {
           title: '供应商与模型', summary: '{providers} 个供应商 · {models} 个模型',
           defaultProvider: '默认供应商', defaultModel: '默认模型', defaultModelLabel: '默认模型：{model}',
@@ -1306,6 +1310,10 @@ export const i18n = createI18n({
         english: 'English',
       },
       modelGateway: {
+        groupOptions: {
+          loadFailed: 'Could not load user or privacy policy options. Retry to continue. Your entries are preserved.',
+          retry: 'Retry',
+        },
         catalog: {
           title: 'Providers & Models', summary: 'Providers: {providers} · Models: {models}',
           defaultProvider: 'Default provider', defaultModel: 'Default model', defaultModelLabel: 'Default model: {model}',

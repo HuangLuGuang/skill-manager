@@ -1,7 +1,7 @@
 <template>
   <a-card class="external-access">
     <a-page-header :title="t('externalAccess.title')" :sub-title="t('externalAccess.subtitle')">
-      <template #extra><a-button :loading="loading" @click="refresh">{{ t('externalAccess.refresh') }}</a-button></template>
+      <template #extra><a-button :loading="loading" @click="refresh(true)">{{ t('externalAccess.refresh') }}</a-button></template>
     </a-page-header>
     <p class="muted">{{ t('externalAccess.timezone') }}</p>
     <a-tabs v-model:activeKey="tab">
@@ -56,7 +56,7 @@
           <a-radio-button value="inbound">{{ t('externalDelivery.inbound') }}</a-radio-button>
           <a-radio-button value="outbound">{{ t('externalDelivery.outbound') }}</a-radio-button>
         </a-radio-group>
-        <ExternalDeliveries v-if="recordType === 'outbound'" :partners="partners" />
+        <ExternalDeliveries v-if="tab === 'requests' && recordType === 'outbound'" :partners="partners" />
         <template v-else>
         <p class="muted">{{ t('externalAccess.recordsHelp') }}</p>
         <div class="toolbar">
@@ -127,7 +127,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
@@ -190,14 +190,38 @@ const resourceLink = computed(() => {
   return null
 })
 
-async function refresh() {
-  if (loading.value) return
+const sharedPending = new Map()
+const sharedLoaded = new Set()
+let refreshSequence = 0
+function loadShared(force) {
+  const resources = [['partners', listExternalPlatforms]]
+  if (['partners', 'tokens'].includes(tab.value)) resources.push(['options', externalAccessOptions])
+  return Promise.all(resources.map(([key, request]) => {
+    if (sharedPending.has(key)) return sharedPending.get(key)
+    if (sharedLoaded.has(key) && !force) return Promise.resolve()
+    const pending = request().then(result => {
+      if (key === 'partners') partners.value = result.items
+      else options.value = result
+      sharedLoaded.add(key)
+    }).finally(() => { sharedPending.delete(key) })
+    sharedPending.set(key, pending)
+    return pending
+  }))
+}
+async function refresh(force = false) {
+  const sequence = ++refreshSequence
+  const currentTab = tab.value
   loading.value = true
   try {
-    const [p, o, credentials] = await Promise.all([listExternalPlatforms(), externalAccessOptions(), can('credentials:view') ? listAccessTokens({ token_type: 'openapi' }) : { items: [] }])
-    partners.value = p.items; options.value = o; tokens.value = credentials.items
-    await loadRecords()
-  } catch (error) { fail(error) } finally { loading.value = false }
+    await Promise.all([
+      loadShared(force),
+      currentTab === 'tokens' && can('credentials:view') ? listAccessTokens({ token_type: 'openapi' }).then(result => {
+        if (sequence === refreshSequence) tokens.value = result.items
+      }) : null,
+      currentTab === 'requests' && recordType.value === 'inbound' ? loadRecords() : null,
+    ])
+  } catch (error) { if (sequence === refreshSequence) fail(error) }
+  finally { if (sequence === refreshSequence) loading.value = false }
 }
 async function loadRecords() {
   const sequence = ++recordSequence
@@ -212,7 +236,7 @@ async function loadRecords() {
 function search() { pagination.current = 1; loadRecords() }
 function resetSearch() { resetFilters(); search() }
 function changePage(page) { pagination.current = page.current; pagination.pageSize = page.pageSize; loadRecords() }
-function showTokenRequests(row) { recordType.value = 'inbound'; resetFilters(); filters.token_id = row.id; tab.value = 'requests'; search() }
+function showTokenRequests(row) { recordType.value = 'inbound'; resetFilters(); filters.token_id = row.id; pagination.current = 1; tab.value = 'requests' }
 function resetFilters() { Object.assign(filters, { platform_id: undefined, request_id: '', token_id: undefined, resource_id: '', business_request_id: '', route: '', outcome: undefined }); dates.value = null }
 function openPartner(row) {
   partnerEditing.value = !!row
@@ -229,7 +253,7 @@ async function savePartner() {
     const body = { name: partnerForm.name.trim(), enabled: partnerForm.enabled, departments: partnerForm.departments.map(d => ({ ...d })) }
     if (partnerEditing.value) await updateExternalPlatform(partnerForm.platform_id, body)
     else await createExternalPlatform({ ...body, platform_id: partnerForm.platform_id })
-    partnerOpen.value = false; message.success(t('externalAccess.saved')); await refresh()
+    partnerOpen.value = false; message.success(t('externalAccess.saved')); await refresh(true)
   } catch (error) { fail(error) } finally { saving.value = false }
 }
 function openToken(row) {
@@ -257,9 +281,13 @@ async function changeToken(row, revoke = false) {
   catch (error) { fail(error) } finally { busyToken.value = null }
 }
 async function copyToken() { try { await copyText(plaintext.value); message.success(t('externalAccess.copied')) } catch { message.error(t('externalAccess.copyFailed')) } }
-watch(() => route.query.request_id, value => { if (value) { recordType.value = 'inbound'; resetFilters(); filters.request_id = String(value); tab.value = 'requests'; search() } })
-onMounted(refresh)
-onBeforeUnmount(() => { recordSequence++; plaintext.value = '' })
+watch(() => route.query.request_id, value => { if (value) {
+  const alreadyInbound = tab.value === 'requests' && recordType.value === 'inbound'
+  recordType.value = 'inbound'; resetFilters(); filters.request_id = String(value); pagination.current = 1; tab.value = 'requests'
+  if (alreadyInbound) search()
+} })
+watch([tab, recordType], () => { recordSequence++; recordsLoading.value = false; refresh() }, { immediate: true })
+onBeforeUnmount(() => { refreshSequence++; recordSequence++; plaintext.value = '' })
 </script>
 
 <style scoped>

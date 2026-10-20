@@ -1256,7 +1256,6 @@ const filteredTasks = computed(() => tasks.value.filter(item =>
   && (!taskTargetFilter.value || item.target_id === taskTargetFilter.value)
   && (!taskKindFilter.value || item.scan_kind === taskKindFilter.value)))
 const severityCounts = ref({})
-onMounted(loadTargetRisks)
 const stageItems = computed(() => [
   { key: 'targets', label: t('agentSecurityScans.pipeline.targets'), description: t('agentSecurityScans.pipeline.targetsHint'), count: targets.value.length },
   { key: 'policies', label: t('agentSecurityScans.pipeline.policies'), description: t('agentSecurityScans.pipeline.policiesHint'), count: enabledPolicies.value.length },
@@ -1372,9 +1371,33 @@ async function editSchedule(row) {
 async function saveSchedule() {
   if (submittingTask.value || !timingValid.value || !scheduleName.value.trim()) return
   submittingTask.value = true
-  try { const body = { name: scheduleName.value.trim(), timing: scanTiming.value, task: taskPlanPayload(), enabled: editingSchedule.value?.enabled ?? true }; if (editingSchedule.value) await updateScanSchedule(editingSchedule.value.schedule_id, { ...body, version: editingSchedule.value.version }); else await createScanSchedule({ ...body, run_immediately: runImmediately.value, idempotency_key: scheduleKey.value }); taskModalOpen.value = false; await selectStage('schedules'); await nextTick(); await schedulesPanel.value?.load(); message.success(t('scanSchedule.saved')) } catch(e) { message.error(errorText(e)) } finally { submittingTask.value = false }
+  try {
+    const body = { name: scheduleName.value.trim(), timing: scanTiming.value, task: taskPlanPayload(), enabled: editingSchedule.value?.enabled ?? true }
+    if (editingSchedule.value) await updateScanSchedule(editingSchedule.value.schedule_id, { ...body, version: editingSchedule.value.version })
+    else await createScanSchedule({ ...body, run_immediately: runImmediately.value, idempotency_key: scheduleKey.value })
+    taskModalOpen.value = false
+    if (activeStage.value === 'schedules') await schedulesPanel.value?.load()
+    else await selectStage('schedules')
+    message.success(t('scanSchedule.saved'))
+  } catch(e) { message.error(errorText(e)) } finally { submittingTask.value = false }
 }
-async function loadTargetRisks() { if (!hasAccess('targets:view')) { targetRisks.value = {}; return }; try { const map = {}; let offset = 0; while (true) { const data = await listManagedAgentRisks({ limit: 200, offset }); for (const x of data.items) map[x.target_id] = x.risk; offset += data.items.length; if (!data.items.length || offset >= data.total) break }; targetRisks.value = map } catch(e) { message.error(errorText(e)) } }
+let targetRisksPending = null
+function loadTargetRisks() {
+  if (targetRisksPending) return targetRisksPending
+  if (activeStage.value !== 'targets' || !hasAccess('targets:view')) return
+  targetRisksPending = (async () => {
+    const map = {}; let offset = 0
+    while (!scanViewUnmounted && activeStage.value === 'targets') {
+      const data = await listManagedAgentRisks({ limit: 200, offset })
+      for (const x of data.items) map[x.target_id] = x.risk
+      offset += data.items.length
+      if (!data.items.length || offset >= data.total) break
+    }
+    if (!scanViewUnmounted && activeStage.value === 'targets') targetRisks.value = map
+  })().catch(e => { if (!scanViewUnmounted && activeStage.value === 'targets') message.error(errorText(e)) })
+    .finally(() => { targetRisksPending = null })
+  return targetRisksPending
+}
 const taskForm = reactive({ target_id: undefined, policy_id: undefined, approval_id: undefined, scan_kind: 'control_plane_validation', skills: [], prompt: '', conversation_mode: 'single_turn', continue_from_task_id: undefined, llm_input_mode: 'dataset', datasets: ['JailBench-Tiny'], num_prompts: 10, random_seed: 42, techniques: ['Raw'], evaluation_model: undefined, http_authorized: false, private_network_authorized: false, scan_timeout_seconds: 30, scan_concurrency: 2, inventory_source: 'console_api', manual_dsl: '', include_prompt_text: false, infer_agent_intent: false, intent_inference_model: undefined, knowledge_content_authorized: false, max_knowledge_documents: 100, max_knowledge_segments: 1000, max_knowledge_bytes: 10485760 })
 const emptyMcpOptions = () => ({ mcp_mode: 'metadata', mcp_depth: 'full', mcp_source_id: null, mcp_tools: [], mcp_call_limit: 20, mcp_route: 'gateway', mcp_strategy: 'crescendo', analysis_model: null, attack_model: null })
 const mcpForm = ref(emptyMcpOptions())
@@ -1706,13 +1729,13 @@ const loadCoreData = async () => {
     hasAccess('scans:view') ? listSecurityPolicies() : [],
     hasAccess('scans:view') ? listSecurityTasks({ limit: 500 }) : [],
     hasAccess('scans:view') ? listSecurityScanApprovals({ limit: 500 }) : [],
-    hasAccess('schedules:view') ? listScanSchedules() : [],
+    hasAccess('schedules:view') ? (activeStage.value === 'schedules' ? null : listScanSchedules()) : [],
   ])
   targets.value = targetRows
   policies.value = policyRows
   tasks.value = taskRows
   scanApprovals.value = approvalRows
-  scheduleCount.value = scheduleRows.length
+  if (scheduleRows) scheduleCount.value = scheduleRows.length
 }
 const refreshAll = async () => {
   refreshing.value = true; loadError.value = ''
@@ -2183,7 +2206,7 @@ watch(() => caseProjection.value.rows.map(item => item.case_id), keys => {
 watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null })
 watch(() => taskForm.target_id, () => { mcpForm.value = { ...emptyMcpOptions(), mcp_mode: selectedTaskTarget.value?.connector_type === 'mcp_source' ? 'source' : 'metadata' } }, { flush: 'sync' })
 watch(executionMode, value => { if (value === 'scheduled') { taskForm.continue_from_task_id = undefined; taskForm.inventory_source = 'console_api'; taskPreview.value = null } })
-watch(activeStage, value => { if (value === 'targets') loadTargetRisks() })
+watch(activeStage, value => { if (value === 'targets') loadTargetRisks() }, { immediate: true })
 watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); await schedulesPanel.value?.open(String(id)) } })
 </script>
 

@@ -272,7 +272,7 @@
                     <AgentMcpGateways v-else v-model="form.allowed_mcp_gateways" :allowed-gateways="boundAgent.allowed_mcp_gateways" :disabled="creating" />
                     <div class="mcp-config-actions">
                       <a v-if="boundAgent?.origin_type === 'platform' && hasAccess('agents:update') && pageAllowed('/agents')" :href="router.resolve({ path: '/agents', query: { edit: boundAgent.agent_id } }).href" target="_blank" rel="noopener">{{ $t('agentMcp.editAgent') }}</a>
-                      <a-button size="small" :loading="optionsLoading" :disabled="optionsLoading || creating" @click="fetchOptions">{{ $t('agentIntegration.refresh') }}</a-button>
+                      <a-button size="small" :loading="optionsLoading" :disabled="optionsLoading || creating" @click="fetchOptions(true)">{{ $t('agentIntegration.refresh') }}</a-button>
                     </div>
                   </template>
                   <a-select v-else :get-popup-container="trigger => trigger.parentElement" v-model:value="form.allowed_mcp_gateways" mode="multiple" allow-clear :placeholder="$t('credentials.allowedGatewaysPlaceholder')">
@@ -715,7 +715,6 @@ const selectScenario = (scenarioId, defaults = {}) => {
   selectedScenarioId.value = scenarioId
   resetForm(scenario.tokenType, defaults)
   createStage.value = 'config'
-  void fetchOptions()
 }
 
 const fetchTokens = async () => {
@@ -729,21 +728,33 @@ const fetchTokens = async () => {
     loading.value = false
   }
 }
-const fetchOptions = async () => {
-  if (optionsLoading.value) return
-  optionsLoading.value = true
+const loadedOptions = new Set()
+const pendingOptions = new Map()
+const fetchOptions = async (force = false, forList = false) => {
+  const resources = [
+    ['agents', agents, listAgents, forList || form.token_type === 'agent_runtime'],
+    ['models', models, listModelEndpoints, forList || supportsModels.value],
+    ['gateways', mcpGateways, listMcpGateways, !forList && supportsMcp.value],
+  ]
   try {
-    const results = await Promise.allSettled([listAgents(), listModelEndpoints(), listMcpGateways()])
-    const targets = [agents, models, mcpGateways]
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled') targets[index].value = result.value || []
-    })
+    const results = await Promise.allSettled(resources.filter(([, , , needed]) => needed).map(([key, target, request]) => {
+      if (pendingOptions.has(key)) return pendingOptions.get(key)
+      if (!force && loadedOptions.has(key)) return Promise.resolve()
+      optionsLoading.value = true
+      const pending = request().then(rows => { target.value = rows || []; loadedOptions.add(key) })
+        .finally(() => { pendingOptions.delete(key); optionsLoading.value = pendingOptions.size > 0 })
+      pendingOptions.set(key, pending)
+      return pending
+    }))
     if (results.some(result => result.status === 'rejected')) message.error(t('credentials.optionsLoadFailed'))
   } finally {
-    optionsLoading.value = false
+    optionsLoading.value = pendingOptions.size > 0
   }
 }
-const refreshAll = () => Promise.all([fetchTokens(), fetchOptions()])
+const refreshAll = () => Promise.all([fetchTokens(), fetchOptions(true, true)])
+watch(() => [createVisible.value, createStage.value, form.token_type, supportsModels.value, supportsMcp.value], () => {
+  if (createVisible.value && createStage.value === 'config') void fetchOptions()
+})
 const openCreateFromQuery = async () => {
   const type = route.query.create
   if (!['agent_runtime', 'model_gateway', 'mcp_gateway'].includes(type) || !hasAccess('credentials:create')) return
@@ -853,7 +864,7 @@ const copy = async value => {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchTokens(), fetchOptions()])
+  await Promise.all([fetchTokens(), fetchOptions(false, true)])
   await openCreateFromQuery()
 })
 </script>

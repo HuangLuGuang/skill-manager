@@ -112,12 +112,7 @@ def source_queries(db, user, codes):
         }
 
 
-def page(db, manager, user, *, q='', agent='', client_id='', category='', result='', days=7,
-         page=1, page_size=10, order='desc'):
-    codes = iam.permission_codes(db, user)
-    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days) if days else None
-    end = page * page_size
-    entries, total, sources, agent_values, client_values = [], 0, [], set(), set()
+def visible_entities(db, user, codes):
     # Names are resolved only from entities the caller may read.
     agents = {}
     if 'agents:view' in codes:
@@ -131,15 +126,39 @@ def page(db, manager, user, *, q='', agent='', client_id='', category='', result
         if user.role != 'super_admin':
             query = query.filter(models.ManagedClient.registered_by == user.username)
         clients = {row.client_id:row for row in query}
+    return agents, clients
+
+
+def options(db, manager, user):
+    codes = iam.permission_codes(db, user)
+    agents, clients = visible_entities(db, user, codes)
+    agent_values, client_values = set(), set()
+    for _, query, fields in source_queries(db, user, codes):
+        for aid, local, cid in query.with_entities(fields['agent_id'], fields['local_agent'], fields['client_id']).distinct():
+            if aid: agent_values.add('platform:' + aid)
+            if local: agent_values.add('local:' + local)
+            if cid in clients: client_values.add(cid)
+    if 'skills:view' in codes:
+        agent_values.update('platform:' + value for value in manager.registry.governance_audit_agents())
+    return {
+        'agents':[{'value':v, 'name':agents[v[9:]].name if v.startswith('platform:') and v[9:] in agents else v.split(':',1)[1],
+                   'kind':v.split(':',1)[0]} for v in sorted(agent_values)],
+        'clients':[{'value':v, 'name':clients[v].name or clients[v].hostname or v} for v in sorted(client_values)],
+        'categories':CATEGORIES, 'results':RESULTS}
+
+
+def page(db, manager, user, *, q='', agent='', client_id='', category='', result='', days=7,
+         page=1, page_size=10, order='desc'):
+    codes = iam.permission_codes(db, user)
+    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days) if days else None
+    end = page * page_size
+    entries, total, sources = [], 0, []
+    agents, clients = visible_entities(db, user, codes)
     matching_agents = [key for key,row in agents.items() if q and q.lower() in row.name.lower()]
     matching_clients = [key for key,row in clients.items() if q and q.lower() in (row.name or row.hostname or '').lower()]
 
     for source, query, fields in source_queries(db, user, codes):
         sources.append(source)
-        for aid, local, cid in query.with_entities(fields['agent_id'], fields['local_agent'], fields['client_id']).distinct():
-            if aid: agent_values.add('platform:' + aid)
-            if local: agent_values.add('local:' + local)
-            if cid in clients: client_values.add(cid)
         if since: query = query.filter(fields['timestamp'] >= since)
         if category: query = query.filter(fields['category'] == category)
         if result: query = query.filter(fields['result'] == result)
@@ -175,7 +194,6 @@ def page(db, manager, user, *, q='', agent='', client_id='', category='', result
                                                               category=category, result=result, limit=end, order=order,
                                                               matching_agent_ids=matching_agents)
         total += registry_page['total']
-        agent_values.update('platform:' + value for value in registry_page['agents'])
         for raw in registry_page['items']:
             details = raw.get('details') or {}
             entries.append({'key':'registry:' + raw['event_id'], 'source':'registry', 'source_id':raw['event_id'],
@@ -193,11 +211,7 @@ def page(db, manager, user, *, q='', agent='', client_id='', category='', result
         a, c = agents.get(item['agent_id']), clients.get(item['client_id'])
         item.update(agent_name=a.name if a else '', client_name=(c.name or c.hostname) if c else '',
                     agent_origin=a.origin_type if a else '', can_view_agent=bool(a), can_view_client=bool(c))
-    return {'items':items, 'total':total, 'page':page, 'page_size':page_size, 'sources':sources,
-            'agents':[{'value':v, 'name':agents[v[9:]].name if v.startswith('platform:') and v[9:] in agents else v.split(':',1)[1],
-                       'kind':v.split(':',1)[0]} for v in sorted(agent_values)],
-            'clients':[{'value':v, 'name':clients[v].name or clients[v].hostname or v} for v in sorted(client_values)],
-            'categories':CATEGORIES, 'results':RESULTS}
+    return {'items':items, 'total':total, 'page':page, 'page_size':page_size, 'sources':sources}
 
 
 def safe_details(details):
