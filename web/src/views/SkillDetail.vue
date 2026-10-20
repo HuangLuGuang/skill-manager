@@ -432,8 +432,9 @@
                       :type="sandboxRiskAlertType"
                       show-icon
                       :message="text(`风险等级：${sandboxDisplayRiskLevel} / 最高严重级别：${sandboxDisplayMaxSeverity}`, `Risk Level: ${sandboxDisplayRiskLevel} / Maximum Severity: ${sandboxDisplayMaxSeverity}`)"
-                      :description="sandboxDisplaySummary"
-                    />
+                    >
+                      <template #description><span class="sandbox-reason">{{ sandboxDisplaySummary }}</span></template>
+                    </a-alert>
                     <a-list
                       v-if="sandboxSignals.length"
                       style="margin-top: 12px"
@@ -447,18 +448,12 @@
                           <div style="width: 100%">
                             <a-space wrap>
                               <a-tag :color="severityColor(item.severity)">{{ item.severity }}</a-tag>
-                              <a-tag color="default">{{ bilingualText(item.category) }}</a-tag>
-                              <strong>{{ bilingualText(item.message) }}</strong>
+                              <a-tag color="default">{{ sandboxCategory(item.category) }}</a-tag>
+                              <strong class="sandbox-reason">{{ sandboxText(item, 'message') }}</strong>
                             </a-space>
                             <div v-if="item.evidence" class="evidence-box">
                               <div class="evidence-title">{{ $t("legacy.1kyo8cx") }}</div>
-                              <div
-                                v-for="line in sandboxEvidenceLines(item.evidence)"
-                                :key="line"
-                                class="evidence-line"
-                              >
-                                {{ line }}
-                              </div>
+                              <pre class="sandbox-error-output">{{ item.evidence }}</pre>
                             </div>
                           </div>
                         </a-list-item>
@@ -507,10 +502,10 @@
                             <pre v-if="sandboxAnalysis.stderr" class="sandbox-error-output">{{ sandboxAnalysis.stderr }}</pre>
                           </a-descriptions-item>
                           <a-descriptions-item v-if="sandboxAnalysis.reason" :label="$t('legacy.1mi4vdj')" :span="2">
-                            {{ platformResultText(sandboxAnalysis.reason) }}
+                            <span class="sandbox-reason">{{ sandboxReasonText(sandboxAnalysis) }}</span>
                           </a-descriptions-item>
                           <a-descriptions-item v-if="sandboxAnalysis.recommendation" :label="$t('legacy.1qgeq0p')" :span="2">
-                            {{ platformResultText(sandboxAnalysis.recommendation) }}
+                            <span class="sandbox-reason">{{ sandboxText(sandboxAnalysis, 'recommendation') }}</span>
                           </a-descriptions-item>
                         </a-descriptions>
                         <a-list
@@ -526,18 +521,12 @@
                               <div style="width: 100%">
                                 <a-space wrap>
                                   <a-tag :color="severityColor(item.severity)">{{ item.severity || 'INFO' }}</a-tag>
-                                  <a-tag color="default">{{ bilingualText(item.category) }}</a-tag>
-                                  <strong>{{ bilingualText(item.message) }}</strong>
+                                  <a-tag color="default">{{ sandboxCategory(item.category) }}</a-tag>
+                                  <strong class="sandbox-reason">{{ sandboxText(item, 'message') }}</strong>
                                 </a-space>
                                 <div v-if="item.evidence" class="evidence-box">
                                   <div class="evidence-title">{{ $t("legacy.1kyo8cx") }}</div>
-                                  <div
-                                    v-for="line in sandboxEvidenceLines(item.evidence)"
-                                    :key="line"
-                                    class="evidence-line"
-                                  >
-                                    {{ line }}
-                                  </div>
+                                  <pre class="sandbox-error-output">{{ item.evidence }}</pre>
                                 </div>
                               </div>
                             </a-list-item>
@@ -562,7 +551,7 @@
                             <template v-if="column.key === 'probe'">
                               <a-space direction="vertical" size="small">
                                 <strong><SandboxDebugHelp field="probe" :value="record.probe_name" /></strong>
-                                <span class="muted"><SandboxDebugHelp field="description" :value="record.probe_description || '-'" /></span>
+                                <span class="muted sandbox-reason"><SandboxDebugHelp field="description" :value="sandboxText(record, 'probe_description') || '-'" /></span>
                               </a-space>
                             </template>
                             <template v-else-if="column.key === 'entrypoint'">
@@ -610,7 +599,7 @@
                             <pre v-if="record.stderr" class="sandbox-error-output">{{ record.stderr }}</pre>
                           </a-descriptions-item>
                           <a-descriptions-item :label="$t('legacy.1suldox')" :span="2">
-                            {{ sandboxProbeResultText(record) }}
+                            <span class="sandbox-reason">{{ sandboxProbeResultText(record) }}</span>
                           </a-descriptions-item>
                         </a-descriptions>
                         <a-alert
@@ -1152,6 +1141,7 @@ import { analysisState, formatLlmFailureReason, llmFailureReason } from '../util
 import { translateDomain } from '../i18n'
 import { legacyKey, legacyMessages } from '../i18n/legacy'
 import { useLocaleText } from '../i18n/useLocaleText'
+import { skillDetailMessages } from '../i18n/skillDetail'
 import AttackChainGraph from '../components/AttackChainGraph.vue'
 import SandboxDebugHelp from '../components/SandboxDebugHelp.vue'
 
@@ -2087,8 +2077,12 @@ const sandboxDisplaySummary = computed(() => {
       'Sandbox found no explicit runtime risk signals. Only environment or Probe diagnostics were recorded; review the debugging details.',
     )
   }
+  // 未执行摘要复用原因时，沿用相同编码翻译，避免顶部与调试区语言不一致。
+  if (sandboxAnalysis.value.summary && sandboxAnalysis.value.summary === sandboxAnalysis.value.reason) {
+    return sandboxReasonText(sandboxAnalysis.value)
+  }
   return sandboxAnalysis.value.summary
-    ? platformResultText(sandboxAnalysis.value.summary)
+    ? sandboxText(sandboxAnalysis.value, 'summary')
     : text('Sandbox 未发现明确风险信号。', 'Sandbox found no explicit risk signals.')
 })
 const missingProbeInputPattern = /(cannot open\s+[^:\n]+:\s+No such file|No such file or directory)/i
@@ -2120,7 +2114,7 @@ const sandboxProbeResults = computed(() => {
   return [{
     key: 'representative',
     probe_name: 'representative',
-    probe_description: sandboxAnalysis.value.reason || text('代表性 Sandbox 执行结果', 'Representative Sandbox Result'),
+    probe_description: sandboxReasonText(sandboxAnalysis.value) || text('代表性 Sandbox 执行结果', 'Representative Sandbox Result'),
     probe_entrypoint: sandboxAnalysis.value.entrypoint || '',
     probe_args: Array.isArray(sandboxAnalysis.value.probe_args) ? sandboxAnalysis.value.probe_args : [],
     probe_generated_by: 'summary',
@@ -2132,8 +2126,13 @@ const sandboxProbeResults = computed(() => {
     duration_ms: sandboxAnalysis.value.duration_ms,
     network_attempts: sandboxAnalysis.value.network_attempts,
     reason: sandboxAnalysis.value.reason,
+    reason_code: sandboxAnalysis.value.reason_code,
+    reason_params: sandboxAnalysis.value.reason_params,
     summary: sandboxAnalysis.value.summary,
+    summary_code: sandboxAnalysis.value.summary_code,
+    summary_params: sandboxAnalysis.value.summary_params,
     recommendation: sandboxAnalysis.value.recommendation,
+    recommendation_code: sandboxAnalysis.value.recommendation_code,
     max_severity: sandboxAnalysis.value.max_severity,
     risk_level: sandboxAnalysis.value.risk_level,
   }]
@@ -2231,16 +2230,47 @@ const formatSandboxCommand = (record) => {
   return [prefix, entrypoint, ...args].filter(Boolean).join(' ')
 }
 
-const sandboxEvidenceLines = (evidence) => {
-  const text = String(evidence || '').trim()
-  if (!text) return []
-  return text
-    .replace(/；/g, '\n')
-    .split('\n')
-    .map((line) => platformResultText(line.trim()))
-    .filter(Boolean)
-}
+const sandboxCategory = (value) => Object.hasOwn(skillDetailMessages['en-US'].sandboxText.categories, value)
+  ? t(`skillDetail.sandboxText.categories.${value}`) : value
 
+const sandboxText = (record, field) => {
+  const code = record?.[`${field}_code`]
+  const resources = skillDetailMessages['en-US'].sandboxText
+  // 固定模板使用编码；参数中的未知类别及自定义报告内容保留原文。
+  if (code && Object.hasOwn(resources[field] || {}, code)) {
+    const params = { ...(record[`${field}_params`] || {}) }
+    const label = (group, value) => Object.hasOwn(resources[group], value)
+      ? t(`skillDetail.sandboxText.${group}.${value}`) : value
+    if (Array.isArray(params.categories)) {
+      params.categories = params.categories.map(value => label('categories', value)).join(text('、', ', '))
+    }
+    if (params.strategy) params.strategy = label('strategies', params.strategy)
+    return t(`skillDetail.sandboxText.${field}.${code}`, params)
+  }
+  return record?.[field] ?? ''
+}
+const sandboxReasonText = (record) => {
+  const code = record?.reason_code
+  const params = record?.reason_params || {}
+  if (code === 'remote_request_failed'
+    && Object.hasOwn(skillDetailMessages['en-US'].sandboxHttpErrors, params.http_error_type)) {
+    const detail = t('skillDetail.sandboxHttpErrors.response', {
+      kind: t(`skillDetail.sandboxHttpErrors.${params.http_error_type}`),
+      status: params.http_status,
+      url: params.http_url,
+    })
+    const redirect = params.http_redirect_url !== undefined
+      ? `\n${t('skillDetail.sandboxHttpErrors.redirectLocation', { url: params.http_redirect_url })}` : ''
+    return t('skillDetail.sandboxReasons.remote_request_failed', {
+      detail: `${detail}${redirect}\n${t('skillDetail.sandboxHttpErrors.moreInformation', { url: params.http_info_url })}`,
+    })
+  }
+  // 只翻译资源声明的原因编码；动态上游详情和未知说明保留原文。
+  if (code && Object.hasOwn(skillDetailMessages['en-US'].sandboxReasons, code)) {
+    return t(`skillDetail.sandboxReasons.${code}`, record.reason_params || {})
+  }
+  return record?.reason || ''
+}
 const sandboxProbeResultText = (record) => {
   if (isSandboxProbeInputMissing(record)) {
     return text(
@@ -2248,11 +2278,12 @@ const sandboxProbeResultText = (record) => {
       'The Probe referenced a missing sample input file. This result mainly indicates incomplete test parameters and should not be treated as a security risk on its own.',
     )
   }
+  // 仅跳过缺失或空字符串，保留上游原文中的纯空白说明。
   const parts = [
-    record?.summary,
-    record?.reason,
-    record?.recommendation,
-  ].filter((item) => String(item || '').trim())
+    record?.summary && record.summary !== record.reason ? sandboxText(record, 'summary') : '',
+    sandboxReasonText(record),
+    sandboxText(record, 'recommendation'),
+  ].filter((item) => item != null && item !== '')
   if (parts.length) return parts.join(text('；', '; '))
   if (record?.timed_out) return text('执行超时，建议检查 probe 参数或执行环境限制。', 'Execution timed out. Check Probe parameters and runtime limits.')
   if (record?.exit_code != null && record.exit_code !== 0) return text('脚本以非零退出码结束，建议结合规则扫描和风险信号判断。', 'The script exited with a non-zero code. Review it together with rule findings and runtime signals.')
@@ -3151,6 +3182,11 @@ watch(
   border-radius: 8px;
 }
 
+.sandbox-reason {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .sandbox-error-output {
   margin: 0;
   max-height: 280px;
@@ -3175,12 +3211,6 @@ watch(
   font-weight: 600;
 }
 
-.evidence-line {
-  font-family: monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
 
 .finding-section {
   margin-bottom: 12px;

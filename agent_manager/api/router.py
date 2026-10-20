@@ -44,6 +44,7 @@ from agent_manager.core.sandbox import (
     SandboxConnectionTest,
     sandbox_url_error,
     test_sandbox_connection,
+    with_sandbox_reason_metadata,
 )
 from agent_manager.core.scan_report_pdf import build_scan_report_pdf
 from agent_manager.core.skillspector import get_suppressed_findings, is_skillspector_available
@@ -1717,6 +1718,9 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
     if entry is None:
         raise HTTPException(status_code=404, detail="Skill not found")
     report = entry.vetting.scan_report if entry.vetting else {}
+    if isinstance(report.get("sandbox_analysis"), dict):
+        # 历史说明只在响应中补齐编码，保留原始报告及执行判定。
+        report = {**report, "sandbox_analysis": with_sandbox_reason_metadata(report["sandbox_analysis"])}
     deep = report.get("skillspector_analysis")
     if (
         isinstance(deep, dict)
