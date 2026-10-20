@@ -119,6 +119,11 @@
         </ol>
       </section>
     </div>
+    <a-alert v-if="toolDeclarationNotices.length" class="declaration-notices" type="warning" show-icon :message="t('decisionFlow.declarationNoticesTitle')">
+      <template #description>
+        <p v-for="(notice, index) in toolDeclarationNotices" :key="index">{{ policyNoticeText(notice) }}</p>
+      </template>
+    </a-alert>
   </section>
 </template>
 
@@ -140,8 +145,20 @@ onMounted(async () => { try { policy.value = (await getPolicy()).policy } catch 
 const reconciliation = computed(() => props.report.risk_reconciliation)
 const decision = computed(() => recordedDecision(props.report))
 // 准入提示使用本次扫描参数，与规则发现项分别展示。
-const policyNotices = computed(() => props.report.policy_warnings || [])
+const declarationRules = ['tool_not_in_allowlist', 'max_allowed_tools']
+const policyNotices = computed(() => (props.report.policy_warnings || []).filter(notice => !declarationRules.includes(notice.rule)))
+const toolDeclarationNotices = computed(() => (props.report.policy_warnings || []).filter(notice => declarationRules.includes(notice.rule)))
 const policyNoticeText = notice => {
+  if (notice.rule === 'max_allowed_tools' && notice.params?.count != null && notice.params?.limit != null) {
+    return t('decisionFlow.toolCountExceeded', { count: notice.params.count, limit: notice.params.limit })
+  }
+  if (notice.rule === 'tool_not_in_allowlist' && typeof notice.params?.tool === 'string') {
+    const allowed = notice.params.allowed_tools_allowlist
+    return t('decisionFlow.toolNotInAllowlist', {
+      tool: notice.params.tool,
+      allowed: Array.isArray(allowed) ? allowed.join(', ') || t('decisionFlow.noAllowedTools') : t('decisionFlow.unrecorded'),
+    })
+  }
   if (notice.rule === 'require_license') return t('decisionFlow.policyNoticeRequireLicense')
   if (notice.rule === 'unaccepted_license') return t('decisionFlow.policyNoticeUnacceptedLicense', {
     license: notice.params.license,
@@ -273,6 +290,9 @@ const nodes = computed(() => {
 .decision-output .path-heading { margin-bottom: 16px; }
 .decision-path { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; list-style: none; counter-reset: stage; padding: 0; margin: 0; }
 .decision-path > li { min-width: 0; counter-increment: stage; position: relative; padding: 16px 16px 16px 48px; border: 1px solid var(--line); border-radius: 6px; }
+.declaration-notices { margin-top: 16px; overflow-wrap: anywhere; }
+.declaration-notices p { margin: 0; white-space: pre-wrap; }
+.declaration-notices p + p { margin-top: 6px; }
 .policy-notices { grid-column: 1 / -1; }
 .policy-notices ul { margin: 7px 0 0; padding-left: 20px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .decision-path > li:has(details[open]) { grid-column: 1 / -1; }

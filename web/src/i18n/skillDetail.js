@@ -1,5 +1,10 @@
 export const skillDetailMessages = {
   'zh-CN': {
+    toolDeclarationNotice: '有提示',
+    recordedToolBlock: '声明的工具 {tool} 不在允许列表中。',
+    blockedPermission: '声明的权限 {permission} 命中了公司禁止权限列表：{blocked}。',
+    reportLoadFailed: '检测报告加载失败，请重试。',
+    retryReport: '重试',
     fingerprintExists: '内容指纹是否存在',
     fingerprintPreview: '内容指纹预览',
     sandboxErrorOutput: '错误输出',
@@ -61,6 +66,11 @@ export const skillDetailMessages = {
     autoApproval: '策略自动批准', cachedAutoApproval: '复用结果 · 策略自动批准', pendingReview: '待审核',
   },
   'en-US': {
+    toolDeclarationNotice: 'Notice',
+    recordedToolBlock: 'The declared tool {tool} is not in the allowlist.',
+    blockedPermission: 'The declared permission {permission} matches the company blocked-permissions list: {blocked}.',
+    reportLoadFailed: 'The detection report could not be loaded. Please retry.',
+    retryReport: 'Retry',
     fingerprintExists: 'Does the content fingerprint exist?',
     fingerprintPreview: 'Content fingerprint preview',
     sandboxErrorOutput: 'Error output',

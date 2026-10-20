@@ -2181,13 +2181,23 @@ ZIP 中存在软链接时，页面展示路径清单，可选择“跳过软链�
 
 ### 准入策略说明 / Admission policy notes
 
-实际判定过程在“判定依据”的四项依据之后，按本次扫描记录增加第5项“策略说明”，沿用普通卡片样式，逐条展示非阻断原因；无提示时隐藏。许可证缺失仅在本次策略要求检查时产生准入提示，规则扫描发现项仍在扫描结果中展示。页面及中英文 PDF 使用同次报告的稳定规则编码和参数，许可证标识保持原文。旧报告在读取时解析已有策略备注，保留当时接受的许可证列表，不回写存储；应用当前策略需重新扫描。
+许可证准入提示在实际判定过程的四项“判定依据”之后，按本次扫描记录增加第5项“策略说明”，沿用普通卡片样式，逐条展示非阻断原因；无提示时隐藏。许可证缺失仅在本次策略要求检查时产生准入提示，规则扫描发现项仍在扫描结果中展示。页面及中英文 PDF 使用同次报告的稳定规则编码和参数，许可证标识保持原文。旧报告在读取时解析已有策略备注，保留当时接受的许可证列表，不回写存储；应用当前策略需重新扫描。
+
+工具不在允许列表的检查 `tool_not_in_allowlist` 是非阻断声明告警，最终状态继续按风险处置规则与明确禁止权限判断。实际判定过程底部以黄色“声明检查提示 / Declaration notices”展示单句：`声明的工具 {tool} 不在允许列表中：{allowed}。`，英文为 `The declared tool {tool} is not in the allowlist: {allowed}.`。列表从本次报告 `policy_warnings[].params.allowed_tools_allowlist` 读取，按英文逗号和空格连接；多项告警逐条显示，长内容自动换行。工具名保持原文；空列表显示“无 / None”，历史报告未保存列表时显示“未记录 / Not recorded”，不使用当前配置补写历史依据。工具声明检查仅有非阻断声明告警时显示黄色“有提示 / Notice”，明确禁止权限仍显示失败。历史拒绝记录保留原状态，重新检测应用修复后的规则。
+
+工具数量超限 `max_allowed_tools` 同样为非阻断声明告警，`params.count` 与 `params.limit` 保存本次工具数量和策略上限。黄色声明检查提示中独立换行显示“声明的工具数量为 {count}，超过公司允许的上限 {limit}。” / “The Skill declares {count} tools, exceeding the company limit of {limit}.”，PDF 复用同次参数。数量等于上限时不提示；超限仍按风险及明确禁止权限决定准入。历史数量阻断记录保留当时状态和双语原因，重新检测使用新规则。
+
+明确禁止权限命中时，红色拒绝提示直接显示“声明的权限 {permission} 命中了公司禁止权限列表：{blocked}。”，英文为 “The declared permission {permission} matches the company blocked-permissions list: {blocked}.”。清单来自本次报告 `risk_reconciliation.policy_snapshot.blocked_permissions`，按逗号和空格连接；历史报告缺少清单时显示“未记录 / Not recorded”，重新检测生成新的依据。拒绝摘要展示直接原因，权限标识保持原文，固定说明使用 `skillDetail` 双语资源。实际拒绝规则保持不变。
+
+首次进入详情时，实际判定过程与准入提示共享加载占位，报告完成后统一显示；报告失败时展示双语错误及重试入口。刷新已有报告时保留内容，切换 Skill 或版本后只接受当前请求的响应。
+
+The tool allowlist check is a non-blocking declaration notice. Admission still follows risk actions and explicitly blocked permissions. A yellow “Declaration notices” alert shows the tool and the allowlist saved with that scan, joined by comma and space. Empty and unrecorded lists are distinguished. Existing rejected reports keep their historical status; rescan to apply the corrected rule. The decision trace and related alerts share the initial loading placeholder, with an explicit retry action on failure. Refresh retains the existing report and stale responses cannot replace the selected Skill version.
 
 PDF 在“策略说明 / Policy Notes”小节统一列出准入提示和分析备注。
 
 ZIP 上传队列在策略保存后更新后续任务使用的管理器，复用已有队列和线程；已经开始的扫描使用原实例完成。扫描报告 JSON 新增 `policy_warnings`，兼容已有数据库及 Docker 部署，无需表结构迁移。
 
-The decision trace adds “Policy Notes” after its four existing basis cards when this scan recorded non-blocking admission notices. The page and localized PDFs preserve the scan’s license identifiers and accepted list. Historical notices are read from stored notes without rewriting reports. Saving policy refreshes subsequent ZIP work while keeping the existing queue, thread and in-flight scan instance. The report JSON extension requires no database migration.
+The decision trace adds “Policy Notes” after its four existing basis cards when this scan recorded non-blocking license notices. The page and localized PDFs preserve the scan’s license identifiers and accepted list. Historical notices are read from stored notes without rewriting reports. Saving policy refreshes subsequent ZIP work while keeping the existing queue, thread and in-flight scan instance. The report JSON extension requires no database migration.
 
 人工 UI 验收 / Manual UI checks：
 

@@ -260,6 +260,12 @@ make sandbox-runtime-build
 
 - LLM 供应商请求超时使用本次报告的 `llm_provider_timeout` 原因编码，在详情 LLM 项提供双语说明并保留已有原始错误；异常无文本时同样显示可识别原因。
 
-- 准入非阻断提示以本次报告的 `policy_warnings` 稳定编码和参数展示；旧备注仅在读取时兼容，不回写存储。实际判定过程在判定依据四项之后按需显示普通样式的“策略说明”，页面和 PDF 保留当时许可证清单；PDF 在“策略说明 / Policy Notes”小节统一列出准入提示和分析备注。策略保存刷新后续 ZIP 任务的管理器，复用持久化队列，已开始扫描保留原实例。
+- 准入非阻断提示以本次报告的 `policy_warnings` 稳定编码和参数展示；旧备注仅在读取时兼容，不回写存储。许可证准入提示在判定依据四项之后按需显示普通样式的“策略说明”，页面和 PDF 保留当时许可证清单；PDF 在“策略说明 / Policy Notes”小节统一列出准入提示和分析备注。策略保存刷新后续 ZIP 任务的管理器，复用持久化队列，已开始扫描保留原实例。
+
+- 工具允许列表检查 `tool_not_in_allowlist` 为非阻断告警，`params` 保存工具名与本次 `allowed_tools_allowlist`；详情黄色“声明检查提示”按“声明的工具 {tool} 不在允许列表中：{allowed}。”展示，列表用逗号和空格连接，双语资源使用 `decisionFlow`。空列表与历史未记录列表分别显示“无 / None”和“未记录 / Not recorded”；历史依据保持原样，PDF 复用同次参数。工具数量超限 `max_allowed_tools` 同为非阻断告警，参数 `count`、`limit` 保存本次计数及上限，以 `decisionFlow.toolCountExceeded` 在黄色声明提示中分行双语展示，PDF 复用；仅声明告警时工具检查显示黄色，明确禁止权限保持失败。历史阻断记录保留原依据和状态，重新检测应用新规则。
+
+- Skill 详情判定过程与准入提示共用首次加载占位，报告完成后统一显示；报告失败提供双语重试入口，刷新保留既有报告，切换记录或版本后仅应用当前请求结果。
 
 - Skill 详情规则分析器按本次报告记录展示；规则发现项合并顶层与本地结果并去除同一发现项副本，保留不同位置及 `snippet`、`code_snippet`、`evidence` 原始证据，兼容仅含顶层结果的历史报告。
+
+- Skill 详情命中 `blocked_permission` 时，红色拒绝说明使用 `skillDetail.blockedPermission`，按“声明的权限 {permission} 命中了公司禁止权限列表：{blocked}。”展示；列表读取本次报告 `risk_reconciliation.policy_snapshot.blocked_permissions`，以逗号和空格连接，历史缺失显示“未记录 / Not recorded”。拒绝摘要直接展示原因，权限原文及实际阻断行为保持。

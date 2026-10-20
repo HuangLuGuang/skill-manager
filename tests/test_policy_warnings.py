@@ -11,6 +11,7 @@ from pypdf import PdfReader
 
 from agent_manager.api import router
 from agent_manager.core.manager import AgentManager
+from agent_manager.core.models import RiskLevel, SkillStatus
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.policy_warnings import format_policy_warning, get_policy_warnings
 from agent_manager.core.scan_report_pdf import build_scan_report_pdf
@@ -136,3 +137,190 @@ def test_api_legacy_notice_read_preserves_stored_report(tmp_path):
 def test_manifest_without_admission_notices(license_value, required, accepted):
     policy = CompanyPolicy({"require_license": required, "accepted_licenses": accepted})
     assert _check_manifest_policy([], license_value, policy) == []
+
+
+@pytest.mark.parametrize("risk,expected", [
+    (RiskLevel.BENIGN, SkillStatus.APPROVED),
+    (RiskLevel.SUSPICIOUS, SkillStatus.VETTED),
+    (RiskLevel.MALICIOUS, SkillStatus.REJECTED),
+])
+def test_tool_notice_follows_risk_admission(risk, expected):
+    # Jira 附件的自定义工具只产生声明提示，最终动作仍由风险规则决定。
+    policy = CompanyPolicy({"allowed_tools_allowlist": ["Read", "Bash"]})
+    items = _check_manifest_policy(["harmless_custom_tool"], "MIT", policy)
+    assert len(items) == 1
+    assert items[0].blocking is False
+    assert items[0].params == {
+        "tool": "harmless_custom_tool", "allowed_tools_allowlist": ["Read", "Bash"],
+    }
+    assert policy.decide(risk, items) == expected
+
+
+def test_tool_notice_preserves_explicit_permission_block():
+    policy = CompanyPolicy({"allowed_tools_allowlist": ["Read"]})
+    items = _check_manifest_policy(["read_credentials"], "MIT", policy)
+    assert next(item for item in items if item.rule == "tool_not_in_allowlist").blocking is False
+    assert next(item for item in items if item.rule == "blocked_permission").blocking is True
+    assert policy.decide(RiskLevel.BENIGN, items) == SkillStatus.REJECTED
+
+
+@pytest.mark.parametrize("allowed,expected_zh,expected_en", [
+    (["Read", "Bash"], "Read, Bash", "Read, Bash"),
+    ([], "无", "None"),
+    (None, "未记录", "Not recorded"),
+])
+def test_tool_notice_uses_recorded_allowlist(allowed, expected_zh, expected_en):
+    params = {"tool": "harmless_custom_tool"}
+    if allowed is not None:
+        params["allowed_tools_allowlist"] = allowed
+    notice = {"rule": "tool_not_in_allowlist", "params": params, "message": "Original"}
+    assert format_policy_warning(notice, "zh-CN") == (
+        f"声明的工具 harmless_custom_tool 不在允许列表中：{expected_zh}。"
+    )
+    assert format_policy_warning(notice, "en-US") == (
+        f"The declared tool harmless_custom_tool is not in the allowlist: {expected_en}."
+    )
+
+
+def test_legacy_tool_notice_keeps_missing_allowlist():
+    notes = ["[WARN] tool_not_in_allowlist: Tool 'harmless_custom_tool' is not in the company allowlist"]
+    item = get_policy_warnings({}, notes)[0]
+    assert item["params"] == {"tool": "harmless_custom_tool"}
+    assert "未记录" in format_policy_warning(item, "zh-CN")
+
+
+@pytest.mark.parametrize("language", ["zh-CN", "en-US"])
+def test_tool_notice_pdf_uses_recorded_allowlist(language):
+    entry = _entry()
+    entry.vetting.policy_notes = []
+    entry.vetting.scan_report["policy_warnings"] = [{
+        "rule": "tool_not_in_allowlist", "message": "Original",
+        "params": {"tool": "harmless_custom_tool", "allowed_tools_allowlist": ["Read", "Bash"]},
+    }]
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(
+        BytesIO(build_scan_report_pdf(entry, language=language)),
+    ).pages)
+    assert "harmless_custom_tool" in text
+    assert "Read, Bash" in text
+    assert "Original" not in text
+
+
+def test_tool_allowlist_snapshot_survives_policy_changes(tmp_path, monkeypatch):
+    skill = tmp_path / "allowlist-warning-only-test"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: allowlist-warning-only-test\ndescription: Jira RENA-1485 harmless metadata sample\n"
+        "license: MIT\nallowed-tools: [harmless_custom_tool]\n---\n# Metadata only\n",
+    )
+    monkeypatch.setattr("agent_manager.core.vetting._run_scanner", lambda *_: {"findings": [], "max_severity": "SAFE"})
+    policy = CompanyPolicy({"allowed_tools_allowlist": ["Read"], "require_sandbox_for_risk": []})
+    manager = AgentManager(policy=policy, data_dir=tmp_path / "data")
+    entry = manager.submit(skill, use_llm=False, use_sandbox=False, use_skillspector=False)
+    assert entry.status == SkillStatus.APPROVED
+    assert entry.signature
+    assert entry.declared_tools_valid is False
+    assert any(note.startswith("[WARN] tool_not_in_allowlist:") for note in entry.vetting.policy_notes)
+    policy.allowed_tools_allowlist.append("harmless_custom_tool")
+    response = router.get_scan_report(entry.skill_id, manager)
+    assert response["scan_report"]["policy_warnings"][0]["params"]["allowed_tools_allowlist"] == ["Read"]
+
+
+@pytest.mark.parametrize("actions,expected", [
+    ({"require_human_review": ["benign"]}, SkillStatus.VETTED),
+    ({"auto_reject_risk": ["benign"]}, SkillStatus.REJECTED),
+])
+def test_tool_notice_preserves_configured_benign_action(actions, expected):
+    policy = CompanyPolicy({**actions, "allowed_tools_allowlist": ["Read"]})
+    notices = _check_manifest_policy(["harmless_custom_tool"], "MIT", policy)
+    assert policy.decide(RiskLevel.BENIGN, notices) == expected
+
+
+def test_blocked_permission_snapshot_survives_policy_changes(tmp_path, monkeypatch):
+    # 红框清单使用扫描快照，策略变更不会改写历史拒绝依据。
+    skill = tmp_path / "blocked-permission"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: blocked-permission\ndescription: Metadata test\nlicense: MIT\n"
+        "allowed-tools: [read_credentials]\n---\n# Metadata only\n",
+    )
+    monkeypatch.setattr("agent_manager.core.vetting._run_scanner", lambda *_: {"findings": [], "max_severity": "SAFE"})
+    policy = CompanyPolicy({"blocked_permissions": ["read_credentials", "write_memory"], "require_sandbox_for_risk": []})
+    manager = AgentManager(policy=policy, data_dir=tmp_path / "data")
+    entry = manager.submit(skill)
+    assert entry.status == SkillStatus.REJECTED
+    assert any(note.startswith("[BLOCK] blocked_permission:") for note in entry.vetting.policy_notes)
+    snapshot = entry.vetting.scan_report["risk_reconciliation"]["policy_snapshot"]
+    assert snapshot["blocked_permissions"] == ["read_credentials", "write_memory"]
+    policy.blocked_permissions.append("read_identity")
+    response = router.get_scan_report(entry.skill_id, manager)
+    assert response["scan_report"]["risk_reconciliation"]["policy_snapshot"]["blocked_permissions"] == [
+        "read_credentials", "write_memory",
+    ]
+
+
+@pytest.mark.parametrize("count", [0, 1, 2, 3])
+def test_tool_count_notice_boundary(count):
+    policy = CompanyPolicy({"max_allowed_tools": 2, "allowed_tools_allowlist": ["Read", "Write", "Edit"]})
+    tools = ["Read", "Write", "Edit"][:count]
+    notices = policy.check_tool_declarations(tools)
+    assert len(notices) == (1 if count > 2 else 0)
+    if notices:
+        assert notices[0].blocking is False
+        assert notices[0].params == {"count": count, "limit": 2}
+    assert policy.decide(RiskLevel.BENIGN, notices) == SkillStatus.APPROVED
+
+
+@pytest.mark.parametrize("tool,risk,expected", [
+    ("harmless_custom_tool", RiskLevel.BENIGN, SkillStatus.APPROVED),
+    ("harmless_custom_tool", RiskLevel.SUSPICIOUS, SkillStatus.VETTED),
+    ("harmless_custom_tool", RiskLevel.MALICIOUS, SkillStatus.REJECTED),
+    ("read_credentials", RiskLevel.BENIGN, SkillStatus.REJECTED),
+])
+def test_tool_count_notice_preserves_risk_and_permission_actions(tool, risk, expected):
+    policy = CompanyPolicy({"max_allowed_tools": 1, "allowed_tools_allowlist": ["Read"]})
+    notices = policy.check_tool_declarations(["Read", tool])
+    assert next(item for item in notices if item.rule == "max_allowed_tools").blocking is False
+    assert policy.decide(risk, notices) == expected
+
+
+def test_tool_count_notice_records_scan_values(tmp_path, monkeypatch):
+    # 数量与上限属于本次扫描依据，后续修改策略不会改变既有说明。
+    skill = tmp_path / "tool-count-notice"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: tool-count-notice\ndescription: Metadata test\nlicense: MIT\n"
+        "allowed-tools: [Read, Write]\n---\n# Metadata only\n",
+    )
+    monkeypatch.setattr("agent_manager.core.vetting._run_scanner", lambda *_: {"findings": [], "max_severity": "SAFE"})
+    policy = CompanyPolicy({"max_allowed_tools": 1, "require_sandbox_for_risk": []})
+    manager = AgentManager(policy=policy, data_dir=tmp_path / "data")
+    entry = manager.submit(skill, use_llm=False, use_sandbox=False, use_skillspector=False)
+    assert entry.status == SkillStatus.APPROVED
+    policy._data["max_allowed_tools"] = 5
+    report = router.get_scan_report(entry.skill_id, manager)["scan_report"]
+    notice = next(item for item in report["policy_warnings"] if item["rule"] == "max_allowed_tools")
+    assert notice["params"] == {"count": 2, "limit": 1}
+    assert format_policy_warning(notice, "zh-CN") == "声明的工具数量为 2，超过公司允许的上限 1。"
+    assert format_policy_warning(notice, "en-US") == "The Skill declares 2 tools, exceeding the company limit of 1."
+
+
+def test_legacy_tool_count_notice_uses_recorded_values():
+    notices = get_policy_warnings({}, ["[WARN] max_allowed_tools: Skill declares 2 tools; policy allows at most 1"])
+    assert notices[0]["params"] == {"count": 2, "limit": 1}
+    assert format_policy_warning(notices[0], "zh-CN") == "声明的工具数量为 2，超过公司允许的上限 1。"
+
+
+@pytest.mark.parametrize("language,expected", [
+    ("zh-CN", "声明的工具数量为 2，超过公司允许的上限 1。"),
+    ("en-US", "The Skill declares 2 tools, exceeding the company limit of 1."),
+])
+def test_tool_count_pdf_uses_recorded_values(language, expected):
+    entry = _entry()
+    entry.vetting.policy_notes = []
+    entry.vetting.scan_report["policy_warnings"] = [{
+        "rule": "max_allowed_tools", "message": "Original", "params": {"count": 2, "limit": 1},
+    }]
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(
+        BytesIO(build_scan_report_pdf(entry, language=language)),
+    ).pages)
+    assert expected in text

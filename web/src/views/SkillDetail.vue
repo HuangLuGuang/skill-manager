@@ -118,10 +118,10 @@
           <div class="basic-field">
             <dt>{{ $t('skillDetail.toolCheck') }}</dt>
             <dd>
-              <a-tag :color="detail?.declared_tools_valid === true ? 'green' : detail?.declared_tools_valid === false ? 'red' : 'default'" :title="$t('skillDetail.toolCheckHint')" class="summary-tag">
-                <CheckCircleOutlined v-if="detail?.declared_tools_valid === true" />
-                <ExclamationCircleOutlined v-else-if="detail?.declared_tools_valid === false" />
-                {{ detail?.declared_tools_valid === true ? $t('skillDetail.compliant') : detail?.declared_tools_valid === false ? $t('skillDetail.noncompliant') : $t('decisionFlow.unrecorded') }}
+              <a-tag :color="toolDeclarationWarning ? 'orange' : detail?.declared_tools_valid === true ? 'green' : detail?.declared_tools_valid === false ? 'red' : 'default'" :title="$t('skillDetail.toolCheckHint')" class="summary-tag">
+                <ExclamationCircleOutlined v-if="toolDeclarationWarning || detail?.declared_tools_valid === false" />
+                <CheckCircleOutlined v-else-if="detail?.declared_tools_valid === true" />
+                {{ toolDeclarationWarning ? $t('skillDetail.toolDeclarationNotice') : detail?.declared_tools_valid === true ? $t('skillDetail.compliant') : detail?.declared_tools_valid === false ? $t('skillDetail.noncompliant') : $t('decisionFlow.unrecorded') }}
               </a-tag>
             </dd>
           </div>
@@ -213,27 +213,36 @@
       <a-tabs v-model:activeKey="activeTab">
         <a-tab-pane key="decision" :tab="$t('decisionFlow.title')">
           <div id="skill-decision-panel" tabindex="-1">
-            <SkillDecisionFlow v-if="scanReport" :report="scanReport" :status="isCancelled(detail) ? 'CANCELLED' : detail?.status" style="margin: 0" @navigate="jumpToRationale" />
-            <a-skeleton v-else-if="loading || loadingScanReport" active />
-            <a-empty v-else :description="$t('decisionFlow.missing')" />
+            <a-skeleton v-if="decisionLoading" class="decision-loading" active :paragraph="{ rows: 12 }" />
+            <template v-else>
+              <a-alert v-if="scanReportError" class="report-load-error" type="error" show-icon :message="$t('skillDetail.reportLoadFailed')">
+                <template #action>
+                  <a-button size="small" :loading="loadingScanReport" @click="fetchScanReport">{{ $t('skillDetail.retryReport') }}</a-button>
+                </template>
+              </a-alert>
+              <SkillDecisionFlow v-if="scanReport" :report="scanReport" :status="isCancelled(detail) ? 'CANCELLED' : detail?.status" style="margin: 0" @navigate="jumpToRationale" />
+              <a-empty v-else-if="!scanReportError" :description="$t('decisionFlow.missing')" />
+              <template v-if="scanReport || !scanReportError">
+                <a-alert
+                  v-if="manualApprovalRequired"
+                  style="margin-top: 12px"
+                  type="error"
+                  show-icon
+                  :message="vettingFailed ? $t('legacy.11ldhwj') : $t('legacy.gobvd0')"
+                  :description="manualApprovalSummary"
+                />
+                <a-alert
+                  v-if="detail?.status === 'REJECTED' && detail?.rejection_reason && !vettingFailed"
+                  class="rejection-reason"
+                  style="margin-top: 12px"
+                  type="error"
+                  show-icon
+                  :message="$t('decisionFlow.rejectionReason')"
+                  :description="detail.rejection_reason"
+                />
+              </template>
+            </template>
           </div>
-          <a-alert
-            v-if="manualApprovalRequired"
-            style="margin-top: 12px"
-            type="error"
-            show-icon
-            :message="vettingFailed ? $t('legacy.11ldhwj') : $t('legacy.gobvd0')"
-            :description="manualApprovalSummary"
-          />
-          <a-alert
-            v-if="detail?.status === 'REJECTED' && detail?.rejection_reason && !vettingFailed"
-            class="rejection-reason"
-            style="margin-top: 12px"
-            type="error"
-            show-icon
-            :message="$t('decisionFlow.rejectionReason')"
-            :description="detail.rejection_reason"
-          />
         </a-tab-pane>
         <a-tab-pane key="vetting" :tab="$t('decisionFlow.scanResults')">
           <a-tabs v-model:activeKey="analysisTab" class="analysis-result-tabs" type="card">
@@ -1189,6 +1198,9 @@ const scanDurationDisplay = computed(() => {
 const analysisTab = ref(route.query.tab === 'llm' ? 'llm' : 'rule')
 const loading = ref(false)
 const loadingScanReport = ref(false)
+const scanReportError = ref(false)
+const decisionLoading = computed(() => !scanReport.value && (loading.value || loadingScanReport.value))
+let scanReportRequestId = 0
 const loadingContent = ref(false)
 const loadingFiles = ref(false)
 const loadingAudit = ref(false)
@@ -1497,6 +1509,8 @@ const sandboxProbeColumns = computed(() => [
 
 const fetchDetail = async () => {
   const requestId = ++detailRequestId
+  ++scanReportRequestId
+  scanReportError.value = false
   loadedTabs.clear()
   ++diffRequestId
   loadedDiffKey = ''
@@ -1520,12 +1534,10 @@ const fetchDetail = async () => {
     const data = await getSkillDetail(skillId.value)
     if (requestId !== detailRequestId) return
     detail.value = data
-    const versionId = data.version_id || skillId.value
     signatureResult.value = null
     loading.value = false
     await Promise.allSettled([
-      loadDetailResource(() => getSkillScanReport(versionId),
-        result => { scanReport.value = result?.scan_report || null }, loadingScanReport),
+      fetchScanReport(),
       loadDetailResource(() => getSkillVersions(data.skill_id),
         result => { skillVersions.value = result?.items || []; initializeVersionDiff() }, loadingVersions),
     ])
@@ -1582,10 +1594,23 @@ const submitClientInstall = async () => {
   }
 }
 
+// 报告及准入提示共用加载结果，只接收当前记录的最新请求。
 const fetchScanReport = async () => {
   if (!detail.value) return
-  return loadDetailResource(() => getSkillScanReport(currentVersionId.value),
-    result => { scanReport.value = result?.scan_report || null }, loadingScanReport, phrase('legacy.g9q48r'))
+  const requestId = ++scanReportRequestId
+  const detailId = detailRequestId
+  loadingScanReport.value = true
+  scanReportError.value = false
+  try {
+    const result = await getSkillScanReport(currentVersionId.value)
+    if (requestId === scanReportRequestId && detailId === detailRequestId) {
+      scanReport.value = result?.scan_report || null
+    }
+  } catch {
+    if (requestId === scanReportRequestId && detailId === detailRequestId) scanReportError.value = true
+  } finally {
+    if (requestId === scanReportRequestId && detailId === detailRequestId) loadingScanReport.value = false
+  }
 }
 
 const fetchSkillContent = async () => {
@@ -2021,14 +2046,26 @@ const parsePolicyBlock = (note) => {
   const match = noteText.match(/^\[BLOCK\]\s+([^:]+):\s*(.+)$/)
   if (!match) return null
   const [, code, message] = match
+  const countMatch = message.match(/^Skill declares (\d+) tools; policy allows at most (\d+)$/)
+  if (code === 'max_allowed_tools' && countMatch) {
+    return { code, text: t('decisionFlow.toolCountExceeded', { count: countMatch[1], limit: countMatch[2] }) }
+  }
+  const permissionMatch = message.match(/^Tool\/permission ['"](.+)['"] is explicitly blocked by policy$/)
+  if (code === 'blocked_permission' && permissionMatch) {
+    const blocked = scanReport.value?.risk_reconciliation?.policy_snapshot?.blocked_permissions
+    return {
+      code,
+      text: t('skillDetail.blockedPermission', {
+        permission: permissionMatch[1],
+        blocked: Array.isArray(blocked) ? blocked.join(', ') : t('decisionFlow.unrecorded'),
+      }),
+    }
+  }
   const toolMatch = message.match(/Tool '([^']+)' is not in the company allowlist/i)
   if (code === 'tool_not_in_allowlist' && toolMatch) {
     return {
       code,
-      text: text(
-        `工具声明不在白名单：${toolMatch[1]}。安全研判可以是安全，但该工具权限未被公司策略允许，因此准入被拒绝。`,
-        `The declared tool is not allowlisted: ${toolMatch[1]}. The security assessment may be safe, but admission was rejected because company policy does not allow this permission.`,
-      ),
+      text: t('skillDetail.recordedToolBlock', { tool: toolMatch[1] }),
     }
   }
   return {
@@ -2040,6 +2077,12 @@ const policyBlockItems = computed(() =>
   policyNotes.value
     .map(parsePolicyBlock)
     .filter(Boolean),
+)
+// 仅非阻断的工具声明告警显示黄色；真实禁止权限仍按本次记录显示失败。
+const toolDeclarationWarning = computed(() =>
+  !policyBlockItems.value.some(item => ['blocked_permission', 'max_allowed_tools'].includes(item.code))
+  && ((scanReport.value?.policy_warnings || []).some(item => ['tool_not_in_allowlist', 'max_allowed_tools'].includes(item.rule))
+    || policyNotes.value.some(note => /^\[WARN\] (tool_not_in_allowlist|max_allowed_tools):/.test(String(note)))),
 )
 const admissionBlocked = computed(() =>
   detail.value?.status === 'REJECTED' && policyBlockItems.value.length > 0,
@@ -2056,12 +2099,7 @@ const canApproveSkill = computed(() => {
 })
 const admissionBlockedSummary = computed(() => {
   if (!admissionBlocked.value) return ''
-  const risk = detail.value?.risk_level ? riskDisplay(detail.value.risk_level) : phrase('legacy.1lpnuh4')
-  const reasons = policyBlockItems.value.map((item) => item.text).join('；')
-  return text(
-    `安全判定：${risk}。最终状态为已拒绝，是因为准入策略未通过：${reasons}`,
-    `Security assessment: ${risk}. The final status is Rejected because admission policy failed: ${reasons}`,
-  )
+  return policyBlockItems.value.map((item) => item.text).join('；')
 })
 const manualApprovalSummary = computed(() => {
   if (vettingFailed.value) {
@@ -2942,6 +2980,8 @@ watch(
 .basic-info-card :deep(.ant-space-item) { min-width: 0; max-width: 100%; }
 .source-credential { white-space: normal; overflow-wrap: anywhere; }
 
+.decision-loading { min-height: 620px; padding: 20px; }
+.report-load-error { margin-bottom: 12px; }
 .scan-execution-info :deep(.ant-descriptions-item-content),
 .rejection-reason { overflow-wrap: anywhere; white-space: pre-wrap; }
 .scan-execution-info :deep(.ant-descriptions-item-label) { width: 128px; }
