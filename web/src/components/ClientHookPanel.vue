@@ -148,6 +148,13 @@
           <a-alert v-if="relatedError" type="error" show-icon :message="relatedError"><template #action><a-button :loading="relatedLoading" :disabled="relatedLoading" @click="loadRelated(eventDetail)">{{ t('aidr.hooks.retry') }}</a-button></template></a-alert>
           <p v-if="related && related.code !== 'native_identity_matched'">{{ t('aidr.hooks.events.relatedCodes.' + related.code) }}</p>
           <p v-if="related?.relation === 'matched'">{{ t('aidr.detail.relatedNote') }}</p>
+          <p v-if="related?.execution_evidence">
+            {{ t('aidr.sessions.endHookMissing') }} · {{ t('aidr.sessions.executionStates.' + related.execution_evidence.status) }} ·
+            {{ t('aidr.sessions.executionSources.' + (related.execution_evidence.source === 'codex.item_completed' ? 'codex' : 'log')) }} ·
+            {{ t('aidr.detail.recordId') }}: {{ related.execution_evidence.record_id }}
+            <span v-if="Number.isInteger(related.execution_evidence.exit_code)"> · {{ t('aidr.commandExitCode', { code: related.execution_evidence.exit_code }) }}</span>
+            <span v-if="related.execution_evidence.relation === 'inferred'"> · {{ t('aidr.sessions.executionInferred') }}</span>
+          </p>
           <div v-for="item in relatedOthers" :key="item.id" class="hook-drift-entry">
             <strong>{{ item.record.event.hook_event }}</strong> · {{ new Date(item.record.received_at).toLocaleString(locale) }}
             <p v-if="eventRole(item.record.event) === 'result'">{{ hookResult(item.record.event.behavior?.status) }}<template v-if="item.record.event.behavior?.exit_code != null"> · {{ t('aidr.hooks.events.exitCode') }} {{ item.record.event.behavior.exit_code }}</template></p>

@@ -4,7 +4,7 @@
       <template #title>
         <a-page-header :title="t(`iam.${kind}`)" :sub-title="t(`iam.pageDescriptions.${kind}`)">
           <template #extra>
-            <a-button :loading="loading" :disabled="submitting" @click="load">{{ t('iam.refresh') }}</a-button>
+            <a-button :loading="loading" :disabled="submitting" @click="load(true)">{{ t('iam.refresh') }}</a-button>
             <a-button v-if="can(`${kind}:create`) && (kind !== 'users' || can('users:assign_role'))" type="primary" :disabled="submitting" @click="openCreate()">{{ t('iam.create') }}</a-button>
           </template>
         </a-page-header>
@@ -186,16 +186,24 @@ const menuTree = computed(() => {
   return roots
 })
 const error = e => message.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : t('iam.failed'))
-async function load() {
+let optionsLoaded = false
+let optionsPending = null
+function loadOptions(force) {
+  if (optionsPending) return optionsPending
+  if (optionsLoaded && !force) return Promise.resolve()
+  optionsPending = iamOptions().then(opts => { Object.assign(options, opts); optionsLoaded = true })
+    .finally(() => { optionsPending = null })
+  return optionsPending
+}
+async function load(refreshOptions = false) {
   const version = ++loadState.version
   const requestedKind = kind.value
   loading.value = true
   try {
-    const [data, opts] = await Promise.all([iamList(requestedKind, { ...filters, page: pager.current, page_size: pager.pageSize, sort: pager.sort, order: pager.order }), iamOptions()])
+    const [data] = await Promise.all([iamList(requestedKind, { ...filters, page: pager.current, page_size: pager.pageSize, sort: pager.sort, order: pager.order }), loadOptions(refreshOptions)])
     if (version !== loadState.version || requestedKind !== kind.value) return
     rows.value = requestedKind === 'menus' ? data : data.items
     pager.total = data.total || 0
-    Object.assign(options, opts)
   } catch (e) { if (version === loadState.version) error(e) }
   finally { if (version === loadState.version) loading.value = false }
 }
@@ -222,7 +230,7 @@ function openPassword(row) { editing.value = row; mode.value = 'password'; setFo
 async function mutate(fn) {
   if (submitting.value) return
   submitting.value = true
-  try { await fn(); message.success(t('iam.saved')); await refreshAccess(); await load() }
+  try { await fn(); message.success(t('iam.saved')); await refreshAccess(); await load(true) }
   catch (e) { error(e) } finally { submitting.value = false }
 }
 async function save() {

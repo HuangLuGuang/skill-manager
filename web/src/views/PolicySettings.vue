@@ -196,7 +196,7 @@
                   <a-form-item :label="t('policySettings.timeout')" v-bind="fieldProps('sandbox.timeout_seconds')"><ConfigIntegerInput :id="'advanced-sandbox.timeout_seconds'" v-model:value="sandboxForm.timeout_seconds" :min="1" :max="300" :step="1" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
                 </div>
                 <a-form-item v-if="sandboxForm.runtime === 'docker'" :label="t('policySettings.image')" v-bind="fieldProps('sandbox.image')">
-                  <a-select :id="'advanced-sandbox.image'" v-model:value="sandboxForm.image" show-search :placeholder="t('policySettings.imagePlaceholder')" :options="sandboxImageOptions" :disabled="saving || loading || !hasAccess('settings:update')" />
+                  <a-select :id="'advanced-sandbox.image'" v-model:value="sandboxForm.image" show-search :placeholder="t('policySettings.imagePlaceholder')" :options="sandboxImageOptions" :loading="imagesLoading" :disabled="saving || loading || !hasAccess('settings:update')" />
                 </a-form-item>
                 <template v-else>
                   <a-form-item :label="t('policySettings.remoteUrl')" v-bind="fieldProps('sandbox.remote_url')">
@@ -492,20 +492,30 @@ const applySandboxConfig = (sandbox) => {
 }
 
 
+const imagesLoading = ref(false)
+let imagesLoaded = false
+const loadSandboxImages = async (force = false) => {
+  if (!loaded.value || sandboxForm.runtime !== 'docker' || !hasAccess('settings:view') || imagesLoading.value) return
+  if (imagesLoaded && !force) return
+  imagesLoading.value = true
+  try { sandboxImages.value = (await listSandboxImages()).images || []; imagesLoaded = true }
+  catch { message.error(t('policySettings.loadFailed')) }
+  finally { imagesLoading.value = false }
+}
+watch(() => sandboxForm.runtime, () => loadSandboxImages())
+
 const fetchPolicy = async () => {
   if (loading.value || saving.value) return
   loading.value = true
   loadFailed.value = false
   try {
-    const [policyRes, llmRes, sandboxRes, modelRes, imageRes] = await Promise.all([
+    const [policyRes, llmRes, sandboxRes, modelRes] = await Promise.all([
       getPolicy(),
       hasAccess('settings:view') ? getLlmConfig() : null,
       hasAccess('settings:view') ? getSandboxConfig() : null,
       hasAccess('models:view') ? listModelEndpoints() : [],
-      hasAccess('settings:view') ? listSandboxImages() : null,
     ])
     modelEndpoints.value = Array.isArray(modelRes) ? modelRes : []
-    sandboxImages.value = imageRes?.images || []
     applyLlmConfig(llmRes)
     applySandboxConfig(sandboxRes)
     applyPolicy(policyRes.policy)
@@ -514,6 +524,7 @@ const fetchPolicy = async () => {
     connectionFailures.value = []
     for (const key of Object.keys(serverFieldErrors)) delete serverFieldErrors[key]
     loaded.value = true
+    void loadSandboxImages(true)
   } catch {
     loadFailed.value = true
   } finally {

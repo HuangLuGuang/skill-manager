@@ -2895,7 +2895,7 @@ async def delete_conversation_mappings(
 
 
 @admin_router.get("/privacy/stats")
-async def get_privacy_stats(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
+def get_privacy_stats(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
     policy = _get_default_policy(db)
     api_key_ids = [row.id for row in _api_key_query_for_user(db, current_user).all()]
     access_token_ids = [
@@ -2909,24 +2909,32 @@ async def get_privacy_stats(db: Session = Depends(get_db), current_user: models.
     audit_query = db.query(models.LlmRequestAudit).filter(models.LlmRequestAudit.api_key_id.in_(api_key_ids))
     total = audit_query.count()
     pii_checked = audit_query.filter(models.LlmRequestAudit.traffic_type == "pii_checked").count()
-    request_ids = [row[0] for row in audit_query.with_entities(models.LlmRequestAudit.request_id).all()]
     mappings = (
         db.query(models.PseudonymMapping)
-        .filter(models.PseudonymMapping.request_id.in_(request_ids))
+        .filter(models.PseudonymMapping.request_id.in_(
+            audit_query.with_entities(models.LlmRequestAudit.request_id).statement,
+        ))
         .count()
-        if request_ids
-        else 0
     )
-    metrics = db.query(models.LlmUsageMetric).filter(models.LlmUsageMetric.api_key_id.in_(api_key_ids)).all()
-    created_tokens = sum(row.created_tokens or 0 for row in metrics)
-    reused_tokens = sum(row.reused_tokens or 0 for row in metrics)
+    metrics = db.query(
+        models.LlmUsageMetric.created_tokens,
+        models.LlmUsageMetric.reused_tokens,
+        models.LlmUsageMetric.pii_hits_json,
+    ).filter(models.LlmUsageMetric.api_key_id.in_(api_key_ids)).yield_per(500)
+    created_tokens = 0
+    reused_tokens = 0
     pii_hits: dict[str, int] = {}
     prompt_guard_events = 0
     prompt_guard_blocked = 0
     for row in metrics:
+        created_tokens += row.created_tokens or 0
+        reused_tokens += row.reused_tokens or 0
         for entity_type, count in _json_loads(row.pii_hits_json, {}).items():
             pii_hits[entity_type] = pii_hits.get(entity_type, 0) + int(count or 0)
-    for row in audit_query.all():
+    for row in audit_query.with_entities(
+        models.LlmRequestAudit.prompt_guard_result_json,
+        models.LlmRequestAudit.status,
+    ).yield_per(500):
         guard = _json_loads(getattr(row, "prompt_guard_result_json", None), {})
         if guard.get("enabled") and guard.get("findings_count", 0):
             prompt_guard_events += 1

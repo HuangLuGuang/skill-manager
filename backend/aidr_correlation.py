@@ -5,11 +5,13 @@ can therefore provide an inferred evidence link, not a confirmed process link.
 All original events, operation identities and frozen uploads remain unchanged.
 """
 from . import aidr_adapters
+from .aidr_hook_identity import turn_expression as resolved_hook_turn
 import json
 
 from sqlalchemy import literal_column, select
+from sqlalchemy.schema import CreateIndex
 
-from .aidr_models import AidrHookEvent, AidrOperation
+from .aidr_models import AidrHookEvent, AidrOperation, COMPLETION_CALL_INDEX
 from .aidr_enforcement import AidrRuntimeRecord
 
 
@@ -17,6 +19,7 @@ HOOK_FIELDS = ("agent", "session_id", "turn_id", "native_call_id")
 
 
 def install_indexes(conn):
+    conn.execute(CreateIndex(COMPLETION_CALL_INDEX, if_not_exists=True))
     # Literal JSON paths must also be used by queries for SQLite expression
     # indexes to apply. These are fixed product paths, never request input.
     conn.exec_driver_sql("""CREATE INDEX IF NOT EXISTS ix_aidr_hook_native_call
@@ -104,9 +107,9 @@ def hook_evidence(db, client_id, operation):
         return result
     filters = [AidrHookEvent.client_id == client_id]
     # Claude's tool-use ID is session-scoped; current logs omit the prompt ID
-    # supplied by hooks. Codex call IDs require the turn namespace.
+    # supplied by hooks. Codex async results resolve to a unique pre-tool turn.
     fields = [field for field in HOOK_FIELDS if field != "turn_id" or not aidr_adapters.get(event["agent"]).session_call_identity or event.get("turn_id")]
-    filters.extend(literal_column(f"json_extract(payload_json,'$.event.{field}')") == event.get(field, "") for field in fields)
+    filters.extend(literal_column(resolved_hook_turn() if field == "turn_id" and event["agent"] == "codex" else f"json_extract(payload_json,'$.event.{field}')") == event.get(field, "") for field in fields)
     rows = db.execute(select(AidrHookEvent).where(*filters).order_by(AidrHookEvent.id).limit(17)).scalars().all()
     if not rows:
         result["code"] = "aidr_link_no_matching_hook"
@@ -118,7 +121,8 @@ def hook_evidence(db, client_id, operation):
     # Receiver streams are not user identities. Multiple users or subagent
     # namespaces require provenance absent from legacy logs, even with one call ID.
     users = {record.get("user_scope", "") for record in records}
-    turns = {record["event"].get("turn_id", "") for record in records}
+    # Codex rows already passed the resolved-turn predicate above.
+    turns = {event["turn_id"]} if event["agent"] == "codex" else {record["event"].get("turn_id", "") for record in records}
     if len(users) != 1 or "" in users or len(turns) != 1 or any(record["event"].get("native_agent_id") for record in records):
         result["code"] = "aidr_link_source_ambiguous"
         return result

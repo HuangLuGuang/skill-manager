@@ -9,6 +9,9 @@ import (
 
 func projectDrafts(ctx context.Context, s Source, drafts []draft, candidate *Cursor, c Cursor, identity string, line []byte, policy *AuditPolicy, b Budget, observer *SkillObserver, deadline time.Time, replayEnd int64, out *ReadBatch) {
 	for _, d := range drafts {
+		if d.Completion != nil && (policy == nil || policy.CompletionSchema < 1 || (d.Tool == "Bash" && policy.CompletionSchema < 2)) {
+			continue
+		}
 		if replayEnd > 0 {
 			continue
 		}
@@ -73,11 +76,14 @@ func projectDrafts(ctx context.Context, s Source, drafts []draft, candidate *Cur
 			cancelObservation()
 		}
 		namespace := "behavior/" + strconv.Itoa(version)
+		if d.Completion != nil {
+			namespace = "completion/1"
+		}
 		behaviorJSON, _ := json.Marshal(behavior)
 		id := digest(namespace, s.Agent, scope, turn, d.Call, d.Kind, d.Tool, d.Outcome, contentDigest, string(behaviorJSON))
 		if policy != nil {
 			id = digest(namespace, s.Agent, scope, turn, d.Call, d.Kind, d.Tool, d.Outcome, contentDigest)
 		}
-		out.Events = append(out.Events, Event{ModelContext: collectedModel(d, policy), UserScope: sourceUserScope(), SkillUse: skillUse, PreviousLogicalIDs: previousIDs, SchemaVersion: 2, Behavior: behavior, EventID: digest(namespace, s.ID, identity, strconv.FormatUint(c.Generation, 10), strconv.FormatInt(c.Offset, 10), strconv.Itoa(d.Block), string(line)), LogicalEventID: id, SourceID: s.ID, SourceInstanceID: digest(s.ID, identity, strconv.FormatUint(c.Generation, 10)), SourceSeq: c.Offset + int64(d.Block), RecordOffset: c.Offset, Block: d.Block, Agent: s.Agent, AgentVersion: candidate.AgentVersion, Source: "agent_log", SessionID: candidate.Session, TurnID: turn, CallID: d.Call, LogicalCallID: digest(s.Agent, scope, turn, d.Call), Kind: d.Kind, Tool: d.Tool, Outcome: d.Outcome, ObservedAt: d.Time, ReceivedAt: time.Now().UTC(), ContentDigest: contentDigest, ContentBytes: len(d.Content), EvidenceDigest: digest(string(line)), ProcessRelation: "unknown"})
+		out.Events = append(out.Events, Event{Completion: d.Completion, ModelContext: collectedModel(d, policy), UserScope: sourceUserScope(), SkillUse: skillUse, PreviousLogicalIDs: previousIDs, SchemaVersion: 2, Behavior: behavior, EventID: digest(namespace, s.ID, identity, strconv.FormatUint(c.Generation, 10), strconv.FormatInt(c.Offset, 10), strconv.Itoa(d.Block), string(line)), LogicalEventID: id, SourceID: s.ID, SourceInstanceID: digest(s.ID, identity, strconv.FormatUint(c.Generation, 10)), SourceSeq: c.Offset + int64(d.Block), RecordOffset: c.Offset, Block: d.Block, Agent: s.Agent, AgentVersion: candidate.AgentVersion, Source: "agent_log", SessionID: candidate.Session, TurnID: turn, CallID: d.Call, LogicalCallID: digest(s.Agent, scope, turn, d.Call), Kind: d.Kind, Tool: d.Tool, Outcome: d.Outcome, ObservedAt: d.Time, ReceivedAt: time.Now().UTC(), ContentDigest: contentDigest, ContentBytes: len(d.Content), EvidenceDigest: digest(string(line)), ProcessRelation: "unknown"})
 	}
 }

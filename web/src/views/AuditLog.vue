@@ -1,11 +1,11 @@
 <template>
   <div :class="['audit-page', { 'with-detail': selected }]">
-    <header class="audit-heading"><div><h1>{{ t('auditLog.title') }}</h1><p>{{ ui('subtitle') }}</p></div><a-button :loading="loading" @click="refresh"><ReloadOutlined />{{ ui('refresh') }}</a-button></header>
+    <header class="audit-heading"><div><h1>{{ t('auditLog.title') }}</h1><p>{{ ui('subtitle') }}</p></div><a-button :loading="loading || optionsLoading" @click="refresh"><ReloadOutlined />{{ ui('refresh') }}</a-button></header>
     <section class="audit-controls">
       <a-input v-model:value="keyword" allow-clear :maxlength="200" :placeholder="ui('search')" :aria-label="ui('search')" @press-enter="filter"><template #prefix><SearchOutlined /></template></a-input>
       <div class="audit-filters">
-        <label>{{ ui('agent') }}<a-select v-model:value="filters.agent" show-search option-filter-prop="label" :options="agentOptions" @change="filter" /></label>
-        <label>{{ ui('client') }}<a-select v-model:value="filters.client_id" show-search option-filter-prop="label" :options="clientOptions" @change="filter" /></label>
+        <label>{{ ui('agent') }}<a-select v-model:value="filters.agent" :loading="optionsLoading" show-search option-filter-prop="label" :options="agentOptions" @change="filter" /></label>
+        <label>{{ ui('client') }}<a-select v-model:value="filters.client_id" :loading="optionsLoading" show-search option-filter-prop="label" :options="clientOptions" @change="filter" /></label>
         <label>{{ ui('category') }}<a-select class="wrap-select" v-model:value="filters.category" :options="categoryOptions" @change="filter" /></label>
         <label>{{ ui('result') }}<a-select class="wrap-select" v-model:value="filters.result" :options="resultOptions" @change="filter" /></label>
         <label>{{ t('auditLog.timeRange') }}<a-select v-model:value="filters.days" :options="timeOptions" @change="filter" /></label>
@@ -13,6 +13,7 @@
       </div>
     </section>
     <p class="audit-scope">{{ ui('scope') }}</p>
+    <a-alert v-if="optionsError" class="audit-error" type="error" show-icon :message="ui('optionsLoadFailed')"><template #action><a-button :loading="optionsLoading" @click="loadOptions">{{ t('auditLog.retry') }}</a-button></template></a-alert>
     <a-alert v-if="error" class="audit-error" type="error" show-icon :message="t('auditLog.loadFailedHelp')"><template #action><a-button @click="load">{{ t('auditLog.retry') }}</a-button></template></a-alert>
     <div :class="['audit-workspace', { 'has-detail': selected }]">
       <section class="audit-list" :aria-label="t('auditLog.title')">
@@ -50,7 +51,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { CloseOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
-import { getAgentAuditTrail } from '../api'
+import { getAgentAuditTrail, getAgentAuditTrailOptions } from '../api'
 import { translateDomain } from '../i18n'
 import { can } from '../access'
 import ClientEventDetail from '../components/ClientEventDetail.vue'
@@ -62,9 +63,10 @@ const ui = (key, args = {}) => t('auditTrail.' + key, args)
 const eventUi = (key, args = {}, fallback = 'unknown') => t('clientEvents.' + (te('clientEvents.' + key) ? key : fallback), args)
 const rows = ref([]), selected = ref(null), loading = ref(false), error = ref(false), keyword = ref(''), taskId = ref(''), detailPanel = ref(null)
 const options = ref({ agents:[], clients:[], categories:[], results:[] })
+const optionsLoading = ref(false), optionsError = ref(false)
 const filters = reactive({ agent:'', client_id:'', category:'', result:'', days:7 })
 const current = ref(1), pageSize = ref(10), total = ref(0), order = ref('desc')
-let request = 0, searchTimer
+let request = 0, optionsRequest = 0, searchTimer
 const pagination = computed(() => ({ current:current.value, pageSize:pageSize.value, total:total.value, showSizeChanger:true, pageSizeOptions:['10','20','50'], showTotal:value => t('auditLog.paginationTotal', { total:value }) }))
 const all = () => ({ value:'', label:ui('all') })
 const agentOptions = computed(() => [all(), ...options.value.agents.map(v => ({ value:v.value, label:v.kind === 'local' ? ui('localOption', { name:v.name }) : v.name }))])
@@ -109,18 +111,27 @@ async function load() {
     if (id !== request) return
     total.value = data.total
     if (current.value > 1 && (current.value - 1) * pageSize.value >= data.total) { current.value = Math.max(1, Math.ceil(data.total / pageSize.value)); return load() }
-    rows.value = data.items; options.value = data
+    rows.value = data.items
     if (selected.value) selected.value = rows.value.find(row => row.key === selected.value.key) || null
   } catch { if (id === request) { error.value = true; rows.value = []; total.value = 0; close() } }
   finally { if (id === request) loading.value = false }
 }
-function filter() { clearTimeout(searchTimer); current.value = 1; close(); load() }
-function refresh() { clearTimeout(searchTimer); load() }
+async function loadOptions() {
+  if (optionsLoading.value) return
+  const id = ++optionsRequest; optionsLoading.value = true; optionsError.value = false
+  try {
+    const data = await getAgentAuditTrailOptions()
+    if (id === optionsRequest) options.value = data
+  } catch { if (id === optionsRequest) optionsError.value = true }
+  finally { if (id === optionsRequest) optionsLoading.value = false }
+}
+function filter() { clearTimeout(searchTimer); searchTimer = undefined; current.value = 1; close(); load() }
+function refresh() { clearTimeout(searchTimer); if (searchTimer) current.value = 1; searchTimer = undefined; load(); loadOptions() }
 function reset() { keyword.value = ''; Object.assign(filters, { agent:'', client_id:'', category:'', result:'', days:7 }); filter() }
-function tableChange(pager, _, sorter) { current.value = pager.current; pageSize.value = pager.pageSize; order.value = sorter.order === 'ascend' ? 'asc' : 'desc'; close(); load() }
+function tableChange(pager, _, sorter) { current.value = searchTimer ? 1 : pager.current; clearTimeout(searchTimer); searchTimer = undefined; pageSize.value = pager.pageSize; order.value = sorter.order === 'ascend' ? 'asc' : 'desc'; close(); load() }
 watch(keyword, () => { clearTimeout(searchTimer); request++; searchTimer = setTimeout(filter, 300) }, { flush:'sync' })
-onMounted(load)
-onBeforeUnmount(() => { clearTimeout(searchTimer); request++ })
+onMounted(() => { load(); loadOptions() })
+onBeforeUnmount(() => { clearTimeout(searchTimer); request++; optionsRequest++ })
 </script>
 
 <style scoped>

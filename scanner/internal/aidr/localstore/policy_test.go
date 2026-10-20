@@ -16,11 +16,19 @@ func TestModelProtocolNegotiationKeepsCaptureReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.ModelContextSchema = 1
+	p.CompletionSchema = 1
 	if err := s.SavePolicy(testContext, p); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.LoadPolicy(testContext); err != nil || s.Policy().ModelContextSchema != 1 {
+	if err := s.LoadPolicy(testContext); err != nil || s.Policy().ModelContextSchema != 1 || s.Policy().CompletionSchema != 1 {
 		t.Fatal("negotiation not persisted", err)
+	}
+	p.CompletionSchema = 2
+	if err := s.SavePolicy(testContext, p); err != nil {
+		t.Fatal("command completion upgrade rejected", err)
+	}
+	if err := s.LoadPolicy(testContext); err != nil || s.Policy().CompletionSchema != 2 {
+		t.Fatal("command completion upgrade not persisted", err)
 	}
 	p.Enabled = false
 	if err := s.SavePolicy(testContext, p); err == nil {

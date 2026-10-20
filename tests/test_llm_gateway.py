@@ -1,5 +1,6 @@
 import asyncio
 import json
+import threading
 from datetime import datetime, timedelta
 
 import httpx
@@ -2339,7 +2340,8 @@ def test_super_admin_api_key_list_is_also_owner_scoped(tmp_path, monkeypatch):
     assert [item["name"] for item in response.json()] == ["root-key"]
 
 
-def test_privacy_stats_are_owner_scoped(tmp_path, monkeypatch):
+@pytest.mark.parametrize("dp_enabled", [False, True])
+def test_privacy_stats_are_owner_scoped(tmp_path, monkeypatch, dp_enabled):
     client, _token, session_factory = _client(tmp_path, monkeypatch)
     db = session_factory()
     try:
@@ -2364,7 +2366,8 @@ def test_privacy_stats_are_owner_scoped(tmp_path, monkeypatch):
         db.add_all([owner_key, other_key])
         db.flush()
         policy = db.query(models.PrivacyPolicy).first()
-        policy.dp_enabled = False
+        policy.dp_enabled = dp_enabled
+        policy.dp_min_count = 2
         db.add_all(
             [
                 models.LlmRequestAudit(
@@ -2377,6 +2380,7 @@ def test_privacy_stats_are_owner_scoped(tmp_path, monkeypatch):
                     traffic_type="pii_checked",
                     created_tokens=2,
                     reused_tokens=1,
+                    prompt_guard_result_json='{"enabled": true, "findings_count": 1, "blocked": true}',
                 ),
                 models.LlmRequestAudit(
                     request_id="other-req",
@@ -2450,12 +2454,60 @@ def test_privacy_stats_are_owner_scoped(tmp_path, monkeypatch):
     response = client.get("/v1/privacy/stats")
     assert response.status_code == 200
     data = response.json()
+    if dp_enabled:
+        assert data["total_requests"] is None
+        assert data["pii_checked_requests"] is None
+        assert data["active_mappings"] is None
+        assert data["reused_tokens"] is None
+        assert data["prompt_guard_events"] is None
+        assert data["prompt_guard_blocked"] is None
+        return
     assert data["total_requests"] == 1
     assert data["pii_checked_requests"] == 1
     assert data["active_mappings"] == 1
     assert data["created_tokens"] == 2
     assert data["reused_tokens"] == 1
     assert data["pii_hits"] == {"EMAIL_ADDRESS": 2}
+    assert data["prompt_guard_events"] == 1
+    assert data["prompt_guard_blocked"] == 1
+
+
+def test_privacy_stats_do_not_block_other_requests(tmp_path, monkeypatch):
+    client, _token, _session_factory = _client(tmp_path, monkeypatch)
+    entered = threading.Event()
+    release = threading.Event()
+    get_policy = llm_gateway._get_default_policy
+
+    def slow_policy(db):
+        entered.set()
+        assert release.wait(5), "statistics blocked the event loop"
+        return get_policy(db)
+
+    async def current_user():
+        return models.User(id=999, username="empty-stats", role="admin")
+
+    @client.app.get("/probe")
+    async def probe():
+        return {"ok": True}
+
+    client.app.dependency_overrides[auth.get_current_admin_user] = current_user
+    monkeypatch.setattr(llm_gateway, "_get_default_policy", slow_policy)
+
+    async def check():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=client.app), base_url="http://test") as browser:
+            pending = asyncio.create_task(browser.get("/v1/privacy/stats"))
+            try:
+                assert await asyncio.to_thread(entered.wait, 2)
+                response = await asyncio.wait_for(browser.get("/probe"), timeout=1)
+                assert response.json() == {"ok": True}
+                assert not pending.done()
+            finally:
+                release.set()
+                response = await pending
+            assert response.status_code == 200
+            assert response.json()["pii_hits"] == {}
+
+    asyncio.run(check())
 
 
 def test_user_token_stats_include_access_token_users_and_limit(tmp_path, monkeypatch):

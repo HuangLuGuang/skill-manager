@@ -216,6 +216,11 @@ SESSION_MESSAGE_INDEX = Index(
     sqlite_where=AidrEvent.expired_at.is_(None) & AidrEvent.kind.in_(('user_message', 'assistant_message')),
 )
 
+COMPLETION_CALL_INDEX = Index('ix_aidr_event_completion_call', AidrEvent.client_id, AidrEvent.agent,
+    *[literal_column(f"json_extract(payload_json,'$.{field}')") for field in ('session_id', 'turn_id', 'native_call_id')],
+    AidrEvent.id,
+    sqlite_where=literal_column("json_extract(payload_json,'$.completion.source')='codex.item_completed'"))
+
 # Cover session-list metadata without loading tool arguments or output bodies.
 SESSION_LIST_INDEXES = (
     Index('ix_aidr_operation_device_page', AidrOperation.client_id, AidrOperation.id),

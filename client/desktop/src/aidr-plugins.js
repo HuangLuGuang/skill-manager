@@ -173,6 +173,7 @@
         add(fields, t('transport'), report.transport_code ? codeText(report.transport_code) : t('unknown'))
         add(fields, t('queued'), report.queued_records == null ? t('unknown') : String(report.queued_records))
         add(fields, t('latest_ack'), report.last_ack_at ? new Date(report.last_ack_at).toLocaleString(window.clientI18n.getLocale()) : t('unknown'))
+        if (report.next_retry_at) add(fields, t('next_retry_at'), new Date(report.next_retry_at).toLocaleString(window.clientI18n.getLocale()))
       } else add(fields, t('channel_reason'), collectionError ? codeText(collectionError) : t('channel_unreported'))
       card.append(title, fields); channelList.append(card)
     }

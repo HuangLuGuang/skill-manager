@@ -58,6 +58,7 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 	var nextPolicy time.Time
 	var discovery []Discovery
 	var nextHeartbeat, nextUpload time.Time
+	heartbeatCode := ""
 	capabilities := map[string]Capability{}
 	crawlers := map[int]*localstore.Crawler{}
 	for i, root := range o.Roots {
@@ -224,12 +225,19 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 			if result.Code != "" && !result.Retryable {
 				return errors.New(result.Code)
 			}
+			heartbeatCode = result.Code
 			nextHeartbeat = time.Now().Add(o.HeartbeatInterval)
 		}
 		if o.Observer != nil || o.StatusObserver != nil {
 			status, err := s.Status(ctx)
 			if err != nil {
 				return err
+			}
+			if heartbeatCode != "" {
+				status.UploadCode = heartbeatCode
+				status.NextRetryAt = utcTime(nextHeartbeat)
+			} else if status.UploadCode != "" {
+				status.NextRetryAt = utcTime(nextUpload)
 			}
 			if o.Observer != nil {
 				o.Observer(status)

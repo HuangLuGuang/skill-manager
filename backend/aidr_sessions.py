@@ -13,6 +13,8 @@ from .aidr_models import AidrHookEvent, AidrOperation, AidrEvent
 from .aidr_operations import present as present_operation
 from .aidr_turns import event_turn_sql, present as present_log
 from .aidr_hook_context import cwd_expression, MAX_ID
+from .aidr_hook_identity import turn_expression as resolved_hook_turn
+from .aidr_tool_completion import supplement
 
 
 def _log_agent(agent):
@@ -125,10 +127,26 @@ def sessions(db, client_id, *, cursor='', limit=20, keyword='', agent='', includ
     if not search_questions:
         for item in items:
             item['prompt_id'] = _session_prompt_id(db, params, item)
+    for item in items:
+        item['evidence_class'] = 'logs_present' if item['log_count'] or item['message_count'] else 'hook_only_unknown'
+        if item['agent'] == 'codex' and item['evidence_class'] == 'hook_only_unknown':
+            native = db.execute(text("""SELECT 1 FROM aidr_events INDEXED BY ix_aidr_event_completion_call WHERE client_id=:client_id
+                AND agent='codex' AND expired_at IS NULL AND id<=:message_max
+                AND json_extract(payload_json,'$.session_id')=:session_id
+                AND json_extract(payload_json,'$.completion.source')='codex.item_completed' LIMIT 1"""),
+                {**params, 'session_id':item['session_id']}).first()
+            if native:
+                item['evidence_class'] = 'native_completion_present'
     if include_questions:
         prompts = prompt_content(db, client_id, [r['prompt_id'] for r in items if r['prompt_id']])
         for item in items:
-            item['question_preview'] = prompts.get(item['prompt_id'], {}).get('display_text', '')[:160]
+            prompt = prompts.get(item['prompt_id'], {}).get('display_text', '')
+            item['question_preview'] = prompt[:160]
+            if item['agent'] == 'codex' and item['evidence_class'] == 'hook_only_unknown':
+                if prompt.lstrip().startswith('This is an app-generated request for a suggested next user message. The user did not write this message.'):
+                    item['evidence_class'] = 'hook_only_suggestion_inferred'
+                elif prompt.lstrip().startswith('# Overview\n\nGenerate 0 to 3 hyperpersonalized suggestions for what this user can do with Codex in '):
+                    item['evidence_class'] = 'hook_only_suggestion_inferred'
     return _finish(items, rows, limit, paging)
 
 
@@ -200,7 +218,7 @@ def turn_expression(source):
         return "coalesce(json_extract(payload_json, '$.call.turn_id'), json_extract(payload_json, '$.result.turn_id'), '')"
     # Qoder and WorkBuddy tool Hooks can lack a native turn field. Match
     # their exact call identity against retained logs; never use wall-clock order.
-    native = "json_extract(aidr_hook_events.payload_json, '$.event.turn_id')"
+    native = resolved_hook_turn(":hook_link_max")
     return f"""coalesce(nullif({native}, ''), CASE WHEN
       json_extract(aidr_hook_events.payload_json, '$.event.agent') IN ({aidr_adapters.sql_ids('resolve_hook_turn')})
       AND coalesce(json_extract(aidr_hook_events.payload_json, '$.event.native_call_id'),'')!=''
@@ -231,7 +249,7 @@ def turns(db, client_id, *, agent, session_id, orphan_id=0, cursor='', limit=100
     paging = _paging(db, client_id, cursor, _scope(client_id, kind='turns', agent=agent,
         session_id=session_id, orphan_id=orphan_id, include_questions=include_questions))
     params = dict(client_id=client_id, agent=agent, log_agent=_log_agent(agent), log_link_max=paging['ceilings'][0], session_id=session_id, orphan_id=orphan_id,
-        log_max=paging['ceilings'][0], hook_max=paging['ceilings'][1], message_max=paging['ceilings'][2], limit=limit+1)
+        log_max=paging['ceilings'][0], hook_max=paging['ceilings'][1], hook_link_max=paging['ceilings'][1], message_max=paging['ceilings'][2], limit=limit+1)
     continuation = ''
     if paging['position']:
         params['at'], params['key'] = paging['position']
@@ -342,7 +360,7 @@ def turn_hook_contexts(db, client_id, agent, session_id, ceiling, keys, log_ceil
         FROM reports WHERE key IN (SELECT value FROM json_each(:keys))
     ) SELECT key,field,id,value,value_type,at,hook_event FROM ranked WHERE position=1 ORDER BY id
     """), dict(client=client_id, agent=agent, session=session_id, ceiling=ceiling, keys=json.dumps(keys),
-        cwd_log_max=log_ceiling if log_ceiling is not None else MAX_ID,
+        cwd_log_max=log_ceiling if log_ceiling is not None else MAX_ID, hook_link_max=ceiling,
         log_link_max=log_ceiling if log_ceiling is not None else db.query(func.max(AidrOperation.id)).filter(AidrOperation.client_id==client_id).scalar() or 0)).mappings().all()
     result = {}
     for row in rows:
@@ -403,6 +421,7 @@ def timeline(db, client_id, *, source, agent, session_id, orphan_id=0, cursor=''
     params = dict(client_id=client_id, agent=agent, session_id=session_id, orphan_id=orphan_id,
                   ceiling=paging['ceilings'][0 if source == 'logs' else 1], message_max=paging['ceilings'][2], keyword=keyword.lower(), limit=limit + 1, turn_key=turn_key)
     params['log_link_max'] = paging['ceilings'][0]
+    params['hook_link_max'] = paging['ceilings'][1]
     if source == 'logs':
         params['agent'] = _log_agent(agent)
     if source == 'logs':
@@ -425,7 +444,7 @@ def timeline(db, client_id, *, source, agent, session_id, orphan_id=0, cursor=''
             AND (:keyword='' OR instr(kind,:keyword)>0 OR instr(json_extract(payload_json, '$.message.phase'),:keyword)>0)
         )"""
     else:
-        # Match the same source/user/agent/session/turn/call/tool/subagent namespace as related().
+        # Codex call identity spans turns; other agents retain their turn namespace.
         # Window counts are computed before searching or paging, so pairs cannot straddle pages.
         cte = f"""WITH raw AS (
           SELECT id, payload_json, {turn_key_expression('hooks')} AS resolved_turn_key, json_extract(payload_json, '$.event.kind') AS kind,
@@ -437,7 +456,7 @@ def timeline(db, client_id, *, source, agent, session_id, orphan_id=0, cursor=''
               AND (:agent NOT IN ({aidr_adapters.sql_ids('turn_required')}) OR coalesce(json_extract(payload_json, '$.event.turn_id'), '') != '')
             THEN json_array(stream_id, json_extract(payload_json, '$.user_scope'),
               json_extract(payload_json, '$.event.native_call_id'), json_extract(payload_json, '$.event.tool'),
-              coalesce(json_extract(payload_json, '$.event.turn_id'), ''),
+              CASE WHEN :agent='codex' THEN '' ELSE coalesce(json_extract(payload_json, '$.event.turn_id'), '') END,
               coalesce(json_extract(payload_json, '$.event.native_agent_id'), ''))
             ELSE cast(id AS TEXT) END AS identity,
             (:keyword = '' OR instr(lower(coalesce(json_extract(payload_json, '$.event.tool'), '')), :keyword) > 0
@@ -446,7 +465,6 @@ def timeline(db, client_id, *, source, agent, session_id, orphan_id=0, cursor=''
           FROM aidr_hook_events WHERE client_id = :client_id AND expired_at IS NULL AND id <= :ceiling
             AND json_extract(payload_json, '$.event.agent') = :agent
             AND json_extract(payload_json, '$.event.session_id') = :session_id AND :session_id != ''
-            AND (:turn_key = '' OR {turn_key_expression('hooks')} = :turn_key)
         ), counted AS (
           SELECT *, SUM(kind = 'tool.pre') OVER (PARTITION BY identity) AS calls,
             SUM(kind IN ('tool.post','tool.failure')) OVER (PARTITION BY identity) AS results FROM raw
@@ -455,7 +473,7 @@ def timeline(db, client_id, *, source, agent, session_id, orphan_id=0, cursor=''
           FROM counted
         ), timeline AS (
           SELECT cast(MIN(id) AS TEXT) AS key, group_concat(id) AS item_ids, MIN(at) AS sort_at, MIN(resolved_turn_key) AS resolved_turn_key
-          FROM grouped GROUP BY group_key HAVING MAX(hit)
+          FROM grouped GROUP BY group_key HAVING MAX(hit) AND (:turn_key='' OR MIN(resolved_turn_key)=:turn_key)
         )"""
     direction, comparison = ('ASC', '>') if order == 'oldest' else ('DESC', '<')
     continuation = ''
@@ -491,5 +509,12 @@ def timeline(db, client_id, *, source, agent, session_id, orphan_id=0, cursor=''
             item['records'] = [present_hook(record, db, paging['ceilings'][0]) for record in selected]
             event = item['records'][0]['record']['event']
             item['turn_key'] = row['resolved_turn_key']
+            if len({r['record']['event'].get('turn_id', '') for r in item['records']}) > 1:
+                item['association'] = 'cross_turn_native_identity_matched'
+            if len(selected) == 1:
+                evidence = supplement(db, selected[0], event_ceiling=paging['ceilings'][2],
+                    hook_ceiling=paging['ceilings'][1], log_ceiling=paging['ceilings'][0])
+                if evidence:
+                    item['execution_evidence'] = evidence
         items.append(item)
     return _finish(items, rows, limit, paging)

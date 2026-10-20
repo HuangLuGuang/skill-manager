@@ -27,9 +27,9 @@ func TestReportingPauseIsDistinctFromCredentialRejection(t *testing.T) {
 	}{
 		{403, `{"error_code":"aidr.reporting_disabled"}`, "aidr_upload_reporting_paused", true},
 		{403, `{"error_code":"credential.scope_missing"}`, "aidr_upload_auth_rejected", false},
-		{403, `{"detail":"aidr.reporting_disabled"}`, "aidr_upload_auth_rejected", false},
-		{401, `{"error_code":"aidr.reporting_disabled"}`, "aidr_upload_auth_rejected", false},
-		{403, `not JSON`, "aidr_upload_auth_rejected", false},
+		{403, `{"detail":"aidr.reporting_disabled"}`, "aidr_upload_access_rejected", false},
+		{401, `{"error_code":"aidr.reporting_disabled"}`, "aidr_upload_access_rejected", false},
+		{403, `not JSON`, "aidr_upload_access_rejected", false},
 	} {
 		t.Run(test.code+test.body, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(test.status); io.WriteString(w, test.body) }))
@@ -43,6 +43,12 @@ func TestReportingPauseIsDistinctFromCredentialRejection(t *testing.T) {
 }
 
 func TestHookReportingPauseRetainsFrozenBatchAndContinuesCollection(t *testing.T) {
+	for _, code := range []string{"aidr.reporting_disabled", "license.missing"} {
+		t.Run(code, func(t *testing.T) { testHookReportingPauseRetainsFrozenBatchAndContinuesCollection(t, code) })
+	}
+}
+
+func testHookReportingPauseRetainsFrozenBatchAndContinuesCollection(t *testing.T, serverCode string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	var attempts atomic.Int32
@@ -76,7 +82,7 @@ func TestHookReportingPauseRetainsFrozenBatchAndContinuesCollection(t *testing.T
 		}
 		if n <= 3 {
 			w.WriteHeader(403)
-			io.WriteString(w, `{"error_code":"aidr.reporting_disabled"}`)
+			json.NewEncoder(w).Encode(map[string]string{"error_code": serverCode})
 			return
 		}
 		var batch struct {
@@ -119,7 +125,7 @@ func TestHookReportingPauseRetainsFrozenBatchAndContinuesCollection(t *testing.T
 	intake()
 	observedPause := false
 	err = c.RunHooks(ctx, s, func(policy, upload, control string) {
-		if upload == "aidr_upload_reporting_paused" {
+		if upload == accessFailure(403, serverCode).Code {
 			observedPause = true
 			if len(ids) == 1 {
 				intake()
@@ -157,6 +163,12 @@ func TestHookReportingPauseRetainsFrozenBatchAndContinuesCollection(t *testing.T
 }
 
 func TestLogReportingPausePreservesBatchWhileReadingAppend(t *testing.T) {
+	for _, code := range []string{"aidr.reporting_disabled", "license.missing"} {
+		t.Run(code, func(t *testing.T) { testLogReportingPausePreservesBatchWhileReadingAppend(t, code) })
+	}
+}
+
+func testLogReportingPausePreservesBatchWhileReadingAppend(t *testing.T, serverCode string) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +200,7 @@ func TestLogReportingPausePreservesBatchWhileReadingAppend(t *testing.T) {
 			}
 			if n <= 3 {
 				w.WriteHeader(403)
-				io.WriteString(w, `{"error_code":"aidr.reporting_disabled"}`)
+				json.NewEncoder(w).Encode(map[string]string{"error_code": serverCode})
 				return
 			}
 			ack := receipt(r, raw)
@@ -211,7 +223,7 @@ func TestLogReportingPausePreservesBatchWhileReadingAppend(t *testing.T) {
 	defer cancel()
 	appended, collectedDuringPause := false, false
 	err = Run(ctx, store, c, WorkerOptions{Roots: []Root{{Agent: "claude", Path: root, File: path}}, Since: time.Unix(0, 0), Interval: time.Second, HeartbeatInterval: time.Second, DiscoveryInterval: time.Minute, Observer: func(state localstore.Status) {
-		if state.UploadCode == "aidr_upload_reporting_paused" && !appended {
+		if state.UploadCode == accessFailure(403, serverCode).Code && !appended {
 			file, e := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
 			if e != nil {
 				t.Error(e)

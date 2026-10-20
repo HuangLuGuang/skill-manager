@@ -120,7 +120,7 @@ test('a slow account response cannot replace a newly selected menu page', async 
     kind: { value: 'users' }, loadState: { version: 0 }, loading: {}, rows: {}, options: {},
     filters: {}, pager: { current: 1, pageSize: 20 },
     iamList: kind => new Promise(resolve => pending.push({ kind, resolve })),
-    iamOptions: async () => ({ roles: [] }), error: error => { throw error },
+    loadOptions: async () => {}, error: error => { throw error },
   }
   const load = await viewFunction('IdentityManagement', 'load', context)
   const accounts = load()

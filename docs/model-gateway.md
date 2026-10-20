@@ -22,6 +22,10 @@ Agent 的模型访问与 MCP 工具访问可使用同一张运行凭证组合授
 
 ## 从接入指引配置 / Configure through the integration guide
 
+用户组页面仅加载用户组列表，成员数量和绑定策略名称直接使用列表字段。新建或编辑时才按权限读取用户和隐私策略选项，同次页面访问复用结果；选项失败保留草稿并支持重试。刷新列表或保存用户组后，选项缓存失效，下次打开弹窗重新读取。用户组页面不请求隐私统计。
+
+The user group page loads only its group list, using the returned member IDs and policy names for display. User and privacy policy options load with the caller's permissions when creating or editing a group and are reused during the visit. Failed option requests preserve the draft and can be retried. Refreshing the list or saving a group invalidates the options for the next dialog opening. The group page does not request privacy statistics.
+
 在“接入与运行”选择“现有应用接入模型网关”。按 Agent 身份治理时选择已登记身份，并创建含 `model:chat` 的运行凭证；普通应用选择模型调用凭证。创建时核对允许模型，保存一次性凭证后返回指引，将平台 `/v1` 地址、凭证和模型名配置到运行端，并按运行端选择 Chat Completions、Responses 或 Anthropic Messages。SDK 的 Base URL 规则可能不同，应按其协议要求使用所展示的完整请求路径。
 
 **English:** In Integration & runtime, choose the model gateway scenario. For Agent governance, select a registered identity and issue an Agent runtime credential with `model:chat`; ordinary apps use model credentials. Confirm allowed models, save the one-time secret and return to configure the endpoint, credential and model. Choose Chat Completions, Responses or Anthropic Messages for the runtime. SDK base URL conventions vary; use the displayed full request path according to the SDK protocol.
@@ -82,6 +86,10 @@ Worker 使用任务租约调用 Backend 的任务专属 OpenAI-compatible 评估
 - `隐私链路追踪`：查看一次请求的 Prompt 防护、脱敏、压缩、响应和还原过程。
 
 “供应商与模型”统一在 `/model-gateway/providers` 管理，原 `/model-gateway/models` 地址重定向到该页面。
+
+页面按当前功能加载数据：“供应商与模型”只加载供应商和模型，统计卡片所在页面才请求隐私统计。隐私统计在线程池中执行同步数据库查询，按当前用户的凭证范围统计；映射计数使用数据库子查询，历史用量和审计按批次读取所需字段，保留差分隐私保护。
+
+**English:** Each page loads the data its features need. Providers & models loads only providers and models; pages with statistics cards request privacy statistics. Synchronous statistics queries run in the thread pool and retain the current user's credential scope and differential privacy protection. Mapping counts use a database subquery, and historical usage and audit statistics read only the required fields in batches.
 新建供应商保存后自动获取模型列表，也可点击“获取模型”重新读取。在获取结果中可多选并批量添加，也可逐个添加、测试模型；已添加的模型不可重复勾选，批量操作失败的条目保留勾选以便重试。
 页面以供应商分组展示一个列表，头部提供凭据配置、获取模型和添加模型入口。模型列表默认收起，点击模型数量展开后显示模型名称、上下文大小、
 默认标记、启用开关、编辑和逐模型测试操作。自定义添加可填写模型名称、上下文窗口、输出限制和默认模型。
@@ -90,9 +98,9 @@ Worker 使用任务租约调用 Backend 的任务专属 OpenAI-compatible 评估
 
 凭证可用模型、文档助手、Skill 扫描策略、智能体默认模型、客户端模型切换、MCP/Agent 安全扫描及 Dify 意图分析均使用网关调用名称；选择器同时显示供应商、上游模型和调用名称。网关 `/v1/models` 返回调用名称，转发到上游时改用上游模型名，响应、用量及审计保持网关调用名称。
 
-统一凭证中心按供应商分组展示已添加到网关的模型，支持按供应商或模型名称搜索；同一张凭证对每个上游模型名只能选择一个供应商，不同名称的模型可跨供应商选择。进入创建配置或点击刷新会重新加载模型选项；供应商下尚未添加的模型需先在“供应商与模型”中添加。
+统一凭证中心按供应商分组展示已添加到网关的模型，支持按供应商或模型名称搜索；同一张凭证对每个上游模型名只能选择一个供应商，不同名称的模型可跨供应商选择。列表加载 Agent 和模型名称；创建配置按所选场景补充所需选项，同页复用已加载结果，点击刷新重新读取。MCP 网关选项仅在配置包含 MCP 能力时加载。供应商下尚未添加的模型需先在“供应商与模型”中添加。
 
-**English:** The Credential Center groups registered gateway models by provider and supports searching by provider or model and selecting one provider per upstream model name in each credential. Models with different upstream names may use different providers. Entering credential configuration or refreshing reloads the model options. Register models under their provider before selecting them in a credential.
+**English:** The Credential Center groups registered gateway models by provider and supports searching by provider or model and selecting one provider per upstream model name in each credential. Models with different upstream names may use different providers. The list loads Agent and model names. Configuration loads additional options for the selected scenario and reuses results within the page; Refresh retrieves them again. MCP gateway options load when configuring MCP access. Register models under their provider before selecting them in a credential.
 
 旧数据迁移保留原调用名称、模型 ID、默认模型及权限引用，将原名称回填为上游模型名。无需批量修改历史凭证或客户端配置。
 

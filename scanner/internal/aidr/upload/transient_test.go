@@ -42,7 +42,7 @@ func TestHTTPFailureClassificationAndDiagnostics(t *testing.T) {
 				if result.Code == "" || result.Retryable != wantRetry || diagnostic.StatusCode != status || diagnostic.ServerCode != "aidr.invalid_batch" || diagnostic.Code != result.Code || diagnostic.Retryable != wantRetry || diagnostic.Method != method {
 					t.Fatalf("result=%+v diagnostic=%+v", result, diagnostic)
 				}
-				if (status == 401 || status == 403) && result.Code != "aidr_upload_auth_rejected" {
+				if (status == 401 || status == 403) && result.Code != "aidr_upload_access_rejected" {
 					t.Fatal("authentication classification changed")
 				}
 				encoded, _ := json.Marshal(diagnostic)

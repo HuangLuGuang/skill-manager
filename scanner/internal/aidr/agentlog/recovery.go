@@ -4,7 +4,7 @@ import (
 	"strings"
 )
 
-const contextRepairVersion = 3
+const contextRepairVersion = 5
 
 func needsContextRepair(s Source, c Cursor) bool {
 	f := logAdapters[s.Agent].Repair

@@ -216,6 +216,7 @@ export const getDashboardOverview = (params = {}) => api.get('/v1/dashboard/over
 export const getAudit = (params = {}) => api.get('/v1/audit', { params })
 export const getAuditPaged = (params = {}) => api.get('/v1/audit', { params: { ...params, page: params.page || 1, page_size: params.page_size || 10 } })
 export const getAgentAuditTrail = (params = {}) => api.get('/v1/audit-trail', { params })
+export const getAgentAuditTrailOptions = () => api.get('/v1/audit-trail/options')
 export const getPolicy = () => api.get('/v1/policy')
 export const simulatePolicy = (data, signal) => api.post('/v1/policy/simulate', data, { signal })
 export const updatePolicy = (data) => api.put('/v1/policy', data)

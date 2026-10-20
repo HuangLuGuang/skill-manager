@@ -65,7 +65,7 @@ func TestOversizedCompactionRetainsSessionMessagesAndCalls(t *testing.T) {
 	}
 }
 
-func TestLegacyContextRepairIsBoundedResumableAndDoesNotReuploadHistory(t *testing.T) {
+func TestLegacyContextRepairIsBoundedResumable(t *testing.T) {
 	prefix := parallelLog(1, false)
 	large := codexRecord("compacted", `{"message":"`+strings.Repeat("x", 5<<20)+`"}`)
 	for _, unknown := range []bool{false, true} {
@@ -84,7 +84,7 @@ func TestLegacyContextRepairIsBoundedResumableAndDoesNotReuploadHistory(t *testi
 		original := c
 		for i := 0; i < 8 && c.ContextRepairVersion < contextRepairVersion; i++ {
 			b := read(t, s, c)
-			if len(b.Events) != 0 || b.Cursor.Offset != original.Offset || b.Cursor.Anchor != original.Anchor || b.Coverage.Bytes > DefaultBudget().Bytes {
+			if b.Cursor.Offset != original.Offset || b.Cursor.Anchor != original.Anchor || b.Coverage.Bytes > DefaultBudget().Bytes {
 				t.Fatal("repair changed committed history or exceeded budget")
 			}
 			encoded, _ := json.Marshal(b.Cursor)
@@ -114,5 +114,106 @@ func TestLegacyContextRepairIsBoundedResumableAndDoesNotReuploadHistory(t *testi
 				t.Fatal("new event was not recovered")
 			}
 		}
+	}
+}
+
+func TestCodexAdditionalToolsReprojectsDamagedHistory(t *testing.T) {
+	prefix := strings.ReplaceAll(parallelLog(1, false), "0.160.0", "0.163.0-alpha.10.2")
+	metadata := codexRecord("response_item", `{"type":"additional_tools","id":"tools-1","role":"assistant","tools":[{"name":"exec","description":"tool metadata"}]}`)
+	suffix := codexRecord("response_item", `{"type":"message","role":"user","content":[{"type":"input_text","text":"check"}]}`) + codexRecord("response_item", `{"type":"function_call_output","call_id":"c0","output":"ok"}`)
+	s := source(t, "codex", prefix+metadata+suffix)
+	p := &AuditPolicy{MessageSchema: 1, Version: "2", Receipt: strings.Repeat("a", 32), Enabled: true, Capture: &CaptureScope{Prompt: true, ToolOutput: true}}
+	original, err := ReadWithPolicy(context.Background(), s, Cursor{}, DefaultBudget(), time.Unix(0, 0), p)
+	if err != nil || len(original.Events) != 3 || original.Cursor.Session != "parallel" {
+		t.Fatalf("new format failed: %v events=%d", err, len(original.Events))
+	}
+	c := original.Cursor
+	c.Generation = 7
+	c.ContextRepairVersion = 3
+	invalidateContext(&c)
+	rememberRecovery(&c, int64(len(prefix)), int64(len(prefix+metadata)), "aidr_log_context_invalidated", []byte(metadata))
+	budget := DefaultBudget()
+	budget.Events = 1
+	var events []Event
+	for i := 0; i < 8 && c.ContextRepairVersion < contextRepairVersion; i++ {
+		got, err := ReadWithPolicy(context.Background(), s, c, budget, time.Unix(0, 0), p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Cursor.Offset != original.Cursor.Offset || got.Cursor.Anchor != original.Cursor.Anchor {
+			t.Fatal("changed durable checkpoint")
+		}
+		events = append(events, got.Events...)
+		encoded, _ := json.Marshal(got.Cursor)
+		c = Cursor{}
+		if err := json.Unmarshal(encoded, &c); err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateCursor(c, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(events) != 3 || c.ContextRepair != nil || c.Session != "parallel" || len(c.RecoveryGaps) != 0 {
+		t.Fatalf("repair incomplete events=%d cursor=%+v", len(events), c)
+	}
+	for i, e := range events {
+		if e.SessionID != "parallel" || e.LogicalEventID != original.Events[i].LogicalEventID || e.SourceInstanceID != digest(s.ID, c.FileIdentity, "7") {
+			t.Fatal("unstable replay identity")
+		}
+	}
+	if got := read(t, s, c); len(got.Events) != 0 {
+		t.Fatal("replayed twice")
+	}
+}
+
+func TestOversizedItemCompletedRepairsOlderCursors(t *testing.T) {
+	prefix := parallelLog(1, false)
+	body := prefix + codexRecord("event_msg", `{"type":"item_completed","thread_id":"parallel","turn_id":"first","item":{"output":"`+strings.Repeat("x", 3<<20)+`"}}`) + codexRecord("response_item", `{"type":"function_call_output","call_id":"c0","output":"ok"}`) + codexRecord("response_item", `{"type":"message","role":"user","content":[{"type":"input_text","text":"after large event"}]}`)
+	s := source(t, "codex", body)
+	policy := &AuditPolicy{MessageSchema: 1, Enabled: true, Version: "2", Receipt: strings.Repeat("a", 32), Capture: &CaptureScope{Prompt: true}}
+	var c Cursor
+	var events []Event
+	for i := 0; i < 8; i++ {
+		b, err := ReadWithPolicy(context.Background(), s, c, DefaultBudget(), time.Unix(0, 0), policy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c = b.Cursor
+		events = append(events, b.Events...)
+		if c.Offset == int64(len(body)) {
+			break
+		}
+	}
+	if len(events) != 3 || events[1].SessionID != "parallel" || events[2].Kind != "user_message" {
+		t.Fatal("lost identity after large metadata")
+	}
+	for _, version := range []int{0, 3, 4} {
+		damaged := c
+		damaged.ContextRepairVersion = version
+		invalidateContext(&damaged)
+		budget := DefaultBudget()
+		budget.Events = 1
+		recovered := []Event{}
+		for i := 0; i < 12 && damaged.ContextRepairVersion < contextRepairVersion; i++ {
+			b, err := ReadWithPolicy(context.Background(), s, damaged, budget, time.Unix(0, 0), policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if b.Cursor.Offset != c.Offset {
+				t.Fatal("moved committed cursor")
+			}
+			recovered = append(recovered, b.Events...)
+			raw, _ := json.Marshal(b.Cursor)
+			damaged = Cursor{}
+			if err := json.Unmarshal(raw, &damaged); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if len(recovered) != 3 || damaged.Session != "parallel" || damaged.ContextRepair != nil {
+			t.Fatalf("version %d repair incomplete", version)
+		}
+	}
+	if oversizedPreservesContext("codex", []byte(`{"type":"event_msg","payload":{"type":"task_started","extra":"`)) {
+		t.Fatal("treated turn boundary as metadata")
 	}
 }
