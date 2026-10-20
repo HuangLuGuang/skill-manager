@@ -27,6 +27,7 @@ func canonical(raw json.RawMessage) string {
 }
 
 type draft struct {
+	Completion                *ToolCompletion
 	ModelContext              *ModelContext
 	MessageRole, MessagePhase string
 	HookResult                bool

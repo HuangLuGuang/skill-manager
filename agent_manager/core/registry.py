@@ -159,6 +159,11 @@ class Registry:
                 CREATE INDEX IF NOT EXISTS idx_skill_scan_runs_version
                     ON skill_scan_runs(version_id, started_at DESC);
 
+                CREATE TABLE IF NOT EXISTS skill_scan_run_reports (
+                    scan_run_id TEXT PRIMARY KEY,
+                    report TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS skill_scan_reports (
                     skill_id TEXT PRIMARY KEY,
                     report TEXT NOT NULL,
@@ -457,6 +462,7 @@ class Registry:
         conn.execute(f"DELETE FROM skill_review_queue WHERE skill_id IN ({placeholders})", params)
         conn.execute(f"DELETE FROM skill_scan_reports WHERE skill_id IN ({placeholders})", params)
         conn.execute(f"DELETE FROM skill_finding_stats WHERE skill_id IN ({placeholders})", params)
+        conn.execute(f"DELETE FROM skill_scan_run_reports WHERE scan_run_id IN (SELECT scan_run_id FROM skill_scan_runs WHERE version_id IN ({placeholders}))", params)
         conn.execute(f"DELETE FROM skill_scan_runs WHERE version_id IN ({placeholders})", params)
 
     def _checkpoint(self) -> None:
@@ -939,6 +945,7 @@ class Registry:
             conn.execute("DELETE FROM skill_review_queue WHERE skill_id = ?", (skill_id,))
             conn.execute("DELETE FROM skill_scan_reports WHERE skill_id = ?", (skill_id,))
             conn.execute("DELETE FROM skill_finding_stats WHERE skill_id = ?", (skill_id,))
+            conn.execute("DELETE FROM skill_scan_run_reports WHERE scan_run_id IN (SELECT scan_run_id FROM skill_scan_runs WHERE version_id = ?)", (skill_id,))
             conn.execute("DELETE FROM skill_scan_runs WHERE version_id = ?", (skill_id,))
             family_id = row["family_id"] if row else None
             self._sync_family_pointers(conn, family_id)
@@ -1126,8 +1133,13 @@ class Registry:
                 (f"$.analyzers.{analyzer}", status, scan_run_id),
             )
 
-    def update_scan_run(self, run: ScanRun) -> None:
+    def update_scan_run(self, run: ScanRun, *, report: dict | None = None) -> None:
         with self._lock, self._connect() as conn:
+            if report is not None:
+                conn.execute(
+                    "INSERT OR IGNORE INTO skill_scan_run_reports (scan_run_id, report) VALUES (?, ?)",
+                    (run.scan_run_id, json.dumps(report, ensure_ascii=False, default=str)),
+                )
             conn.execute(
                 """
                 UPDATE skill_scan_runs
@@ -1142,6 +1154,11 @@ class Registry:
                     run.scan_run_id,
                 ),
             )
+
+    def get_scan_run_report(self, scan_run_id: str) -> dict | None:
+        with self._read_connection() as conn:
+            row = conn.execute("SELECT report FROM skill_scan_run_reports WHERE scan_run_id = ?", (scan_run_id,)).fetchone()
+        return json.loads(row["report"]) if row else None
 
     def list_scan_runs(self, version_id: str) -> list[ScanRun]:
         with self._read_connection() as conn:
@@ -1695,6 +1712,15 @@ class Registry:
         with self._lock, self._connect() as conn:
             self._insert_audit(conn, event, ignore_existing=True)
 
+    _governance_audit_predicates = ("event_id NOT LIKE 'client-event-%'", "COALESCE(json_extract(payload, '$.details.source'), '') != 'managed_client'")
+
+    def governance_audit_agents(self):
+        with self._read_connection() as conn:
+            return [row[0] for row in conn.execute(
+                "SELECT DISTINCT json_extract(payload, '$.details.agent_id') FROM skill_audit_events WHERE "
+                + ' AND '.join(self._governance_audit_predicates)
+            ) if row[0]]
+
     def governance_audit_page(self, *, since=None, q='', agent='', client_id='', category='', result='', limit=10, order='desc', matching_agent_ids=()):
         """Read original registry events for the federated governance view.
 
@@ -1702,14 +1728,14 @@ class Registry:
         the management database and must not bypass its visibility rules here.
         """
         if client_id or category not in ('', 'capability') or (agent and not agent.startswith('platform:')):
-            return {'items': [], 'total': 0, 'agents': []}
+            return {'items': [], 'total': 0}
         state = """CASE
             WHEN event_type IN ('skill_load_blocked','tool_blocked','skill_rejected') THEN 'deny'
             WHEN event_type IN ('skill_processing_failed','skill_auto_install_failed') THEN 'failed'
             WHEN event_type = 'skill_load_allowed' THEN 'allow'
             WHEN event_type IN ('skill_approved','skill_signature_verified','skill_processing_completed','skill_deployed') THEN 'success'
             ELSE 'recorded' END"""
-        clauses = ["event_id NOT LIKE 'client-event-%'", "COALESCE(json_extract(payload, '$.details.source'), '') != 'managed_client'"]
+        clauses = list(self._governance_audit_predicates)
         params = []
         def audit_timestamp(value):
             stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
@@ -1720,9 +1746,6 @@ class Registry:
         with self._read_connection() as conn:
             # Match the federated sort's precision; SQLite date functions round to milliseconds.
             conn.create_function('audit_timestamp', 1, audit_timestamp, deterministic=True)
-            agents = [row[0] for row in conn.execute(
-                "SELECT DISTINCT json_extract(payload, '$.details.agent_id') FROM skill_audit_events WHERE " + ' AND '.join(clauses)
-            ) if row[0]]
             if since:
                 clauses.append('audit_timestamp(timestamp) >= audit_timestamp(?)')
                 params.append(since.isoformat())
@@ -1743,7 +1766,7 @@ class Registry:
             total = conn.execute('SELECT count(*) FROM skill_audit_events WHERE ' + where, params).fetchone()[0]
             direction = 'ASC' if order == 'asc' else 'DESC'
             rows = conn.execute(f'SELECT payload, {state} AS result FROM skill_audit_events WHERE {where} ORDER BY audit_timestamp(timestamp) {direction}, event_id {direction} LIMIT ?', [*params, limit])
-            return {'items': [{**json.loads(row['payload']), 'result':row['result']} for row in rows], 'total':total, 'agents':agents}
+            return {'items': [{**json.loads(row['payload']), 'result':row['result']} for row in rows], 'total':total}
 
     def read_audit(
         self,

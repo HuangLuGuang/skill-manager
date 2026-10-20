@@ -17,6 +17,9 @@
         <p v-if="exitCode != null && exitCode !== 0 && !showLogExitCode" class="exit-code">{{ item.operation ? t('aidr.commandExitCode', { code: exitCode }) : `${t('aidr.exitCode')}: ${exitCode}` }}</p>
         <p v-if="item.operation?.log_elapsed_ms != null" class="muted">{{ t('aidr.sessions.elapsed') }}: {{ item.operation.log_elapsed_ms }} ms</p>
         <p v-if="records.length > 1" class="muted">{{ pairedStages ? t('aidr.sessions.pairedStages') : t('aidr.sessions.paired', { count: records.length }) }}</p>
+        <p v-if="item.association === 'cross_turn_native_identity_matched'" class="muted">{{ t('aidr.hooks.events.relatedCodes.cross_turn_native_identity_matched') }}</p>
+        <p v-if="item.execution_evidence" class="muted">{{ t('aidr.sessions.endHookMissing') }} · {{ t('aidr.sessions.executionSources.' + (item.execution_evidence.source === 'codex.item_completed' ? 'codex' : 'log')) }} · {{ t('aidr.detail.recordId') }}: {{ item.execution_evidence.record_id }}<span v-if="item.execution_evidence.relation === 'inferred'"> · {{ t('aidr.sessions.executionInferred') }}</span></p>
+        <p v-if="Number.isInteger(item.execution_evidence?.exit_code)" class="muted">{{ t('aidr.commandExitCode', { code: item.execution_evidence.exit_code }) }}</p>
         <p v-if="resultOnly" class="muted">{{ t('aidr.sessions.resultOnly') }}</p>
         <details v-if="!item.message" :open="expanded" @toggle="expanded = $event.target.open">
           <summary>{{ t('aidr.sessions.details') }}</summary>
@@ -29,6 +32,7 @@
             </template>
             <section v-for="record in records" :key="record.id" class="hook-part">
               <strong>{{ record.record.event.hook_event }}</strong>
+              <p v-if="record.record.event.turn_id" class="muted">{{ t('aidr.turn') }}: <code>{{ record.record.event.turn_id }}</code></p>
               <p class="muted">{{ t('aidr.sessions.received') }}: {{ timestamp(record.record.received_at) }}</p>
               <template v-if="record.record.event.context">
                 <p v-if="record.record.event.context.model">{{ t('aidr.sessions.model') }}: <code>{{ record.record.event.context.model }}</code></p>
@@ -84,7 +88,7 @@ const controlReason = computed(() => {
   return key ? t('aidr.sessions.controlReasons.' + key) : control.value?.code
 })
 const showLogExitCode = computed(() => Number.isInteger(exitCode.value) && ['reported_success', 'reported_error'].includes(props.item.operation?.status))
-const failed = computed(() => blocked.value || props.item.operation?.status === 'reported_error' || result.value?.behavior?.status === 'reported_error' || result.value?.kind === 'tool.failure' || event.value.kind === 'permission.denied')
+const failed = computed(() => blocked.value || props.item.execution_evidence?.status === 'failed' || props.item.operation?.status === 'reported_error' || result.value?.behavior?.status === 'reported_error' || result.value?.kind === 'tool.failure' || event.value.kind === 'permission.denied')
 const success = computed(() => !blocked.value && (props.item.operation ? props.item.operation.status === 'reported_success' : result.value?.behavior?.status === 'reported_success'))
 const meanings = { SessionStart: 'sessionStart', SessionEnd: 'sessionEnd', UserPromptSubmit: 'promptSubmit', PreToolUse: 'preTool', PostToolUse: 'postTool', PostToolUseFailure: 'toolFailure', PermissionRequest: 'permissionRequest', PermissionDenied: 'permissionDenied', Stop: 'stop', Interrupt: 'interrupt', Notification: 'notification', SubagentStart: 'subagentStart', SubagentStop: 'subagentStop', PreCompact: 'preCompact', PostCompact: 'postCompact', TaskCompleted: 'taskCompleted', TeammateIdle: 'teammateIdle' }
 const title = computed(() => props.item.message ? t('aidr.sessions.messages.' + (props.item.message.message.role === 'user' ? 'input' : props.item.message.message.phase)) : isTool.value ? props.item.operation?.tool || event.value.tool || t(props.item.operation?.status === 'missing_call' ? 'aidr.sessions.toolReturn' : 'aidr.unknown') : t('aidr.sessions.events.' + (meanings[event.value.hook_event] || 'other')))
@@ -93,6 +97,7 @@ const status = computed(() => {
   if (showLogExitCode.value) return t('aidr.commandExitCode', { code: exitCode.value })
   if (props.item.operation) return t(props.item.operation.status === 'unknown' ? 'aidr.sessions.unknownResult' : 'aidr.results.' + props.item.operation.status)
   if (!isTool.value) return ''
+  if (!result.value && props.item.execution_evidence) return t('aidr.sessions.executionStates.' + props.item.execution_evidence.status)
   if (!result.value) return t('aidr.sessions.pendingResult')
   const key = { reported_success: 'hookSuccess', reported_error: 'hookFailure', reported_complete: 'hookComplete', reported_cancelled: 'hookCancelled' }[result.value.behavior?.status]
   if (result.value.kind === 'tool.failure') return t('aidr.sessions.hookFailure')

@@ -66,7 +66,7 @@ def test_upgrade_preserves_all_evidence_and_is_repeatable(tmp_path):
         assert c.exec_driver_sql("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='ix_aidr_hook_session_context'").scalar() == 1
         assert c.exec_driver_sql("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='ix_aidr_hook_session_turns'").scalar() == 1
         for name in ('ix_aidr_hook_product_arrival', 'ix_aidr_hook_batch_latest',
-                     'ix_aidr_hook_source_call',
+                     'ix_aidr_hook_source_call', 'ix_aidr_event_completion_call',
                      'ix_aidr_log_skill_evidence', 'ix_aidr_hook_skill_evidence',
                      'ix_aidr_operation_device_page', 'ix_aidr_hook_active_page', 'ix_aidr_operation_product_sessions'):
             assert c.exec_driver_sql("SELECT count(*) FROM sqlite_master WHERE type='index' AND name=?", (name,)).scalar() == 1

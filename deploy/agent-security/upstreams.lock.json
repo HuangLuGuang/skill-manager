@@ -26,7 +26,7 @@
           "mode": "isolated_worker_source",
           "status": "integrated_p2",
           "vendored_path": "services/agent-security-worker/vendor/ai-infra-guard/agent-scan",
-          "vendored_tree_sha256": "ad3b55cf0eea288cd74bf13060e808a4a8d77e22aef031cb762759d45454d7d5",
+          "vendored_tree_sha256": "f2a65c3e1936425306997c9884edcb0ad85cd3858f76d47ddef9f1f25b58dde2",
           "local_modifications": [
             {
               "path": "agent_scan/utils/logging.py",
@@ -35,8 +35,8 @@
             },
             {
               "path": "agent_scan/core/agent.py",
-              "reason": "Retain per-detection-skill execution records and resolve finding sources through a program-controlled reference map.",
-              "sha256": "24ff36e3b3ca8953d7f98ab13823274b9144798ef660e33a7aef742baa5d2127"
+              "reason": "Retain per-detection-skill execution records, resolve finding sources through a program-controlled reference map, and pass observed dialogue evidence to detection and review.",
+              "sha256": "7b9eb5403415215a54eaa8ac0936ee3eb69b655eada818a7cc7f87367bce4425"
             },
             {
               "path": "agent_scan/core/base_agent.py",
@@ -65,8 +65,28 @@
             },
             {
               "path": "agent_scan/prompt/system/agent_security_reviewer.md",
-              "reason": "Require the reviewer to preserve opaque candidate references and avoid cross-source merges.",
-              "sha256": "8ec2ace50567f197ce5a1b375badd824119452de797512b42172c45e8389e642"
+              "reason": "Require the reviewer to preserve opaque candidate references and avoid cross-source merges. Require an observed application-boundary violation; distinguish resisted injection and denied calls from unauthorized reads or state changes.",
+              "sha256": "f77cb8fa4a3e06020614117cbd96e3594a98238cd267d70d70ca9c58b690d74f"
+            },
+            {
+              "path": "agent_scan/prompt/system/skill_runner.md",
+              "reason": "Require an observed application-boundary violation; distinguish resisted injection and denied calls from unauthorized reads or state changes.",
+              "sha256": "8e08353220e69419128a67b192824a2a26dd46355ace54886b0e88717dc8715c"
+            },
+            {
+              "path": "agent_scan/prompt/skills/data-leakage-detection/SKILL.md",
+              "reason": "Preserve observed disclosures across later refusals and distinguish protected synthetic markers from ordinary placeholders and attacker-supplied echoes.",
+              "sha256": "0345a8fc3089904d5a69b45801604e71022f51c118cc6bdb74d66db3869f533a"
+            },
+            {
+              "path": "agent_scan/prompt/skills/indirect-injection-detection/SKILL.md",
+              "reason": "Require an observed application-boundary violation; distinguish resisted injection and denied calls from unauthorized reads or state changes.",
+              "sha256": "772a4bb8f263bd0e4399fe92c8de41031071209a944f0fab7bd64f8b3bf59561"
+            },
+            {
+              "path": "agent_scan/prompt/skills/tool-abuse-detection/SKILL.md",
+              "reason": "Require an observed application-boundary violation; distinguish resisted injection and denied calls from unauthorized reads or state changes.",
+              "sha256": "d2c718ee301008b7bc2b9e1b616abab1c3b39b78bc0435329633b12ab3d793cb"
             }
           ]
         },

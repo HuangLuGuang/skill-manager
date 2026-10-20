@@ -17,6 +17,7 @@
           <span class="session-choice-title"><span>{{ agentName(item.agent) }}</span><code>{{ item.session_id ? '…' + item.session_id.slice(-8) : '#' + item.orphan_id }}</code></span>
           <strong class="session-title">{{ sessionTitle(item) }}</strong>
           <time>{{ t('aidr.sessions.latest') }} · {{ shortDate(item.latest_at) }}</time>
+          <span v-if="item.evidence_class && item.evidence_class !== 'logs_present'" class="muted">{{ t('aidr.sessions.evidenceClass.' + item.evidence_class) }}</span>
           <span class="session-counts">{{ t('aidr.sessions.counts', { logs: item.log_count, messages: item.message_count || 0, hooks: item.hook_count }) }}</span>
         </button>
       </div>
@@ -27,9 +28,9 @@
         <div class="timeline-header">
           <header class="selected-session">
             <h3 :title="sessionTitle(selected)">{{ sessionTitle(selected) }}</h3>
-            <span v-if="!sourceCount(selected, 'tools') && sourceCount(selected, 'hooks')" class="session-coverage" :title="t('aidr.sessions.hooksOnlyHelp')">{{ t('aidr.sessions.hooksOnly') }}</span>
+            <span v-if="!sourceCount(selected, 'tools') && sourceCount(selected, 'hooks') && selected.evidence_class !== 'native_completion_present'" class="session-coverage" :title="t('aidr.sessions.hooksOnlyHelp')">{{ t('aidr.sessions.hooksOnly') }}</span>
             <a-popover :title="t('aidr.sessions.sessionInfo')" :trigger="['click']">
-              <template #content><div class="session-info"><code>{{ sessionLabel(selected) }}</code><p>{{ t('aidr.sessions.latest') }} · {{ timestamp(selected.latest_at) }}</p><p>{{ t('aidr.sessions.logHelp') }}</p><p>{{ t('aidr.sessions.hookHelp') }}</p><p v-if="!sourceCount(selected, 'tools') && sourceCount(selected, 'hooks')">{{ t('aidr.sessions.hooksOnlyHelp') }}</p></div></template>
+              <template #content><div class="session-info"><code>{{ sessionLabel(selected) }}</code><p>{{ t('aidr.sessions.latest') }} · {{ timestamp(selected.latest_at) }}</p><p>{{ t('aidr.sessions.logHelp') }}</p><p>{{ t('aidr.sessions.hookHelp') }}</p><p v-if="!sourceCount(selected, 'tools') && sourceCount(selected, 'hooks') && selected.evidence_class !== 'native_completion_present'">{{ t('aidr.sessions.hooksOnlyHelp') }}</p></div></template>
               <button class="session-info-button" type="button" :aria-label="t('aidr.sessions.sessionInfo')"><InfoCircleOutlined /></button>
             </a-popover>
             <span class="session-meta" :title="timestamp(selected.latest_at)">{{ agentName(selected.agent) }} · {{ shortDate(selected.latest_at) }}</span>
@@ -79,7 +80,7 @@
           <h3>{{ t(query ? 'aidr.sessions.noMatches' : turnKey ? 'aidr.sessions.emptyTurn' : source === 'tools' ? 'aidr.sessions.emptyLogs' : 'aidr.sessions.emptyHooks') }}</h3>
           <template v-if="query"><a-button type="link" @click="search = ''">{{ t('aidr.sessions.clearSearch') }}</a-button></template>
           <template v-else-if="turnKey && sourceCount(selected, source)"><p class="muted">{{ t('aidr.sessions.otherTurnsAvailable', { count: sourceCount(selected, source) }) }}</p><a-button type="link" @click="turnKey = ''">{{ t('aidr.sessions.allTurns') }}</a-button></template>
-          <template v-else><p class="muted">{{ t('aidr.sessions.emptyHelp') }}</p><a-button type="link" @click="source = source === 'tools' ? 'hooks' : 'tools'">{{ t(source === 'tools' ? 'aidr.sessions.switchHooks' : 'aidr.sessions.switchLogs') }}</a-button><a-button type="link" @click="$emit('collection')">{{ t('aidr.sessions.collection') }}</a-button></template>
+          <template v-else><p class="muted">{{ t(selected?.evidence_class && selected.evidence_class !== 'logs_present' ? 'aidr.sessions.evidenceHelp.' + selected.evidence_class : 'aidr.sessions.emptyHelp') }}</p><a-button type="link" @click="source = source === 'tools' ? 'hooks' : 'tools'">{{ t(source === 'tools' ? 'aidr.sessions.switchHooks' : 'aidr.sessions.switchLogs') }}</a-button><a-button type="link" @click="$emit('collection')">{{ t('aidr.sessions.collection') }}</a-button></template>
         </div>
         <div v-if="timeline.has_more" class="timeline-footer"><a-button :loading="timelineLoading" :disabled="timelineLoading || !!timelineError" @click="loadTimeline(true)">{{ t('aidr.sessions.moreRecords') }}</a-button></div>
         <p v-else-if="timeline.items.length && !timelineError" class="timeline-footer muted">{{ t('aidr.sessions.end') }}</p>

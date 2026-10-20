@@ -53,9 +53,10 @@ class ChannelReport(Strict):
     transport_code: str | None = Field(default=None, max_length=100, pattern=r"^$|^aidr_[a-z0-9_]+$")
     queued_records: int | None = Field(default=None, ge=0, le=3000000)
     last_ack_at: str | None = Field(default=None, max_length=40)
+    next_retry_at: str | None = Field(default=None, max_length=40)
     coverage_codes: list[str] = Field(default_factory=list, max_length=32)
 
-    @field_validator("reported_at", "last_ack_at")
+    @field_validator("reported_at", "last_ack_at", "next_retry_at")
     @classmethod
     def timestamp(cls, value):
         if value is not None:

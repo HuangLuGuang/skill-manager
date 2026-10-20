@@ -439,6 +439,7 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 		wireCursor := b.Cursor
 		wireCursor.ContextRepair = nil
 		wireCursor.ContextRepairVersion = 0
+		wireCursor.CompletionSchema = 0
 		// Call bindings are parser resume state; events carry their own call/turn IDs.
 		wireCursor.CallTurns = nil
 		wireCursor.QoderLinks = nil

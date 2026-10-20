@@ -48,7 +48,8 @@ def _agent_response(db: Session, row: models.ManagedAgent) -> schemas.ManagedAge
         .first()
     )
     gateway = db.get(models.ExternalAIGateway, row.external_gateway_id) if row.external_gateway_id else None
-    return _present_agent(row, runtime_token, _department_name(db, row.department_group_id), gateway.name if gateway else None)
+    platform = db.get(models.ExternalPlatform, row.source_platform_id) if row.source_platform_id else None
+    return _present_agent(row, runtime_token, _department_name(db, row.department_group_id), gateway.name if gateway else None, platform.name if platform else None)
 
 
 def _agent_responses(db: Session, rows):
@@ -65,13 +66,17 @@ def _agent_responses(db: Session, rows):
             models.UserGroup.id.in_({row.department_group_id for row in part if row.department_group_id is not None})).all())
         gateways = dict(db.query(models.ExternalAIGateway.id, models.ExternalAIGateway.name).filter(
             models.ExternalAIGateway.id.in_({row.external_gateway_id for row in part if row.external_gateway_id is not None})).all())
+        platforms = dict(db.query(models.ExternalPlatform.platform_id, models.ExternalPlatform.name).filter(
+            models.ExternalPlatform.platform_id.in_({row.source_platform_id for row in part if row.source_platform_id})).all())
         results.extend(_present_agent(row, tokens.get(row.agent_id), departments.get(row.department_group_id),
-                                      gateways.get(row.external_gateway_id)) for row in part)
+                                      gateways.get(row.external_gateway_id), platforms.get(row.source_platform_id)) for row in part)
     return results
 
 
-def _present_agent(row, runtime_token, department_name, gateway_name):
+def _present_agent(row, runtime_token, department_name, gateway_name, platform_name=None):
     return schemas.ManagedAgentResponse(
+        **{name: getattr(row, name) for name in schemas.RegistrationSource.model_fields},
+        source_platform_name=platform_name,
         id=row.id,
         agent_id=row.agent_id,
         name=row.name,
@@ -308,6 +313,8 @@ def _asset_rows(db: Session, current_user: models.User) -> list[schemas.AgentAss
                 agent_id=response.agent_id,
                 name=response.name,
                 origin_type=response.origin_type,
+                **{name: getattr(response, name) for name in schemas.RegistrationSource.model_fields},
+                source_platform_name=response.source_platform_name,
                 department_group_id=response.department_group_id,
                 department_name=response.department_name,
                 owner=response.owner,
@@ -443,6 +450,8 @@ def list_agents(
 
 @router.get("/assets", response_model=schemas.AgentAssetListResponse)
 def list_agent_assets(
+    registration_source: str | None = Query(None, pattern="^(console|external_api|client_discovery|unknown)$"),
+    source_platform_id: str | None = Query(None),
     origin: str | None = Query(None, pattern="^(platform|client_discovery)$"),
     department_group_id: int | None = Query(None),
     status: str | None = Query(None),
@@ -457,6 +466,10 @@ def list_agent_assets(
         "client_discovery": sum(row.origin_type == "client_discovery" for row in all_rows),
     }
     rows = all_rows
+    if registration_source:
+        rows = [row for row in rows if (row.registration_source or "unknown") == registration_source]
+    if source_platform_id:
+        rows = [row for row in rows if row.source_platform_id == source_platform_id]
     if origin:
         rows = [row for row in rows if row.origin_type == origin]
     if department_group_id is not None:
@@ -562,6 +575,7 @@ async def create_agent(
         default_model_source=body.default_model_source,
         external_gateway_id=body.external_gateway_id,
         origin_type="platform",
+        registration_source="console",
         skill_names_json=_dump_list(body.skill_names),
         allowed_mcp_gateways_json=_dump_list(validate_agent_gateways(db, body.allowed_mcp_gateways)),
         prompt_names_json=_dump_list(body.prompt_names),

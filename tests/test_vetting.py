@@ -135,7 +135,7 @@ def test_parallel_analyzers_report_independent_progress(skill_dir, monkeypatch):
     })
     pipeline = VettingPipeline(CompanyPolicy({"require_sandbox_for_risk": []}))
     pipeline.vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True, analyzer_callback=report)
-    assert states == {"scanner": "completed", "skillspector": "completed", "sandbox": "skipped", "llm": "disabled"}
+    assert states == {"scanner": "completed", "skillspector": "completed", "sandbox": "skipped", "llm": "disabled", "behavioral": "disabled"}
 
 
 @pytest.mark.parametrize("deep_result, expected", [

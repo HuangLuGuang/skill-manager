@@ -1,5 +1,76 @@
 # Agent Manager Project Guide
 
+## 页面数据加载 / Page data loading
+
+用户组页只查询用户组列表；用户和隐私策略选项在打开新建或编辑弹窗时按权限加载，同次访问复用，刷新列表或保存后失效。选项加载失败保留草稿并可重试，详见[模型网关说明](model-gateway.md)。
+
+The user group page queries only its list. User and privacy policy options load with the caller's permissions when opening a create or edit dialog, are reused during the visit, and are invalidated after list refresh or save. Failed option requests preserve the draft and support retry; see the [model gateway guide](model-gateway.md).
+
+审计追踪的列表与筛选选项独立加载；筛选、翻页和排序只查询列表，手动刷新同时更新两者。选项查询失败可独立重试。两类查询共用来源权限和客户端归属限制，选项来自可见历史记录；列表保留筛选后的准确总数及跨来源稳定时间排序。
+
+Audit Trail loads its list and filter options independently. Filtering, pagination and sorting query only the list; manual refresh updates both. Options can be retried separately. Both queries enforce source permissions and client ownership. Options cover visible history; lists retain exact filtered totals and stable chronological ordering across sources.
+
+管理台按当前页面和标签读取业务数据。MCP 服务、网关和审计分别查询自身列表，编辑时再读取所需选项；开放 API 管理仅在凭证或接口调用标签查询对应记录。账号管理的筛选、排序和翻页复用选项，手动刷新及修改后重新读取。检测策略仅在本地 Docker 模式读取镜像列表，镜像读取独立于配置加载。
+
+安全扫描仅在目标页读取目标风险；计划任务页由计划列表组件维护列表及数量，复用正在进行的请求。其他阶段保留顶部统计所需数据。凭证中心保留列表名称所需的 Agent、模型查询，创建时按场景补充选项。
+
+Skill 详情先加载基础信息、检测报告和版本信息；原文、文件列表、治理卡和审计记录在首次打开对应标签时加载，同次查看复用结果。切换 Skill 或重新加载详情时重新读取，标签内的刷新操作仍可更新对应内容。
+
+**English:** The console loads data for the current page and tab. MCP servers, gateways and audit pages query their own lists and fetch editing options when needed. Open API credentials and inbound request records load on their respective tabs. Account filters, sorting and pagination reuse options; manual refresh and mutations reload them. Sandbox images load independently of configuration and only for local Docker mode.
+
+Target risk loads on the security scan targets page. The schedules component owns its list and count and shares in-flight requests; other stages retain data needed for navigation counts. Credential lists load Agent and model names, while configuration adds options for the selected scenario. Skill details initially load metadata, scan reports and versions; content, files, governance cards and audit records load on first opening their tabs and are reused during that visit. Switching Skills or reloading details resets this data; tab refresh actions remain available.
+
+## 开放 API 管理 / Open API Management
+
+“网关配置”标签页选择已有外部 AI 网关，填写结果同步配置编号（gateway_id）、所属接入方及结果同步接口路径，支持创建、编辑、启停、删除和测试通知。完整地址由网关管理地址与接口路径组成，认证复用该网关的Token ID、Token Value及HMAC-SHA256签名。gateway_id是智能体开发平台发起评测时填写的结果同步配置编号，创建后保持不变。编辑生成新版本，已有任务保持原版本和报告；每次发送使用网关当前凭据。旧配置补充接口路径后可用于新任务。测试独立记录，接收方按security-gateway-test.v1返回匹配sync_id及accepted=true。操作与人工验收见[网关配置](external-agent-integration.md#网关配置--gateway-configuration)。
+
+**English:** Gateway Configuration selects an existing external AI gateway and manages the stable result sync ID (gateway_id), partners and API path. The destination combines the gateway management URL and path; HMAC-SHA256 authentication reuses its Token ID and encrypted Token Value. Edits create a new version, while accepted tasks keep their original version and report. Each attempt uses current gateway credentials. Add an API path to older configurations before using them for new tasks. Create, edit, enable/disable, delete, test, delivery history and retries remain available. Test notifications use security-gateway-test.v1 and require a matching sync_id and accepted=true acknowledgement. See the gateway configuration guide for manual acceptance checks.
+
+“回调配置”标签页支持新增、编辑、启停、删除和测试通知。配置名称、callback_id、所属接入方、HTTP/HTTPS地址、Bearer令牌与通知类型；令牌加密保存、掩码展示，编辑时留空保留。页面保存后可直接在Skill检测和智能体评测提交中使用callback_id。每次编辑保存新版本，已有任务仍按原版本投递；停用或删除后停止后续投递并保留历史。测试通知使用独立事件，投递记录标明测试用途、发起人、时间和失败原因。查看、新增、编辑/测试及删除分别使用external_access:view/create/update/delete权限。
+
+**English:** Callback configuration supports create, edit, enable, disable, delete and test notifications. Set a name, callback_id, authorized partners, HTTP/HTTPS URL, Bearer token and notification types. Tokens are encrypted and masked; leave the token blank when editing to retain it. Saved callback IDs can be used directly by Skill and Agent submissions. Edits create a new version while accepted tasks retain their original version. Disabling or deleting stops future delivery and preserves history. Test events are separate from real tasks; records show purpose, initiator, times and failures. View, create, edit/test and delete use external_access:view/create/update/delete respectively. See [Callback configuration](external-agent-integration.md#回调配置--callback-configuration).
+
+智能体评测的任务列表和详情每3秒刷新用例进度，展示已完成/计划数量、待执行、执行中和执行错误。Worker按所选评测检查项上报计数，对话与模型调用次数仍计入资源用量。检查项执行结束后显示汇总报告状态；任务终态统计取已保存的用例结果，计划数量保留。开放进度接口同步提供执行中计数，报告、回调和网关继续使用冻结结果。
+
+**English:** Agent evaluation lists and details refresh case progress every three seconds, showing completed/planned, queued, running and execution-error counts. The Worker counts selected evaluation checks; dialogue and model calls remain resource usage. After checks finish, the page shows report generation. Terminal counts come from persisted cases while planned counts remain available. Open API progress exposes the live counts; reports, callbacks and gateway payloads retain frozen results.
+
+“调用日志”包含“接口调用”和“回调与同步”两种视图。回调与同步支持Skill与智能体评测回调、AI安全网关同步、有效回执、发送记录和失败重投。后台使用已保存的报告报文自动发送并处理重试；地址按现场HTTP或HTTPS填写，令牌加密保存。管理权限沿用 `external_access:view/create/update`，配置、停用和重投写入管理审计。操作说明及人工验收清单见[回调与同步](external-agent-integration.md#回调与同步--callbacks--sync)。
+
+**English:** Request Logs includes API Requests and Callbacks & Sync views. Callbacks & Sync tracks Skill and Agent callbacks, gateway synchronization, validated receipts, attempt history and manual retries. The Backend sends saved payloads and schedules retries; URLs use the deployment's HTTP or HTTPS address and tokens are encrypted. Existing `external_access:view/create/update` permissions apply, and management mutations are audited. See [Callbacks & sync](external-agent-integration.md#回调与同步--callbacks--sync).
+
+系统设置中的“开放 API 管理”包含“接入方管理”“访问凭证”“检测与评测方案”“回调配置”“网关配置”和“调用日志”六个标签页，统一凭证中心也提供入口。
+接入方拥有固定标识和部门到用户组的映射；外部接口凭证使用独立的 `openapi` 类型，绑定接入方、部门和接口权限。
+明文在创建后展示一次，支持到期、停用、启用和吊销。换发凭证沿用接入方标识，历史调用记录保留原凭证信息。
+`external_access:view/create/update` 控制接入方及记录页面；凭证操作沿用 `credentials:view/create/update/delete`。
+
+管理员可按接入方、凭证、请求编号、接口、时间和关联业务查询入站调用记录，查看 HTTP 状态、耗时、来源 IP 和错误原因。
+调用方的合法 `X-Request-ID` 在响应中原样返回，并显示在调用日志中；详情同时保留独立请求编号，来源关联使用该编号。重复的调用方追踪号分别记录，筛选支持两种编号。Caller-supplied `X-Request-ID` values are echoed and shown in logs; each request retains a separate internal ID for source links. Search accepts either ID, including repeated caller trace IDs.
+智能体列表与详情显示登记来源，扫描任务列表与详情显示发起来源；历史未记录来源的对象显示“未记录”。
+部署入口转发 `/openapi/` 到后端。配置步骤和认证检查见[外部接口认证与记录](external-agent-integration.md#外部接口认证与记录--external-api-authentication-and-request-logs)。
+
+**English:** System Settings → Open API Management provides Partner Management, Access Credentials, Scan & Evaluation Profiles, Callback Configuration, Gateway Configuration and Request Logs tabs; Credential Center also links to it.
+
+“检测与评测方案”直接读取现有配置文件中的方案，支持新增、查看和编辑。Skill方案配置检测模块、风险判定模式及恶意规则；智能体方案选择评测策略、评判模型、检查项、对话模式、语言及执行审批。两类方案均按接入方授权。修改内容后自动生成新版本，已受理任务和历史报告保留原快照。页面沿用开放API管理权限，保存记录进入管理审计。配置路径、并发编辑及人工验收见[方案管理](external-agent-integration.md#检测与评测方案管理--scan--evaluation-profiles)。
+
+**English:** Scan & Evaluation Profiles reads existing configuration files and supports adding, viewing and editing profiles. Skill profiles control analyzers, judgement mode and malicious rules. Agent profiles select policies, evaluator models, checks, conversation mode, language and execution approval. Both authorize specific partners. Changed settings receive a new version; accepted tasks and reports retain their snapshots. Existing Open API management permissions and management auditing apply. See [Profile management](external-agent-integration.md#检测与评测方案管理--scan--evaluation-profiles).
+The `openapi` credential type binds a stable partner ID, mapped departments and API permissions. Plaintext is displayed once at creation;
+expiry, disabling, enabling and revocation are supported. Replacement credentials retain the partner identity, while historical logs retain their original credential metadata.
+Partner and log access uses `external_access:view/create/update`; credential administration uses the existing `credentials` permissions.
+Requests are searchable by partner, credential, request ID, endpoint, time and business record. Agent registration sources and scan trigger sources
+are displayed separately; missing historical provenance is shown as “Not recorded”. The deployment proxy forwards `/openapi/` to the backend.
+
+Skill 开放接口提供提交、进度、结果和风险明细查询，复用 ACCESS_TOKEN、部门授权及调用日志。每个外部任务保存接入方、业务流水、方案版本及对应扫描记录；报告、明细和待回调事件按本次任务冻结。复扫和凭证换发后仍可读取原任务报告。配置和调用示例见[Skill 开放接口](external-agent-integration.md#skill-开放接口--skill-open-api)。
+
+**English:** Skill APIs provide submission, progress, reports and findings using ACCESS_TOKEN authentication, department authorization and request logs. Each external task records its partner, business request, profile version and native scan run. Reports, findings and pending callback events are frozen per task and remain available after rescans or credential rotation. See [Skill Open API](external-agent-integration.md#skill-开放接口--skill-open-api) for configuration and examples.
+
+智能体开放接口已接通登记、更新、查询、连接验证，以及评测提交、进度、结果、用例和风险明细。登记与原生治理身份、评测目标和加密凭据关联；外部调用创建的智能体、连接任务和评测任务使用“外部接口”来源。登记更新后，已受理任务继续使用原目标与凭据版本。评测报告保存统一的 `risk_level`（安全、可疑、恶意或尚无判断），`risk_score` 保留评分详情；终态报告、用例、明细及待投递内容同时冻结。配置与调用见[智能体开放接口](external-agent-integration.md#智能体开放接口--agent-open-api)。
+
+**English:** Agent APIs support registration, updates, queries, connection verification, evaluation submission, progress, reports, cases and findings. Registrations link governance identities, scan targets and encrypted credentials. Externally created Agents and tasks carry External API provenance. Accepted tasks retain their target and credential revisions after registration updates. Reports freeze `risk_level` (benign, suspicious, malicious or null), the existing `risk_score`, cases, findings and pending delivery payloads. See [Agent Open API](external-agent-integration.md#智能体开放接口--agent-open-api).
+
+升级已有数据库时，启动迁移自动补齐开放接口字段、业务表及缺失索引；这部分 SQLite 迁移在同一事务内执行，失败后回滚，可在下一次启动重试。历史凭证的接入方为空、部门授权为空数组，历史来源保持原值。Registry 初始化创建扫描记录报告快照表，保留原有报告。第三批新增智能体登记、连接与评测任务、网关待投递记录三张表，保留已有 Skill 报告和回调记录。迁移回归见 `tests/test_external_access_migrations.py`，接口回归见 `tests/test_openapi_skills.py` 和 `tests/test_openapi_agents.py`。
+
+**English:** Startup upgrades add Open API columns, tables and missing indexes in one SQLite transaction, rolling back on failure for retry at the next startup. Existing credentials receive no partner or department grants; recorded provenance is preserved. Registry initialization creates the scan-run report table while retaining existing reports. Agent registration, external Agent jobs and pending gateway records use three additional tables; existing Skill reports and events are retained. Migration and API coverage are in `tests/test_external_access_migrations.py`, `tests/test_openapi_skills.py` and `tests/test_openapi_agents.py`.
+
 系统管理新增 [离线 License 授权](license.md)：导出部署申请、导入厂商签名授权、自动激活续期，
 按有效期、模块与注册客户端额度执行服务端限制。到期保留查看、导出及既有网关与防护；停止新增和扫描。
 页面支持中英文，具体配置、运行边界及人工验收清单见链接。
@@ -581,6 +652,8 @@ UI 验收 Todo（中英文）：检查预设/自定义编辑、行内修改、�
 
 会话列表默认通过元数据索引汇总当前设备的日志、消息和 Hook 数量，分页后只查找当前页会话的首条有效提问，避免为展示 20 个会话读取全部历史工具正文。关键词搜索仍按原有正文权限查询，保留完整会话计数；分页快照上限、过期过滤及正文访问审计保持有效。升级时自动添加索引，首次建索引耗时随历史数据量增长，不重写事件或清空队列。
 
+Codex 只有 Hook 的会话通过原生完成记录的专用索引，按设备、Agent 和会话 ID 检查补充证据，避免逐会话扫描设备的全部事件正文；仍按分页快照和有效期过滤，不改变原始 Hook 或执行状态证据。
+
 **English:** The default session list aggregates device metadata through indexes and resolves the first available question only for sessions on the selected page. Keyword searches retain content permissions and full-session counts. Snapshot ceilings, retention filters and content access auditing remain in effect. Upgrades add indexes once; index creation time depends on history size and does not rewrite events or clear queues.
 
 性能人工验收 / Performance checks：首次打开行为审计、刷新会话、Agent 筛选、提问关键词搜索、更多会话；核对加载提示、标题与各来源数量，并确认翻页期间新收到的提问不会混入旧快照。Check initial loading, refresh, Agent filtering, question search and pagination, including loading feedback, titles, counts and snapshot isolation.
@@ -927,6 +1000,15 @@ agent 接入时一般用：
   `aig-rule:<skill-name>`、Worker 阶段、实际目标调用数、确认 Finding 数和脱敏错误。`passed` 仅表示该规则
   正常完成、至少发生一次目标调用且本次未观察到关联风险；`unverified` 表示没有目标调用或缺少逐规则执行证据。
   对话 transcript 只保存在受控的 `aig-agent-scan-report` 产物中，不计入规则通过数。
+- 信息收集阶段的原始请求与响应会作为不可信证据传给检测和复核阶段，并保留调用阶段标识。
+  已发生的受保护内容披露不因后续拒绝或未复现而撤销；拒绝语句中实际包含受保护内容仍按披露评估。
+  应用明确保护的模拟标记与普通占位示例分别判断；模拟标记披露只说明该保密边界失效，不等同真实凭据泄露。
+- Agent 任务 API 可通过 `protected_output_markers` 声明已植入应用、禁止输出的模拟测试标记（最多 8 个，
+  每个 8～256 字符）。字段随任务选项加密保存，列表只返回数量；复扫配置指纹包含标记集合哈希。
+  标记不进入攻击 Prompt 或目标请求，Worker 独立执行区分大小写的完整字符串匹配，产生
+  `agent_output_marker` 用例和 `protected_marker_disclosure` Finding，证据与模型判定分别保留。
+  本次输入已含标记时排除回显，多轮模式同时排除本次任务此前输入包含的标记；无可判断响应或证据截断
+  保持未验证。该规则只检测配置的完整标记，不代表其他秘密、变体或编码泄露均已覆盖。当前通过 API 配置。
 - Finding 只通过 Worker 上下文生成的 opaque source reference 关联 detection skill；Reviewer 返回的引用必须能在
   Worker 持有的映射中解析，否则关联到独立的 `unmapped` 证据不足用例，不按标题或描述猜测来源。
 - 本行为只适用于新扫描。历史数据库记录和缺少 `detection_executions` 的旧报告不会自动重算，也不会展开成虚假
@@ -1719,6 +1801,18 @@ flowchart LR
 更详细的 agent 侧签名对接，见：
 - [agent-signature-verification.md](../docs/agent-signature-verification.md)
 
+### 详情中的内容指纹 / Content fingerprint in Skill details
+
+在 Skill 详情打开“检测报告 → 完整性校验”，内容指纹的存在性和预览均取当前版本的
+`content_fingerprint`。导入处理生成指纹后，待审核、已拒绝和已批准的版本均可展示；预览显示前
+24 个字符及省略号，空值或历史缺失字段显示“否”和“-”。数字签名在批准时生成，完整性校验操作依据
+`signature` 是否存在启用。
+
+**English:** Open Detection Report → Integrity Verification in Skill details. Fingerprint presence and preview use
+`content_fingerprint` from the selected version. Once import processing generates it, pending, rejected and approved
+versions can all display it. The preview shows the first 24 characters followed by an ellipsis; empty or missing values
+show “No” and “-”. Approval generates the digital signature, and the verification action is enabled when `signature` exists.
+
 ---
 
 ## 10. Sandbox 架构
@@ -2202,6 +2296,19 @@ Dify 资产清单另按以下顺序配置：创建 Dify 目标并填写 Console 
 
 只有扫描链路自检成功不能证明目标安全；MCP 元数据扫描不会调用 Tool；Agent 动态扫描也只对实际执行的
 用例和轮次负责。外部 Provider、生产网络和客户账号必须在验收环境单独实测。
+
+Agent 提示词注入、越权和工具滥用检测以应用权限契约及实际执行效果判定确认漏洞：应区分恶意输入、
+调用尝试、工具拒绝和成功越界。仅阅读或拒绝文档中的恶意指令，以及未产生越界效果的拒绝调用，
+不属于确认漏洞；未授权读取或写入需结合对象归属、审批要求、工具返回及状态变化核对。
+无审批的实际写入即使没有泄露文本仍可形成风险；回答中的拒绝措辞不抵消已发生的泄露或越权。
+缺少执行结果不代表安全，也不能据此确认攻击成功。
+
+Agent injection, authorization and tool-misuse checks assess the application contract against observed effects.
+Malicious input, attempted calls, denied operations and successful boundary violations are distinct outcomes.
+Reading or rejecting injected instructions, or a denied call without an unauthorized effect, is not a confirmed
+vulnerability. Unauthorized reads or writes require evidence of ownership, approval requirements, tool results
+or state changes. An unauthorized write remains a finding without text disclosure; refusal wording does not
+negate an actual disclosure or unauthorized action. Missing execution results establish neither safety nor success.
 
 #### 定时扫描、资产来源与风险评分
 
@@ -2884,3 +2991,17 @@ Pending work combines Skill reviews and unexpired MCP call approvals. Tabs show 
 Runtime counters use the UTC calendar day and the audit statuses `blocked` for models and `denied` for MCP. AIDR shows retained log / Hook records received in the past 24 hours and distinct reporting clients, with an “In testing” label. Records do not equal unique operations or enforcement coverage.
 
 The charts show 7 / 30 UTC calendar days of requests recorded in `LlmUsageMetric`, including zero-filled dates, and current Skill risk distribution by latest version. Unassessed or unknown risk remains separate. The page shows its refresh time, retains previous data with an explicit warning on refresh failure, and offers retry when initial loading fails.
+
+### Codex 跨轮次 Hook 与会话证据分类
+
+Codex 异步工具的结束 Hook 可能属于取回结果的轮次。客户端审计按唯一原生调用身份关联前后事件，将时间线归到发起轮次并保留原始轮次；重复身份仍标为不确定。只有 Hook 的会话显示原因未知，有正文权限时可根据明确的后台建议提示标记显示推断分类，不以 SessionEnd 或缺少日志推断删除或漏采。旧客户端和历史记录通过读取时处理兼容，无需重传。详见 [客户端说明](agent-manager-client.md#codex-异步结束事件与仅-hook-会话--async-completion-and-hook-only-sessions)。
+
+**English:** Codex asynchronous outcomes can report the turn that retrieves the final result. Client audit links unique native call evidence across turns, places the timeline under the initiating turn, and preserves original turn IDs. Ambiguous identities remain unresolved. Hook-only sessions show an unknown cause; authorized prompt content may support a background-suggestion inference. SessionEnd or missing logs alone does not establish deletion or collection loss. Read-time handling supports existing clients and historical records without re-upload.
+
+结束 Hook 缺失时，时间线和 Hook 详情可单独显示来自 Codex 原生完成记录或旧工具结果的执行状态、来源和记录 ID，仍保留缺失标记，不伪造结束 Hook。新采集能力通过协议协商启用并有界重读本地保留历史；身份不唯一时不补充。完成不等于业务成功。
+
+命令原生完成采集使用第二版协商，补充 `CommandExecution` 的宿主状态和可选退出码，包括 0；缺失退出码保持未知。第一版 MCP/图片采集、旧客户端及历史证据保持兼容。
+
+**English:** Missing end Hooks remain visible. Timelines and Hook details can separately show execution status and provenance from native Codex completion records or legacy tool results. Negotiated collection supports bounded replay of retained local history. Ambiguous identities remain unresolved; completion does not imply business success.
+
+Negotiated v2 completion collection adds the native `CommandExecution` status and optional exit code, including zero. Missing codes remain unknown. V1 MCP/image collection, older clients and retained evidence remain compatible.

@@ -151,6 +151,43 @@ def merge_many(db, source, records):
         for record, observation in group:
             merge(db, source, record, known=known, visible_through=record.id, related=related, observation=observation)
 
+    if source == 'log' and any(event.get('agent') == 'codex' for _, (_, event, _) in observations):
+        repair_codex_skill_projections(db, client_id)
+
+
+def repair_codex_skill_projections(db, client_id):
+    """Retire duplicate views, retaining their original evidence and checks."""
+    from .aidr_operations import _record_identity, corrected_codex_records
+    orphans = db.query(AidrSkillUse).filter_by(client_id=client_id, agent='codex', session_id='', expired_at=None).all()
+    candidates = []
+    for row in orphans:
+        data = json.loads(row.payload_json)
+        refs = data.get('evidence', [])
+        if data.get('identity_ambiguous') or len(refs) != 1 or refs[0]['source'] != 'log':
+            continue
+        original = db.query(AidrEvent).filter_by(id=int(refs[0]['id']), client_id=client_id, expired_at=None).first()
+        if original is None:
+            continue
+        event = json.loads(original.payload_json)
+        if _record_identity(event) is not None:
+            candidates.append((row, event))
+    if not candidates:
+        return 0
+    corrected = corrected_codex_records(db.connection(), client_id, {e['source_instance_id'] for _, e in candidates})
+    repaired = 0
+    for row, event in candidates:
+        matches = corrected.get(_record_identity(event), {})
+        if len(matches) != 1:
+            continue
+        replacement = next(iter(matches.values()))
+        target = db.query(AidrSkillUse).filter_by(client_id=client_id,
+            call_key=identity(client_id, replacement, 'log', 0), expired_at=None).first()
+        if target is None or json.loads(target.payload_json).get('identity_ambiguous'):
+            continue
+        row.expired_at = datetime.utcnow()
+        repaired += 1
+    return repaired
+
 
 def merge(db, source, record, *, known=None, visible_through=None, related=None, observation=None):
     raw, event, key = observation if observation is not None else _observation(source, record)

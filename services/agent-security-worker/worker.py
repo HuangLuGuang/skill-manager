@@ -202,6 +202,28 @@ def _complete_control_plane_validation(claim: dict[str, Any]) -> None:
     )
 
 
+def _run_connection_test(claim, key_pair, worker_id):
+    from connection_probe import probe
+    task_id, lease_token = claim["task"]["task_id"], claim["lease_token"]
+    credential = claim["credential"]
+    secret = decrypt_secret_envelope(credential["secret_envelope"], key_pair, worker_id=worker_id,
+        task_id=task_id, credential_id=credential["credential_id"])
+    usage = _control_plane_usage(claim["task"])
+    claim["last_usage"] = usage
+    if not _request(f"/worker/tasks/{task_id}/heartbeat", {"lease_token": lease_token, "usage": usage}).get("continue_allowed"):
+        return
+    timeout = max(1, min(10, int(claim.get("lease_seconds", 60)) // 2))
+    checks, code, size = probe(claim["target"], secret, timeout=timeout,
+                               max_bytes=min(65536, int(claim["policy"].get("max_response_bytes", 65536))))
+    usage["response_bytes"] += size
+    _request(f"/worker/tasks/{task_id}/complete", {
+        "lease_token": lease_token, "status": "succeeded" if code is None else "failed", "usage": usage,
+        "retryable": False, "error_code": code, "error_message": "Connection verification failed" if code else None,
+        "cases": [{"external_case_id": "openapi-connection", "category": "connection", "title": "OpenAI connection verification",
+                   "status": "passed" if code is None else "error", "round_count": 1, "response_summary": {"checks": checks}}],
+        "findings": [], "artifacts": [], "engine_name": "agent-manager-connection", "engine_version": "1"})
+
+
 def _evaluator_config(claim: dict[str, Any]) -> EvaluatorConfig:
     options = claim.get("scan_options") or {}
     return EvaluatorConfig(
@@ -261,10 +283,16 @@ def _run_agent_scan(claim: dict[str, Any], key_pair: WorkerKeyPair, worker_id: s
                 }
             previous = claim.get("last_usage") or initial_usage
             monotonic_usage = _monotonic_usage(previous, usage)
+            payload = {"lease_token": claim["lease_token"], "usage": monotonic_usage}
+            progress = claim.get("scan_progress")
+            if progress is not None and progress != claim.get("reported_scan_progress"):
+                payload["scan_progress"] = progress
             response = _request(
                 f"/worker/tasks/{claim['task']['task_id']}/heartbeat",
-                {"lease_token": claim["lease_token"], "usage": monotonic_usage},
+                payload,
             )
+            if "scan_progress" in payload:
+                claim["reported_scan_progress"] = progress
             _touch_health()
             claim["last_usage"] = monotonic_usage
             if not response.get("continue_allowed", False):
@@ -623,7 +651,9 @@ def run() -> int:
             _touch_health()
             if claim.get("task"):
                 try:
-                    if claim["task"]["scan_kind"] == "agent_risk_scan":
+                    if claim.get("target", {}).get("openapi_connection_test"):
+                        _run_connection_test(claim, key_pair, worker_id)
+                    elif claim["task"]["scan_kind"] == "agent_risk_scan":
                         _run_agent_scan(claim, key_pair, worker_id)
                     elif claim["task"]["scan_kind"] == "mcp_risk_scan":
                         _run_mcp_scan(claim)

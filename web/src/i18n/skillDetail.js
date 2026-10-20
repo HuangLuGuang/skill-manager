@@ -5,6 +5,8 @@ export const skillDetailMessages = {
     blockedPermission: '声明的权限 {permission} 命中了公司禁止权限列表：{blocked}。',
     reportLoadFailed: '检测报告加载失败，请重试。',
     retryReport: '重试',
+    fingerprintExists: '内容指纹是否存在',
+    fingerprintPreview: '内容指纹预览',
     sandboxErrorOutput: '错误输出',
     suppressed: {
       title: '已过滤噪声明细（{count}）',
@@ -69,6 +71,8 @@ export const skillDetailMessages = {
     blockedPermission: 'The declared permission {permission} matches the company blocked-permissions list: {blocked}.',
     reportLoadFailed: 'The detection report could not be loaded. Please retry.',
     retryReport: 'Retry',
+    fingerprintExists: 'Does the content fingerprint exist?',
+    fingerprintPreview: 'Content fingerprint preview',
     sandboxErrorOutput: 'Error output',
     suppressed: {
       title: 'Filtered noise details ({count})',

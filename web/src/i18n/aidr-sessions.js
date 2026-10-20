@@ -1,5 +1,11 @@
 export const sessionMessages = {
   'zh-CN': {
+    endHookMissing: '结束 Hook 缺失',
+    executionInferred: '身份关联为推断',
+    executionStates: { failed: '日志报告失败', completed: '日志报告完成', cancelled: '日志报告取消', result_returned: '已有工具返回 · 成败未知' },
+    executionSources: { codex: '证据：Codex 原生完成记录', log: '证据：Agent 日志工具结果' },
+    evidenceClass: { native_completion_present: '有原生完成证据', hook_only_unknown: '仅有 Hook · 原因未知', hook_only_suggestion_inferred: '仅有 Hook · 推测为后台建议' },
+    evidenceHelp: { native_completion_present: '已采集原生完成元数据；可在 Hook 时间线查看补充状态及来源。普通工具调用或结果日志仍可能缺失。', hook_only_unknown: '当前保留证据只有 Hook。不能据此判断漏采、临时会话或源会话已删除；需结合宿主记录核实。', hook_only_suggestion_inferred: '已采集提示包含 Codex 后台建议标记，推测为后台请求。未发现保留的会话日志；此分类不证明采集完整或源会话已删除。' },
     controlBlocked: '已拦截 · 客户端控制决定', controlRule: '命中规则：', controlDefault: '未命中规则，按默认决定拒绝',
     controlReasons: { rule: '平台策略拒绝', policyMissing: '客户端缺少有效策略', approvalUnsupported: '此 Agent 不支持所需审批', evidenceRequired: '审批需要开启审计采集' },
     contentDisplay: '正文显示方式', rendered: '渲染', source: '源文本',
@@ -47,6 +53,12 @@ export const sessionMessages = {
     permissionRequest: '请求权限', truncated: '部分内容已截断，展开查看已采集内容。',
   },
   'en-US': {
+    endHookMissing: 'End Hook missing',
+    executionInferred: 'Identity association inferred',
+    executionStates: { failed: 'Log reports failure', completed: 'Log reports completion', cancelled: 'Log reports cancellation', result_returned: 'Tool returned · Outcome unknown' },
+    executionSources: { codex: 'Evidence: Codex native completion record', log: 'Evidence: Agent log tool result' },
+    evidenceClass: { native_completion_present: 'Native completion evidence available', hook_only_unknown: 'Hooks only · Cause unknown', hook_only_suggestion_inferred: 'Hooks only · Background suggestion inferred' },
+    evidenceHelp: { native_completion_present: 'Native completion metadata is available in the Hook timeline. Ordinary tool call or result logs may still be missing.', hook_only_unknown: 'Retained evidence contains only Hooks. This alone does not establish missing collection, a temporary session, or source deletion. Verify against host records.', hook_only_suggestion_inferred: 'The captured prompt contains a Codex background suggestion marker. No retained session logs were found. This inference does not establish collection completeness or source deletion.' },
     controlBlocked: 'Blocked · client control decision', controlRule: 'Matched rule:', controlDefault: 'No rule matched; denied by default',
     controlReasons: { rule: 'Denied by platform policy', policyMissing: 'No valid policy on the client', approvalUnsupported: 'This Agent does not support the required approval', evidenceRequired: 'Approval requires audit collection' },
     contentDisplay: 'Content display', rendered: 'Rendered', source: 'Source',

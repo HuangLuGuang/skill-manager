@@ -33,6 +33,9 @@
         </a-tabs>
         <a-alert class="source-help" type="info" show-icon :message="$t(`agentIntegration.sources.${filters.origin}`)" />
         <div class="asset-toolbar">
+          <a-select v-model:value="filters.registration_source" allow-clear :placeholder="$t('externalAccess.registrationSource')" class="department-filter" @change="fetchAgentAssets">
+            <a-select-option v-for="source in ['console', 'external_api', 'client_discovery', 'unknown']" :key="source" :value="source">{{ $t(`externalAccess.sources.${source}`) }}</a-select-option>
+          </a-select>
           <a-select v-if="filters.origin !== 'client_discovery'" v-model:value="filters.department_group_id" allow-clear :placeholder="$t('legacy.1qbe72t')" class="department-filter" @change="fetchAgentAssets">
             <a-select-option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</a-select-option>
           </a-select>
@@ -49,7 +52,7 @@
           <a-button @click="resetFilters" :disabled="loading">{{ $t("legacy.1wq9feq") }}</a-button>
         </div>
 
-        <a-table class="agent-asset-table" :data-source="agents" :columns="columns" :show-sorter-tooltip="false" :scroll="{ x: 1480 }" rowKey="asset_key" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }">
+        <a-table class="agent-asset-table" :data-source="agents" :columns="columns" :show-sorter-tooltip="false" :scroll="{ x: 1680 }" rowKey="asset_key" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }">
           <template #headerCell="{ column }">
             <span v-if="column.sortHelp" class="asset-sort-heading">
               {{ column.title }}
@@ -78,6 +81,9 @@
             </template>
             <template v-else-if="column.key === 'source'">
               <a-tag :color="record.origin_type === 'platform' ? 'purple' : 'cyan'">{{ sourceText(record) }}</a-tag>
+            </template>
+            <template v-else-if="column.key === 'registration_source'">
+              <SourceAttribution :record="record" />
             </template>
             <template v-else-if="column.key === 'owner'">
               <div>{{ record.origin_type === 'client_discovery' ? ownerDepartmentText(record) : (record.department_name || $t('legacy.1bgs62s')) }}</div>
@@ -133,6 +139,7 @@
           <a-tag :color="selectedAsset.origin_type === 'platform' ? 'purple' : 'cyan'">{{ sourceText(selectedAsset) }}</a-tag>
           <span class="muted">{{ selectedAsset.agent_id }}</span>
         </div>
+        <div><span class="muted">{{ $t('externalAccess.registrationSource') }}</span><SourceAttribution :record="selectedAsset" details /></div>
         <template v-if="selectedAsset.origin_type === 'platform'">
           <a-row :gutter="[10, 10]" class="drawer-summary">
             <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.agentStatus') }}</span><strong>{{ statusText(selectedAsset.status) }}</strong></div></a-col>
@@ -317,6 +324,7 @@
 </template>
 
 <script setup>
+import SourceAttribution from '../components/SourceAttribution.vue'
 import { modelLabel } from '../utils/modelLabels'
 import { formatDateTime } from '../utils/format'
 import { can as hasAccess, pageAllowed } from '../access'
@@ -372,7 +380,7 @@ const externalModels = ref([])
 const externalCatalogInfo = ref(null)
 const preparingExternal = ref(false)
 const skills = ref([])
-const filters = reactive({ origin: ['platform', 'client_discovery'].includes(route.query.origin) ? route.query.origin : 'all', department_group_id: null, status: undefined, q: '' })
+const filters = reactive({ origin: ['platform', 'client_discovery'].includes(route.query.origin) ? route.query.origin : 'all', registration_source: undefined, department_group_id: null, status: undefined, q: String(route.query.q || '') })
 const sourceEmptyKey = computed(() => {
   if (assetsLoadFailed.value) return 'agentAssets.loadFailed'
   if (filters.q || filters.status || filters.department_group_id) return 'agentAssets.empty'
@@ -413,6 +421,7 @@ const assetDepartment = record => record.origin_type === 'client_discovery' ? ow
 const columns = computed(() => [
   { title: t('agentAssets.columns.agent'), key: 'agent', width: 210, sorter: (a, b) => compareAssetText(a.name, b.name) },
   { title: t('agentAssets.columns.source'), key: 'source', width: 170, sorter: (a, b) => Number(a.origin_type !== 'platform') - Number(b.origin_type !== 'platform') },
+  { title: t('externalAccess.registrationSource'), key: 'registration_source', width: 200 },
   { title: t('agentAssets.columns.owner'), key: 'owner', width: 180, sorter: (a, b) => compareAssetText(assetDepartment(a), assetDepartment(b)) || compareAssetText(a.owner, b.owner) },
   { title: t('agentAssets.columns.location'), key: 'location', width: 220, sorter: (a, b) => compareAssetText(a.instances?.[0]?.client_name, b.instances?.[0]?.client_name) },
   { title: t('agentAssets.columns.assets'), key: 'assets', width: 220, sorter: (a, b) => assetSkillCount(a) - assetSkillCount(b), sortHelp: 'agentAssets.sorting.assets' },
@@ -519,6 +528,7 @@ const fetchAgentAssets = async () => {
   assetsLoadFailed.value = false
   try {
     const result = await listAgentAssets({
+      registration_source: filters.registration_source || undefined,
       origin: filters.origin === 'all' ? undefined : filters.origin,
       department_group_id: filters.department_group_id || undefined,
       status: filters.status || undefined,

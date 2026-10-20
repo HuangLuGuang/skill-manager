@@ -45,7 +45,16 @@ const explain = code => code ? localizeApiError({ code }, locale.value) : '—'
 const columns = computed(() => [['name', 'scanSchedule.name', 190], ['target', 'agentSecurityScans.tasks.target', 160], ['timing', 'scanSchedule.frequency', 170], ['enabled', 'agentSecurityScans.status', 100], ['next', 'scanSchedule.next', 180], ['last', 'scanSchedule.last', 150], ['actions', 'assetLifecycle.actions', 350]].map(([key, label, width]) => ({ key, dataIndex: key, title: t(label), width })))
 const runColumns = computed(() => [['created_at', 'assetLifecycle.assessedAt', 190], ['status', 'agentSecurityScans.status', 140], ['error_code', 'assetLifecycle.error', 240], ['task_id', 'agentSecurityScans.detail.task', 240]].map(([key, label, width]) => ({ key, dataIndex: key, title: t(label), width })))
 const fail = e => { error.value = e.response?.data?.detail || t('assetLifecycle.failed'); message.error(error.value) }
-async function load() { if (loading.value) return; loading.value = true; try { rows.value = await listScanSchedules(); emit('count', rows.value.length); error.value = '' } catch(e) { fail(e) } finally { loading.value = false } }
+let loadPending = null
+let loaded = false
+function load() {
+  if (loadPending) return loadPending
+  loading.value = true
+  loadPending = listScanSchedules().then(result => {
+    rows.value = result; emit('count', rows.value.length); error.value = ''; loaded = true
+  }).catch(fail).finally(() => { loading.value = false; loadPending = null })
+  return loadPending
+}
 async function showRuns(row) { selected.value = row; historyOpen.value = true; try { runs.value = await listScanScheduleRuns(row.schedule_id) } catch(e) { fail(e) } }
 async function mutate(row, action) { if (busy.value) return; busy.value = row.schedule_id; try { await action(); await load(); if(historyOpen.value) await showRuns(row) } catch(e) { fail(e) } finally { busy.value = '' } }
 let pendingReport = null
@@ -63,7 +72,7 @@ const remove = row => mutate(row, async () => { await deleteScanSchedule(row.sch
 let timer
 onMounted(() => { load(); timer = setInterval(async () => { await load(); if (historyOpen.value && selected.value) await showRuns(selected.value) }, 10000) })
 onUnmounted(() => clearInterval(timer))
-defineExpose({ load, open: async id => { await load(); const row = rows.value.find(x => x.schedule_id === id); if (row) await showRuns(row) } })
+defineExpose({ load, open: async id => { if (!loaded) await load(); const row = rows.value.find(x => x.schedule_id === id); if (row) await showRuns(row) } })
 </script>
 <style scoped>
 .schedule-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; } small { display: block; color: #667085; overflow-wrap: anywhere; }

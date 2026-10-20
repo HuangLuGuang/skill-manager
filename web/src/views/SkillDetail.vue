@@ -729,8 +729,9 @@
 
         <a-tab-pane key="signature" :tab="$t('legacy.y6whtf')">
           <a-descriptions :column="1" size="small" bordered>
-            <a-descriptions-item :label="$t('legacy.s9rtfe')">{{ detail?.signature ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
-            <a-descriptions-item :label="$t('legacy.14ju5sj')">{{ detail?.signature ? `${detail.signature.slice(0, 24)}...` : '-' }}</a-descriptions-item>
+            <!-- 内容指纹在导入时生成，展示使用当前版本的指纹字段。 -->
+            <a-descriptions-item :label="$t('skillDetail.fingerprintExists')">{{ detail?.content_fingerprint ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
+            <a-descriptions-item :label="$t('skillDetail.fingerprintPreview')">{{ detail?.content_fingerprint ? `${detail.content_fingerprint.slice(0, 24)}...` : '-' }}</a-descriptions-item>
             <a-descriptions-item :label="$t('legacy.1a9csig')">{{ signatureResult ? (signatureResult.valid ? $t('legacy.j666m6') : $t('legacy.12db3qz')) : $t('legacy.39zt54') }}</a-descriptions-item>
           </a-descriptions>
         </a-tab-pane>
@@ -1510,6 +1511,7 @@ const fetchDetail = async () => {
   const requestId = ++detailRequestId
   ++scanReportRequestId
   scanReportError.value = false
+  loadedTabs.clear()
   ++diffRequestId
   loadedDiffKey = ''
   pendingDiffKey = ''
@@ -1532,19 +1534,10 @@ const fetchDetail = async () => {
     const data = await getSkillDetail(skillId.value)
     if (requestId !== detailRequestId) return
     detail.value = data
-    const versionId = data.version_id || skillId.value
     signatureResult.value = null
     loading.value = false
     await Promise.allSettled([
-      loadDetailResource(() => getAudit({ skill_id: versionId, since_hours: 720, limit: 50 }),
-        result => { auditRows.value = Array.isArray(result) ? result : [] }, loadingAudit),
       fetchScanReport(),
-      loadDetailResource(() => getSkillContent(versionId),
-        result => { skillContent.value = result || null }, loadingContent),
-      loadDetailResource(() => getSkillFiles(versionId),
-        result => { skillFiles.value = result?.files || [] }, loadingFiles),
-      loadDetailResource(() => getSkillGovernanceCard(versionId),
-        result => { governanceCard.value = result || null }, loadingGovernanceCard),
       loadDetailResource(() => getSkillVersions(data.skill_id),
         result => { skillVersions.value = result?.items || []; initializeVersionDiff() }, loadingVersions),
     ])
@@ -1621,22 +1614,34 @@ const fetchScanReport = async () => {
 }
 
 const fetchSkillContent = async () => {
-  if (!detail.value) return
+  if (!detail.value || loadingContent.value) return
   return loadDetailResource(() => getSkillContent(currentVersionId.value),
-    result => { skillContent.value = result || null }, loadingContent, phrase('legacy.1iff97n'))
+    result => { skillContent.value = result || null; loadedTabs.add('content') }, loadingContent, phrase('legacy.1iff97n'))
 }
 
 const fetchSkillFiles = async () => {
-  if (!detail.value) return
+  if (!detail.value || loadingFiles.value) return
   return loadDetailResource(() => getSkillFiles(currentVersionId.value),
-    result => { skillFiles.value = result?.files || [] }, loadingFiles, phrase('legacy.1rirokg'))
+    result => { skillFiles.value = result?.files || []; loadedTabs.add('files') }, loadingFiles, phrase('legacy.1rirokg'))
 }
 
 const fetchGovernanceCard = async () => {
-  if (!detail.value) return
+  if (!detail.value || loadingGovernanceCard.value) return
   return loadDetailResource(() => getSkillGovernanceCard(currentVersionId.value),
-    result => { governanceCard.value = result || null }, loadingGovernanceCard, phrase('legacy.82xq4f'))
+    result => { governanceCard.value = result || null; loadedTabs.add('governance-card') }, loadingGovernanceCard, phrase('legacy.82xq4f'))
 }
+
+const loadedTabs = new Set()
+watch(() => [activeTab.value, detail.value?.version_id, detail.value?.skill_id], () => {
+  if (!detail.value || loadedTabs.has(activeTab.value)) return
+  if (activeTab.value === 'content') void fetchSkillContent()
+  else if (activeTab.value === 'files') void fetchSkillFiles()
+  else if (activeTab.value === 'governance-card') void fetchGovernanceCard()
+  else if (activeTab.value === 'audit' && !loadingAudit.value) {
+    void loadDetailResource(() => getAudit({ skill_id: currentVersionId.value, since_hours: 720, limit: 50 }),
+      result => { auditRows.value = Array.isArray(result) ? result : []; loadedTabs.add('audit') }, loadingAudit, phrase('legacy.qrrlus'))
+  }
+})
 
 const handleRefreshGovernanceCard = async () => {
   if (!detail.value) return
@@ -2583,6 +2588,7 @@ const originLabel = (value) => ({
   unknown: phrase('legacy.1lpnuh4'),
 }[value] || value || '-')
 const sourceChannelLabel = (value) => ({
+  external_api: t('externalAccess.sources.external_api'),
   scanner: phrase('legacy.7ucd4c'),
   agent_manager_client: 'Agent Manager Client',
   upload_zip: phrase('legacy.17o43lg'),

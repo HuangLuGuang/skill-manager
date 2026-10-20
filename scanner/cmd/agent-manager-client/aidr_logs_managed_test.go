@@ -222,3 +222,21 @@ func TestAutomaticLogExplicitRetryIsBoundAndConsumedOnce(t *testing.T) {
 		t.Fatal("expired retry accepted")
 	}
 }
+
+func TestLogResumeSinceIncludesDowntime(t *testing.T) {
+	now := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+	for _, item := range []struct {
+		ack  string
+		want time.Time
+	}{
+		{"", now.Add(-24 * time.Hour)},
+		{"invalid", now.Add(-24 * time.Hour)},
+		{now.Add(time.Hour).Format(time.RFC3339), now.Add(-24 * time.Hour)},
+		{now.Add(-time.Hour).Format(time.RFC3339), now.Add(-24 * time.Hour)},
+		{now.Add(-6 * 24 * time.Hour).Format(time.RFC3339), now.Add(-6 * 24 * time.Hour)},
+	} {
+		if got := logResumeSince(now, item.ack); !got.Equal(item.want) {
+			t.Fatalf("ack=%s got=%s want=%s", item.ack, got, item.want)
+		}
+	}
+}

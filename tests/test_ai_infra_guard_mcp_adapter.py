@@ -263,6 +263,10 @@ def test_locked_upstream_mcp_scan_contract_is_vendored():
     vendor_base = WORKER_DIR / "vendor/ai-infra-guard"
     assert verify_vendor_tree.tree_sha256(vendor_base / "agent-scan") == expected_trees["agent-scan"]
     assert verify_vendor_tree.tree_sha256(vendor_base / "mcp-scan") == expected_trees["mcp-scan"]
+    for item in lock["integrations"]["ai_infra_guard"]["reuse"]:
+        for modification in item["local_modifications"]:
+            path = Path(item["vendored_path"]) / modification["path"]
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == modification["sha256"], str(path)
 
 
 def test_empty_mcp_gateway_cannot_create_a_false_negative_scan(p3_api):

@@ -656,3 +656,106 @@ func TestSIGKILLRecoveryBoundaries(t *testing.T) {
 		})
 	}
 }
+
+func TestCodexMetadataRepairKeepsOriginalEvidence(t *testing.T) {
+	data, err := os.ReadFile("../agentlog/testdata/codex-0.160.1.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := strings.IndexByte(string(data), '\n') + 1
+	metadata := "{\"timestamp\":\"2026-09-23T01:00:00Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"additional_tools\",\"tools\":[]}}\n"
+	body := string(data[:start]) + metadata + string(data[start:])
+	file := source(t, body)
+	src, err := agentlog.NewSource("codex", file.Root, file.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := &agentlog.AuditPolicy{MessageSchema: 1, Enabled: true, Version: "2", Receipt: strings.Repeat("a", 32), Capture: &agentlog.CaptureScope{Prompt: true, ModelResponse: true, ToolOutput: true}}
+	batch, err := agentlog.ReadWithPolicy(testContext, src, agentlog.Cursor{}, agentlog.DefaultBudget(), time.Unix(0, 0), policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var old []agentlog.Event
+	for _, e := range batch.Events {
+		if e.Kind == "tool_call" || e.Kind == "tool_result" {
+			e.SessionID = ""
+			e.LogicalEventID = hash([]byte("old" + e.LogicalEventID))
+			e.LogicalCallID = hash([]byte("old" + e.LogicalCallID))
+			old = append(old, e)
+		}
+	}
+	batch.Events = old
+	batch.Cursor.Session = ""
+	batch.Cursor.ContextRepairVersion = 3
+	encoded, _ := json.Marshal(metadata)
+	batch.Cursor.RecoveryGaps = []agentlog.Gap{{Start: int64(start), End: int64(start + len(metadata)), Reason: "aidr_log_context_invalidated", EvidenceDigest: hash(append(encoded, 0))}}
+	store := openStore(t, tempDir(t), DefaultLimits())
+	store.policy = policy
+	previous, err := store.Checkpoint(testContext, src.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Commit(testContext, previous, batch); err != nil {
+		t.Fatal(err)
+	}
+	budget := agentlog.DefaultBudget()
+	budget.Events = 1
+	for i := 0; i < 10; i++ {
+		checkpoint, err := store.Collect(testContext, src, budget, time.Unix(0, 0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if checkpoint.Cursor.ContextRepairVersion == 5 {
+			break
+		}
+	}
+	var count int
+	if err := store.db.QueryRow(`SELECT count(*) FROM logical_events`).Scan(&count); err != nil || count != 7 {
+		t.Fatalf("expected 2 original and 5 recovered events: %d %v", count, err)
+	}
+	for _, e := range old {
+		var raw string
+		if err := store.db.QueryRow(`SELECT payload FROM logical_events WHERE id=?`, e.LogicalEventID).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var kept agentlog.Event
+		json.Unmarshal([]byte(raw), &kept)
+		if kept.SessionID != "" {
+			t.Fatal("rewrote original evidence")
+		}
+	}
+	if _, err := store.Collect(testContext, src, budget, time.Unix(0, 0)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIntakeSinceSurvivesRestartAndNewAcknowledgement(t *testing.T) {
+	dir := tempDir(t)
+	s := openStore(t, dir, DefaultLimits())
+	start := time.Now().UTC().Add(-72 * time.Hour)
+	got, err := s.IntakeSince(testContext, start)
+	if err != nil || !got.Equal(start) {
+		t.Fatal(got, err)
+	}
+	if _, err = s.db.Exec(`INSERT INTO metadata(key,value) VALUES('last_ack_at',?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s = openStore(t, dir, DefaultLimits())
+	got, err = s.IntakeSince(testContext, time.Now().Add(-24*time.Hour))
+	if err != nil || !got.Equal(start) {
+		t.Fatal("restart moved intake floor", got, err)
+	}
+	// A file discovered after restart still admits events from the interruption.
+	body := strings.ReplaceAll(lines(1), "2026-09-23T01:00:00Z", start.Add(time.Hour).Format(time.RFC3339Nano))
+	src := source(t, body)
+	if _, err = s.Collect(testContext, src, agentlog.DefaultBudget(), got); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err = s.db.QueryRow(`SELECT count(*) FROM logical_events`).Scan(&n); err != nil || n != 1 {
+		t.Fatal("lost late-discovered file", n, err)
+	}
+}

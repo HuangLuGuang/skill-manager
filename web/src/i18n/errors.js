@@ -47,6 +47,7 @@ const errorMessages = {
   'mcp_scan.tokens_limit_reached': { 'zh-CN': '已达到最大 Token 用量，扫描尚未完成。请提高扫描策略中的 Token 上限后重试。', 'en-US': 'The token limit has been reached and the scan is incomplete. Increase the token limit in the scan policy and retry.' },
   'mcp_scan.response_bytes_limit_reached': { 'zh-CN': '已达到响应数据量上限，扫描尚未完成。请提高扫描策略中的响应数据量上限后重试。', 'en-US': 'The response size limit has been reached and the scan is incomplete. Increase the response size limit in the scan policy and retry.' },
   'agent_security.retry_status_invalid': { 'zh-CN': '只有失败或超时的扫描任务可以重试。', 'en-US': 'Only failed or timed-out scans can be retried.' },
+  'agent_security.output_markers_agent_only': { 'zh-CN': '受保护输出标记仅适用于智能体动态扫描。', 'en-US': 'Protected output markers apply only to Agent dynamic scans.' },
   'mcp_scan.engine_terminated': { 'zh-CN': 'MCP 扫描进程意外退出，未生成完整报告。请联系管理员检查扫描服务的运行环境和资源状态，修复后重新发起扫描。', 'en-US': 'The MCP scan process exited unexpectedly without a complete report. Ask an administrator to check the scan service environment and resources, then start a new scan after the issue is fixed.' },
   'mcp_scan.engine_failed': { 'zh-CN': 'MCP 扫描执行失败，请检查模型连通性和工具调用证据。', 'en-US': 'MCP scan execution failed. Check model connectivity and tool-call evidence.' },
   'mcp_scan.engine_terminated': { 'zh-CN': 'MCP 扫描进程已终止，请检查 Worker 资源和健康状态。', 'en-US': 'The MCP scan process terminated. Check Worker resources and health.' },

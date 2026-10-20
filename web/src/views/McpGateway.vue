@@ -205,7 +205,7 @@
 import { can as hasAccess } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
@@ -343,25 +343,28 @@ const healthColor = value => ({ healthy: 'green', unhealthy: 'red', unknown: 'de
 const formatTime = formatDateTime
 const gatewayToolNames = gateway => (gateway.bindings || []).flatMap(binding => binding.allowed_tools.map(name => `${binding.server_slug}__${name}`))
 
+let listSequence = 0
 const fetchAll = async () => {
-  if (loading.value) return
+  const sequence = ++listSequence
+  const page = activePage.value
   loading.value = true
   try {
-    const [serverRows, gatewayRows, audits, options] = await Promise.all([
-      listMcpServers(), listMcpGateways(), listMcpAudit({ limit: 200 }), getMcpServerOptions(),
-    ])
-    serverAllowHttp.value = options.allow_http
-    servers.value = serverRows || []
-    gateways.value = gatewayRows || []
-    auditRows.value = audits || []
+    const rows = await (page === 'servers' ? listMcpServers() : page === 'gateways' ? listMcpGateways() : listMcpAudit({ limit: 200 }))
+    if (sequence !== listSequence) return
+    if (page === 'servers') servers.value = rows || []
+    else if (page === 'gateways') gateways.value = rows || []
+    else auditRows.value = rows || []
   } catch (error) {
+    if (sequence !== listSequence) return
     message.error(error.response?.data?.detail || phrase('legacy.1qi24x1'))
   } finally {
-    loading.value = false
+    if (sequence === listSequence) loading.value = false
   }
 }
 
-const openServer = record => {
+let serverOptionsPending = false
+const openServer = async record => {
+  if (serverOptionsPending) return
   editingServerId.value = record?.id || null
   Object.assign(serverForm, {
     slug: record?.slug || '', name: record?.name || '', description: record?.description || '', endpoint: record?.endpoint || '',
@@ -374,6 +377,11 @@ const openServer = record => {
   remoteServerErrors.value = {}
   remoteServerValues.value = {}
   serverVisible.value = true
+  serverAllowHttp.value = null
+  serverOptionsPending = true
+  try { serverAllowHttp.value = (await getMcpServerOptions()).allow_http }
+  catch (error) { message.error(error.response?.data?.detail || phrase('legacy.1qi24x1')) }
+  finally { serverOptionsPending = false }
 }
 
 const testServerForm = async () => {
@@ -482,7 +490,14 @@ const removeServer = async record => {
   finally { actionId.value = null }
 }
 
-const openGateway = record => {
+let gatewayOptionsPending = false
+const openGateway = async record => {
+  if (gatewayOptionsPending) return
+  gatewayOptionsPending = true
+  try { servers.value = await listMcpServers() || [] }
+  catch (error) { message.error(error.response?.data?.detail || phrase('legacy.1qi24x1')); return }
+  finally { gatewayOptionsPending = false }
+  if (activePage.value !== 'gateways') return
   editingGatewayId.value = record?.id || null
   Object.assign(gatewayForm, {
     slug: record?.slug || '', name: record?.name || '', description: record?.description || '', environment: record?.environment || 'test', execution_mode: record?.execution_mode || 'active_safe', production_tool_denylist: [...(record?.production_tool_denylist || [])], status: record?.status || 'active',
@@ -541,7 +556,13 @@ const copy = async value => {
     promptManualCopy(value, t('clipboard.manualCopyPrompt'))
   }
 }
-onMounted(fetchAll)
+watch(activePage, () => {
+  serverVisible.value = false
+  gatewayVisible.value = false
+  toolPolicyVisible.value = false
+  fetchAll()
+}, { immediate: true })
+onUnmounted(() => { listSequence++ })
 watch(() => [...gatewayForm.tools], () => {
   const selected = new Set(selectedGatewayToolOptions.value.map(tool => tool.exposed_name))
   gatewayForm.production_tool_denylist = gatewayForm.production_tool_denylist.filter(name => selected.has(name))

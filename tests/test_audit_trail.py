@@ -1,9 +1,11 @@
 """Federated audit visibility, evidence semantics and pagination contracts."""
 import json
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import event
 
 from agent_manager.core.models import AuditEvent
 from agent_manager.core.registry import Registry
@@ -31,6 +33,12 @@ def audit(tmp_path):
 
 def get(client, **params):
     response = client.get('/api/v1/audit-trail', params={'days':0, **params})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def get_options(client):
+    response = client.get('/api/v1/audit-trail/options')
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -78,20 +86,67 @@ def test_permissions_and_client_ownership_apply_before_counts_and_options(audit)
     with next(client.app.dependency_overrides[get_db]()) as db:
         db.add_all([iam_models.RolePermission(role_name='viewer', permission_code=code)
                     for code in ['skills:view', 'clients:view']])
-        db.add_all([models.ClientEvent(client_id=cid, event_type='client_registered') for cid in ['own','other']])
+        db.add_all([models.ClientEvent(client_id=cid, event_type='client_registered', agent_type=cid) for cid in ['own','other']])
         db.add_all([security(), iam_models.ManagementAudit(actor='admin', module='agents', action='delete', target='secret-agent')])
         db.commit()
     registry.log_event(AuditEvent(event_id='mirror', event_type='skill_load_blocked', skill_id='s', skill_name='mirror', details={'source':'managed_client', 'agent_id':'secret-agent'}))
+    registry.log_event(AuditEvent(event_id='client-event-mirror', event_type='skill_load_blocked', skill_id='s', skill_name='mirror', details={'agent_id':'secret-agent'}))
     client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(username='admin', role='viewer', is_active=True)
     data = get(client)
     assert data['total'] == 1
     assert data['items'][0]['client_id'] == 'own'
-    assert data['clients'] == [{'value':'own','name':'own'}]
-    assert data['agents'] == []
+    options = get_options(client)
+    assert options['clients'] == [{'value':'own','name':'own'}]
+    assert options['agents'] == [{'value':'local:own','name':'own','kind':'local'}]
     assert 'security' not in data['sources'] and 'management' not in data['sources']
     assert get(client, client_id='other')['total'] == 0
     client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(username='admin', role='empty', is_active=True)
     assert client.get('/api/v1/audit-trail').status_code == 403
+    assert client.get('/api/v1/audit-trail/options').status_code == 403
+
+
+def test_list_and_options_use_independent_queries(audit, monkeypatch):
+    client, registry = audit
+    old = datetime.utcnow() - timedelta(days=20)
+    with next(client.app.dependency_overrides[get_db]()) as db:
+        db.add(models.ClientEvent(client_id='own', event_type='client_registered', agent_type='codex', created_at=old))
+        db.commit()
+        engine = db.get_bind()
+    registry.log_event(AuditEvent(event_id='old', event_type='skill_submitted', skill_id='s', skill_name='s',
+                                 timestamp=old, details={'agent_id':'historical-agent'}))
+    statements = []
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement.upper())
+    original = registry._read_connection
+    @contextmanager
+    def traced_connection():
+        with original() as conn:
+            conn.set_trace_callback(lambda statement: statements.append(statement.upper()))
+            try:
+                yield conn
+            finally:
+                conn.set_trace_callback(None)
+    monkeypatch.setattr(registry, '_read_connection', traced_connection)
+    event.listen(engine, 'before_cursor_execute', capture)
+    try:
+        for order in ['asc', 'desc']:
+            for page in [1, 2]:
+                data = get(client, page=page, page_size=1, order=order)
+                assert data['total'] == 2
+                assert not {'agents', 'clients', 'categories', 'results'} & data.keys()
+        assert not any('SELECT DISTINCT' in statement for statement in statements)
+        assert get(client, days=7)['total'] == 0
+        statements.clear()
+        options = get_options(client)
+        assert {row['value'] for row in options['agents']} == {'local:codex', 'platform:historical-agent'}
+        assert options['clients'] == [{'value':'own', 'name':'own'}]
+        assert any('SELECT DISTINCT' in statement for statement in statements)
+        assert not any('COUNT(' in statement for statement in statements)
+        registry.log_event(AuditEvent(event_id='new', event_type='skill_submitted', skill_id='s', skill_name='s',
+                                     details={'agent_id':'new-agent'}))
+        assert 'platform:new-agent' in {row['value'] for row in get_options(client)['agents']}
+    finally:
+        event.remove(engine, 'before_cursor_execute', capture)
 
 
 @pytest.mark.parametrize('order', ['asc','desc'])
@@ -183,12 +238,15 @@ def test_agent_name_search_and_links_require_visible_asset(audit):
     data = get(client, q='Operations assistant')
     assert data['total'] == 2
     assert all(row['agent_name'] == 'Operations assistant' and row['can_view_agent'] for row in data['items'])
+    assert get_options(client)['agents'] == [{'value':'platform:agent-one', 'name':'Operations assistant', 'kind':'platform'}]
     with next(client.app.dependency_overrides[get_db]()) as db:
         db.add_all([iam_models.RolePermission(role_name='audit-reader', permission_code=code)
                     for code in ['skills:view', 'audit:security']]); db.commit()
     client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(username='admin', role='audit-reader', is_active=True)
     assert get(client, q='Operations assistant')['total'] == 0
     assert all(not row['can_view_agent'] and row['agent_name'] == '' for row in get(client)['items'])
+    assert get_options(client)['agents'] == [{'value':'platform:agent-one', 'name':'agent-one', 'kind':'platform'}]
+    assert get_options(client)['clients'] == []
 
 
 def test_default_legacy_menu_name_migrates_without_overwriting_custom_title(audit):
