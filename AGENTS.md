@@ -271,3 +271,5 @@ make sandbox-runtime-build
 - Skill 详情命中 `blocked_permission` 时，红色拒绝说明使用 `skillDetail.blockedPermission`，按“声明的权限 {permission} 命中了公司禁止权限列表：{blocked}。”展示；列表读取本次报告 `risk_reconciliation.policy_snapshot.blocked_permissions`，以逗号和空格连接，历史缺失显示“未记录 / Not recorded”。拒绝摘要直接展示原因，权限原文及实际阻断行为保持。
 
 - 深度扫描 PDF 发现项复用噪声过滤及 `pdf_file` 原因编码，详情复用 `skillDetail.suppressed.reasons.pdf_file` 双语资源，PDF 明细隐藏行号但保留报告原值，其他文件行号展示保持现有行为；全部发现项为 PDF 或位图噪声时有效严重度为 SAFE，剩余有效发现项继续参与判定，原始报告保留；历史明细补齐按规则编码、文件和行号排除已记录的有效发现，保留原计数、风险和存储。
+
+- MCP Server 编辑时鉴权留空，保存前测试按 server_id 复用已保存凭证，Endpoint 的查询参数、路径或地址变化均与保存后发现一致；地址变化且复用非空已存凭证时通过 `iam.check` 校验 `mcp:update`，在调用上游前拒绝无编辑权限的请求；显式测试凭证仅用于本次请求，测试不写回配置。独立临时测试使用请求自身凭证。

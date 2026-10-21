@@ -16,7 +16,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from .. import auth, models, schemas
+from .. import auth, iam, models, schemas
 from ..api_errors import ApiError
 from ..agent_mcp import ensure_agent_mcp_scope
 from ..config import settings
@@ -1133,7 +1133,11 @@ async def list_audit(limit: int = 100, db: Session = Depends(get_db)):
 
 
 @admin_router.post("/debug/upstream")
-async def debug_upstream(body: schemas.McpUpstreamDebugRequest, db: Session = Depends(get_db)):
+async def debug_upstream(
+    body: schemas.McpUpstreamDebugRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
     stored = None
     if body.server_id is not None:
         stored = db.query(models.McpServer).filter(models.McpServer.id == body.server_id).first()
@@ -1143,12 +1147,15 @@ async def debug_upstream(body: schemas.McpUpstreamDebugRequest, db: Session = De
         raise HTTPException(status_code=400, detail="请填写 MCP Endpoint")
 
     endpoint = _validate_endpoint(body.endpoint or stored.endpoint)
-    same_endpoint = bool(stored and endpoint == stored.endpoint)
     header = _validate_header(body.authorization_header or (stored.authorization_header if stored else "Authorization"))
     if body.authorization_value is not None:
         protected_secret = _protect_secret(body.authorization_value) if body.authorization_value else None
     else:
-        protected_secret = stored.authorization_value if same_endpoint else None
+        # 编辑时沿用已保存凭证，与保存后连接发现的处理保持一致。
+        protected_secret = stored.authorization_value if stored else None
+        if protected_secret and endpoint != stored.endpoint:
+            # 将已存凭证用于新地址属于编辑操作，执行权限不能代替编辑授权。
+            iam.check(db, current_user, "mcp:update")
 
     transient = models.McpServer(
         slug=stored.slug if stored else "debug",
