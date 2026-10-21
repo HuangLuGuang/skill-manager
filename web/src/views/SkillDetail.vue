@@ -403,8 +403,14 @@
                                 <div style="width: 100%">
                                   <a-space wrap>
                                     <a-tag :color="severityColor(item.severity)">{{ item.severity || '-' }}</a-tag>
-                                    <a-tag color="default">{{ item.rule || item.rule_id || '-' }}</a-tag>
-                                    <strong>{{ findingTitle(item) }}</strong>
+                                    <!-- 编号与帮助共用标签，换行时仍保持明确关联。 -->
+                                    <a-tag color="default" class="deep-rule-tag">
+                                      {{ item.rule || item.rule_id || '-' }}
+                                      <a-tooltip v-if="deepRuleHelp(item)" :title="deepRuleHelp(item)" :trigger="['hover', 'focus']">
+                                        <span tabindex="0" class="deep-rule-help"><QuestionCircleOutlined /></span>
+                                      </a-tooltip>
+                                    </a-tag>
+                                    <strong>{{ deepFindingText(item, 'title') }}</strong>
                                     <a-button
                                       v-if="item.file"
                                       type="link"
@@ -421,10 +427,11 @@
                                     {{ text('行号', 'Lines') }}: {{ formatAggregateLines(item.aggregate_lines) }}
                                   </div>
                                   <div v-if="item.message || item.explanation" style="margin-top: 6px">
-                                    {{ deepScanText(bilingualText(item.message || item.explanation)) }}
+                                    <div style="white-space: pre-wrap; overflow-wrap: anywhere">{{ deepFindingDescription(item) }}</div>
+                                    <div v-if="deepFindingExtraExplanation(item)" style="white-space: pre-wrap; overflow-wrap: anywhere">{{ deepFindingExtraExplanation(item) }}</div>
                                   </div>
-                                  <div v-if="item.remediation" style="margin-top: 6px; color: #8c8c8c">
-                                    {{ text('建议', 'Recommendation') }}: {{ deepScanText(bilingualText(item.remediation)) }}
+                                  <div v-if="item.remediation" style="margin-top: 6px; color: #8c8c8c; white-space: pre-wrap; overflow-wrap: anywhere">
+                                    {{ text('建议', 'Recommendation') }}: {{ deepFindingText(item, 'remediation') }}
                                   </div>
                                 </div>
                               </a-list-item>
@@ -444,8 +451,9 @@
                       :type="sandboxRiskAlertType"
                       show-icon
                       :message="text(`风险等级：${sandboxDisplayRiskLevel} / 最高严重级别：${sandboxDisplayMaxSeverity}`, `Risk Level: ${sandboxDisplayRiskLevel} / Maximum Severity: ${sandboxDisplayMaxSeverity}`)"
-                      :description="sandboxDisplaySummary"
-                    />
+                    >
+                      <template #description><span class="sandbox-reason">{{ sandboxDisplaySummary }}</span></template>
+                    </a-alert>
                     <a-list
                       v-if="sandboxSignals.length"
                       style="margin-top: 12px"
@@ -459,18 +467,12 @@
                           <div style="width: 100%">
                             <a-space wrap>
                               <a-tag :color="severityColor(item.severity)">{{ item.severity }}</a-tag>
-                              <a-tag color="default">{{ bilingualText(item.category) }}</a-tag>
-                              <strong>{{ bilingualText(item.message) }}</strong>
+                              <a-tag color="default">{{ sandboxCategory(item.category) }}</a-tag>
+                              <strong class="sandbox-reason">{{ sandboxText(item, 'message') }}</strong>
                             </a-space>
                             <div v-if="item.evidence" class="evidence-box">
                               <div class="evidence-title">{{ $t("legacy.1kyo8cx") }}</div>
-                              <div
-                                v-for="line in sandboxEvidenceLines(item.evidence)"
-                                :key="line"
-                                class="evidence-line"
-                              >
-                                {{ line }}
-                              </div>
+                              <pre class="sandbox-error-output">{{ item.evidence }}</pre>
                             </div>
                           </div>
                         </a-list-item>
@@ -519,10 +521,10 @@
                             <pre v-if="sandboxAnalysis.stderr" class="sandbox-error-output">{{ sandboxAnalysis.stderr }}</pre>
                           </a-descriptions-item>
                           <a-descriptions-item v-if="sandboxAnalysis.reason" :label="$t('legacy.1mi4vdj')" :span="2">
-                            {{ platformResultText(sandboxAnalysis.reason) }}
+                            <span class="sandbox-reason">{{ sandboxReasonText(sandboxAnalysis) }}</span>
                           </a-descriptions-item>
                           <a-descriptions-item v-if="sandboxAnalysis.recommendation" :label="$t('legacy.1qgeq0p')" :span="2">
-                            {{ platformResultText(sandboxAnalysis.recommendation) }}
+                            <span class="sandbox-reason">{{ sandboxText(sandboxAnalysis, 'recommendation') }}</span>
                           </a-descriptions-item>
                         </a-descriptions>
                         <a-list
@@ -538,18 +540,12 @@
                               <div style="width: 100%">
                                 <a-space wrap>
                                   <a-tag :color="severityColor(item.severity)">{{ item.severity || 'INFO' }}</a-tag>
-                                  <a-tag color="default">{{ bilingualText(item.category) }}</a-tag>
-                                  <strong>{{ bilingualText(item.message) }}</strong>
+                                  <a-tag color="default">{{ sandboxCategory(item.category) }}</a-tag>
+                                  <strong class="sandbox-reason">{{ sandboxText(item, 'message') }}</strong>
                                 </a-space>
                                 <div v-if="item.evidence" class="evidence-box">
                                   <div class="evidence-title">{{ $t("legacy.1kyo8cx") }}</div>
-                                  <div
-                                    v-for="line in sandboxEvidenceLines(item.evidence)"
-                                    :key="line"
-                                    class="evidence-line"
-                                  >
-                                    {{ line }}
-                                  </div>
+                                  <pre class="sandbox-error-output">{{ item.evidence }}</pre>
                                 </div>
                               </div>
                             </a-list-item>
@@ -574,7 +570,7 @@
                             <template v-if="column.key === 'probe'">
                               <a-space direction="vertical" size="small">
                                 <strong><SandboxDebugHelp field="probe" :value="record.probe_name" /></strong>
-                                <span class="muted"><SandboxDebugHelp field="description" :value="record.probe_description || '-'" /></span>
+                                <span class="muted sandbox-reason"><SandboxDebugHelp field="description" :value="sandboxText(record, 'probe_description') || '-'" /></span>
                               </a-space>
                             </template>
                             <template v-else-if="column.key === 'entrypoint'">
@@ -622,7 +618,7 @@
                             <pre v-if="record.stderr" class="sandbox-error-output">{{ record.stderr }}</pre>
                           </a-descriptions-item>
                           <a-descriptions-item :label="$t('legacy.1suldox')" :span="2">
-                            {{ sandboxProbeResultText(record) }}
+                            <span class="sandbox-reason">{{ sandboxProbeResultText(record) }}</span>
                           </a-descriptions-item>
                         </a-descriptions>
                         <a-alert
@@ -1135,7 +1131,7 @@ import SkillDecisionFlow from '../components/SkillDecisionFlow.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { CheckCircleOutlined, ExclamationCircleOutlined, SafetyOutlined, SwapOutlined, WarningOutlined } from '@ant-design/icons-vue'
+import { CheckCircleOutlined, ExclamationCircleOutlined, QuestionCircleOutlined, SafetyOutlined, SwapOutlined, WarningOutlined } from '@ant-design/icons-vue'
 import { marked } from 'marked'
 
 import {
@@ -1165,6 +1161,7 @@ import { analysisState, formatLlmFailureReason, llmFailureReason } from '../util
 import { translateDomain } from '../i18n'
 import { legacyKey, legacyMessages } from '../i18n/legacy'
 import { useLocaleText } from '../i18n/useLocaleText'
+import { skillDetailMessages } from '../i18n/skillDetail'
 import AttackChainGraph from '../components/AttackChainGraph.vue'
 import SandboxDebugHelp from '../components/SandboxDebugHelp.vue'
 
@@ -1909,6 +1906,9 @@ const aggregateFindingKey = (item) => [
   item?.title || '',
   item?.message || item?.finding || '',
   item?.file || item?.file_path || '',
+  // 深度扫描同编号可能有不同原因和建议，分别保留，避免聚合后只显示第一条。
+  item?.source === 'skillspector' ? item?.explanation || '' : '',
+  item?.source === 'skillspector' ? item?.remediation || '' : '',
 ].map(value => String(value || '').trim().toLowerCase()).join('|')
 const aggregateFindings = (items) => {
   const map = new Map()
@@ -2113,6 +2113,33 @@ const manualApprovalSummary = computed(() => {
   return admissionBlockedSummary.value
 })
 const skillspectorAnalysis = computed(() => scanReport.value?.skillspector_analysis || null)
+const deepRuleResources = computed(() => skillDetailMessages[isEnglish.value ? 'en-US' : 'zh-CN'].deepRules)
+const deepRuleHelp = (item) => {
+  const rule = item?.display?.rule
+  const code = rule === 'TP2' ? 'TP2_help' : `${rule}_explanation`
+  return Object.hasOwn(deepRuleResources.value, code) ? t(`skillDetail.deepRules.${code}`) : ''
+}
+const deepFindingText = (item, field) => {
+  const metadata = item?.display?.[field]
+  // 只渲染明确存在的语义资源；原始证据及未知文案不经过 legacy 翻译。
+  if (metadata?.code && typeof deepRuleResources.value[metadata.code] === 'string') {
+    const params = { ...metadata.params }
+    for (const [name, code] of Object.entries(metadata.param_codes || {})) {
+      if (typeof deepRuleResources.value[code] === 'string') params[name] = t(`skillDetail.deepRules.${code}`)
+    }
+    return t(`skillDetail.deepRules.${metadata.code}`, params)
+  }
+  return item?.[field] ?? (field === 'title' ? item?.pattern || item?.message || '-' : '')
+}
+const deepFindingDescription = (item) => {
+  const rule = item.rule || item.rule_id
+  return deepFindingText(item, item.explanation && (!item.message || item.message === rule) ? 'explanation' : 'message')
+}
+const deepFindingExtraExplanation = (item) => {
+  if (!item.explanation || !item.message || item.message === (item.rule || item.rule_id)) return ''
+  const explanation = deepFindingText(item, 'explanation')
+  return explanation === deepFindingDescription(item) ? '' : explanation
+}
 const skillspectorSuppressedFindings = computed(() => skillspectorAnalysis.value?.suppressed_findings || [])
 const skillspectorFindings = computed(() => {
   const findings = skillspectorAnalysis.value?.findings
@@ -2165,8 +2192,12 @@ const sandboxDisplaySummary = computed(() => {
       'Sandbox found no explicit runtime risk signals. Only environment or Probe diagnostics were recorded; review the debugging details.',
     )
   }
+  // 未执行摘要复用原因时，沿用相同编码翻译，避免顶部与调试区语言不一致。
+  if (sandboxAnalysis.value.summary && sandboxAnalysis.value.summary === sandboxAnalysis.value.reason) {
+    return sandboxReasonText(sandboxAnalysis.value)
+  }
   return sandboxAnalysis.value.summary
-    ? platformResultText(sandboxAnalysis.value.summary)
+    ? sandboxText(sandboxAnalysis.value, 'summary')
     : text('Sandbox 未发现明确风险信号。', 'Sandbox found no explicit risk signals.')
 })
 const missingProbeInputPattern = /(cannot open\s+[^:\n]+:\s+No such file|No such file or directory)/i
@@ -2198,7 +2229,7 @@ const sandboxProbeResults = computed(() => {
   return [{
     key: 'representative',
     probe_name: 'representative',
-    probe_description: sandboxAnalysis.value.reason || text('代表性 Sandbox 执行结果', 'Representative Sandbox Result'),
+    probe_description: sandboxReasonText(sandboxAnalysis.value) || text('代表性 Sandbox 执行结果', 'Representative Sandbox Result'),
     probe_entrypoint: sandboxAnalysis.value.entrypoint || '',
     probe_args: Array.isArray(sandboxAnalysis.value.probe_args) ? sandboxAnalysis.value.probe_args : [],
     probe_generated_by: 'summary',
@@ -2210,8 +2241,13 @@ const sandboxProbeResults = computed(() => {
     duration_ms: sandboxAnalysis.value.duration_ms,
     network_attempts: sandboxAnalysis.value.network_attempts,
     reason: sandboxAnalysis.value.reason,
+    reason_code: sandboxAnalysis.value.reason_code,
+    reason_params: sandboxAnalysis.value.reason_params,
     summary: sandboxAnalysis.value.summary,
+    summary_code: sandboxAnalysis.value.summary_code,
+    summary_params: sandboxAnalysis.value.summary_params,
     recommendation: sandboxAnalysis.value.recommendation,
+    recommendation_code: sandboxAnalysis.value.recommendation_code,
     max_severity: sandboxAnalysis.value.max_severity,
     risk_level: sandboxAnalysis.value.risk_level,
   }]
@@ -2309,16 +2345,47 @@ const formatSandboxCommand = (record) => {
   return [prefix, entrypoint, ...args].filter(Boolean).join(' ')
 }
 
-const sandboxEvidenceLines = (evidence) => {
-  const text = String(evidence || '').trim()
-  if (!text) return []
-  return text
-    .replace(/；/g, '\n')
-    .split('\n')
-    .map((line) => platformResultText(line.trim()))
-    .filter(Boolean)
-}
+const sandboxCategory = (value) => Object.hasOwn(skillDetailMessages['en-US'].sandboxText.categories, value)
+  ? t(`skillDetail.sandboxText.categories.${value}`) : value
 
+const sandboxText = (record, field) => {
+  const code = record?.[`${field}_code`]
+  const resources = skillDetailMessages['en-US'].sandboxText
+  // 固定模板使用编码；参数中的未知类别及自定义报告内容保留原文。
+  if (code && Object.hasOwn(resources[field] || {}, code)) {
+    const params = { ...(record[`${field}_params`] || {}) }
+    const label = (group, value) => Object.hasOwn(resources[group], value)
+      ? t(`skillDetail.sandboxText.${group}.${value}`) : value
+    if (Array.isArray(params.categories)) {
+      params.categories = params.categories.map(value => label('categories', value)).join(text('、', ', '))
+    }
+    if (params.strategy) params.strategy = label('strategies', params.strategy)
+    return t(`skillDetail.sandboxText.${field}.${code}`, params)
+  }
+  return record?.[field] ?? ''
+}
+const sandboxReasonText = (record) => {
+  const code = record?.reason_code
+  const params = record?.reason_params || {}
+  if (code === 'remote_request_failed'
+    && Object.hasOwn(skillDetailMessages['en-US'].sandboxHttpErrors, params.http_error_type)) {
+    const detail = t('skillDetail.sandboxHttpErrors.response', {
+      kind: t(`skillDetail.sandboxHttpErrors.${params.http_error_type}`),
+      status: params.http_status,
+      url: params.http_url,
+    })
+    const redirect = params.http_redirect_url !== undefined
+      ? `\n${t('skillDetail.sandboxHttpErrors.redirectLocation', { url: params.http_redirect_url })}` : ''
+    return t('skillDetail.sandboxReasons.remote_request_failed', {
+      detail: `${detail}${redirect}\n${t('skillDetail.sandboxHttpErrors.moreInformation', { url: params.http_info_url })}`,
+    })
+  }
+  // 只翻译资源声明的原因编码；动态上游详情和未知说明保留原文。
+  if (code && Object.hasOwn(skillDetailMessages['en-US'].sandboxReasons, code)) {
+    return t(`skillDetail.sandboxReasons.${code}`, record.reason_params || {})
+  }
+  return record?.reason || ''
+}
 const sandboxProbeResultText = (record) => {
   if (isSandboxProbeInputMissing(record)) {
     return text(
@@ -2326,11 +2393,12 @@ const sandboxProbeResultText = (record) => {
       'The Probe referenced a missing sample input file. This result mainly indicates incomplete test parameters and should not be treated as a security risk on its own.',
     )
   }
+  // 仅跳过缺失或空字符串，保留上游原文中的纯空白说明。
   const parts = [
-    record?.summary,
-    record?.reason,
-    record?.recommendation,
-  ].filter((item) => String(item || '').trim())
+    record?.summary && record.summary !== record.reason ? sandboxText(record, 'summary') : '',
+    sandboxReasonText(record),
+    sandboxText(record, 'recommendation'),
+  ].filter((item) => item != null && item !== '')
   if (parts.length) return parts.join(text('；', '; '))
   if (record?.timed_out) return text('执行超时，建议检查 probe 参数或执行环境限制。', 'Execution timed out. Check Probe parameters and runtime limits.')
   if (record?.exit_code != null && record.exit_code !== 0) return text('脚本以非零退出码结束，建议结合规则扫描和风险信号判断。', 'The script exited with a non-zero code. Review it together with rule findings and runtime signals.')
@@ -2724,6 +2792,9 @@ watch(
 </script>
 
 <style scoped>
+.deep-rule-tag { display: inline-flex; align-items: center; gap: 4px; }
+.deep-rule-help { display: inline-flex; align-items: center; }
+
 /* LLM 分析报告 Markdown 样式 - 使用 :deep() 穿透 scoped */
 .llm-explanation {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
@@ -3232,6 +3303,11 @@ watch(
   border-radius: 8px;
 }
 
+.sandbox-reason {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .sandbox-error-output {
   margin: 0;
   max-height: 280px;
@@ -3256,12 +3332,6 @@ watch(
   font-weight: 600;
 }
 
-.evidence-line {
-  font-family: monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
 
 .finding-section {
   margin-bottom: 12px;

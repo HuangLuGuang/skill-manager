@@ -709,7 +709,7 @@ def test_list_exposes_analyzer_results_independently_of_final_risk(registry):
     assert result["analysis_results"] == {
         "rule": {"status": "completed", "findings_count": 1},
         "skillspector": {"status": "completed", "risk_level": "SAFE"},
-        "sandbox": {"status": "skipped", "risk_level": None},
+        "sandbox": {"status": "skipped", "risk_level": None, "executed": False},
         "llm": {"status": "completed", "risk_level": "benign"},
     }
     entry.vetting.scan_report["analyzer_timings"]["llm"]["status"] = "failed"

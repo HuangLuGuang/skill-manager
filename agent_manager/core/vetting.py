@@ -35,6 +35,8 @@ from .sandbox import (
     build_probe_plan,
     discover_probe_entrypoint,
     get_sandbox_runner,
+    sandbox_reason_metadata,
+    with_sandbox_reason_metadata,
 )
 from .skillspector import run_skillspector_scan
 from .text_reader import read_text_fallback
@@ -612,6 +614,7 @@ def _run_sandbox_analysis(skill_path: Path) -> SandboxExecution:
                     "runtime": runtime,
                     "available": True,
                     "reason_code": "no_executable_script",
+                    "reason_params": {},
                     "reason": (
                         "No supported executable script found. "
                         "SKILL.md command examples are not executed as Sandbox probes."
@@ -665,6 +668,8 @@ def _run_sandbox_analysis(skill_path: Path) -> SandboxExecution:
             "probe_results": [result_payload],
             "llm_probe_plan": None,
         })
+        # 新保存的报告与历史读取共用展示元数据，不改变判定依据。
+        sandbox_result = with_sandbox_reason_metadata(sandbox_result)
         notes = []
         if sandbox_exec.executed:
             notes.append(
@@ -692,6 +697,7 @@ def _run_sandbox_analysis(skill_path: Path) -> SandboxExecution:
                 "available": False,
                 "entrypoint": entrypoint,
                 "reason": f"Sandbox analysis skipped: {exc}",
+                **sandbox_reason_metadata(f"Sandbox analysis skipped: {exc}"),
             },
             notes=[f"[SANDBOX] analysis skipped: {exc}"],
         )

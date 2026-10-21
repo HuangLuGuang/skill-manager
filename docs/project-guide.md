@@ -344,6 +344,9 @@ LLM 分析生成详细的安全报告，如果是恶意skill，还会生成攻�
 - Scanner 的 `--llm` 是请求开关；系统关闭 AI 分析时，上传和其他检测继续，报告以 `analyzer_timings.llm.status=disabled`、`reason=llm_analysis_disabled` 记录本次未调用模型。列表及版本摘要显示“未启用”，详情显示原因说明；系统开启后的缺配置或真实调用异常仍为失败。既有报告保留本次记录，不随当前开关改变；重新检测生成新的实际状态。
 - The Scanner `--llm` flag requests analysis. If AI analysis is disabled on the server, uploads and other checks continue, and the report records `disabled` with reason `llm_analysis_disabled`. The list, detail and version summary show the recorded state. Configuration or model request errors while enabled remain failures. Existing reports retain their historical state; rescan to apply new settings.
 
+- Skill 列表 Sandbox 的“仅已执行 / Executed only”按当前版本保存报告的 `sandbox_analysis.executed=true` 筛选，排除已跳过、缺少执行字段或没有报告的记录；退出非零、执行超时和缺少风险值不改变实际已执行的事实。历史报告明确已执行但未保存检测状态时，列表读取时补齐状态；风险缺失显示“已执行 / Executed”。选择后回到第一页，可与关键词、状态和风险组合；重置或切回“全部 Sandbox”取消限制，“仅策略强制”仍按策略要求筛选。
+- API 的可选参数 `sandbox_executed` 在分页和非分页列表均按各条记录对应版本的报告判断；旧 `sandbox_triggered` 参数保持原检测安排语义。分页计数与查询通过 `idx_skill_scan_reports_sandbox_executed` 覆盖索引获取已执行版本集合，避免逐条解析报告。SQLite 自动维护报告更新和删除对应的索引项。服务首次升级启动时幂等创建索引，会读取已有报告并短暂占用写锁；报告内容和表字段保持原样，后续启动复用索引，Docker 数据卷和启动方式不变。
+- The Sandbox “Executed only” filter uses `sandbox_analysis.executed=true` from the displayed version’s saved report. Skipped or missing execution records are excluded; nonzero exit codes, execution timeouts and missing risk values still count as executed. Historical execution evidence fills a missing list status at read time without changing stored reports. Select “All Sandbox” or reset to clear the filter. The optional `sandbox_executed` API parameter applies the same execution rule to paginated and non-paginated records; the existing `sandbox_triggered` parameter keeps its scheduling meaning. Paginated counts and queries use a covering index of execution evidence and version IDs, maintained by SQLite on report updates and deletion. The first upgraded startup creates the index by reading existing reports and briefly holding a write lock. Later startups reuse it. Report contents, table columns, Docker volumes and startup commands remain compatible.
 - Skill 列表搜索与审核队列一致：输入或清空关键词后停止操作 300 毫秒自动查询全部分页数据，回到第一页并清除当前页勾选，保留状态、风险及 Sandbox 筛选条件。连续输入合并查询，点击“查询”或按 Enter 可立即查询；刷新、重置或切换筛选条件会取消待执行的延迟查询，离开页面时清理定时器。
 - 是否复用只在“策略配置”全局控制，提交页和客户端不再提供单次“禁用缓存”。
 - 如需重新检测，在 Skill 详情的版本列表中点击“重新检测”。重扫会新增 Scan Run，不会创建内容版本；重扫完成前或重扫失败时，上一份可信结果继续有效。
@@ -389,6 +392,7 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 - MCP 服务表单通过受管理面权限保护的 `GET /api/v1/mcp/servers/options` 读取当前 `allow_http`。Endpoint悬浮说明及即时协议校验按该值展示HTTPS或HTTP/HTTPS要求，与后端 `MCP_ALLOW_HTTP` 一致；配置加载时显示读取中提示。
 - MCP 服务表单按字段展示中英文错误及悬浮要求（状态不增加说明）。名称、唯一标识及鉴权 Header 最多128字符，Endpoint 最多1024字符，鉴权值最多4096字符，描述最多2000个Unicode字符（含空格和换行）；超时1–300秒，最大响应1–10240 KB，默认值保持30秒及1024 KB。鉴权值须为可打印ASCII字符；Bearer格式为 `Bearer + 空格 + Token`。名称、标识、Endpoint和Header名称保存时去除首尾空白。
 - 字段校验由 `backend/mcp_validation.py`、MCP请求schema及前端 `web/src/utils/mcpServerForm.js` 完成；稳定错误码 `mcp.server.invalid_fields` 的 `error_params.errors` 仅包含字段、原因编码及限制参数，鉴权值不进入错误响应。新增、编辑与保存前测试使用相应规则；测试仅检查实际参与请求的字段。首次输入某字段后即实时展示该字段错误，修正后即时清除；新打开的空表单不提前显示必填错误。数值使用原有数字输入框及上下箭头样式，步长为1。超长与非法数值草稿保留并显示错误，可修正后重试。编辑按原始草稿识别变更字段并校验，通过后再转换请求数值，鉴权值留空保留原值；混合校验错误使用通用错误码，仅返回错误位置和类型，不包含原始输入。未修改的历史字段保持兼容，不修改历史数据，无需数据库迁移。
+- 编辑 MCP Server 时，鉴权值留空，保存前测试使用该 Server 已保存的凭证，包括修改 Endpoint 的查询参数、路径或地址，与保存后连接发现一致。测试接口要求 `mcp:execute`；当 Endpoint 变化且复用非空的已存凭证时，还需 `mcp:update`，权限不足使用现有 `iam.permission_denied` 返回403，并在发送上游请求前拒绝。输入新凭证时仅临时用于测试，测试不会写入配置；独立临时测试使用本次输入的凭证。使用方式：修改 Endpoint 后保持鉴权值留空，点击保存前测试连接，成功后保存并连接发现。无需数据库迁移，Docker 部署更新后端镜像即可。
 - 连接发现与保存前测试的 HTTP 错误使用稳定 `mcp.connection_failed.http_status` / `mcp.debug_failed.http_status` 编码，后端提供双语消息，前端通过 `web/src/i18n/errors.js` 按界面语言展示固定说明（中文为“更多信息请参阅”）；状态码、URL 和上游原始原因保持原文，无需数据库迁移。遇到 405 时检查 Endpoint 是否为支持 POST 的 MCP 地址。
 - `能力治理 / MCP 网关` 把多个 Server 的部分 Tool 组合为 `/mcp/{gateway_slug}`。网关环境与执行模式标签旁提供中英文悬浮说明，逐项解释用途、调用限制和生产边界；环境不自动准备隔离资源或切换上游凭据，需事先准备并绑定对应服务。
 - `能力治理 / MCP 调用审批` 接收真实高风险调用产生的待办；管理员查看脱敏参数后批准或拒绝该 Token 对指定网关、Tool 和 Schema 的限时调用权限，查看原始参数会写入安全审计。
@@ -1662,6 +1666,18 @@ behavioral 分析主要扫文本代码文件，优先：
 - `subprocess(..., shell=True)`
 - 下载后执行
 - 敏感文件访问
+
+### 深度扫描发现项的双语展示
+
+Skill 详情的“扫描结果 → 深度扫描”保留规则编号以便核对，同时提供可读标题、规则悬浮解释及该条命中的说明和建议。编号和问号在同一标签内相邻显示，换行时保持整体，支持悬浮或键盘聚焦查看解释。编号正文不会遮住报告已经记录的实际解释。TP2 的形似字符、文字方向控制、不可见格式字符和混合文字系统分别展示自己的原因及建议；同编号的本地分析器输出单独识别。
+
+固定模板按来源、规则及完整文本识别。`agent_manager/core/deep_scan_catalog.json` 保存当前已支持的模板，`deep_scan_display.py` 为新报告及历史读取响应补齐语言无关的 `display` 元数据，`web/src/i18n/deepScan.js` 通过 `skillDetail.deepRules` 提供简体中文和英文。当前基线依据 SkillSpector `a5092dd` 的默认规则目录及实际分析器分支，包含 64 个默认规则；新增模板时须同步语义资源。运行时不依赖扫描器源码目录，也不调用翻译服务。
+
+文件路径、包名、标识符、字符编码、代码及证据保留原文。自由生成的分析或未识别文本同样保留原文，不用默认建议替换本条实际建议，也不进入 legacy 哈希翻译。历史报告无需重新扫描，读取时仅补响应，不回写存储。翻译不影响严重度、风险分、推荐结论、策略分类和最终判定，无数据库迁移或额外部署配置。
+
+固定说明和建议忠实翻译 SkillSpector 返回内容：英文沿用来源模板，中文准确表达术语、可能性和数量边界。TP2 通用解释中的编码列表按原文保留；“文本方向控制字符可改变文字的显示顺序”描述该类字符的作用。该说明随界面语言渲染，已有报告刷新页面即可使用校正后的译文。
+
+验证命令：`python -m pytest tests/test_deep_scan_display.py tests/test_skillspector_integration.py -q`；资源契约检查：`node --test tests/deep_scan_i18n.test.mjs`（先安装 web 依赖）。前端继续执行 `npm run test:i18n` 和 `npm run build`。人工核验关注中英文切换、规则帮助、长文本换行及原始文件查看；完整 Skill 须通过前端上传后生成实际扫描结果。
 
 ### 7.3 LLM
 

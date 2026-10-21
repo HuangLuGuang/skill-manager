@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 import httpx
@@ -106,11 +106,165 @@ class SandboxResult(BaseModel):
     network_attempts: int = 0
     processes_spawned: int = 0
     reason: str | None = None
+    reason_code: str | None = None
+    reason_params: dict[str, str] = Field(default_factory=dict)
     max_severity: str = "SAFE"
     risk_level: str = "LOW"
     summary: str = "Sandbox 未发现明确风险信号。"
     recommendation: str = "可结合规则分析和深度分析结果继续评估。"
     signals: list[SandboxEvent] = Field(default_factory=list)
+
+
+_SANDBOX_REASON_CODES = {
+    "executed by nsjail backend": "executed_nsjail",
+    "executed by subprocess backend": "executed_subprocess",
+    "execution timed out": "execution_timeout",
+    "success": "remote_processed",
+    "backend unavailable": "backend_unavailable",
+    "probe_strategy=default": "probe_default",
+    "probe_strategy=custom": "probe_custom",
+    "Sandbox probe timed out": "probe_timeout",
+    "Docker is not available on this host": "docker_unavailable",
+    "Remote sandbox service URL is not configured": "remote_url_missing",
+    "Remote sandbox returned an unsupported response shape": "remote_response_invalid",
+    "Executed by remote isolated sandbox service": "executed_remote",
+    "No supported executable script found. "
+    "SKILL.md command examples are not executed as Sandbox probes.": "no_executable_script",
+}
+_SANDBOX_REASON_PREFIXES = (
+    ("Unsupported sandbox runtime: ", "runtime_unsupported", "runtime"),
+    ("Unsupported sandbox entrypoint type: ", "entrypoint_unsupported", "suffix"),
+    ("Unsupported remote sandbox entrypoint type: ", "remote_entrypoint_unsupported", "suffix"),
+    ("Remote sandbox request failed: ", "remote_request_failed", "detail"),
+    ("Remote sandbox rejected execution: ", "remote_rejected", "detail"),
+    ("Sandbox analysis skipped: ", "analysis_skipped", "detail"),
+)
+
+
+def _sandbox_http_error_params(detail: str) -> dict[str, str]:
+    """Extract HTTPX's fixed template without translating upstream data."""
+    match = re.fullmatch(
+        r"(?P<kind>Informational response|Redirect response|Client error|Server error|Invalid status code) "
+        r"'(?P<status>(?P<code>\d{3}) [^'\n]*)' for url '(?P<url>[^'\n]+)'\n"
+        r"(?:Redirect location: '(?P<redirect>[^'\n]*)'\n)?"
+        r"For more information check: (?P<info>https://developer\.mozilla\.org/en-US/docs/Web/HTTP/Status/(?P=code))",
+        detail,
+    )
+    if not match:
+        return {}
+    kinds = {
+        "Informational response": "informational", "Redirect response": "redirect",
+        "Client error": "client", "Server error": "server", "Invalid status code": "invalid",
+    }
+    params = {
+        "http_error_type": kinds[match["kind"]], "http_status": match["status"],
+        "http_url": match["url"], "http_info_url": match["info"],
+    }
+    if match["redirect"] is not None:
+        params["http_redirect_url"] = match["redirect"]
+    return params
+
+
+def sandbox_reason_metadata(reason: str | None) -> dict[str, Any]:
+    """Identify platform messages while preserving upstream diagnostic text."""
+    # 新报告与历史响应共用已知模板，动态错误只拆出平台前缀。
+    if not isinstance(reason, str):
+        return {}
+    if code := _SANDBOX_REASON_CODES.get(reason):
+        return {"reason_code": code, "reason_params": {}}
+    unavailable = re.fullmatch(
+        r"(Remote sandbox rejected execution: )?(nsjail|subprocess) backend is not available",
+        reason,
+    )
+    if unavailable:
+        return {
+            "reason_code": "remote_backend_unavailable" if unavailable[1] else "named_backend_unavailable",
+            "reason_params": {"backend": unavailable[2]},
+        }
+    for prefix, code, parameter in _SANDBOX_REASON_PREFIXES:
+        if reason.startswith(prefix):
+            detail = reason[len(prefix):]
+            params = {parameter: detail}
+            if code == "remote_request_failed":
+                params.update(_sandbox_http_error_params(detail))
+            return {"reason_code": code, "reason_params": params}
+    return {}
+
+
+# 新报告与历史响应共用固定文案编码，原始文本及上游证据保持不变。
+_SANDBOX_DISPLAY_CODES = {
+    "message": {
+        "检测到网络访问尝试或网络相关错误输出。": "network_activity",
+        "Sandbox 拦截了写入或特权文件访问行为。": "filesystem_access",
+        "Sandbox probe 引用了不存在的示例输入文件，当前结果主要反映 probe 参数不完整。": "missing_probe_input",
+        "执行超时，脚本可能存在阻塞、死循环或资源消耗异常。": "execution_timeout",
+        "Sandbox probe exceeded the configured timeout.": "local_timeout",
+        "Remote sandbox probe exceeded the configured timeout or was terminated.": "remote_timeout",
+    },
+    "summary": {
+        "Sandbox 未执行。": "not_executed",
+        "Sandbox 未发现明确风险信号。": "no_signals",
+        "Sandbox 已执行，未提取到明确运行时风险信号。": "executed_clean",
+        "Sandbox probe 未能完整执行：引用的示例输入文件不存在。": "missing_input",
+    },
+    "recommendation": {
+        "先确认 Sandbox 后端可用性，再结合规则分析和深度分析结果继续评估。": "check_backend",
+        "可结合规则分析、深度分析和 LLM 分析结果综合判断。": "combine_all",
+        "可结合规则分析和深度分析结果继续评估。": "combine_static",
+        "这通常不是 Skill 的安全行为，可补充真实测试输入后重新执行 Sandbox，或结合规则分析和深度分析结果继续判断。": "supply_input",
+        "建议进入人工审核或直接拒绝，避免直接部署。": "manual_review",
+        "建议结合其他扫描结果进一步确认后再决定是否批准。": "confirm_findings",
+        "建议排查失败原因或依赖问题，再重新执行 sandbox 验证。": "retry_execution",
+    },
+}
+
+
+def _sandbox_display_metadata(record: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    for field, codes in _SANDBOX_DISPLAY_CODES.items():
+        value = record.get(field)
+        if not record.get(f"{field}_code") and isinstance(value, str) and value in codes:
+            metadata[f"{field}_code"] = codes[value]
+    if not record.get("summary_code") and isinstance(record.get("summary"), str):
+        match = re.fullmatch(r"Sandbox 执行中检测到 (\d+) 个风险信号，主要涉及 (.+)。", record["summary"])
+        if match:
+            metadata.update(summary_code="risk_signals", summary_params={
+                "count": int(match[1]), "categories": match[2].split("、"),
+            })
+    if not record.get("probe_description_code") and isinstance(record.get("probe_description"), str):
+        match = re.fullmatch(r"default sandbox probe strategy=(default|cli-help)", record["probe_description"])
+        if match:
+            metadata.update(probe_description_code="default_probe", probe_description_params={"strategy": match[1]})
+    return metadata
+
+
+def _with_sandbox_record_reason(analysis: dict[str, Any]) -> dict[str, Any]:
+    enriched = {**analysis, **_sandbox_display_metadata(analysis)}
+    if not analysis.get("reason_code"):
+        enriched.update(sandbox_reason_metadata(analysis.get("reason")))
+    elif analysis.get("reason_code") == "remote_request_failed":
+        # 已编码历史报告同样补齐 HTTP 固定模板参数，原编码和原始详情保留。
+        params = analysis.get("reason_params") or {}
+        if isinstance(params.get("detail"), str):
+            enriched["reason_params"] = {**_sandbox_http_error_params(params["detail"]), **params}
+    return enriched
+
+
+def with_sandbox_reason_metadata(analysis: dict[str, Any]) -> dict[str, Any]:
+    """Enrich one report response without modifying its stored values."""
+    enriched = _with_sandbox_record_reason(analysis)
+    if isinstance(analysis.get("probe_results"), list):
+        enriched["probe_results"] = [
+            with_sandbox_reason_metadata(probe) if isinstance(probe, dict) else probe
+            for probe in analysis["probe_results"]
+        ]
+    for field in ("signals", "suspicious_events"):
+        if isinstance(analysis.get(field), list):
+            enriched[field] = [
+                {**event, **_sandbox_display_metadata(event)} if isinstance(event, dict) else event
+                for event in analysis[field]
+            ]
+    return enriched
 
 
 class SandboxConfig(BaseModel):
@@ -503,6 +657,10 @@ def _risk_from_severity(severity: str) -> str:
 
 
 def _finalize_result(result: SandboxResult) -> SandboxResult:
+    if not result.reason_code:
+        metadata = sandbox_reason_metadata(result.reason)
+        result.reason_code = metadata.get("reason_code")
+        result.reason_params = metadata.get("reason_params", {})
     signals = list(result.suspicious_events)
 
     if result.timed_out and not any(event.category == "timeout" for event in signals):
@@ -817,7 +975,9 @@ class RemoteSandboxRunner:
         exit_code = output.exit_code
         if exit_code is None and isinstance(output.code, int):
             exit_code = output.code
-        timed_out = "timeout" in ((output.error or "") + " " + (output.message or "")).lower()
+        # 兼容内置服务的 timed out 消息与上游常见 timeout 错误。
+        execution_message = ((output.error or "") + " " + (output.message or "")).lower()
+        timed_out = "timeout" in execution_message or "timed out" in execution_message
         if timed_out:
             events.append(SandboxEvent(
                 category="timeout",
