@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .deep_scan_display import with_deep_scan_display
 from .llm import LLMConfig
 
 _FONT_EXTENSIONS = {".ttf", ".otf", ".woff", ".woff2"}
@@ -229,7 +230,7 @@ def _normalize_raw_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
         }
         if line is not None:
             normalized["line"] = line
-        findings.append(normalized)
+        findings.append(with_deep_scan_display(normalized))
     return findings
 
 

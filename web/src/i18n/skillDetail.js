@@ -1,5 +1,8 @@
+import { deepScanMessages } from './deepScan.js'
+
 export const skillDetailMessages = {
   'zh-CN': {
+    deepRules: deepScanMessages['zh-CN'],
     sandboxText: {
       message: {
         network_activity: '检测到网络访问尝试或网络相关错误输出。',
@@ -127,6 +130,7 @@ export const skillDetailMessages = {
     autoApproval: '策略自动批准', cachedAutoApproval: '复用结果 · 策略自动批准', pendingReview: '待审核',
   },
   'en-US': {
+    deepRules: deepScanMessages['en-US'],
     sandboxText: {
       message: {
         network_activity: 'A network access attempt or network-related error output was detected.',

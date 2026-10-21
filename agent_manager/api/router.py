@@ -33,6 +33,7 @@ from agent_manager.api.import_work import import_endpoint, run_import_work
 from backend.api_errors import ApiError
 from agent_manager.api.upload_progress import stream_upload_progress
 
+from agent_manager.core.deep_scan_display import with_deep_scan_analysis_display
 from agent_manager.core.llm import LLMConfig
 from agent_manager.core.manager import AgentManager, findings_summary_from_report
 from agent_manager.core.models import RegistryEntry, SkillOrigin, SkillStatus, SourceInfo
@@ -1722,6 +1723,9 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
         # 历史说明只在响应中补齐编码，保留原始报告及执行判定。
         report = {**report, "sandbox_analysis": with_sandbox_reason_metadata(report["sandbox_analysis"])}
     deep = report.get("skillspector_analysis")
+    if isinstance(deep, dict):
+        deep = with_deep_scan_analysis_display(deep)
+        report = {**report, "skillspector_analysis": deep}
     if (
         isinstance(deep, dict)
         and "suppressed_findings" not in deep

@@ -391,8 +391,14 @@
                                 <div style="width: 100%">
                                   <a-space wrap>
                                     <a-tag :color="severityColor(item.severity)">{{ item.severity || '-' }}</a-tag>
-                                    <a-tag color="default">{{ item.rule || item.rule_id || '-' }}</a-tag>
-                                    <strong>{{ findingTitle(item) }}</strong>
+                                    <!-- 编号与帮助共用标签，换行时仍保持明确关联。 -->
+                                    <a-tag color="default" class="deep-rule-tag">
+                                      {{ item.rule || item.rule_id || '-' }}
+                                      <a-tooltip v-if="deepRuleHelp(item)" :title="deepRuleHelp(item)" :trigger="['hover', 'focus']">
+                                        <span tabindex="0" class="deep-rule-help"><QuestionCircleOutlined /></span>
+                                      </a-tooltip>
+                                    </a-tag>
+                                    <strong>{{ deepFindingText(item, 'title') }}</strong>
                                     <a-button
                                       v-if="item.file"
                                       type="link"
@@ -409,10 +415,11 @@
                                     {{ text('行号', 'Lines') }}: {{ formatAggregateLines(item.aggregate_lines) }}
                                   </div>
                                   <div v-if="item.message || item.explanation" style="margin-top: 6px">
-                                    {{ deepScanText(bilingualText(item.message || item.explanation)) }}
+                                    <div style="white-space: pre-wrap; overflow-wrap: anywhere">{{ deepFindingDescription(item) }}</div>
+                                    <div v-if="deepFindingExtraExplanation(item)" style="white-space: pre-wrap; overflow-wrap: anywhere">{{ deepFindingExtraExplanation(item) }}</div>
                                   </div>
-                                  <div v-if="item.remediation" style="margin-top: 6px; color: #8c8c8c">
-                                    {{ text('建议', 'Recommendation') }}: {{ deepScanText(bilingualText(item.remediation)) }}
+                                  <div v-if="item.remediation" style="margin-top: 6px; color: #8c8c8c; white-space: pre-wrap; overflow-wrap: anywhere">
+                                    {{ text('建议', 'Recommendation') }}: {{ deepFindingText(item, 'remediation') }}
                                   </div>
                                 </div>
                               </a-list-item>
@@ -1111,7 +1118,7 @@ import SkillDecisionFlow from '../components/SkillDecisionFlow.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { CheckCircleOutlined, ExclamationCircleOutlined, SafetyOutlined, SwapOutlined, WarningOutlined } from '@ant-design/icons-vue'
+import { CheckCircleOutlined, ExclamationCircleOutlined, QuestionCircleOutlined, SafetyOutlined, SwapOutlined, WarningOutlined } from '@ant-design/icons-vue'
 import { marked } from 'marked'
 
 import {
@@ -1855,6 +1862,9 @@ const aggregateFindingKey = (item) => [
   item?.title || '',
   item?.message || item?.finding || '',
   item?.file || item?.file_path || '',
+  // 深度扫描同编号可能有不同原因和建议，分别保留，避免聚合后只显示第一条。
+  item?.source === 'skillspector' ? item?.explanation || '' : '',
+  item?.source === 'skillspector' ? item?.remediation || '' : '',
 ].map(value => String(value || '').trim().toLowerCase()).join('|')
 const aggregateFindings = (items) => {
   const map = new Map()
@@ -2025,6 +2035,33 @@ const manualApprovalSummary = computed(() => {
   return admissionBlockedSummary.value
 })
 const skillspectorAnalysis = computed(() => scanReport.value?.skillspector_analysis || null)
+const deepRuleResources = computed(() => skillDetailMessages[isEnglish.value ? 'en-US' : 'zh-CN'].deepRules)
+const deepRuleHelp = (item) => {
+  const rule = item?.display?.rule
+  const code = rule === 'TP2' ? 'TP2_help' : `${rule}_explanation`
+  return Object.hasOwn(deepRuleResources.value, code) ? t(`skillDetail.deepRules.${code}`) : ''
+}
+const deepFindingText = (item, field) => {
+  const metadata = item?.display?.[field]
+  // 只渲染明确存在的语义资源；原始证据及未知文案不经过 legacy 翻译。
+  if (metadata?.code && typeof deepRuleResources.value[metadata.code] === 'string') {
+    const params = { ...metadata.params }
+    for (const [name, code] of Object.entries(metadata.param_codes || {})) {
+      if (typeof deepRuleResources.value[code] === 'string') params[name] = t(`skillDetail.deepRules.${code}`)
+    }
+    return t(`skillDetail.deepRules.${metadata.code}`, params)
+  }
+  return item?.[field] ?? (field === 'title' ? item?.pattern || item?.message || '-' : '')
+}
+const deepFindingDescription = (item) => {
+  const rule = item.rule || item.rule_id
+  return deepFindingText(item, item.explanation && (!item.message || item.message === rule) ? 'explanation' : 'message')
+}
+const deepFindingExtraExplanation = (item) => {
+  if (!item.explanation || !item.message || item.message === (item.rule || item.rule_id)) return ''
+  const explanation = deepFindingText(item, 'explanation')
+  return explanation === deepFindingDescription(item) ? '' : explanation
+}
 const skillspectorSuppressedFindings = computed(() => skillspectorAnalysis.value?.suppressed_findings || [])
 const skillspectorFindings = computed(() => {
   const findings = skillspectorAnalysis.value?.findings
@@ -2676,6 +2713,9 @@ watch(
 </script>
 
 <style scoped>
+.deep-rule-tag { display: inline-flex; align-items: center; gap: 4px; }
+.deep-rule-help { display: inline-flex; align-items: center; }
+
 /* LLM 分析报告 Markdown 样式 - 使用 :deep() 穿透 scoped */
 .llm-explanation {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
