@@ -2368,6 +2368,8 @@ Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privac
 `--install-dir` 用法，以及部署文件备份与业务数据备份的边界。完整现场步骤见
 [离线部署现场实施指南](offline-deployment.md)。
 
+启动和升级共用 `deploy/offline.sh`，依赖 Bash、Linux 系统工具（GNU tar/coreutils、flock、gzip、awk）和 Docker/Compose。包内 `release-info` 保存版本和平台，与 provenance 同源生成；旧安装通过新包的升级脚本及 `--install-dir` 迁移，沿用现场配置和数据卷。
+
 文档设置页提供两类导出：
 
 - 帮助文档 PDF：支持完整文档、使用与治理、管理与运维或自定义文章范围；可选择中文或英文。每次导出先重新读取当前发布版本的帮助文档，再把所选文章的结构化内容提交给后端 PDF 生成器，下载正文、步骤、表格、代码和截图，并写入按模块和文章分层的 PDF Outline/Bookmarks；macOS“预览”等阅读器可在侧边栏展开目录。

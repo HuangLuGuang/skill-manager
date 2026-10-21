@@ -248,7 +248,7 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, p
     for relative in (
         "docker-compose.yaml", ".env.example", "deploy/nginx/default.conf",
         "docs/offline-deployment.md", "docs/docker-deployment.md", "docs/license.md",
-        "start.sh", "upgrade.sh", "deploy/offline.py",
+        "start.sh", "upgrade.sh", "deploy/offline.sh",
     ):
         destination = source / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -319,10 +319,11 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, p
         f"docker_images/{arch}/agent-manager-images-{version}.tar.xz",
         "installers/docker-installer-28.5.2-x86-arm.tar.gz",
         "scanner/releases/latest.json", "scanner/releases/agent-manager-client.exe",
-        "start.sh", "upgrade.sh", "deploy/offline.py",
+        "start.sh", "upgrade.sh", "deploy/offline.sh", "release-info",
     }
     with tarfile.open(output / f"agent-manager_test_{arch}.tar.gz") as archive:
         assert {entry.name for entry in archive if entry.isfile()} == {"agent-manager/" + path for path in files}
+        assert archive.extractfile("agent-manager/release-info").read().decode() == f"{version}\n{platform}\n"
         env = archive.extractfile("agent-manager/.env.example").read().decode()
         assert "TAG=" not in env
         assert archive.getmember("agent-manager/start.sh").mode & 0o111

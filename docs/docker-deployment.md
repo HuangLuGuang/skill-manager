@@ -2,11 +2,13 @@
 
 License 状态默认保存在后端持久化 data 卷的 `license/state.db`，可信公钥由镜像内
 `deploy/license/public-keys/` 提供。后端重建/升级保留该卷；自定义路径的多进程必须共享状态文件。
-安装后的申请、签发和导入流程见 [离线 License](license.md)。
+安装后在 **系统管理 → License 授权** 填写厂商提供的客户编号和客户名称，导出申请文件交给厂商。
+收到 `.license` 文件后，在同一页面点击 **验证并导入**，确认授权有效。详见 [离线 License](license.md)。
 
 现场安装与升级使用交付包：首次在解压后的 `agent-manager` 目录准备生产 `.env`，执行
 `./start.sh`；自定义 HTTP 端口使用 `./start.sh --port 8088`。后续在原安装目录执行
 `./upgrade.sh /path/to/agent-manager_<版本>_<架构>.tar.gz`。脚本加载包内镜像并检查服务，
+启动和升级使用 Bash、Linux 系统工具及 Docker/Compose。
 升级保留 `.env`、`HTTP_PORT` 和数据卷；业务数据需另行备份。
 完整步骤见[离线部署现场实施指南](offline-deployment.md)，管理台中英文帮助页对应
 “Docker 部署”和“Docker 运维”。
@@ -550,9 +552,10 @@ docker-compose.yaml
 .env.example
 start.sh
 upgrade.sh
-deploy/offline.py
+deploy/offline.sh
 deploy/nginx/default.conf
 release-provenance.json
+release-info                         # 版本、平台（两行文本）
 docs/offline-deployment.md
 docs/docker-deployment.md
 docker_images/<x86 或 arm>/agent-manager-images-<tag>.tar.xz
@@ -569,9 +572,10 @@ scanner/releases/agent-manager-client-26.03.15.1-linux-x86_64.AppImage
 默认 HTTP 端口为 80；`./start.sh --port 8088` 将端口写入 `.env` 的 `HTTP_PORT`，
 以后启动和升级都会沿用，访问地址为 `http://<服务器IP>:8088`。
 `./upgrade.sh /path/to/package.tar.gz` 自动解压、备份并更新部署文件、加载镜像、重建并检查服务。
-脚本使用 Bash、Python 3 标准库和 Docker Compose，保留现场 `.env` 和数据卷。
+包内 `release-info` 保存版本和平台，与 `release-provenance.json` 同源生成。旧安装使用新包脚本并通过 `--install-dir` 指向原安装目录，详见 [离线部署](offline-deployment.md)。
+脚本使用 Bash、Linux 系统工具（GNU tar/coreutils、flock、gzip、awk）和 Docker Compose，保留现场 `.env` 和数据卷。
 启动和升级会检查 Docker 命令、服务连接与访问权限，优先选择可用的 `docker compose`，
-否则尝试 `docker-compose`；需支持健康等待、JSON 配置输出及当前编排格式，旧版 Compose v1 需更新。
+否则尝试 `docker-compose`；需支持健康等待、`config --images` 及当前编排格式，旧版 Compose v1 需更新。
 缺少程序、服务不可达、权限不足或版本不兼容时给出明确提示；处理步骤见现场实施指南的“部署前检查”。
 升级备份仅覆盖部署文件，业务数据需另行备份；操作步骤见 [现场实施指南](offline-deployment.md)。
 `--source-dir .` 可用当前工作区构建诊断包，正式 CI 发布使用干净的 Git clone；诊断包不能替代正式发布验证。

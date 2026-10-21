@@ -232,6 +232,7 @@ PACKAGE_DIR="${PACKAGE_PARENT}/agent-manager"
 mkdir -p "$PACKAGE_DIR/$IMAGE_DIR" "$PACKAGE_DIR/installers" \
     "$PACKAGE_DIR/deploy/nginx" "$PACKAGE_DIR/docs" "$PACKAGE_DIR/scanner/releases"
 cp docker-compose.yaml .env.example release-provenance.json "$PACKAGE_DIR/"
+printf '%s\n%s\n' "$VERSION" "$PLATFORM" > "$PACKAGE_DIR/release-info"
 PACKAGE_COMPOSE="$PACKAGE_DIR/docker-compose.yaml" PACKAGE_VERSION="$VERSION" python3 - <<'PY'
 import os
 from pathlib import Path
@@ -241,7 +242,7 @@ compose.write_text(compose.read_text().replace("${TAG:-latest}", os.environ["PAC
 PY
 cp start.sh upgrade.sh "$PACKAGE_DIR/"
 chmod +x "$PACKAGE_DIR/start.sh" "$PACKAGE_DIR/upgrade.sh"
-cp deploy/offline.py "$PACKAGE_DIR/deploy/"
+cp deploy/offline.sh "$PACKAGE_DIR/deploy/"
 cp deploy/nginx/default.conf "$PACKAGE_DIR/deploy/nginx/"
 cp docs/offline-deployment.md docs/docker-deployment.md docs/license.md "$PACKAGE_DIR/docs/"
 mv "$IMAGE_XZ" "$PACKAGE_DIR/$IMAGE_DIR/"

@@ -1,73 +1,74 @@
-"""Dependency diagnostics, also runnable with the deployment host's stdlib Python."""
-import importlib.util
+"""Exercise the Bash runtime diagnostics with fake Docker executables."""
+import os
 from pathlib import Path
 import subprocess
-import unittest
-from unittest.mock import patch
+import sys
 
-spec = importlib.util.spec_from_file_location('offline', Path(__file__).resolve().parents[1] / 'deploy/offline.py')
-offline = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(offline)
+import pytest
 
-
-class RuntimeChecks(unittest.TestCase):
-    def check(self, *, info_error='', plugin='ok', standalone=None):
-        def which(name):
-            return '/bin/' + name if name == 'docker' or standalone is not None else None
-
-        def execute(args, **kwargs):
-            if args[1] == 'info':
-                return subprocess.CompletedProcess(args, int(bool(info_error)), 'amd64' if not info_error else '', info_error)
-            mode = standalone if args[0] == 'docker-compose' else plugin
-            if mode == 'missing':
-                return subprocess.CompletedProcess(args, 1, '', 'command not found')
-            output = '--wait --wait-timeout --format' if mode == 'ok' else '--wait-timeout'
-            return subprocess.CompletedProcess(args, 0, output, '')
-
-        with patch.object(offline.shutil, 'which', side_effect=which), patch.object(offline.subprocess, 'run', side_effect=execute):
-            return offline.check_runtime()
-
-    def test_missing_docker(self):
-        with patch.object(offline.shutil, 'which', return_value=None), patch.object(offline.subprocess, 'run') as run:
-            with self.assertRaisesRegex(offline.DeploymentError, 'Docker 未安装或未加入 PATH'):
-                offline.check_runtime()
-            run.assert_not_called()
-
-    def test_docker_permission_denied(self):
-        with self.assertRaisesRegex(offline.DeploymentError, '当前用户无权访问 Docker'):
-            self.check(info_error='dial unix /var/run/docker.sock: connect: permission denied')
-
-    def test_daemon_unreachable(self):
-        with self.assertRaisesRegex(offline.DeploymentError, '服务可能未启动.*context/DOCKER_HOST'):
-            self.check(info_error='Cannot connect to the Docker daemon. Is the docker daemon running?')
-
-    def test_other_connection_errors_are_not_mislabeled(self):
-        with self.assertRaisesRegex(offline.DeploymentError, 'TLS 或认证配置') as result:
-            self.check(info_error='x509 invalid certificate credential-do-not-print')
-        self.assertNotIn('credential-do-not-print', str(result.exception))
-
-    def test_missing_compose(self):
-        with self.assertRaisesRegex(offline.DeploymentError, '均不可用'):
-            self.check(plugin='missing')
-
-    def test_old_compose(self):
-        with self.assertRaisesRegex(offline.DeploymentError, 'Compose 版本不兼容'):
-            self.check(plugin='missing', standalone='old')
-
-    def test_plugin_preferred(self):
-        self.assertEqual(self.check(standalone='ok'), ('amd64', ('docker', 'compose')))
-
-    def test_standalone_selected(self):
-        self.assertEqual(self.check(plugin='missing', standalone='ok'), ('amd64', ('docker-compose',)))
-
-    def test_incompatible_plugin_uses_capable_standalone(self):
-        self.assertEqual(self.check(plugin='old', standalone='ok'), ('amd64', ('docker-compose',)))
-
-    def test_timeout(self):
-        with patch.object(offline.subprocess, 'run', side_effect=subprocess.TimeoutExpired('docker', 20)):
-            with self.assertRaisesRegex(offline.DeploymentError, '超时'):
-                offline.probe(['docker', 'info'])
+SCRIPT = Path(__file__).resolve().parents[1] / 'deploy/offline.sh'
+pytestmark = pytest.mark.skipif(sys.platform != 'linux', reason='Deployment targets Linux system tools')
 
 
-if __name__ == '__main__':
-    unittest.main()
+def check(tmp_path, *, error='', plugin='ok', standalone='missing'):
+    binary = tmp_path / 'docker'
+    binary.write_text('''#!/bin/bash
+if [[ $1 == info ]]; then
+    [[ -z $INFO_ERROR ]] || { echo "$INFO_ERROR" >&2; exit 1; }
+    echo amd64; exit
+fi
+mode=$PLUGIN
+[[ ${0##*/} != docker-compose ]] || mode=$STANDALONE
+[[ $mode != missing ]] || exit 1
+if [[ $mode == ok ]]; then echo '--wait --wait-timeout --images'; else echo '--wait-timeout'; fi
+''')
+    binary.chmod(0o755)
+    (tmp_path / 'docker-compose').symlink_to(binary)
+    return subprocess.run(
+        ['bash', '-c', 'source "$1"; check_runtime; echo "${COMPOSE_COMMAND[*]}"', 'test', str(SCRIPT)],
+        env=dict(os.environ, PATH=f'{tmp_path}:{os.environ["PATH"]}', INFO_ERROR=error,
+                 PLUGIN=plugin, STANDALONE=standalone), capture_output=True, text=True,
+    )
+
+
+@pytest.mark.parametrize(('error', 'expected'), [
+    ('dial unix: permission denied', '当前用户无权访问 Docker'),
+    ('Cannot connect to the Docker daemon', '服务可能未启动'),
+    ('x509 invalid certificate credential-do-not-print', 'TLS 或认证配置'),
+])
+def test_docker_errors(tmp_path, error, expected):
+    result = check(tmp_path, error=error)
+    assert result.returncode != 0
+    assert expected in result.stderr
+    assert 'credential-do-not-print' not in result.stderr
+
+
+@pytest.mark.parametrize(('plugin', 'standalone', 'expected'), [
+    ('ok', 'ok', 'docker compose'),
+    ('missing', 'ok', 'docker-compose'),
+    ('old', 'ok', 'docker-compose'),
+    ('missing', 'missing', '均不可用'),
+    ('missing', 'old', 'Compose 版本不兼容'),
+])
+def test_compose_selection(tmp_path, plugin, standalone, expected):
+    result = check(tmp_path, plugin=plugin, standalone=standalone)
+    assert (result.returncode == 0) == ('ok' in (plugin, standalone))
+    assert expected in result.stdout + result.stderr
+
+
+def test_missing_docker(tmp_path):
+    result = subprocess.run(
+        ['/bin/bash', '-c', 'source "$1"; check_runtime', 'test', str(SCRIPT)],
+        env=dict(os.environ, PATH=str(tmp_path)), capture_output=True, text=True,
+    )
+    assert result.returncode != 0
+    assert 'Docker 未安装或未加入 PATH' in result.stderr
+
+
+def test_probe_timeout(tmp_path):
+    timeout = tmp_path / 'timeout'
+    timeout.write_text('#!/bin/bash\nexit 124\n')
+    timeout.chmod(0o755)
+    result = check(tmp_path)
+    assert result.returncode != 0
+    assert '超时' in result.stderr
