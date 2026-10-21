@@ -30,6 +30,9 @@ func (c *Client) RefreshHookPolicy(ctx context.Context, s *hooks.Store) (string,
 	raw, _ := json.Marshal(map[string]string{"stream_id": state.Stream, "last_sequence": state.LastSequence, "applied_receipt": state.Policy.Receipt, "applied_after": state.AppliedAfter})
 	data, result := c.post(ctx, "audit-policy", raw, map[string]string{"X-AIDR-Policy-Schema": "2", "X-AIDR-Audit-Lifecycle": "1", "X-AIDR-Message-Capture": "1", "X-AIDR-Content-Options": "1"})
 	if result.Code != "" {
+		if result.Code == "aidr_upload_auth_rejected" || result.Code == "aidr_upload_access_rejected" {
+			return "", errors.New(result.Code)
+		}
 		return "aidr_policy_cached", nil
 	}
 	var policy agentlog.AuditPolicy

@@ -4,16 +4,27 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
 from datetime import datetime, timedelta
 from pathlib import PurePosixPath, PureWindowsPath
 
-from sqlalchemy import func
+from sqlalchemy import func, literal, select, union_all
 from sqlalchemy.dialects.sqlite import insert
-from starlette.concurrency import run_in_threadpool
+from sqlalchemy.orm.attributes import set_committed_value
 
 from . import aidr_policy, models
-from .aidr_models import AidrEvent, AidrHookEvent, AidrSkillUse, AidrSkillCheck
+from .aidr_models import AidrEvent, AidrHookEvent, AidrSkillUse, AidrSkillCheck, skill_evidence_identity_columns
+from .services.aidr_ingest import admission
+from .services.gateway_db import run_sync
 from agent_manager.core.signer import compute_content_digest, verify_signature, signature_content_digest, verify_content_digest
+
+EVIDENCE_LOOKUP_BATCH = 32
+AUDIT_BATCH_SIZE = 50
+AUDIT_MAX_BATCHES = 4
+AUDIT_PASS_SECONDS = 0.5
+AUDIT_YIELD_SECONDS = 0.01
+AUDIT_BUSY_SECONDS = 0.1
+AUDIT_IDLE_SECONDS = 1
 
 
 def dump(value):
@@ -82,11 +93,105 @@ def hydrate_evidence(db, row, data):
     return data
 
 
-def merge(db, source, record):
+def _evidence_candidates(model, client_id, event, *, visible_through=None):
+    statement = select(model.id, model.payload_json, model.received_at).where(
+        model.client_id == client_id, model.expired_at.is_(None))
+    for column, field in zip(skill_evidence_identity_columns(model), ('agent', 'session_id', 'native_call_id')):
+        statement = statement.where(column == event[field])
+    if visible_through is not None:
+        statement = statement.where(model.id <= visible_through)
+    return statement.order_by(model.id).limit(65)
+
+
+def _observation(source, record):
     raw = json.loads(record.payload_json)
-    event = {**raw.get('event', {}), 'user_scope':raw.get('user_scope')} if source == 'hook' else raw
-    key = identity(record.client_id, event, source, record.id)
-    row = db.query(AidrSkillUse).filter_by(client_id=record.client_id, call_key=key).first()
+    event = {**raw.get('event', {}), 'user_scope': raw.get('user_scope')} if source == 'hook' else raw
+    return raw, event, identity(record.client_id, event, source, record.id)
+
+
+def _batch_evidence(db, source, observations, known):
+    lookups = []
+    seen = set(known)
+    for record, (_, event, key) in observations:
+        if key in seen or not event.get('skill_use'):
+            continue
+        seen.add(key)
+        if event.get('native_call_id') and event.get('session_id'):
+            lookups.append((key, record, event))
+    related = {}
+    for model, kind in ((AidrEvent, 'log'), (AidrHookEvent, 'hook')):
+        for start in range(0, len(lookups), EVIDENCE_LOOKUP_BATCH):
+            group = lookups[start:start + EVIDENCE_LOOKUP_BATCH]
+            queries = []
+            for slot, (key, record, event) in enumerate(group):
+                related[key, kind] = []
+                candidates = _evidence_candidates(model, record.client_id, event,
+                    visible_through=record.id if kind == source else None).subquery()
+                queries.append(select(literal(slot).label('lookup_slot'), candidates))
+            # Bound each native call separately before combining the queries;
+            # another call's large history must not consume its evidence budget.
+            for row in db.execute(union_all(*queries)):
+                related[group[row.lookup_slot][0], kind].append(row)
+            for key, _, _ in group:
+                related[key, kind].sort(key=lambda row: row.id)
+    return related
+
+
+def merge_many(db, source, records):
+    if not records:
+        return
+    client_id = records[0].client_id
+    observations = [(record, _observation(source, record)) for record in records]
+    keys = {observation[2] for _, observation in observations}
+    known = {row.call_key: row for row in db.query(AidrSkillUse).filter(
+        AidrSkillUse.client_id == client_id, AidrSkillUse.call_key.in_(keys)).all()}
+    for start in range(0, len(observations), EVIDENCE_LOOKUP_BATCH):
+        group = observations[start:start + EVIDENCE_LOOKUP_BATCH]
+        related = _batch_evidence(db, source, group, known)
+        for record, observation in group:
+            merge(db, source, record, known=known, visible_through=record.id, related=related, observation=observation)
+
+    if source == 'log' and any(event.get('agent') == 'codex' for _, (_, event, _) in observations):
+        repair_codex_skill_projections(db, client_id)
+
+
+def repair_codex_skill_projections(db, client_id):
+    """Retire duplicate views, retaining their original evidence and checks."""
+    from .aidr_operations import _record_identity, corrected_codex_records
+    orphans = db.query(AidrSkillUse).filter_by(client_id=client_id, agent='codex', session_id='', expired_at=None).all()
+    candidates = []
+    for row in orphans:
+        data = json.loads(row.payload_json)
+        refs = data.get('evidence', [])
+        if data.get('identity_ambiguous') or len(refs) != 1 or refs[0]['source'] != 'log':
+            continue
+        original = db.query(AidrEvent).filter_by(id=int(refs[0]['id']), client_id=client_id, expired_at=None).first()
+        if original is None:
+            continue
+        event = json.loads(original.payload_json)
+        if _record_identity(event) is not None:
+            candidates.append((row, event))
+    if not candidates:
+        return 0
+    corrected = corrected_codex_records(db.connection(), client_id, {e['source_instance_id'] for _, e in candidates})
+    repaired = 0
+    for row, event in candidates:
+        matches = corrected.get(_record_identity(event), {})
+        if len(matches) != 1:
+            continue
+        replacement = next(iter(matches.values()))
+        target = db.query(AidrSkillUse).filter_by(client_id=client_id,
+            call_key=identity(client_id, replacement, 'log', 0), expired_at=None).first()
+        if target is None or json.loads(target.payload_json).get('identity_ambiguous'):
+            continue
+        row.expired_at = datetime.utcnow()
+        repaired += 1
+    return repaired
+
+
+def merge(db, source, record, *, known=None, visible_through=None, related=None, observation=None):
+    raw, event, key = observation if observation is not None else _observation(source, record)
+    row = db.query(AidrSkillUse).filter_by(client_id=record.client_id, call_key=key).first() if known is None else known.get(key)
     skill = event.get('skill_use')
     if row is None and not skill:
         return
@@ -126,20 +231,21 @@ def merge(db, source, record):
                           behavior=skill['behavior'], payload_json=dump(data), received_at=record.received_at)
         db.add(row)
         db.flush()
+        if known is not None:
+            known[key] = row
         # Out-of-order uploads: join only exact native identity, within the same
         # entry/session. No timestamp or name-based association is performed.
         if event.get('native_call_id') and event.get('session_id'):
-            for model, kind, prefix in ((AidrEvent,'log','$.'),(AidrHookEvent,'hook','$.event.')):
-                q = db.query(model).filter(model.client_id == record.client_id, model.expired_at.is_(None))
-                for field in ('agent','session_id','native_call_id'):
-                    q = q.filter(func.json_extract(model.payload_json, prefix + field) == event[field])
-                for related in q.order_by(model.id).limit(65):
-                    if kind == source and related.id == record.id:
+            for model, kind in ((AidrEvent,'log'),(AidrHookEvent,'hook')):
+                candidates = related[key, kind] if related is not None else db.execute(_evidence_candidates(
+                    model, record.client_id, event, visible_through=visible_through if kind == source else None))
+                for candidate in candidates:
+                    if kind == source and candidate.id == record.id:
                         continue
-                    other = json.loads(related.payload_json)
+                    other = json.loads(candidate.payload_json)
                     other = {**other.get('event',{}), 'user_scope':other.get('user_scope')} if kind == 'hook' else other
-                    if identity(record.client_id, other, kind, related.id) == key:
-                        r = evidence_ref(kind, related, other)
+                    if identity(record.client_id, other, kind, candidate.id) == key:
+                        r = evidence_ref(kind, candidate, other)
                         if not any(v['source'] == kind and v['id'] == r['id'] for v in data['evidence']) and len(data['evidence']) < 64:
                             data['evidence'].append(r)
             data['stage'] = aggregate_stage(data['evidence'])
@@ -250,6 +356,39 @@ def _certification(db, row, manager):
 
 
 def refresh(db, row, manager, settings=None):
+    return _apply_refresh(db, _prepare_refresh(db, row, manager, settings))
+
+
+def refresh_batch(db, rows, manager, settings=None):
+    """Compute fresh checks before opening the batch's write transaction.
+
+    The caller commits the checks and alert updates together. Registry caches
+    remain local to this request/pass; evidence is compared again on update.
+    """
+    policies = {}
+    prepared = []
+    for row in rows:
+        if row.expired_at is not None:
+            continue
+        if row.client_id not in policies:
+            policies[row.client_id] = settings if settings is not None else aidr_policy.current(db, row.client_id)['skill_audit']
+        prepared.append(_prepare_refresh(db, row, manager, policies[row.client_id]))
+    keys = [_alert_key(plan[0]) for plan in prepared]
+    alerts = None
+
+    def find_alert(key):
+        nonlocal alerts
+        # Called only after a successful conditional UPDATE owns the writer.
+        # Reading before that point could miss another check's committed alert.
+        if alerts is None:
+            alerts = {event.aggregate_key: event for event in db.query(models.ClientEvent).filter(
+                models.ClientEvent.aggregate_key.in_(keys)).all()}
+        return alerts.get(key)
+
+    return [_apply_refresh(db, plan, find_alert=find_alert) for plan in prepared]
+
+
+def _prepare_refresh(db, row, manager, settings=None):
     original = row.payload_json
     data = json.loads(row.payload_json)
     if 'turn_id' not in data:
@@ -265,30 +404,44 @@ def refresh(db, row, manager, settings=None):
         check = {'status':'pending','reason':'query_failed','checked_at':datetime.utcnow().isoformat()+'Z'}
     previous_check = data.get('certification')
     data['certification'] = check
+    return row, original, data, check, previous_check, settings
+
+
+def _alert_key(row):
+    return hashlib.sha256(('skill-use:' + row.client_id + ':' + row.call_key).encode()).hexdigest()
+
+
+def _apply_refresh(db, prepared, *, find_alert=None):
+    row, original, data, check, previous_check, settings = prepared
     next_check = datetime.utcnow() + timedelta(seconds=settings['status_refresh_seconds'])
     # A concurrent ingest must not lose new evidence to an older check snapshot.
-    changed = db.query(AidrSkillUse).filter_by(id=row.id, payload_json=original).update(
-        {'certification':check['status'], 'payload_json':dump(data), 'next_check_at':next_check}, synchronize_session=False)
-    db.expire(row)
+    values = {'certification':check['status'], 'payload_json':dump(data), 'next_check_at':next_check}
+    changed = db.query(AidrSkillUse).filter_by(id=row.id, payload_json=original, expired_at=None).update(
+        values, synchronize_session=False)
     if not changed:
+        db.expire(row)
         return {'id':str(row.id),'agent':row.agent,'session_id':row.session_id,**json.loads(row.payload_json)}
+    # The conditional write succeeded; keep its exact persisted values without
+    # reloading the whole payload while holding SQLite's writer. Rollback and
+    # commit retain the Session's normal expiry behavior.
+    for field, value in values.items():
+        set_committed_value(row, field, value)
     if {k:v for k,v in (previous_check or {}).items() if k != 'checked_at'} != {k:v for k,v in check.items() if k != 'checked_at'}:
         db.add(AidrSkillCheck(client_id=row.client_id, usage_id=row.id,
             payload_json=dump({'check':check, 'observation':data.get('latest_observation') or {'skill':data['skill']}})))
     bad = {'unregistered','unapproved','revoked','content_changed','unauthorized'}
     rule = 'approval' if check['status'] in {'unregistered', 'unapproved', 'revoked'} else check['status']
-    key = hashlib.sha256(('skill-use:' + row.client_id + ':' + row.call_key).encode()).hexdigest()
+    key = _alert_key(row)
     if settings['enabled'] and settings['alerts'] and check['status'] in bad and settings['alert_rules'].get(rule) == 'alert':
         details = {'active':True,'usage_id':str(row.id),'behavior':row.behavior,'stage':data['stage'],'reason_code':check['reason'],
                    'certification':check,'evidence':data['evidence']}
-        key = hashlib.sha256(('skill-use:' + row.client_id + ':' + row.call_key).encode()).hexdigest()
         values = dict(client_id=row.client_id,event_type='aidr_skill_alert',agent_type=row.agent,
                       skill_name=data['skill'].get('name') or check.get('name'),details_json=dump(details),
                       aggregate_key=key)
         stmt = insert(models.ClientEvent).values(**values)
         db.execute(stmt.on_conflict_do_update(index_elements=['aggregate_key'],set_={k:v for k,v in values.items() if k != 'aggregate_key'}))
     else:
-        previous = db.query(models.ClientEvent).filter_by(aggregate_key=key).first()
+        previous = find_alert(key) if find_alert is not None else db.query(models.ClientEvent).filter_by(aggregate_key=key).first()
         if previous:
             details = json.loads(previous.details_json)
             details.update(active=False, latest_check=check)
@@ -306,7 +459,7 @@ def registry_manager():
         return get_manager().registry.list_certification_candidates(skill_id=skill_id, name=name)
 
     # Lazy, request-local snapshots: incomplete evidence needs no registry read.
-    # A new request/pass reads current approval and revocation state again.
+    # A new request/batch reads current approval and revocation state again.
     return SimpleNamespace(list_certification_candidates=candidates, checks={},
                            content_digest=lru_cache(maxsize=200)(compute_content_digest),
                            verify_digest=lru_cache(maxsize=200)(verify_content_digest),
@@ -317,19 +470,33 @@ def maintenance():
     from .sqlite_db import SessionLocal
     with SessionLocal() as db:
         manager = registry_manager()
-        rows = db.query(AidrSkillUse).filter(AidrSkillUse.next_check_at <= datetime.utcnow(), AidrSkillUse.expired_at.is_(None)).order_by(AidrSkillUse.next_check_at, AidrSkillUse.id).limit(50).all()
-        settings = {}
-        for row in rows:
-            if row.client_id not in settings:
-                settings[row.client_id] = aidr_policy.current(db, row.client_id)['skill_audit']
-            refresh(db, row, manager, settings[row.client_id])
+        rows = db.query(AidrSkillUse).filter(AidrSkillUse.next_check_at <= datetime.utcnow(), AidrSkillUse.expired_at.is_(None)).order_by(AidrSkillUse.next_check_at, AidrSkillUse.id).limit(AUDIT_BATCH_SIZE).all()
+        if not rows:
+            return False
+        refresh_batch(db, rows, manager)
         db.commit()
+        return db.query(db.query(AidrSkillUse).filter(
+            AidrSkillUse.next_check_at <= datetime.utcnow(), AidrSkillUse.expired_at.is_(None)).exists()).scalar()
 
 
 async def audit_loop():
     while True:
+        more = False
         try:
-            await run_in_threadpool(maintenance)
+            started = time.monotonic()
+            for batch in range(AUDIT_MAX_BATCHES):
+                if batch and time.monotonic() - started >= AUDIT_PASS_SECONDS:
+                    break
+                # Each batch closes its session and drops certification caches.
+                # Share the bulk-work slots with uploads before occupying a
+                # worker/connection. The shielded worker finishes its transaction
+                # before cancellation releases this slot.
+                async with admission():
+                    more = await run_sync(maintenance)
+                if not more or time.monotonic() - started >= AUDIT_PASS_SECONDS or batch + 1 == AUDIT_MAX_BATCHES:
+                    break
+                await asyncio.sleep(AUDIT_YIELD_SECONDS)
         except Exception as exc:
             logging.getLogger(__name__).warning('Skill audit unavailable: %s',type(exc).__name__)
-        await asyncio.sleep(1)
+            more = False
+        await asyncio.sleep(AUDIT_BUSY_SECONDS if more else AUDIT_IDLE_SECONDS)

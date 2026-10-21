@@ -76,7 +76,9 @@ flowchart LR
 - 每行提供“API Key”入口，侧边抽屉展示该网关创建的 Key、Key ID、外部 Agent 身份以及使用它的平台智能体。
 - API Key 默认掩码展示；具备 `external_gateways:reveal` 敏感权限的用户输入当前密码后才能查看明文，查看成功或失败均写入安全审计。
 
-Token Value 加密保存，仅 Backend 解密使用。浏览器接口、客户端任务、普通日志和诊断包不返回管理 Token。
+Token Value 加密保存，仅 Backend 解密使用。浏览器接口、客户端任务、普通日志和诊断包不返回Token Value。
+
+“开放 API 管理 → 网关配置”可选择此处已启用的连接，配置评测结果同步接口路径、接入方及结果同步配置编号（gateway_id）。发送测试通知和评测报告时，复用此处的管理地址、Token ID、加密Token Value及HMAC-SHA256签名；每次发送读取当前凭据。同步配置版本保留地址和路径，报告及风险明细使用任务已保存的快照。修改管理地址后需保存新的同步配置版本，旧地址投递会显示地址已变更。字段、回执与人工验收见[网关配置](external-agent-integration.md#网关配置--gateway-configuration)。
 
 对应接口：
 

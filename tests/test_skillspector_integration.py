@@ -38,6 +38,8 @@ def _skill_dir(tmp_path):
 
 @pytest.fixture(autouse=True)
 def _disable_system_llm_by_default(monkeypatch):
+    # 隔离本机 CLI 配置，保持不可用场景和模拟扫描的测试输入一致。
+    monkeypatch.delenv("SKILLSPECTOR_BIN", raising=False)
     # These cases isolate SkillSpector findings from the independently optional Cisco scanner.
     monkeypatch.setattr("agent_manager.core.vetting._run_scanner", lambda *_: {})
     monkeypatch.setattr(
@@ -152,7 +154,13 @@ def test_skillspector_filters_license_and_font_noise(tmp_path, monkeypatch):
     assert [finding["file"] for finding in analysis["findings"]] == ["scripts/sync.py"]
 
 
-def test_skillspector_filters_raster_image_binary_noise(tmp_path, monkeypatch):
+@pytest.mark.parametrize("asset_names", [
+    ("cover.png", "cover.png"),
+    ("manual.pdf", "manual.pdf"),
+    ("manual.PDF", "manual.PDF"),
+    ("manual.pdf", "cover.png"),
+])
+def test_skillspector_filters_binary_asset_noise(tmp_path, monkeypatch, asset_names):
     skill_dir = _skill_dir(tmp_path)
     assets_dir = skill_dir / "assets"
     assets_dir.mkdir()
@@ -168,14 +176,14 @@ def test_skillspector_filters_raster_image_binary_noise(tmp_path, monkeypatch):
                 "rule_id": "P2",
                 "message": "\ufeff",
                 "severity": "HIGH",
-                "file": "assets/cover.png",
+                "file": f"assets/{asset_names[0]}",
                 "category": "Prompt Injection",
             },
             {
                 "rule_id": "TM1",
                 "message": "rm\ufffd\ufffd/",
                 "severity": "HIGH",
-                "file": "assets/cover.png",
+                "file": f"assets/{asset_names[1]}",
                 "category": "Tool Misuse",
             },
         ],
@@ -204,6 +212,11 @@ def test_skillspector_filters_raster_image_binary_noise(tmp_path, monkeypatch):
     assert analysis["risk_recommendation"] == "SAFE"
     assert analysis["findings"] == []
     assert analysis["suppressed_findings_count"] == 2
+    assert analysis["raw_report"] == payload
+    assert [item["suppression_reason"] for item in analysis["suppressed_findings"]] == [
+        "pdf_file" if name.lower().endswith(".pdf") else "raster_image"
+        for name in asset_names
+    ]
 
 
 def test_skillspector_top_level_high_with_only_noise_requires_review(tmp_path, monkeypatch):
@@ -606,6 +619,8 @@ def test_scan_context_changes_when_deep_scan_option_changes():
         ({"rule_id": "EA3", "message": "not limited to", "file": "LICENSE.txt", "start_line": 28}, "license_scope_wording"),
         ({"rule_id": "MP2", "file": "fonts/demo.ttf"}, "font_file"),
         ({"rule_id": "P2", "file": "assets/cover.png"}, "raster_image"),
+        ({"rule_id": "TM1", "file": "manual.pdf", "start_line": 330}, "pdf_file"),
+        ({"rule_id": "TM1", "file": "manual.PDF", "start_line": 1184}, "pdf_file"),
     ],
 )
 def test_suppressed_details_match_scan_count(tmp_path, monkeypatch, finding, reason):
@@ -638,7 +653,7 @@ def test_historical_suppressed_details_are_read_only(field):
         "raw_report": {field: [{"rule_id": "EA3", "finding": "not limited to", "file": "LICENSE.txt", "start_line": 28}]},
     }}
     before = deepcopy(report)
-    entry = SimpleNamespace(family_id="family", skill_id="version", version_no=1, name="sample", vetting=SimpleNamespace(scan_report=report))
+    entry = SimpleNamespace(family_id="family", skill_id="version", version_no=1, name="sample", vetting=SimpleNamespace(scan_report=report, policy_notes=[]))
     mgr = SimpleNamespace(get_skill=lambda _id: entry)
     result = get_scan_report("family", mgr)["scan_report"]["skillspector_analysis"]
     assert result["suppressed_findings"][0]["suppression_reason"] == "license_scope_wording"
@@ -669,7 +684,7 @@ def test_report_preserves_recorded_noise_details_and_counts(analysis):
     before = deepcopy(analysis)
     entry = SimpleNamespace(
         family_id="family", skill_id="version", version_no=1, name="sample",
-        vetting=SimpleNamespace(scan_report={"skillspector_analysis": analysis}),
+        vetting=SimpleNamespace(scan_report={"skillspector_analysis": analysis}, policy_notes=[]),
     )
     result = get_scan_report(
         "family", SimpleNamespace(get_skill=lambda _id: entry),
@@ -678,3 +693,73 @@ def test_report_preserves_recorded_noise_details_and_counts(analysis):
     if "suppressed_findings" in before:
         assert result["suppressed_findings"] == before["suppressed_findings"]
     assert analysis == before
+
+
+@pytest.mark.parametrize("other_finding, expected", [
+    ({"rule_id": "EA3", "message": "not limited to", "file": "LICENSE.txt", "severity": "LOW"}, "LOW"),
+    ({"rule_id": "MP2", "file": "fonts/demo.ttf", "severity": "HIGH"}, "MEDIUM"),
+    ({"rule_id": "TM1", "file": "scripts/run.sh", "severity": "HIGH"}, "HIGH"),
+])
+def test_pdf_noise_does_not_raise_remaining_report_risk(tmp_path, monkeypatch, other_finding, expected):
+    # 覆盖原附件的 PDF 与许可证混合情况，以及字体和真实脚本风险。
+    payload = {
+        "risk_score": 100,
+        "risk_severity": "HIGH",
+        "risk_recommendation": "DO_NOT_INSTALL",
+        "findings": [
+            {"rule_id": "TM1", "file": "manual.pdf", "severity": "HIGH"},
+            other_finding,
+        ],
+    }
+    monkeypatch.setattr("agent_manager.core.skillspector._skillspector_executable", lambda: "/mock/skillspector")
+    monkeypatch.setattr("agent_manager.core.skillspector.get_skillspector_version", lambda: "test")
+
+    def fake_run(cmd, **_kwargs):
+        Path(cmd[cmd.index("--output") + 1]).write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr("agent_manager.core.skillspector.subprocess.run", fake_run)
+    result = run_skillspector_scan(tmp_path)
+    assert result["max_severity"] == expected
+    assert result["raw_risk_severity"] == "HIGH"
+    assert result["raw_report"] == payload
+
+
+@pytest.mark.parametrize("field", ["filtered_findings", "findings", "issues"])
+@pytest.mark.parametrize("pdf_file", ["manual.pdf", "manual.PDF"])
+@pytest.mark.parametrize("license_lines", [[], [28, 33, 56, 161]])
+def test_historical_details_keep_effective_pdf_findings(field, pdf_file, license_lines):
+    from agent_manager.api.router import get_scan_report
+
+    # 旧报告的有效 PDF 与已过滤许可证必须保持互斥，补齐读取不重分类。
+    raw_pdf = [
+        {"rule_id": "TM1", "location": {"file": pdf_file, "start_line": line}, "severity": "HIGH"}
+        for line in [330, 1184]
+    ]
+    effective_pdf = [
+        {"rule_id": "TM1", "file": pdf_file, "line": line, "severity": "HIGH"}
+        for line in [330, 1184]
+    ]
+    license_findings = [
+        {"rule_id": "EA3", "finding": "not limited to", "file": "LICENSE.txt", "start_line": line}
+        for line in license_lines
+    ]
+    report = {"skillspector_analysis": {
+        "suppressed_findings_count": len(license_lines),
+        "findings": effective_pdf,
+        "risk_severity": "HIGH",
+        "raw_report": {field: license_findings + raw_pdf},
+    }}
+    before = deepcopy(report)
+    entry = SimpleNamespace(
+        family_id="family", skill_id="version", version_no=1, name="sample",
+        vetting=SimpleNamespace(scan_report=report, policy_notes=[]),
+    )
+    result = get_scan_report(
+        "family", SimpleNamespace(get_skill=lambda _id: entry),
+    )["scan_report"]["skillspector_analysis"]
+    assert len(result["suppressed_findings"]) == result["suppressed_findings_count"] == len(license_lines)
+    assert all(item["suppression_reason"] == "license_scope_wording" for item in result["suppressed_findings"])
+    assert result["findings"] == effective_pdf
+    assert result["risk_severity"] == "HIGH"
+    assert report == before

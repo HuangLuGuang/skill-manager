@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from agent_manager.core.mcp_parameter_risk import classify_mcp_parameter, normalize_mcp_identifier
 
@@ -225,6 +225,12 @@ def _group_ids(db: Session, user_id: int) -> set[int]:
 
 
 def _can_access_target(db: Session, user: models.User, target: models.SecurityTarget) -> bool:
+    from ..external_access import ExternalAccessContext
+    if isinstance(user, ExternalAccessContext):
+        from ..external_access_models import ExternalAgentRegistration
+        registration = db.query(ExternalAgentRegistration).filter_by(
+            platform_id=user.platform_id, target_id=target.target_id).first()
+        return bool(registration and user.departments.get(registration.department_id) == registration.department_group_id)
     if user.role in SECURITY_READER_ROLES:
         return True
     if target.owner_user_id == user.id:
@@ -545,7 +551,11 @@ def _report_contract_snapshot(row: models.SecurityScanTask) -> dict[str, Any]:
     return legacy_unversioned_report_contract()
 
 
-def _task_response(row: models.SecurityScanTask, *, include_live_cases: bool = False) -> SecurityTaskResponse:
+def _task_response(row: models.SecurityScanTask, *, include_live_cases: bool = False, platform_names=None) -> SecurityTaskResponse:
+    platform_name = (platform_names or {}).get(row.source_platform_id)
+    if platform_names is None and row.source_platform_id and object_session(row) is not None:
+        platform = object_session(row).get(models.ExternalPlatform, row.source_platform_id)
+        platform_name = platform.name if platform else None
     protected_options = unprotect_secret(row.scan_options_encrypted)
     raw_options = json_loads(protected_options, {}) if protected_options else {}
     safe_options = {
@@ -555,6 +565,7 @@ def _task_response(row: models.SecurityScanTask, *, include_live_cases: bool = F
         "conversation_mode": raw_options.get("conversation_mode", "single_turn"),
         "reset_session": bool(raw_options.get("reset_session", True)),
         "prompt_configured": bool(raw_options.get("prompt")),
+        "protected_output_marker_count": len(raw_options.get("protected_output_markers") or []),
         "metadata_only": bool(raw_options.get("metadata_only", False)),
         "side_effect_tool_calls": raw_options.get("side_effect_tool_calls"),
         "upstream_dynamic_mode": raw_options.get("upstream_dynamic_mode"),
@@ -578,6 +589,12 @@ def _task_response(row: models.SecurityScanTask, *, include_live_cases: bool = F
         "max_knowledge_bytes": raw_options.get("max_knowledge_bytes"),
     }
     progress = dict(raw_options.get("live_progress") or {})
+    if row.scan_kind == "agent_risk_scan":
+        if row.status == "pending":
+            progress = {}
+        progress["planned"] = max(len(raw_options.get("skills") or []), progress.get("observed_total", 0))
+        if row.status in TASK_TERMINAL_STATUSES:
+            progress["running"] = 0
     if row.scan_kind == "llm_redteam_scan":
         base_total = raw_options.get("planned_prompt_count")
         if base_total is None and raw_options.get("prompt"):
@@ -588,6 +605,13 @@ def _task_response(row: models.SecurityScanTask, *, include_live_cases: bool = F
     if not include_live_cases:
         progress.pop("cases", None)
     return SecurityTaskResponse(
+        trigger_source=row.trigger_source,
+        source_platform_name=platform_name,
+        source_platform_id=row.source_platform_id,
+        external_task_id=row.external_task_id,
+        business_request_id=row.business_request_id,
+        source_token_id=row.source_token_id,
+        source_request_id=row.source_request_id,
         task_id=row.task_id,
         target_id=row.target_id,
         policy_id=row.policy_id,
@@ -1974,6 +1998,10 @@ def _validate_scan_task_request(
         )
     if body.scan_kind in {"agent_risk_scan", "llm_redteam_scan"} or (body.scan_kind == "mcp_risk_scan" and body.mcp_mode != "metadata"):
         validate_evaluation_model(db, body.evaluation_model)
+    if body.protected_output_markers and body.scan_kind != "agent_risk_scan":
+        raise ApiError(422, "agent_security.output_markers_agent_only",
+                       "受保护输出标记仅适用于智能体动态扫描",
+                       "Protected output markers apply only to Agent dynamic scans")
     if body.scan_kind == "mcp_risk_scan":
         if target.target_type not in {MCP_GATEWAY_TARGET_TYPE, "mcp_source"}:
             raise ApiError(409, "agent_security.mcp_scan_target_required", "请选择已登记的 MCP 目标", "Select a registered MCP target")
@@ -2147,6 +2175,7 @@ def _validate_scan_task_request(
         "language": body.language,
         "skills": body.skills,
         "prompt": body.prompt,
+        "protected_output_markers": list(dict.fromkeys(body.protected_output_markers)),
         "conversation_mode": body.conversation_mode,
         "reset_session": body.reset_session,
         "initial_session_id": continuation_state,
@@ -2486,7 +2515,13 @@ async def create_task(
     body: SecurityTaskCreate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_active_user),
+    request: Request = None,
 ):
+    return create_scan_task(db, body, current_user, request=request)
+
+
+def create_scan_task(db, body, current_user, *, request=None, before_commit=None):
+    """Shared task validation and persistence; adapters join the same transaction."""
     from agent_manager.core.licensing import require_license
     require_license("security_scanning")
     context = _validate_scan_task_request(db, body, current_user)
@@ -2564,7 +2599,14 @@ async def create_task(
         timeout_at = min(timeout_at, approval.maintenance_window_end)
     task_id = new_resource_id("asj")
     report_contract = build_report_contract(body.scan_kind)
+    trigger_source = "console"
+    if request is None:
+        for prefix, source in (("schedule:", "scheduled"), ("asset-change:", "asset_change"), ("sync:", "asset_sync")):
+            if body.idempotency_key.startswith(prefix):
+                trigger_source = source
+                break
     row = models.SecurityScanTask(
+        trigger_source=trigger_source,
         task_id=task_id,
         target_id=target.target_id,
         policy_id=policy.policy_id,
@@ -2615,6 +2657,8 @@ async def create_task(
     from ..services.agent_risk import bind_scan
     try:
         bind_scan(db, row, scan_options)
+        if before_commit is not None:
+            before_commit(db, row)
         if automatic:
             db.flush()
             db.add(models.SecurityTaskTrigger(trigger_id=new_resource_id("str"), actor=current_user.username,
@@ -2674,6 +2718,8 @@ def _accessible_tasks_query(db: Session, user: models.User):
 
 @router.get("/tasks", response_model=list[SecurityTaskResponse])
 async def list_tasks(
+    trigger_source: str | None = Query(None, pattern="^(console|external_api|scheduled|asset_change|asset_sync|unknown)$"),
+    source_platform_id: str | None = Query(None),
     status: str | None = Query(default=None),
     target_id: str | None = Query(default=None),
     scan_kind: str | None = Query(default=None),
@@ -2684,6 +2730,10 @@ async def list_tasks(
 ):
     recover_stale_tasks(db)
     query = _accessible_tasks_query(db, current_user)
+    if trigger_source:
+        query = query.filter(models.SecurityScanTask.trigger_source.is_(None) if trigger_source == "unknown" else models.SecurityScanTask.trigger_source == trigger_source)
+    if source_platform_id:
+        query = query.filter(models.SecurityScanTask.source_platform_id == source_platform_id)
     if status:
         if status not in {*TASK_ACTIVE_STATUSES, *TASK_TERMINAL_STATUSES}:
             raise ApiError(422, "agent_security.invalid_task_status", "扫描任务状态无效", "Invalid scan task status")
@@ -2695,21 +2745,40 @@ async def list_tasks(
     rows = query.order_by(models.SecurityScanTask.id.desc()).offset(offset).limit(limit).all()
     from ..services.task_risk import origins_for_tasks
     provenance = origins_for_tasks(db, rows)
+    platform_names = dict(db.query(models.ExternalPlatform.platform_id, models.ExternalPlatform.name).filter(
+        models.ExternalPlatform.platform_id.in_({row.source_platform_id for row in rows if row.source_platform_id})).all())
     counts = dict(db.query(models.SecurityScanCase.task_id, func.count(models.SecurityScanCase.id)).filter(
         models.SecurityScanCase.task_id.in_([row.task_id for row in rows]),
         models.SecurityScanCase.category == "llm_redteam_prompt",
     ).group_by(models.SecurityScanCase.task_id).all())
+    agent_counts = {}
+    for task_id, case_status, count in db.query(models.SecurityScanCase.task_id, models.SecurityScanCase.status,
+            func.count(models.SecurityScanCase.id)).filter(models.SecurityScanCase.task_id.in_(
+                [row.task_id for row in rows if row.scan_kind == "agent_risk_scan" and row.status in TASK_TERMINAL_STATUSES]
+            )).group_by(models.SecurityScanCase.task_id, models.SecurityScanCase.status).all():
+        summary = agent_counts.setdefault(task_id, {"total": 0, "errors": 0})
+        summary["total"] += count
+        if case_status == "error":
+            summary["errors"] += count
     results = []
     for row in rows:
-        item = _task_response(row)
+        item = _task_response(row, platform_names=platform_names)
         item.origins = provenance[row.task_id]
         if row.scan_kind == "llm_redteam_scan" and row.status in TASK_TERMINAL_STATUSES:
             item.progress["completed"] = max(item.progress.get("completed", 0), counts.get(row.task_id, 0))
+        if row.scan_kind == "agent_risk_scan" and row.status in TASK_TERMINAL_STATUSES:
+            summary = agent_counts.get(row.task_id, {"total": 0, "errors": 0})
+            _agent_final_progress(item.progress, summary["total"], summary["errors"])
         results.append(item)
     return results
 
 
 _CASE_EXECUTION_STATUSES = {"completed", "error", "blocked", "unverified"}
+
+
+def _agent_final_progress(progress, total, errors):
+    progress.update(observed_total=total, planned=max(progress.get("planned", 0), total), completed=total, running=0, errors=errors)
+    progress.pop("cases", None)
 
 
 def _case_execution_status(row: models.SecurityScanCase, response_summary: dict[str, Any]) -> str:
@@ -2860,6 +2929,7 @@ def _comparison_coverage(task: models.SecurityScanTask) -> tuple[str, dict[str, 
             "conversation_mode": options.get("conversation_mode", "single_turn"),
             "reset_session": bool(options.get("reset_session", True)),
             "prompt_sha256": hash_value(str(options.get("prompt") or "")),
+            "protected_output_markers_sha256": hash_value(json_dumps(sorted(options.get("protected_output_markers") or []))),
             "metadata_only": bool(options.get("metadata_only", False)),
             "side_effect_tool_calls": options.get("side_effect_tool_calls"),
             "upstream_dynamic_mode": options.get("upstream_dynamic_mode"),
@@ -3042,6 +3112,8 @@ def _task_detail(db: Session, task: models.SecurityScanTask) -> dict[str, Any]:
     response.origins = origins(db, task)
     if task.scan_kind == "llm_redteam_scan" and task.status in TASK_TERMINAL_STATUSES:
         response.progress["completed"] = max(response.progress.get("completed", 0), sum(row.category == "llm_redteam_prompt" for row in case_rows))
+    if task.scan_kind == "agent_risk_scan" and task.status in TASK_TERMINAL_STATUSES:
+        _agent_final_progress(response.progress, len(case_rows), sum(row.status == "error" for row in case_rows))
     return {
         "task": response.model_dump(),
         "report_contract": _report_contract_snapshot(task),
@@ -3555,6 +3627,9 @@ async def dispose_finding(
         raise ApiError(404, "agent_security.finding_not_found", "安全发现不存在", "Security finding not found")
     task = _task_or_404(db, row.task_id)
     _require_task_access(db, current_user, task)
+    # Freeze the terminal external report before changing the live disposition.
+    from ..services.openapi_agents import sync_job
+    sync_job(db, task)
     now = datetime.utcnow()
     row.status = body.status
     row.disposition_comment = body.comment
@@ -3939,13 +4014,17 @@ async def evaluate_scan_chat(
         raise ApiError(403, "agent_security.evaluation_model_invalid", "只能调用任务选择的评估模型", "Only the selected evaluator model is allowed")
     if not _evaluation_models_query(db).filter(models.ModelEndpoint.name == selected).first():
         raise ApiError(422, "agent_security.evaluation_model_invalid", "评估模型或供应商已停用", "The evaluator model or provider is disabled")
-    owner = db.query(models.User).filter_by(id=task.owner_user_id).first()
-    if not owner or not owner.is_active:
-        raise ApiError(403, "agent_security.evaluation_not_authorized", "任务所有者已停用", "The task owner is disabled")
-    _require_target_access(db, owner, _target_or_404(db, task.target_id))
+    if task.trigger_source == "external_api":
+        from ..services.openapi_agents import require_evaluator_access
+        require_evaluator_access(db, task)
+    else:
+        owner = db.query(models.User).filter_by(id=task.owner_user_id).first()
+        if not owner or not owner.is_active:
+            raise ApiError(403, "agent_security.evaluation_not_authorized", "任务所有者已停用", "The task owner is disabled")
+        _require_target_access(db, owner, _target_or_404(db, task.target_id))
     policy = json_loads(task.policy_snapshot_json, {})
     # The lease authenticates this endpoint; this transient context supplies the
-    # task owner's privacy policy and audit identity to the existing gateway.
+    # task's user/department privacy policy and audit identity to the gateway.
     key = models.LlmApiKey(
         name=f"scan-evaluator:{task_id}", key_prefix="scan-evaluator", user_id=task.owner_user_id,
         group_id=task.owner_group_id, allowed_models_json=json_dumps([selected]),
@@ -4264,6 +4343,18 @@ async def claim_task(
             if (item := _active_credential(db, target.target_id, purpose)) is not None
         ]
         credential = credentials[0] if credentials else _active_credential(db, target.target_id)
+        from ..external_access_models import ExternalAgentJob
+        external_job = db.get(ExternalAgentJob, candidate.task_id)
+        if external_job:
+            credential = db.query(models.SecurityTargetCredential).filter_by(
+                credential_id=external_job.credential_id, target_id=candidate.target_id, status="active").first()
+            if credential is None:
+                candidate.status = "blocked"
+                candidate.error_code = "agent_security.required_credential_unavailable"
+                candidate.completed_at = candidate.updated_at = now
+                db.commit()
+                continue
+            credentials = [credential]
         required_purposes: list[str] = []
         if candidate.scan_kind == "dify_asset_inventory":
             if worker_scan_options.get("inventory_source", "console_api") == "console_api":
@@ -4344,6 +4435,10 @@ async def claim_task(
         if not updated:
             db.rollback()
             continue
+        if candidate.scan_kind == "agent_risk_scan":
+            options = json_loads(unprotect_secret(candidate.scan_options_encrypted), {})
+            options.pop("live_progress", None)
+            candidate.scan_options_encrypted = protect_secret(json_dumps(options))
         db.commit()
         claimed = _task_or_404(db, candidate.task_id)
         credential_payload: dict[str, Any] = {
@@ -4438,7 +4533,7 @@ async def task_heartbeat(
         task.scan_options_encrypted = protect_secret(json_dumps(options))
     if body.session_state:
         task.session_state_encrypted = protect_secret(body.session_state)
-    if body.scan_progress is not None and task.scan_kind in {"llm_redteam_scan", "mcp_risk_scan"}:
+    if body.scan_progress is not None and task.scan_kind in {"agent_risk_scan", "llm_redteam_scan", "mcp_risk_scan"}:
         options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
         options["live_progress"] = sanitize_untrusted_value(body.scan_progress.model_dump())
         options["live_progress"]["updated_at"] = now.isoformat() + "Z"
@@ -4551,6 +4646,9 @@ async def infer_dify_agent_intent(
         owner_group_id=task.owner_group_id,
     )
 
+    # Upstream DB phases detach caller snapshots. Reattach the worker so lease
+    # checks reload its state and the completion heartbeat is persisted.
+    db.add(worker)
     db.expire_all()
     task = _task_or_404(db, task_id)
     _verify_lease(task, worker, body.lease_token)
@@ -4867,6 +4965,8 @@ async def complete_task(
     from ..services.task_risk import report_score
     db.flush()
     report_score(db, task)
+    from ..services.openapi_agents import sync_job
+    sync_job(db, task)
     if auto_trace_findings:
         with runtime_trace_transaction(db):
             _create_scan_finding_trace(db, task, auto_trace_findings, now=now)

@@ -60,6 +60,10 @@ This is the P1-01 local subset of P0-02. Authenticated device/organization envel
 
 ## Compatibility and verification / 兼容与验证
 
+Codex `item_completed` metadata is capability-gated: completion schema 1 collects MCP/ImageView; schema 2 also collects CommandExecution as `Bash`, preserving native status and an optional signed 32-bit exit code. No command/output body is copied into completion evidence. Upgrades replay bounded history with versioned local checkpoints; stable MCP/image identities remain unchanged. Completion metadata is separate from ordinary results and never fabricates an end Hook.
+
+Codex 原生完成元数据按协商版本采集：第一版支持 MCP/图片，第二版增加 CommandExecution（Hook 名称 `Bash`），保留宿主状态和可选 32 位整数退出码，不复制命令或输出正文。升级通过分版本本地检查点有界重读历史，MCP/图片身份不变。完成元数据与普通结果分开，不伪造结束 Hook。
+
 按记录格式决定解析能力，版本号仅保留为来源元数据。陌生版本不会新增覆盖缺口；旧游标的 `aidr_log_version_unverified` 保留历史但不影响当前覆盖状态，真实格式错误继续报告。运行状态的解析支持来自读取结果，冻结批次及事件身份保持。
 
 Validated on the current Mac against anonymized and original read-only logs:
@@ -71,6 +75,7 @@ Validated on the current Mac against anonymized and original read-only logs:
 | Codex | 0.158.0-alpha.2.1 | Ten independent live custom exec calls and structured result blocks; explicit exit codes 0/7, body omission and unknown process relation verified |
 | Codex | 0.160.0 | Two isolated live sessions, nine calls and nine results; automatic base-worker discovery, persistence, strict ACK and bilingual operation details verified. Log support does not certify plugin trust or managed Hook installation. |
 | Codex | 0.160.1 | Native CLI session before and after the client update: user/context inputs, commentary, final reply, custom exec call and output. The post-update session has six log records with matching local/platform logical IDs and durable ACKs. An anonymized native fixture verifies bounded cursor resume and reply phases. |
+| Codex | 0.163.0-alpha.10.2 | `additional_tools` metadata preserves session context. Bounded replay verifies quarantined source bytes and restores missing messages and tool identities; tests cover cursor persistence and unchanged original evidence. Earlier version fixtures remain covered. |
 
 Cursor `call_turns[].tool` is an optional, bounded tool name retained for reliable call/result parsing. The server accepts it without rewriting existing frozen batches; absent values preserve legacy projections. A rejected frozen batch must be retried unchanged after the compatible server update, not regenerated. See the [client compatibility and recovery notes](../../../../docs/agent-manager-client.md) and [acceptance records](../../../../experiments/aidr-agentlog/ACCEPTANCE.md).
 

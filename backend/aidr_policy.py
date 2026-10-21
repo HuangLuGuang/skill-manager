@@ -111,7 +111,7 @@ def reject():
     raise ApiError(409, "aidr.redaction_policy_invalid", "脱敏策略凭据或序列范围不匹配", "Redaction policy receipt or sequence range does not match")
 
 
-def issue(db, client_id, stream, frontier, applied_receipt="", applied_after=0, content_supported=False, lifecycle_supported=False, message_supported=False, content_options_supported=False, model_context_supported=False, skill_audit_supported=False):
+def issue(db, client_id, stream, frontier, applied_receipt="", applied_after=0, content_supported=False, lifecycle_supported=False, message_supported=False, content_options_supported=False, model_context_supported=False, skill_audit_supported=False, completion_supported=False, command_completion_supported=False):
     policy = current(db, client_id)
     rows = db.query(models.AidrPolicyReceipt).filter_by(client_id=client_id, stream_id=stream, end_sequence=None).order_by(models.AidrPolicyReceipt.created_at).all()
     if applied_receipt:
@@ -140,22 +140,32 @@ def issue(db, client_id, stream, frontier, applied_receipt="", applied_after=0, 
                                       version=policy["version"], enabled=policy["enabled"], capture_json=capture, lifecycle_json=lifecycle, skill_audit_json=skill_audit, start_sequence=frontier + 1)
         db.add(row)
     db.flush()
-    return {**({"model_context_schema": 1} if model_context_supported else {}), "version": row.version, "enabled": row.enabled, "receipt": row.id, **({"message_schema": 1} if message_supported else {}), **({'capture': json.loads(row.capture_json)} if row.capture_json else {}),
+    return {**({"completion_schema": 2 if command_completion_supported else 1} if completion_supported else {}), **({"model_context_schema": 1} if model_context_supported else {}), "version": row.version, "enabled": row.enabled, "receipt": row.id, **({"message_schema": 1} if message_supported else {}), **({'capture': json.loads(row.capture_json)} if row.capture_json else {}),
             **({'lifecycle': json.loads(row.lifecycle_json)} if row.lifecycle_json else {}),
             **({'skill_audit': json.loads(row.skill_audit_json)} if row.skill_audit_json else {})}
 
 
-def validate(db, client_id, stream, sequence, behavior):
+def load_receipts(db, policies):
+    """Keep a batch-local snapshot inside the ingestion write transaction."""
+    ids = list({policy.receipt for policy in policies if policy and policy.receipt})
+    receipts = {}
+    for offset in range(0, len(ids), 500):
+        receipts.update({row.id: row for row in db.query(models.AidrPolicyReceipt).filter(
+            models.AidrPolicyReceipt.id.in_(ids[offset:offset + 500])).all()})
+    return receipts
+
+
+def validate(db, client_id, stream, sequence, behavior, *, receipts=None):
     if not behavior or behavior.version < 3:
         return  # Legacy contracts always require redaction.
     policy = behavior.policy
-    return validate_receipt(db, client_id, stream, sequence, policy)
+    return validate_receipt(db, client_id, stream, sequence, policy, receipts=receipts)
 
 
-def validate_receipt(db, client_id, stream, sequence, policy):
+def validate_receipt(db, client_id, stream, sequence, policy, *, receipts=None):
     if policy.version == "0" and policy.enabled and not policy.receipt:
         return  # First-contact fail-closed projection, still checked for secrets.
-    row = db.get(models.AidrPolicyReceipt, policy.receipt)
+    row = db.get(models.AidrPolicyReceipt, policy.receipt) if receipts is None else receipts.get(policy.receipt)
     if (not row or row.client_id != client_id or row.stream_id != stream or row.version != policy.version
             or row.enabled != policy.enabled or (json.loads(row.capture_json) if row.capture_json else None) != (policy.capture.model_dump() if policy.capture else None) or sequence < row.start_sequence
             or (json.loads(row.lifecycle_json) if row.lifecycle_json else None) != (policy.lifecycle.model_dump() if policy.lifecycle else None)

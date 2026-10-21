@@ -135,7 +135,7 @@ def test_parallel_analyzers_report_independent_progress(skill_dir, monkeypatch):
     })
     pipeline = VettingPipeline(CompanyPolicy({"require_sandbox_for_risk": []}))
     pipeline.vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True, analyzer_callback=report)
-    assert states == {"scanner": "completed", "skillspector": "completed", "sandbox": "skipped", "llm": "disabled"}
+    assert states == {"scanner": "completed", "skillspector": "completed", "sandbox": "skipped", "llm": "disabled", "behavioral": "disabled"}
 
 
 @pytest.mark.parametrize("deep_result, expected", [
@@ -730,6 +730,7 @@ class TestVettingPipeline:
             "policy_snapshot": {
                 "judgement_mode": "balanced",
                 "risk_classification": CompanyPolicy({}).risk_classification,
+                "blocked_permissions": CompanyPolicy({}).blocked_permissions,
             },
             "strategy": "mode_aware_llm_judgement",
             "judgement_mode": "balanced",
@@ -928,3 +929,95 @@ class TestVettingPipeline:
         assert sandbox_analysis["executed"] is False
         assert sandbox_analysis["reason_code"] == "no_executable_script"
         assert "SKILL.md command examples are not executed" in sandbox_analysis["reason"]
+
+
+def test_failed_llm_keeps_provider_in_analyzers(skill_dir, monkeypatch):
+    """模型超时仍保留实际分析器名称和原始失败原因。"""
+    monkeypatch.setattr(
+        "agent_manager.core.vetting.LLMConfig.load",
+        lambda: LLMConfig(enabled=True, provider="model-gateway", model="test-model"),
+    )
+    monkeypatch.setattr(
+        "agent_manager.core.vetting._run_scanner",
+        lambda *_: {"findings": [], "max_severity": "SAFE"},
+    )
+    def fail(**_kwargs):
+        raise TimeoutError("provider request timed out")
+    monkeypatch.setattr("agent_manager.core.vetting.analyze_skill_with_llm_single_round", fail)
+    result, *_ = VettingPipeline(CompanyPolicy({"require_sandbox_for_risk": []})).vet(
+        skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_llm=True, use_skillspector=False,
+    )
+    assert result.analyzers_used.count("llm:model-gateway") == 1
+    assert result.scan_report["analyzers_used"].count("llm:model-gateway") == 1
+    assert result.scan_report["analyzer_timings"]["llm"]["status"] == "failed"
+    assert "[LLM] analysis skipped: provider request timed out" in result.policy_notes
+
+
+def test_ai_total_timeout_records_stable_reason(skill_dir, monkeypatch):
+    """总超时使用稳定原因编码和本次秒数供双语界面展示。"""
+    from agent_manager.core.llm import LLMAnalysisTimeout
+    monkeypatch.setattr(
+        "agent_manager.core.vetting.LLMConfig.load",
+        lambda: LLMConfig(enabled=True, provider="model-gateway", timeout_seconds=5),
+    )
+    monkeypatch.setattr(
+        "agent_manager.core.vetting._run_scanner",
+        lambda *_: {"findings": [], "max_severity": "SAFE"},
+    )
+    def fail(**_kwargs):
+        raise LLMAnalysisTimeout(5)
+    monkeypatch.setattr("agent_manager.core.vetting.analyze_skill_with_llm_single_round", fail)
+    result, *_ = VettingPipeline(CompanyPolicy({"require_sandbox_for_risk": []})).vet(
+        skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_llm=True, use_skillspector=False,
+    )
+    timing = result.scan_report["analyzer_timings"]["llm"]
+    assert timing["status"] == "failed"
+    assert timing["reason"] == "llm_analysis_timeout"
+    assert timing["timeout_seconds"] == 5
+    assert "[LLM] analysis skipped: AI analysis timed out after 5 seconds" in result.policy_notes
+
+
+def test_late_llm_result_is_not_used_for_risk_reconciliation(skill_dir, monkeypatch):
+    """结果处理超出总预算时，只使用确定性检测结果。"""
+    from agent_manager.core import llm
+    now = [100.0]
+    monkeypatch.setattr(llm.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(
+        "agent_manager.core.vetting.LLMConfig.load",
+        lambda: LLMConfig(enabled=True, provider="model-gateway", timeout_seconds=5),
+    )
+    monkeypatch.setattr(
+        "agent_manager.core.vetting._run_scanner",
+        lambda *_: {"findings": [], "max_severity": "SAFE"},
+    )
+    def late(**_kwargs):
+        now[0] += 6
+        return LLMAnalysisResult(provider="model-gateway", model="test", risk_level="malicious")
+    monkeypatch.setattr("agent_manager.core.vetting.analyze_skill_with_llm_single_round", late)
+    result, *_ = VettingPipeline(CompanyPolicy({"require_sandbox_for_risk": []})).vet(
+        skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_llm=True, use_skillspector=False,
+    )
+    assert result.scan_report["analyzer_timings"]["llm"]["status"] == "failed"
+    assert result.scan_report["risk_reconciliation"]["llm_risk_level"] is None
+    assert result.risk_level == RiskLevel.BENIGN
+
+
+def test_provider_timeout_without_message_records_reason(skill_dir, monkeypatch):
+    """httpx 超时可无文本，报告仍须保留可识别的失败原因。"""
+    import httpx
+    monkeypatch.setattr(
+        "agent_manager.core.vetting.LLMConfig.load",
+        lambda: LLMConfig(enabled=True, provider="model-gateway"),
+    )
+    monkeypatch.setattr(
+        "agent_manager.core.vetting._run_scanner",
+        lambda *_: {"findings": [], "max_severity": "SAFE"},
+    )
+    def fail(**_kwargs):
+        raise httpx.ReadTimeout("")
+    monkeypatch.setattr("agent_manager.core.vetting.analyze_skill_with_llm_single_round", fail)
+    result, *_ = VettingPipeline(CompanyPolicy({"require_sandbox_for_risk": []})).vet(
+        skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_llm=True, use_skillspector=False,
+    )
+    assert result.scan_report["analyzer_timings"]["llm"]["status"] == "failed"
+    assert result.scan_report["analyzer_timings"]["llm"]["reason"] == "llm_provider_timeout"

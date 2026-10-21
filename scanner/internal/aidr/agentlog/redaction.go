@@ -8,6 +8,7 @@ import (
 // AuditPolicy identifies a server-issued policy for one device collection stream.
 // Version zero is the initial fail-closed policy, not a server override.
 type AuditPolicy struct {
+	CompletionSchema   int               `json:"completion_schema,omitempty"`
 	SkillAudit         *SkillAuditPolicy `json:"skill_audit,omitempty"`
 	ModelContextSchema int               `json:"model_context_schema,omitempty"`
 	MessageSchema      int               `json:"message_schema,omitempty"`
@@ -52,7 +53,7 @@ func (p AuditPolicy) Equal(other AuditPolicy) bool {
 	if (p.SkillAudit == nil) != (other.SkillAudit == nil) || (p.SkillAudit != nil && *p.SkillAudit != *other.SkillAudit) {
 		return false
 	}
-	if p.ModelContextSchema != other.ModelContextSchema || p.MessageSchema != other.MessageSchema || p.Version != other.Version || p.Enabled != other.Enabled || p.Receipt != other.Receipt {
+	if p.CompletionSchema != other.CompletionSchema || p.ModelContextSchema != other.ModelContextSchema || p.MessageSchema != other.MessageSchema || p.Version != other.Version || p.Enabled != other.Enabled || p.Receipt != other.Receipt {
 		return false
 	}
 	if (p.Lifecycle == nil) != (other.Lifecycle == nil) || (p.Lifecycle != nil && *p.Lifecycle != *other.Lifecycle) {
@@ -78,6 +79,9 @@ func (p AuditPolicy) Valid() bool {
 		return false
 	}
 	if p.ModelContextSchema < 0 || p.ModelContextSchema > 1 || (p.ModelContextSchema == 1 && p.Version == "0") {
+		return false
+	}
+	if p.CompletionSchema < 0 || p.CompletionSchema > 2 {
 		return false
 	}
 	if p.MessageSchema < 0 || p.MessageSchema > 1 || (p.MessageSchema == 1 && (p.Capture == nil || p.Version == "0")) {

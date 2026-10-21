@@ -57,6 +57,7 @@ func (s *Store) SavePolicy(ctx context.Context, p agentlog.AuditPolicy) error {
 		// Metadata protocol negotiation does not change the receipt's capture scope.
 		previous := *s.policy
 		previous.ModelContextSchema = p.ModelContextSchema
+		previous.CompletionSchema = p.CompletionSchema
 		if !p.Equal(previous) {
 			return ErrInvalid
 		}
@@ -78,6 +79,11 @@ func (s *Store) SavePolicy(ctx context.Context, p agentlog.AuditPolicy) error {
 	if err == nil {
 		if !resume.IsZero() {
 			_, err = tx.ExecContext(ctx, `INSERT INTO metadata(key,value) VALUES('audit_collection_resume_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, resume.Format(time.RFC3339Nano))
+		}
+	}
+	if err == nil {
+		if p.CompletionSchema > 0 && (s.policy == nil || s.policy.CompletionSchema < p.CompletionSchema) {
+			_, err = tx.ExecContext(ctx, `UPDATE discovery_files SET pending=1 WHERE agent='codex'`)
 		}
 	}
 	if err == nil {
@@ -138,4 +144,29 @@ func (s *Store) PolicyAppliedAfter(ctx context.Context) (string, error) {
 		return "0", nil
 	}
 	return value, err
+}
+
+// IntakeSince survives ACKs and restarts; retention supplies the advancing floor.
+func (s *Store) IntakeSince(ctx context.Context, proposed time.Time) (time.Time, error) {
+	if proposed.IsZero() {
+		return time.Time{}, ErrInvalid
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO metadata(key,value) VALUES('intake_since',?) ON CONFLICT(key) DO NOTHING`, proposed.UTC().Format(time.RFC3339Nano)); err != nil {
+		return time.Time{}, err
+	}
+	var raw string
+	if err := s.db.QueryRowContext(ctx, `SELECT value FROM metadata WHERE key='intake_since'`).Scan(&raw); err != nil {
+		return time.Time{}, err
+	}
+	since, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return time.Time{}, ErrInvalid
+	}
+	if proposed.Before(since) {
+		if _, err := s.db.ExecContext(ctx, `UPDATE metadata SET value=? WHERE key='intake_since'`, proposed.UTC().Format(time.RFC3339Nano)); err != nil {
+			return time.Time{}, err
+		}
+		since = proposed
+	}
+	return since, nil
 }

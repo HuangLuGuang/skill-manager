@@ -2847,7 +2847,10 @@ def test_dify_inventory_multi_purpose_credentials_and_snapshot_api(p1_api):
     ) == "console-admin-secret"
 
 
-def test_dify_intent_inference_is_admin_authorized_worker_scoped_and_budgeted(p1_api, monkeypatch):
+@pytest.mark.parametrize("outcome", ["success", "upstream_error", "repair", "lease_changed", "cancel_requested"])
+def test_dify_intent_inference_is_admin_authorized_worker_scoped_and_budgeted(p1_api, monkeypatch, outcome):
+    import httpx
+
     client, session_factory, state, users = p1_api
     target = _create_target(
         client,
@@ -2925,26 +2928,45 @@ def test_dify_intent_inference_is_admin_authorized_worker_scoped_and_budgeted(p1
     ).json()
     assert claim["task"]["task_id"] == created.json()["task_id"]
 
-    async def mock_inference(
-        _db, *, requested_model, summary, owner_user_id, owner_group_id,
-    ):
-        assert requested_model == "intent-model"
-        assert owner_user_id == users["admin"].id
-        assert owner_group_id is None
-        assert summary["content_policy"]["prompt_is_untrusted_data"] is True
-        assert "raw-secret-prompt" not in json.dumps(summary)
-        return {
-            "status": "inferred",
-            "intent": "Generate verified analytics queries",
-            "confidence": 0.82,
+    # Keep the endpoint, inference service and shared gateway DB phases real.
+    # Only the external model HTTP exchange is simulated.
+    calls, contents, heartbeats = [], [], []
+    async def upstream(http_request):
+        assert session_factory.kw["bind"].pool.checkedout() == 0
+        assert str(http_request.url) == "https://model.example.test/v1/chat/completions"
+        sent = json.loads(http_request.content)
+        assert sent["model"] == "intent-model"
+        calls.append(sent)
+        with session_factory() as db:
+            row = db.query(models.SecurityScanWorker).filter_by(worker_id=worker["worker_id"]).one()
+            heartbeats.append(row.last_heartbeat_at)
+            task = db.query(models.SecurityScanTask).filter_by(task_id=claim["task"]["task_id"]).one()
+            if outcome == "lease_changed":
+                task.lease_token_hash = hash_value("replacement-lease")
+            elif outcome == "cancel_requested":
+                task.cancel_requested = True
+            db.commit()
+        if outcome == "upstream_error":
+            return httpx.Response(503, json={"error": "model unavailable"})
+        content = json.dumps({
+            "intent": "Generate verified analytics queries", "confidence": 0.82,
             "evidence_summary": ["The workflow includes query generation and result validation"],
-            "model": "intent-model",
-            "provider": "intent-provider",
-            "rule_version": "intent-inference@1",
-            "usage_delta": {"rounds": 1, "tokens": 321, "cost_microunits": 9, "response_bytes": 144},
-        }
+        })
+        if outcome == "repair":
+            content = "not json" if len(calls) == 1 else (
+                "INTENT: Generate verified analytics queries\nCONFIDENCE: 0.82\n"
+                "EVIDENCE:\n- The workflow includes query generation and result validation"
+            )
+        contents.append(content)
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": content}}],
+            "usage": {"total_tokens": 321, "cost_microunits": 9},
+        })
 
-    monkeypatch.setattr(security_scans, "run_intent_inference", mock_inference)
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(
+        transport=httpx.MockTransport(upstream), **kwargs,
+    ))
     inference = client.post(
         f"/api/v1/agent-security/worker/tasks/{claim['task']['task_id']}/infer-intent",
         headers=headers,
@@ -2962,20 +2984,53 @@ def test_dify_intent_inference_is_admin_authorized_worker_scoped_and_budgeted(p1
             },
         },
     )
+    assert len(calls) == (2 if outcome == "repair" else 1)
+    if outcome == "lease_changed":
+        assert inference.status_code == 401, inference.text
+        assert inference.json()["error_code"] == "agent_security.task_lease_invalid"
+        with session_factory() as db:
+            task = db.query(models.SecurityScanTask).filter_by(task_id=claim["task"]["task_id"]).one()
+            assert task.lease_token_hash == hash_value("replacement-lease")
+            assert task.tokens_used == 100 and task.rounds_used == 2
+            assert db.query(models.SecurityAuditEvent).filter_by(
+                event_type="security_scan_task.intent_inferred").count() == 0
+        return
     assert inference.status_code == 200, inference.text
     payload = inference.json()
-    assert payload["status"] == "inferred"
+    if outcome in {"upstream_error", "cancel_requested"}:
+        assert payload["status"] == "unavailable"
+        assert payload["error_code"] == (
+            "dify_inventory.intent_model_unavailable" if outcome == "upstream_error"
+            else "dify_inventory.intent_inference_stopped"
+        )
+    else:
+        assert payload["status"] == "inferred"
+        assert payload["intent"] == "Generate verified analytics queries"
+    assert payload["continue_allowed"] is (outcome != "cancel_requested")
     assert payload["usage"] == {
-        "rounds": 3,
-        "tokens": 421,
-        "cost_microunits": 9,
+        "rounds": 2 + len(calls),
+        "tokens": 100 + 321 * len(contents),
+        "cost_microunits": 9 * len(contents),
         "concurrent_requests": 1,
-        "response_bytes": 644,
+        "response_bytes": 500 + sum(len(content.encode("utf-8")) for content in contents),
     }
     with session_factory() as db:
         task = db.query(models.SecurityScanTask).filter_by(task_id=claim["task"]["task_id"]).one()
-        assert task.tokens_used == 421
-        assert task.rounds_used == 3
+        assert task.tokens_used == payload["usage"]["tokens"]
+        assert task.rounds_used == payload["usage"]["rounds"]
+        if outcome == "cancel_requested":
+            assert task.status == "cancelled" and task.stop_reason == "cancel_requested"
+            assert task.lease_token_hash is None
+        else:
+            assert task.status == "running"
+            assert task.lease_token_hash == hash_value(claim["lease_token"])
+        row = db.query(models.SecurityScanWorker).filter_by(worker_id=worker["worker_id"]).one()
+        completed_at = datetime.fromisoformat(payload["collected_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+        assert row.last_heartbeat_at == completed_at > heartbeats[-1]
+        audit = db.query(models.SecurityAuditEvent).filter_by(
+            event_type="security_scan_task.intent_inferred").one()
+        assert audit.actor == f"worker:{worker['worker_id']}"
+        assert json.loads(audit.details_json)["usage"] == payload["usage"]
         audit_payload = "\n".join(row.details_json for row in db.query(models.SecurityAuditEvent).all())
         assert "redacted workflow purpose" not in audit_payload
         assert "raw-secret-prompt" not in audit_payload

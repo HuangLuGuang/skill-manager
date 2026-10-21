@@ -1,5 +1,6 @@
 export const auditTrailMessages = {
   'zh-CN': {
+    optionsLoadFailed: '筛选选项加载失败，可单独重试；审计列表仍可查看。',
     subtitle: '按智能体与客户端追踪身份、配置、授权和运行事件。', search: '搜索智能体、客户端、对象或事件',
     agent: '智能体', client: '客户端', category: '事件类别', result: '结果', all: '全部', allTime: '全部时间', refresh: '刷新',
     identity: '智能体 / 客户端', eventObject: '事件与对象', unlinkedAgent: '平台智能体未关联', unlinkedClient: '客户端未关联',
@@ -24,6 +25,7 @@ export const auditTrailMessages = {
     task: { title:'运行任务', status:'当前状态', steps:'已执行步骤', retries:'重试次数', actions:'动作记录', empty:'没有动作记录', failure:'运行任务读取失败', reason:'停止原因', created:'创建时间', completed:'完成时间', action:'动作', target:'目标', decision:'授权决定', outcome:'动作状态', boundary:'任务和动作状态来自运行时上报；不代表独立的操作系统取证。', states:{ preview:'预演', active:'运行中', completed:'已完成', succeeded:'执行成功', failed:'执行失败', stopped:'已停止', killed:'已终止', cancelled:'已取消', pending:'等待处理', running:'运行中', authorized:'已授权', expired:'授权已过期', executing:'执行中', denied:'已拒绝', allow:'允许', deny:'拒绝', require_approval:'等待审批', unknown:'结果未确认' } },
   },
   'en-US': {
+    optionsLoadFailed: 'Filter options could not be loaded. Retry options independently; the audit list remains available.',
     subtitle: 'Trace identities, configuration, authorization and activity by Agent and client.', search: 'Search Agents, clients, objects or events',
     agent: 'Agent', client: 'Client', category: 'Event category', result: 'Outcome', all: 'All', allTime: 'All time', refresh: 'Refresh',
     identity: 'Agent / Client', eventObject: 'Event and object', unlinkedAgent: 'Platform Agent unlinked', unlinkedClient: 'Client unlinked',

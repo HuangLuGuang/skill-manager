@@ -8,6 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,6 +19,7 @@ from .api_errors import (
     ApiError,
     api_error_handler,
     http_error_handler,
+    routing_error_handler,
     unhandled_error_handler,
     validation_error_handler,
 )
@@ -57,6 +59,8 @@ from .security_audit import append_security_audit, ensure_audit_signing_key
 from .security_target_migration import migrate_security_target_classification
 from .security_worker_bootstrap import bootstrap_builtin_security_worker_once
 from .services.runtime_traces import cleanup_expired
+from .services.retention import retention_loop
+from .services.pipeline_trace_retention import cleanup_once as cleanup_pipeline_traces_once
 from .sqlite_db import Base, SessionLocal, engine
 from .task_runtime import init_default_tasks
 
@@ -89,28 +93,25 @@ def warmup_skill_scanner() -> None:
     warmup_scanner(manager.policy.scanner_policy)
 
 
-def cleanup_runtime_traces_once() -> None:
+def cleanup_runtime_traces_once() -> bool:
     db = SessionLocal()
     try:
-        cleanup_expired(db)
+        return cleanup_expired(db)["more"]
     finally:
         db.close()
 
 
 async def runtime_trace_retention_loop() -> None:
-    while True:
-        await asyncio.sleep(3600)
-        try:
-            cleanup_runtime_traces_once()
-        except Exception as exc:
-            logger.warning("runtime trace retention cleanup failed: %s", type(exc).__name__)
+    await retention_loop(cleanup_runtime_traces_once, "runtime trace")
 
 
 @asynccontextmanager
 async def application_lifespan(_: FastAPI):
     warmup_skill_scanner()
-    cleanup_runtime_traces_once()
     retention_task = asyncio.create_task(runtime_trace_retention_loop())
+    pipeline_retention_task = asyncio.create_task(retention_loop(cleanup_pipeline_traces_once, "pipeline trace"))
+    from .request_leases import cleanup_expired_leases
+    lease_retention_task = asyncio.create_task(retention_loop(cleanup_expired_leases, "request leases"))
     from .aidr_retention import retention_loop as aidr_retention_loop
     aidr_retention_task = asyncio.create_task(aidr_retention_loop())
     from .aidr_skill_usage import audit_loop
@@ -119,18 +120,34 @@ async def application_lifespan(_: FastAPI):
     overview_task = asyncio.create_task(projection_loop())
     from .services.asset_sync import lifecycle_loop
     asset_task = asyncio.create_task(lifecycle_loop())
+    from .services.openapi_skills import report_loop
+    skill_report_task = asyncio.create_task(report_loop())
+    from .services.external_delivery import delivery_loop
+    delivery_task = asyncio.create_task(delivery_loop())
     try:
         yield
     finally:
         retention_task.cancel()
+        pipeline_retention_task.cancel()
+        lease_retention_task.cancel()
         aidr_retention_task.cancel()
         skill_audit_task.cancel()
         overview_task.cancel()
         asset_task.cancel()
+        skill_report_task.cancel()
+        delivery_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await delivery_task
+        with suppress(asyncio.CancelledError):
+            await skill_report_task
         with suppress(asyncio.CancelledError):
             await asset_task
         with suppress(asyncio.CancelledError):
             await retention_task
+        with suppress(asyncio.CancelledError):
+            await pipeline_retention_task
+        with suppress(asyncio.CancelledError):
+            await lease_retention_task
         with suppress(asyncio.CancelledError):
             await aidr_retention_task
         with suppress(asyncio.CancelledError):
@@ -149,9 +166,27 @@ app.add_exception_handler(LicenseError, license_error_handler)
 app.include_router(license_routes.router, prefix=settings.API_PREFIX)
 app.add_exception_handler(ApiError, api_error_handler)
 app.add_exception_handler(HTTPException, http_error_handler)
+app.add_exception_handler(StarletteHTTPException, routing_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
 app.add_exception_handler(Exception, unhandled_error_handler)
 app.add_middleware(WorkerCompletionBodyLimitMiddleware)
+from .external_access import ExternalAccessMiddleware
+from .routers import external_access
+app.add_middleware(ExternalAccessMiddleware)
+app.include_router(external_access.router, prefix=f"{settings.API_PREFIX}/v1")
+from .routers import external_deliveries
+app.include_router(external_deliveries.router, prefix=f"{settings.API_PREFIX}/v1")
+from .routers import external_callbacks
+app.include_router(external_callbacks.router, prefix=f"{settings.API_PREFIX}/v1")
+from .routers import external_gateways
+app.include_router(external_gateways.router, prefix=f"{settings.API_PREFIX}/v1")
+from .routers import openapi_profiles
+app.include_router(openapi_profiles.router, prefix=f"{settings.API_PREFIX}/v1")
+app.include_router(external_access.openapi_router)
+from .routers import openapi_skills
+app.include_router(openapi_skills.router)
+from .routers import openapi_agents
+app.include_router(openapi_agents.router)
 from .iam_middleware import management_audit_middleware
 app.middleware("http")(management_audit_middleware)
 app.add_middleware(
@@ -240,6 +275,8 @@ async def append_admin_security_audit(request, call_next):
 
 
 def ensure_sqlite_schema() -> None:
+    from .external_access_models import upgrade_external_access_schema
+    upgrade_external_access_schema(engine)
     Base.metadata.create_all(bind=engine)
     from .aidr_migrations import upgrade_aidr_schema
     upgrade_aidr_schema(engine)
@@ -272,6 +309,9 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql("ALTER TABLE managed_agents ADD COLUMN runtime_token_id INTEGER")
         if "created_by" not in agent_columns:
             conn.exec_driver_sql("ALTER TABLE managed_agents ADD COLUMN created_by VARCHAR(128)")
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_managed_agents_created_by ON managed_agents (created_by)"
+        )
         if "default_model_source" not in agent_columns:
             conn.exec_driver_sql(
                 "ALTER TABLE managed_agents ADD COLUMN default_model_source VARCHAR(32) NOT NULL DEFAULT 'internal'"
@@ -322,6 +362,9 @@ def ensure_sqlite_schema() -> None:
         access_token_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(access_tokens)").fetchall()}
         if "bound_client_id" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN bound_client_id VARCHAR(128)")
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_access_tokens_bound_client_id ON access_tokens (bound_client_id)"
+        )
         if "allow_agent_credential_issuance" not in access_token_columns:
             conn.exec_driver_sql(
                 "ALTER TABLE access_tokens ADD COLUMN allow_agent_credential_issuance BOOLEAN NOT NULL DEFAULT 0"
@@ -428,6 +471,10 @@ def ensure_sqlite_schema() -> None:
             if security_task_columns and column_name not in security_task_columns:
                 conn.exec_driver_sql(f"ALTER TABLE security_scan_tasks ADD COLUMN {column_name} {column_type}")
         if security_task_columns:
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_security_scan_tasks_continued_from_task_id "
+                "ON security_scan_tasks (continued_from_task_id)"
+            )
             conn.exec_driver_sql(
                 "CREATE INDEX IF NOT EXISTS ix_security_scan_tasks_approval_id ON security_scan_tasks (approval_id)"
             )

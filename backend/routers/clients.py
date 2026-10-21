@@ -393,6 +393,7 @@ def _ensure_client_managed_agent(
     owner = token.created_by or client.registered_by
     require_license()
     row = models.ManagedAgent(
+        registration_source="client_discovery",
         agent_id=agent_id,
         name=f"{client.name} · {label}"[:128],
         department_group_id=token.group_id,
@@ -460,6 +461,7 @@ def _ensure_inventory_agent_identity(
         return existing
     label = _MODEL_CONFIG_AGENT_LABELS.get(client_agent.agent_type, client_agent.agent_type)
     row = models.ManagedAgent(
+        registration_source="client_discovery",
         agent_id=agent_id,
         name=f"{client.name} · {label}"[:128],
         department_group_id=group_id,
@@ -846,22 +848,39 @@ def _agent_kind(value: str | None) -> str:
     }.get(normalized, normalized)
 
 
-def _client_response(db: Session, row: models.ManagedClient) -> dict:
-    agents = db.query(models.ClientAgent).filter(models.ClientAgent.client_id == row.client_id).all()
-    skills = db.query(models.ClientSkillInstall).filter(models.ClientSkillInstall.client_id == row.client_id).all()
-    classification = client_governance.policy_view(db, row.client_id)
-    latest_event_ids = (
-        db.query(func.max(models.ClientEvent.id).label("event_id"))
-        .filter(models.ClientEvent.client_id == row.client_id, models.ClientEvent.skill_name.is_not(None))
-        .group_by(models.ClientEvent.agent_type, models.ClientEvent.skill_name)
-        .subquery()
-    )
-    issue_count = (
-        db.query(models.ClientEvent)
-        .join(latest_event_ids, models.ClientEvent.id == latest_event_ids.c.event_id)
-        .filter(models.ClientEvent.event_type.in_(("unmanaged_skill_found", "skill_modified", "skill_blocked", "skill_quarantined")))
-        .count()
-    )
+def _client_related(db: Session, rows) -> dict:
+    result = {}
+    ids = [row.client_id for row in rows]
+    for offset in range(0, len(ids), 200):
+        part = ids[offset:offset + 200]
+        policies = client_governance.policy_views(db, part)
+        group = {cid: dict(agents=[], skills=[], recovery=[], classification=policies[cid], issues=0, alerts=0)
+                 for cid in part}
+        for model, key in ((models.ClientAgent, 'agents'), (models.ClientSkillInstall, 'skills'),
+                           (models.ClientRecoveryRecord, 'recovery')):
+            for item in db.query(model).filter(model.client_id.in_(part)):
+                group[item.client_id][key].append(item)
+        event = models.ClientEvent
+        latest = db.query(func.max(event.id).label('event_id')).filter(
+            event.client_id.in_(part), event.skill_name.is_not(None)).group_by(
+                event.client_id, event.agent_type, event.skill_name).subquery()
+        for cid, count in db.query(event.client_id, func.count(event.id)).join(
+                latest, event.id == latest.c.event_id).filter(event.event_type.in_(
+                    ('unmanaged_skill_found', 'skill_modified', 'skill_blocked', 'skill_quarantined'))
+                ).group_by(event.client_id):
+            group[cid]['issues'] = count
+        for cid, count in db.query(event.client_id, func.count(event.id)).filter(
+                event.client_id.in_(part), event.event_type == 'aidr_skill_alert',
+                func.json_extract(event.details_json, '$.active') == 1).group_by(event.client_id):
+            group[cid]['alerts'] = count
+        result.update(group)
+    return result
+
+
+def _client_response(db: Session, row: models.ManagedClient, *, related=None) -> dict:
+    data = related if related is not None else _client_related(db, [row])[row.client_id]
+    agents, skills, classification = data['agents'], data['skills'], data['classification']
+    issue_count = data['issues']
     if classification["enabled"] and classification["supported"]:
         affected_paths = set()
         for skill in skills:
@@ -871,11 +890,7 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
             if (observation.get("trigger") in client_governance.ACTIONS and observation.get("action") != "record_only") or observation.get("action_status") == "failed":
                 affected_paths.add(skill.skill_path)
         issue_count = len(affected_paths)
-    issue_count += db.query(models.ClientEvent).filter(
-        models.ClientEvent.client_id == row.client_id,
-        models.ClientEvent.event_type == 'aidr_skill_alert',
-        func.json_extract(models.ClientEvent.details_json, '$.active') == 1,
-    ).count()
+    issue_count += data['alerts']
     online = bool(row.last_seen_at and datetime.utcnow() - row.last_seen_at <= _CLIENT_ONLINE_WINDOW)
     return {
         "client_id": row.client_id,
@@ -892,7 +907,7 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
         "registered_by": row.registered_by,
         "created_at": row.created_at,
         "issue_count": issue_count,
-        "recovery": [_load(item.details_json, {}) for item in db.query(models.ClientRecoveryRecord).filter_by(client_id=row.client_id).all()],
+        "recovery": [_load(item.details_json, {}) for item in data['recovery']],
         "model_routing": classification["model_routing"],
         "agents": [
             {
@@ -2397,7 +2412,9 @@ def list_clients(
     query = db.query(models.ManagedClient)
     if current_user.role != "super_admin":
         query = query.filter(models.ManagedClient.registered_by == current_user.username)
-    return [_client_response(db, row) for row in query.order_by(models.ManagedClient.id.desc()).all()]
+    rows = query.order_by(models.ManagedClient.id.desc()).all()
+    related = _client_related(db, rows)
+    return [_client_response(db, row, related=related[row.client_id]) for row in rows]
 
 
 @router.get("/downloads/available")

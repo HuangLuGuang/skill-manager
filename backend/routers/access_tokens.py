@@ -3,7 +3,7 @@ import hmac
 import ipaddress
 import json
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.exc import OperationalError
@@ -14,6 +14,7 @@ from ..api_errors import ApiError
 from ..sqlite_db import get_db
 from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
 from ..agent_mcp import ensure_agent_mcp_scope
+from ..external_access import OPENAPI_SCOPES, validate_binding
 
 router = APIRouter(prefix="/access/tokens", tags=["access-tokens"])
 
@@ -46,7 +47,7 @@ CLIENT_SCOPES = [
     "client:request-skill-actions",
 ]
 AIDR_SCOPES = ["aidr:heartbeat", "aidr:report-events"]
-ALLOWED_SCOPES = set(SCANNER_SCOPES + RUNTIME_SCOPES + MODEL_SCOPES + MCP_SCOPES + CLIENT_SCOPES + AIDR_SCOPES)
+ALLOWED_SCOPES = set(SCANNER_SCOPES + RUNTIME_SCOPES + MODEL_SCOPES + MCP_SCOPES + CLIENT_SCOPES + AIDR_SCOPES + OPENAPI_SCOPES)
 DEFAULT_SCOPES_BY_TYPE = {
     "model_gateway": ["model:chat"],
     "agent_runtime": list(AGENT_VERIFICATION_SCOPES),
@@ -57,6 +58,7 @@ DEFAULT_SCOPES_BY_TYPE = {
 LAST_USED_WRITE_INTERVAL = timedelta(minutes=5)
 
 SCOPE_TOKEN_TYPES = {
+    **{scope: {"openapi"} for scope in OPENAPI_SCOPES},
     **{scope: {"scanner"} for scope in SCANNER_SCOPES},
     **{scope: {"agent_runtime"} for scope in RUNTIME_SCOPES},
     "model:chat": {"model_gateway", "agent_runtime"},
@@ -86,6 +88,8 @@ def _hash_token(token: str) -> str:
 
 
 def _normalize_scopes(token_type: str, scopes: list[str] | None) -> list[str]:
+    if token_type == "openapi" and not scopes:
+        raise ApiError(400, "external_access.scopes_required", "请选择至少一项接口权限", "Select at least one API permission")
     requested = scopes if scopes else DEFAULT_SCOPES_BY_TYPE.get(token_type, [])
     result: list[str] = []
     for scope in requested:
@@ -110,7 +114,22 @@ def _normalize_scopes(token_type: str, scopes: list[str] | None) -> list[str]:
             )
         if value not in result:
             result.append(value)
+    if token_type == "openapi" and not result:
+        raise ApiError(400, "external_access.scopes_required", "请选择至少一项接口权限", "Select at least one API permission")
     return result
+
+
+def _validate_external_token(db, token_type, platform_id, department_ids, expires_at, *, require_enabled=True):
+    if token_type != "openapi":
+        if platform_id or department_ids:
+            raise ApiError(400, "external_access.token_type_invalid", "接入方授权需要使用外部接口凭证", "Partner authorization requires an external API credential")
+        return expires_at
+    validate_binding(db, platform_id, department_ids, require_enabled=require_enabled)
+    if expires_at and expires_at.tzinfo:
+        expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
+    if expires_at and expires_at <= datetime.utcnow():
+        raise ApiError(400, "external_access.expiry_invalid", "到期时间须晚于当前时间", "Expiry must be in the future")
+    return expires_at
 
 
 def _normalize_allowed_models(
@@ -234,6 +253,8 @@ def _validate_subject_bindings(
 
 def _access_token_response(row: models.AccessToken, token: str | None = None) -> schemas.AccessTokenResponse:
     return schemas.AccessTokenResponse(
+        platform_id=row.platform_id,
+        allowed_department_ids=_json_loads(row.allowed_department_ids_json, []),
         id=row.id,
         name=row.name,
         token_type=row.token_type,
@@ -446,9 +467,9 @@ def ensure_agent_prompt_allowed(agent: models.ManagedAgent, prompt_name: str) ->
         )
 
 
-def acquire_access_token_slot(token: models.AccessToken) -> None:
+def acquire_access_token_slot(token: models.AccessToken, *, bind=None) -> None:
     session = object_session(token)
-    bind = session.get_bind() if session is not None else None
+    bind = bind or (session.get_bind() if session is not None else None)
     try:
         lease_id = acquire_lease(
             "access_token",
@@ -504,6 +525,9 @@ async def create_access_token(
 ):
     if not body.name.strip():
         raise ApiError(400, "credential.name_required", "凭证名称不能为空", "Credential name is required")
+    expiry = _validate_external_token(db, body.token_type, body.platform_id, body.allowed_department_ids, body.expires_at)
+    if body.token_type == "openapi" and len(body.name.strip()) > 128:
+        raise ApiError(400, "external_access.name_too_long", "凭证名称最多128个字符", "Credential names allow up to 128 characters")
     _validate_agent_credential_issuance(body.token_type, body.allow_agent_credential_issuance)
     scopes = _normalize_scopes(body.token_type, body.scopes)
     allowed_mcp_gateways = _validate_subject_bindings(
@@ -520,6 +544,8 @@ async def create_access_token(
         raise ApiError(404, "group.not_found", "用户组不存在", "User group not found")
     plain = _new_token()
     row = models.AccessToken(
+        platform_id=body.platform_id,
+        allowed_department_ids_json=_json_dumps(list(dict.fromkeys(body.allowed_department_ids))),
         name=body.name.strip(),
         token_type=body.token_type,
         token_hash=_hash_token(plain),
@@ -541,7 +567,7 @@ async def create_access_token(
         ),
         allowed_mcp_gateways_json=_json_dumps(allowed_mcp_gateways),
         allowed_ips_json=_json_dumps(body.allowed_ips),
-        expires_at=body.expires_at,
+        expires_at=expiry,
         max_body_kb=body.max_body_kb,
         max_concurrent_requests=body.max_concurrent_requests,
         max_upload_mb=body.max_upload_mb,
@@ -569,6 +595,32 @@ async def update_access_token(
     if not row:
         raise ApiError(404, "credential.not_found", "接入凭证不存在", "Access credential not found")
     data = body.model_dump(exclude_unset=True)
+    if row.token_type == "openapi":
+        for field in ("status", "name", "scopes", "allowed_department_ids"):
+            if field in data and data[field] is None:
+                raise ApiError(400, "external_access.field_required", "提交的字段不能为空", "Submitted fields must not be null")
+        if row.status == "revoked":
+            raise ApiError(409, "external_access.token_revoked", "凭证已吊销，请创建新凭证", "This credential is revoked; create a new one")
+        if "name" in data and (not data["name"] or not data["name"].strip()):
+            raise ApiError(400, "credential.name_required", "凭证名称不能为空", "Credential name is required")
+        if "name" in data:
+            data["name"] = data["name"].strip()
+            if len(data["name"]) > 128:
+                raise ApiError(400, "external_access.name_too_long", "凭证名称最多128个字符", "Credential names allow up to 128 characters")
+        if data.get("status") == "revoked":
+            row.revoked_at = datetime.utcnow()
+            row.revoked_by = current_user.username
+        if "scopes" in data:
+            _normalize_scopes("openapi", data["scopes"])
+        if "allowed_department_ids" in data:
+            validate_binding(db, row.platform_id, data["allowed_department_ids"])
+        if "expires_at" in data:
+            data["expires_at"] = _validate_external_token(db, row.token_type, row.platform_id,
+                data.get("allowed_department_ids", _json_loads(row.allowed_department_ids_json, [])), data["expires_at"], require_enabled=False)
+    elif data.get("allowed_department_ids"):
+        raise ApiError(400, "external_access.token_type_invalid", "接入方授权需要使用外部接口凭证", "Partner authorization requires an external API credential")
+    if "allowed_department_ids" in data:
+        row.allowed_department_ids_json = _json_dumps(list(dict.fromkeys(data.pop("allowed_department_ids") or [])))
     if "allow_agent_credential_issuance" in data:
         _validate_agent_credential_issuance(row.token_type, bool(data["allow_agent_credential_issuance"]))
     next_bound_agent_id = data.get("bound_agent_id", row.bound_agent_id)

@@ -97,9 +97,9 @@ def upgrade_aidr_schema(engine):
             repair_codex_session_projections(conn)
             from .aidr_correlation import install_indexes
             install_indexes(conn)
-            from .aidr_models import SESSION_MESSAGE_INDEX, SESSION_LIST_INDEXES, RUNTIME_GOVERNANCE_INDEXES, HOOK_RELATED_INDEX
+            from .aidr_models import SESSION_MESSAGE_INDEX, SESSION_LIST_INDEXES, RUNTIME_GOVERNANCE_INDEXES, HOOK_RELATED_INDEX, SKILL_EVIDENCE_INDEXES
             SESSION_MESSAGE_INDEX.create(conn, checkfirst=True)
-            for index in (*SESSION_LIST_INDEXES, *RUNTIME_GOVERNANCE_INDEXES, HOOK_RELATED_INDEX):
+            for index in (*SESSION_LIST_INDEXES, *RUNTIME_GOVERNANCE_INDEXES, HOOK_RELATED_INDEX, *SKILL_EVIDENCE_INDEXES):
                 # SQLite expression indexes are not reflected by SQLAlchemy.
                 conn.execute(CreateIndex(index, if_not_exists=True))
             from .aidr_enforcement import RUNTIME_QUERY_INDEXES

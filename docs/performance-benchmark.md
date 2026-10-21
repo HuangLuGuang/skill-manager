@@ -2,6 +2,116 @@
 
 本文记录 `2026-08-13` 在隔离测试环境中完成的单节点 Docker 性能基准。数据用于部署选型和参数起步，不是脱离硬件、数据规模和上游服务的产品硬上限。
 
+## 概览投影与多个写入者的等待（2026-10-18）
+
+将概览正文解析和投影准备移到取得写权限之前，发布时重新检查水位与到期状态；概览和 AIDR 有界清理加入采集、审计已有的两个异步名额。模型网关、数据库结构及提交耐久性保持不变。完成低、高负载各三组合格交替配对，另保留一组环境不合格配对，并运行两轮独立诊断。高负载吞吐中位值提高 2.3%，补传积压减少 10.5%，从未审计记录数 P95 下降 52.7%；模型网关低/高负载 P95 分别下降 32.5% / 15.8%。诊断中概览持锁 P95 从 177ms 降至 112ms。
+
+改动保留，93 项定向测试通过，但性能验收仍部分达成：高负载 Dashboard 两对变慢约 11–19ms，低负载 Skill 列表中位值升高 3.6%，AIDR 清理全量完成时间增加约 30%。诊断未确认页面波动的因果来源，不能将其直接视为误差或宣称全面无回退。完整环境、逐对数据、并发边界和剩余热点见[概览投影与写入等待复测](benchmarks/2026-10-18-overview-writers.md)。
+
+**English:** Overview preparation now precedes writer acquisition; publication rechecks progress and raw-record expiry. Projection and bounded AIDR retention share the existing two collection/audit admission slots. Three qualified alternating pairs per load show 2.3% higher high-load throughput and 10.5% less replay backlog; model-gateway P95 improves by 32.5% at low load and 15.8% at high load. Separate instrumentation measures projection hold P95 dropping from 177ms to 112ms. The change is retained with 93 passing tests, but performance acceptance is partial: some page pairs worsen and high-load AIDR cleanup completes about 30% later. Page non-regression and production capacity are not established. The report retains the excluded environmental pair and all qualified unfavorable results.
+
+## AIDR 到期 UPDATE 成本拆解（2026-10-18）
+
+隔离实验确认表达式索引维护和页缓存压力贡献了到期 UPDATE 成本。保持 500 条事务的临时页缓存候选完成十二轮交替混合压测与两轮独立诊断：高负载清理耗时中位值下降 6.3%，吞吐提高 0.8%，积压减少 5.2%；但模型网关 P95 上升 14.5%，周期审计待复核数 P95 上升 28.9%。候选未通过整体性能验收，已撤回；最终应用与本轮起始快照一致，保留真实后台清理并发上传的回归覆盖。详见[完整成本拆解、逐轮结果与候选处置](benchmarks/2026-10-18-aidr-retention-cache.md)。
+
+**English:** Isolated UPDATE experiments identify expression-index maintenance and page-cache pressure as contributors. Twelve alternating mixed-load runs and two separate diagnostic runs show faster retention but worse high-load model-gateway and periodic-audit tails. The candidate was withdrawn; the application matches the starting snapshot. Regression coverage for concurrent late-result upload through background retention remains.
+
+## 当前版本的混合负载写锁定位（2026-10-18）
+
+以包含最新页面优化的工作区为基线，完成低、高负载各三轮，并对概览查询构造候选分别复测三轮。高负载基线唯一 ACK 吞吐中位值为 471.65 条/秒、补传窗口末积压 3,710 条。独立诊断确认 AIDR 清理与概览投影存在长持锁段，Skill 审计和列表主要等待获取写锁；线程排队不是主要等待来源。
+
+候选高负载吞吐为 466.66 条/秒、积压 4,010 条，Skill 列表 P95 从 296.35ms 升至 352.69ms；虽然高负载模型 P95 下降，但不足以通过整体验收。本轮未保留运行时代码调整，原有修复保留；新增诊断分类与证据一致性回归覆盖。完整逐轮指标、候选处置和环境边界见[写锁热点复测报告](benchmarks/2026-10-18-aidr-write-hotspots.md)。
+
+**English:** Three runs per load level establish a fresh baseline including the page-query improvements. A separately measured overview-query candidate does not improve collection backlog or Skill-list tail latency sufficiently to retain. Final application code matches the starting snapshot; improved diagnostic attribution and evidence-consistency regression coverage remain. Instrumented lock timings are reported separately from the formal performance matrix.
+
+## 页面 API 三组交替复测（2026-10-18）
+
+保留 Codex 和网络代理，在用户认可的当前后台负载下，用相同源码和脚本完成三组交替对照。
+客户端列表、Agent 列表、智能体资产页和概览三组 P95 均下降，中位值分别降低 24.9%、86.6%、
+26.0%、34.6%。实际开始前 CPU 为 28.9%–31.1%，最低可用内存约 4.2 GiB，没有换出。
+全部 1,728 个含预热请求成功；这是有后台负载的 API 测量，未覆盖浏览器和网关并行流量。
+详见[完整逐组结果及环境限制](benchmarks/2026-10-18-page-queries.md)。
+
+**English:** Three alternating pairs with unchanged sources and fixtures confirm lower P95 for the main
+list/overview APIs under the accepted background load. Starting CPU was 28.9–31.1%; browser and concurrent
+gateway performance remain outside this experiment.
+
+## 页面 API 查询优化（2026-10-17）
+
+本轮覆盖九类页面 API：客户端列表关联查询从 801 条降到 8 条，Agent 列表从 201 条降到 4 条，
+智能体资产页从 205 条降到 8 条；概览合并证据统计，链路普通事件页只读取脱敏 payload。
+三组成对隔离测试中，客户端、资产页和概览 P95 中位值分别下降约 37%、31%、33%。
+本机 CPU/内存压力超出此前空闲门槛，这些耗时仅为参考，不代表浏览器首屏或网关混合负载验收。
+完整逐轮结果、未改善的路径和人工测试清单见[页面查询报告](benchmarks/2026-10-17-page-queries.md)。
+
+**English:** Batched page metadata reads reduce Client/Agent SQL counts and avoid loading raw trace content
+on ordinary event pages. Three paired API runs show improvements for major list/overview paths, with host
+resource pressure explicitly limiting timing conclusions. Browser and mixed-load acceptance remain separate.
+
+## 审计持锁与共享准入复测（2026-10-17）
+
+减少审计/列表持写锁期间的逐条重读，将审计与采集统一到两个异步准入名额，并修复名额唤醒交接时的超额占用。最终低、高负载各三组成对正式测试，加一组成对诊断，均通过环境检查。高负载 ACK 吞吐中位值提高 2.2%，窗口末积压减少 13.6%，Skill 列表 P95 下降 23.3%；审计最老超期仍约 1 秒，最终首次未核对为零。低负载模型 P95 三组都下降，但低负载页面略慢，高负载有网关尾延迟升高的轮次，不能宣布全面无回退。83 项定向回归通过，详见 [源码边界、逐轮数据与等待诊断](benchmarks/2026-10-17-aidr-shared-admission.md)。
+
+**English:** Shorter audit write phases, shared asynchronous admission and a fixed slot-handoff race improve high-load collection and Skill-list medians while retaining audit catch-up. All 83 targeted regressions pass. Low-load page latency and some high-load gateway tails remain unresolved; see the linked report for the final matched matrix and separate diagnostics.
+
+## AIDR 证据查询与审计追赶混合复测（2026-10-17）
+
+沿用含 Skill 审计和后台查询的 100 客户端工作负载，低、高负载各三组成对复跑，12 轮均通过环境门槛。审计待复核数 P95 中位值分别下降 59.3% 和 81.9%，高负载优化版最终首次未核对数三轮均为零；但高负载采集吞吐中位值下降 1.5%，窗口末积压增加 13.7%，页面尾延迟没有稳定改善。模型 P95 中位值下降，但两种负载各有一组升高，低负载波动扩大，尚不能确认网关不受影响。60 项定向回归通过，完整条件、逐轮结果及正确性边界见 [混合复测报告](benchmarks/2026-10-17-aidr-evidence-catchup.md)。
+
+**English:** Twelve eligible matched runs show better audit catch-up, but do not establish overall performance acceptance: high-load acknowledged throughput is slightly lower, collection backlog is higher, and page/gateway tail behavior remains mixed. All 60 targeted correctness regressions pass. See the linked report for paired results and measurement limits.
+
+## 100 客户端采集、补传与清理混合压测（2026-10-14）
+
+新增本机隔离 HTTP 压测：100 个客户端身份持续生成日志与 Hook，暂停上传 20 秒后补传，并同时执行 AIDR、Pipeline Trace、Runtime Trace 清理及模型/MCP 网关调用。
+400 条记录/秒、每个网关 5 次/秒时复现了事件循环同步等待数据库连接池，导致上传、网关和清理相互影响。
+100 条记录/秒、每个网关 1 次/秒、模拟器最多 4 路上传时，13,020 条记录全部持久化，恢复时积压约 14 秒补完，历史清理约 12–25 秒完成；模型/MCP P95 在重叠窗口仍分别上升至约 970 ms/1.45 秒。
+上传并发限制属于实验条件，尚不是生产策略；以上不是生产容量承诺。详见 [测试口径、三档结果和阻塞栈分析](benchmarks/2026-10-14-aidr-100-clients.md)。
+
+### 网关连接池修复后的同条件复跑（2026-10-15）
+
+同步数据库阶段改在线程中执行，并在等待请求体、上游调用和流式输出前归还连接。最终三档 100 客户端复跑均完成预置历史清理，未再捕获此前约 89 秒的事件循环停顿。高负载两档 ACK 从 700/1,630 条增加至 49,900/45,140 条，但仍有 2,160/6,940 条未确认积压和少量上游连接失败。
+低负载 13,020 条全部入库；补传与清理期间模型/MCP P95 却从约 0.97/1.45 秒升至 3.95/3.77 秒。因此本次验证了阻塞机制修复，尚未达到网关尾延迟和持续容量目标。数据库继续使用 SQLite，完整口径、旧源码复核及 231 项通过的定向回归见 [修复对比报告](benchmarks/2026-10-15-gateway-pool-fix.md)。
+
+### 网关尾延迟与连接复用复测（2026-10-15）
+
+进一步将概览清理改为批量统计扣减，清理在表间让出执行机会，MCP 一次调用的三个协议步骤复用 HTTP 客户端。保持 SQLite、连接池、清理批量和负载参数不变，低负载模型/MCP P95 从上一轮 3.95/3.77 秒降至 3.23/3.18 秒，13,020 条全部确认，但仍未恢复最初低负载水平。
+
+高负载 4 路/100 路分别确认 42,180/46,380 条，剩余 9,860/5,660 条；模型/MCP P95 分别为 5.84/5.41 秒和 18.84/19.81 秒。历史清理全部完成，100 路时 AIDR 清理耗时约 141 秒，比上一轮更慢。三档没有记录上游连接失败，但 4 路场景有 2 次压测端读取网关响应的 `ReadError`，不能算作成功。
+
+由于共享主机波动，追加旧版同机 4 路完整对照：旧版确认 32,590 条，模型/MCP P95 为 6.40/6.81 秒，并出现 6 次模型、18 次 MCP 连接失败。当前版本在该对照下有所改善，但历史高负载结果并非全面提升，不能据此宣称持续 400 条/秒容量达标。详见 [完整结果、错误边界与源码摘要](benchmarks/2026-10-15-gateway-contention-fix.md)。
+
+### 网关事务减量与采集批内 SQL（2026-10-15）
+
+在 `RENA-1470` rebase `dev` 后建立即时基线，合并 MCP 两级租约事务及释放/审计提交，将过期租约清理移至后台，并对日志、Hook 的查重、凭据读取、证据与操作投影写入做批量化。保留单批提交后 durable ACK、冲突整批回滚及数据库原子并发限制。
+
+正式 100 客户端对照中，高负载 4 路/100 路的补传窗口有效 ACK 吞吐从 139.47/201.83 提高到 278.16/364.49 条/秒，固定排空策略下最终未确认记录从 11,580/8,310 降到零；模型/MCP P95 分别从 5.57/5.83 降到 4.50/4.08 秒，以及从 18.90/19.98 降到 11.57/10.37 秒。100 路 AIDR 清理从 151.11 缩短到 86.42 秒。
+
+低负载正式轮 P95 升高，追加反向对照则降低；同一优化版模型 P95 两次为 3.93 和 0.92 秒，不能宣称稳定改善。高负载停止生成前仍有积压，尚未验证持续 400 条/秒能力。378 项定向回归通过，5 项因缺少可选 MCP SDK 跳过。源码摘要、全部 8 组结果及语义验证见[完整对照报告](benchmarks/2026-10-15-gateway-transaction-fix.md)。
+
+### 清理窗口写锁与低负载多轮复测（2026-10-15）
+
+继续定位发现长等待主要在 SQLite 写锁获取；进一步合并模型网关完成事务、将采集写入入口限制为每事件循环两个并发，并批量化统计投影。普通非流式 AccessToken 模型调用写提交从 6 次降到 4 次，250 个独立 Hook 调用的统计投影 SQL 驱动调用从 1,512 次降到 38 次。数据库、落盘后 ACK、幂等、并发校验及清理批量保持。
+
+三组新鲜低负载对照中，补传清理窗口模型 P95 从 1,588/1,140/2,133 ms 降至 903/800/912 ms，三轮中位数降低约 43.1%，极差从 993 ms 缩至 112 ms。MCP 三轮中位数从 1,129 降至 862 ms，但第二组略有回退。每轮每网关窗口仅 60 个请求，优化后仍有秒级单请求尾延迟；三轮结果不等于生产稳定性保证。完整负载、积压、清理、错误和验证边界见[清理窗口与尾延迟复测](benchmarks/2026-10-15-gateway-tail-stability.md)。
+
+### 采集 CPU 开销与积压复测（2026-10-16）
+
+复用正文控制字符扫描及固定采集 SQL 的构造/编译结果，保持 SQLite、两路采集准入、批次独立提交、并发校验及落盘后 ACK。三组低负载与 4 路/100 路上传各两组前后对照，共 14 轮。低负载模型网关 P95 三组均下降，中位数 406.56→254.68 ms；高负载补传 ACK 吞吐分别从 471–503 提高到约 533 条/s，四组补传窗口末未确认量从 1,840–3,720 降至 10–20 条。
+
+收益存在边界：4 路高负载模型/MCP P95 两组均回退，100 路一组改善、一组回退；低负载 MCP 波动范围扩大。AIDR 清理约 13–16 秒，没有一致加速。14 轮最终全部确认且清理完成，1 次采集 `ReadError` 经重试恢复；324 项回归通过。磁盘耗尽的中断轮及其配对结果已排除，两对 100 路在恢复空间后完整重跑。详见[积压、尾延迟、环境限制与完整性报告](benchmarks/2026-10-16-gateway-backlog-fix.md)。
+
+### 三处正确性回归修复复测（2026-10-16）
+
+修复清理误覆盖已 ACK 的迟到结果、可选 Runtime Trace 失败回滚会话完成状态、MCP 扫描早期拒绝后的脱离 Session 异常。最终受影响测试 85 项通过，保留 SQLite、并发租约、幂等及落盘后 ACK；正常模型网关路径仍合并提交。
+
+与上一轮优化版本同参数完成 14 轮对照。修复版低负载模型 P95 三轮为 258–271 ms；4 路高负载 ACK 中位数从 491.4 降至 429.6 条/s，补传窗口末未确认量从 2,290–2,760 增至 5,510–7,000。100 路两轮结果混合。最终全部落盘和清理完成，无请求错误，但主机 CPU/页面调入活动波动，历史采样未记录独立的 Swapins，不能确认整体性能不回退。完整逐轮结果、环境记录及较大测试集的三个既有失败见[正确性修复与性能验收报告](benchmarks/2026-10-16-gateway-regression-fixes.md)。
+
+### 4 路高负载环境对照（2026-10-16）
+
+保持上述三处修复及应用源码不变，退出授权的闲置应用，分别记录 macOS Pageins 与 Swapins，并设置逐轮空闲/运行期资源检查后，串行完成三组成对复测。两版本的 ACK 中位数均约 533.3 条/s；保留修复版窗口末未确认量为 10–20 条，上轮同一源码为 5,510–7,000 条。采集吞吐下降没有复现，当前不为此继续修改应用代码。
+
+六轮资源和完整性检查均通过，压测后 8 项直接回归通过。模型 P95 中位数仍为 678 → 829 ms，两组成对升高、一组下降，因此只确认此次负载下的采集追赶能力，不能确认整体尾延迟不回退。监控口径更正、环境限制及全部结果见[4 路高负载复测报告](benchmarks/2026-10-16-high4-environment.md)。
+
 ## Skill 导入与 API 隔离回归（2026-10-14）
 
 当前代码检查与本机隔离测试确认了以下路径，并完成对应优化：

@@ -39,6 +39,7 @@ from agent_manager.core.manager import AgentManager, findings_summary_from_repor
 from agent_manager.core.models import RegistryEntry, SkillOrigin, SkillStatus, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.policy_simulation import PolicySimulationRequest, simulate_policy
+from agent_manager.core.policy_warnings import get_policy_warnings
 from agent_manager.core.prompt_models import PromptStatus
 from agent_manager.core.sandbox import (
     SandboxConfig,
@@ -71,13 +72,16 @@ def _get_upload_jobs(mgr):
     with _upload_jobs_lock:
         if root not in _upload_jobs:
             def process_item(payload, raw_path):
+                # 每项上传开始时固定当前管理器，已开始扫描继续使用原实例。
+                current = _manager
+                active = current if current is not None and current.registry.data_dir == root else mgr
                 body = RemoteImportSubmitRequest(**payload)
                 skill_dir = Path(raw_path).resolve()
                 session_root = root / "upload_import_sessions" / body.session_id
                 if not _is_within_root(skill_dir, session_root):
                     raise ValueError("Path is outside upload import session")
                 result = _submit_directory_for_processing(
-                    mgr, BackgroundTasks(), skill_dir,
+                    active, BackgroundTasks(), skill_dir,
                     SourceInfo(origin=SkillOrigin(body.origin), author=body.author, channel="upload_zip"),
                     body.use_behavioral, body.use_llm, body.use_sandbox, body.use_skillspector, body.judgement_mode,
                 )
@@ -1722,6 +1726,9 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
     if isinstance(report.get("sandbox_analysis"), dict):
         # 历史说明只在响应中补齐编码，保留原始报告及执行判定。
         report = {**report, "sandbox_analysis": with_sandbox_reason_metadata(report["sandbox_analysis"])}
+    report = {**report, "policy_warnings": get_policy_warnings(
+        report, entry.vetting.policy_notes if entry.vetting else [],
+    )}
     deep = report.get("skillspector_analysis")
     if isinstance(deep, dict):
         deep = with_deep_scan_analysis_display(deep)
@@ -1733,7 +1740,9 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
     ):
         # 仅补齐响应中的历史噪声明细，保留已存储报告与风险判定。
         report = {**report, "skillspector_analysis": {
-            **deep, "suppressed_findings": get_suppressed_findings(deep["raw_report"]),
+            **deep, "suppressed_findings": get_suppressed_findings(
+                deep["raw_report"], effective_findings=deep.get("findings"),
+            ),
         }}
     return {
         "skill_id": entry.family_id or entry.skill_id,

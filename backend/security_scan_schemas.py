@@ -271,6 +271,7 @@ class SecurityTaskPlanRequest(BaseModel):
     language: Literal["zh", "en"] = "zh"
     skills: list[str] = Field(default_factory=list, max_length=10)
     prompt: str = Field(default="", max_length=4096)
+    protected_output_markers: list[Annotated[str, Field(strict=True, min_length=8, max_length=256)]] = Field(default_factory=list, max_length=8)
     conversation_mode: Literal["single_turn", "multi_turn"] = "single_turn"
     continue_from_task_id: str | None = Field(default=None, min_length=1, max_length=64)
     reset_session: bool = True
@@ -452,6 +453,13 @@ class SecurityLiveProgress(BaseModel):
 
 
 class SecurityTaskResponse(BaseModel):
+    source_platform_name: str | None = None
+    trigger_source: str | None = None
+    source_platform_id: str | None = None
+    external_task_id: str | None = None
+    business_request_id: str | None = None
+    source_token_id: int | None = None
+    source_request_id: str | None = None
     origins: list[dict[str, Any]] = Field(default_factory=list)
     task_id: str
     target_id: str

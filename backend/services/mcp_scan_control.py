@@ -221,9 +221,11 @@ def register_routes(router):
             row.status = "denied" if result.get("error") else "error" if not isinstance(payload, dict) or payload.get("isError") else "succeeded"
             return {"call_id": body.call_id, "status": row.status, "response": result}
         finally:
+            # Gateway DB phases detach snapshots when returning the connection.
+            # Reattach before reading expired state on an early rejection.
+            db.add(row)
             if row.status == "running":
                 row.status = "failed"
-            db.add(row)
             db.commit()
 
     @router.get("/tasks/{task_id}/mcp-calls")

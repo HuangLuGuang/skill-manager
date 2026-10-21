@@ -389,7 +389,16 @@ class ManagedAgentUpdate(BaseModel):
     allowed_mcp_gateways: list[str] = Field(default_factory=list)
 
 
-class ManagedAgentResponse(BaseModel):
+class RegistrationSource(BaseModel):
+    registration_source: Optional[str] = None
+    source_platform_id: Optional[str] = None
+    external_agent_id: Optional[str] = None
+    source_token_id: Optional[int] = None
+    source_request_id: Optional[str] = None
+
+
+class ManagedAgentResponse(RegistrationSource):
+    source_platform_name: Optional[str] = None
     id: int
     agent_id: str
     name: str
@@ -448,7 +457,8 @@ class AgentAssetInstance(BaseModel):
     skills: list[AgentAssetSkill] = Field(default_factory=list)
 
 
-class AgentAssetResponse(BaseModel):
+class AgentAssetResponse(RegistrationSource):
+    source_platform_name: Optional[str] = None
     asset_key: str
     managed_agent_pk: Optional[int] = None
     agent_id: str
@@ -489,8 +499,10 @@ class AgentAssetListResponse(BaseModel):
 
 
 class AccessTokenCreate(BaseModel):
+    platform_id: Optional[str] = Field(default=None, max_length=64)
+    allowed_department_ids: list[str] = Field(default_factory=list)
     name: str
-    token_type: str = Field(pattern="^(model_gateway|agent_runtime|scanner|client|mcp_gateway)$")
+    token_type: str = Field(pattern="^(model_gateway|agent_runtime|scanner|client|mcp_gateway|openapi)$")
     bound_agent_id: Optional[str] = None
     bound_client_id: Optional[str] = None
     allow_agent_credential_issuance: bool = False
@@ -512,6 +524,7 @@ class AccessTokenCreate(BaseModel):
 
 
 class AccessTokenUpdate(BaseModel):
+    allowed_department_ids: Optional[list[str]] = None
     name: Optional[str] = None
     bound_agent_id: Optional[str] = None
     bound_client_id: Optional[str] = None
@@ -535,6 +548,8 @@ class AccessTokenUpdate(BaseModel):
 
 
 class AccessTokenResponse(BaseModel):
+    platform_id: Optional[str] = None
+    allowed_department_ids: list[str] = Field(default_factory=list)
     id: int
     name: str
     token_type: str

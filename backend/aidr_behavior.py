@@ -2,7 +2,7 @@
 import re
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .aidr_content import AuditLifecycle, CaptureScope, Content, ContentStatus, validate_contents
+from .aidr_content import AuditLifecycle, CaptureScope, Content, ContentStatus, INVALID_TEXT_CONTROLS, validate_contents
 from .aidr_skill_contract import SkillAuditPolicy
 
 PATTERNS = [
@@ -21,7 +21,7 @@ Status = Literal['unknown','reported_complete','reported_error','reported_succes
 
 
 def safe(value, limit, redact=True):
-    if len(value.encode('utf-8'))>limit or any(ord(c)<32 and c not in '\n\t' for c in value):
+    if len(value.encode('utf-8'))>limit or INVALID_TEXT_CONTROLS.search(value):
         raise ValueError('behavior_text_limit')
     if redact and any(re.search(p,value) for p in PATTERNS):
         raise ValueError('behavior_secret_rejected')
@@ -67,6 +67,7 @@ class AuditPolicy(Strict):
     skill_audit: SkillAuditPolicy | None = None
     model_context_schema: Literal[1] | None = None
     message_schema: Literal[1] | None = None
+    completion_schema: Literal[1, 2] | None = None
     version: str = Field(pattern=r"^(0|[1-9][0-9]{0,18})$")
     enabled: bool
     receipt: str = Field(pattern=r"^$|^[0-9a-f]{32}$")

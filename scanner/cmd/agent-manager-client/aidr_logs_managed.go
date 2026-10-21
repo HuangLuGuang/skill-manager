@@ -290,7 +290,7 @@ func manageAutomaticLogs(ctx context.Context, home string, policy func() managed
 }
 
 func logPermanentFailure(code string) bool {
-	return code == "aidr_store_busy" || code == "aidr_upload_auth_rejected" || code == "aidr_upload_destination_changed" || code == "aidr_store_path_invalid" || code == "aidr_store_invalid"
+	return code == "aidr_store_busy" || code == "aidr_upload_access_rejected" || code == "aidr_upload_auth_rejected" || code == "aidr_upload_destination_changed" || code == "aidr_store_path_invalid" || code == "aidr_store_invalid"
 }
 
 func runManagedLogWorker(ctx context.Context, home string, plan logRunPlan, enabled *atomic.Bool) (resultErr error) {
@@ -305,10 +305,18 @@ func runManagedLogWorker(ctx context.Context, home string, plan logRunPlan, enab
 		return err
 	}
 	defer c.Close()
+	status, err := s.Status(ctx)
+	if err != nil {
+		return err
+	}
+	since, err := s.IntakeSince(ctx, logResumeSince(time.Now(), status.LastAcknowledgedAt))
+	if err != nil {
+		return err
+	}
 	var lastWrite time.Time
 	return upload.Run(ctx, s, c, upload.WorkerOptions{
 		Roots: plan.roots,
-		Since: time.Now().Add(-24 * time.Hour), Interval: 2 * time.Second, HeartbeatInterval: 30 * time.Second, DiscoveryInterval: 30 * time.Second,
+		Since: since, Interval: 2 * time.Second, HeartbeatInterval: 30 * time.Second, DiscoveryInterval: 30 * time.Second,
 		IntakeEnabled: enabled.Load,
 		IntakeVersion: plan.currentVersion,
 		StatusObserver: func(status localstore.Status) error {
@@ -329,6 +337,15 @@ func runManagedLogWorker(ctx context.Context, home string, plan logRunPlan, enab
 			return nil
 		},
 	})
+}
+
+func logResumeSince(now time.Time, lastAck string) time.Time {
+	since := now.Add(-24 * time.Hour)
+	// Include files created during downtime; existing cursors and retention still apply.
+	if ack, err := time.Parse(time.RFC3339Nano, lastAck); err == nil && ack.Before(since) {
+		return ack
+	}
+	return since
 }
 
 // A local retry requests one new bounded supervision cycle. It cannot change

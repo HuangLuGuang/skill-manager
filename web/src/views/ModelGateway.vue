@@ -169,7 +169,10 @@
             <section>
               <div class="page-section-heading">
                 <h2>{{ $t('legacy.19kaip8') }}</h2>
-                <a-button v-if="hasAccess('groups:create')" type="primary" @click="openGroup()">{{ $t("legacy.13naskl") }}</a-button>
+                <a-space>
+                  <a-button :loading="loading" @click="loadAll">{{ $t('modelGateway.catalog.refresh') }}</a-button>
+                  <a-button v-if="hasAccess('groups:create')" type="primary" @click="openGroup()">{{ $t("legacy.13naskl") }}</a-button>
+                </a-space>
               </div>
 
               <a-table :data-source="groups" :columns="groupColumns" row-key="id" :loading="loading" size="small">
@@ -554,17 +557,20 @@
         </a-input-group>
     </a-modal>
 
-    <a-modal v-model:open="groupVisible" :title="$t('legacy.19kaip8')" @ok="saveGroup" :confirm-loading="submitting">
+    <a-modal v-model:open="groupVisible" :title="$t('legacy.19kaip8')" @ok="saveGroup" :confirm-loading="submitting" :ok-button-props="{ disabled: submitting || !groupOptionsLoaded }">
+      <a-alert v-if="groupOptionsError" type="error" show-icon :message="$t('modelGateway.groupOptions.loadFailed')">
+        <template #action><a-button :loading="groupOptionsLoading" @click="loadGroupOptions">{{ $t('modelGateway.groupOptions.retry') }}</a-button></template>
+      </a-alert>
       <a-form layout="vertical" :model="groupForm">
         <a-form-item :label="$t('legacy.hzx914')" required><a-input v-model:value="groupForm.name" /></a-form-item>
         <a-form-item :label="$t('legacy.1kxyax6')"><a-textarea v-model:value="groupForm.description" /></a-form-item>
         <a-form-item :label="$t('legacy.ceyxit')">
-          <a-select v-model:value="groupForm.user_ids" mode="multiple" :disabled="!hasAccess('users:view')">
+          <a-select v-model:value="groupForm.user_ids" mode="multiple" :loading="groupOptionsLoading" :disabled="!hasAccess('users:view') || !groupOptionsLoaded">
             <a-select-option v-for="item in users" :key="item.id" :value="item.id">{{ item.username }}</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item :label="$t('legacy.jt33j7')">
-          <a-select :disabled="!hasAccess('privacy:view')" v-model:value="groupForm.privacy_policy_id" allow-clear :placeholder="$t('legacy.lvqpcd')">
+          <a-select :disabled="!hasAccess('privacy:view') || !groupOptionsLoaded" :loading="groupOptionsLoading" v-model:value="groupForm.privacy_policy_id" allow-clear :placeholder="$t('legacy.lvqpcd')">
             <a-select-option v-for="item in unboundOrCurrentPolicies" :key="item.id" :value="item.id">{{ policyDisplayName(item) }}</a-select-option>
           </a-select>
           <div class="muted policy-binding-hint">{{ $t("legacy.1xj70s1") }}</div>
@@ -686,7 +692,7 @@ import { can as hasAccess } from '../access'
 import { can } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
@@ -889,6 +895,9 @@ const modelVisible = ref(false)
 const keyVisible = ref(false)
 const createdKeyVisible = ref(false)
 const groupVisible = ref(false)
+const groupOptionsLoaded = ref(false)
+const groupOptionsLoading = ref(false)
+const groupOptionsError = ref(false)
 const groupPolicyVisible = ref(false)
 const policyVisible = ref(false)
 const createdKey = ref('')
@@ -962,7 +971,7 @@ const policyDisplayName = (policy) => {
 }
 const groupPolicyName = (group) => {
   if (!group?.privacy_policy_id) return text('系统默认策略', 'System Default Policy')
-  return policyDisplayName(policies.value.find(item => item.id === group.privacy_policy_id) || {
+  return policyDisplayName({
     name: group.privacy_policy_name,
     group_id: group.id,
   })
@@ -1040,32 +1049,43 @@ watch(
   { immediate: true },
 )
 
+let loadSequence = 0
 const loadAll = async () => {
+  const sequence = ++loadSequence
+  const tab = activeTab.value
+  groupOptionsLoaded.value = false
+  groupOptionsLoading.value = false
+  groupOptionsError.value = false
   loading.value = true
   try {
-    const [providerRes, modelRes, keyRes, userRes, groupRes, policyRes, statRes, mappingRes] = await Promise.all([
-      can('providers:view') ? listModelProviders() : Promise.resolve([]),
-      can('models:view') ? listModelEndpoints() : Promise.resolve([]),
-      can('credentials:view') ? listLlmApiKeys() : Promise.resolve([]),
-      can('users:view') ? listManagedUsers() : Promise.resolve([]),
-      can('groups:view') ? listGroups() : Promise.resolve([]),
-      can('privacy:view') ? listPrivacyPolicies() : Promise.resolve([]),
-      can('privacy_audit:view') ? getPrivacyStats() : Promise.resolve({}),
-      activeTab.value === 'audit' && can('privacy_audit:raw') ? listPrivacyMappings({ page: mappingQuery.page, page_size: mappingQuery.page_size, q: mappingQuery.q || undefined }) : Promise.resolve({}),
+    if (tab === 'users-groups') {
+      const data = can('groups:view') ? await listGroups() : []
+      if (sequence === loadSequence) groups.value = data
+      return
+    }
+    const [providerRes, modelRes, keyRes, groupRes, policyRes, statRes, mappingRes] = await Promise.all([
+      tab === 'providers' && can('providers:view') ? listModelProviders() : Promise.resolve([]),
+      ['providers', 'keys'].includes(tab) && can('models:view') ? listModelEndpoints() : Promise.resolve([]),
+      tab === 'keys' && can('credentials:view') ? listLlmApiKeys() : Promise.resolve([]),
+      ['policy-bindings', 'policies'].includes(tab) && can('groups:view') ? listGroups() : Promise.resolve([]),
+      ['policy-bindings', 'policies'].includes(tab) && can('privacy:view') ? listPrivacyPolicies() : Promise.resolve([]),
+      showGatewayStats.value && can('privacy_audit:view') ? getPrivacyStats() : Promise.resolve({}),
+      tab === 'audit' && can('privacy_audit:raw') ? listPrivacyMappings({ page: mappingQuery.page, page_size: mappingQuery.page_size, q: mappingQuery.q || undefined }) : Promise.resolve({}),
     ])
+    if (sequence !== loadSequence) return
     providers.value = providerRes
     models.value = modelRes
     apiKeys.value = keyRes
-    users.value = userRes
     groups.value = groupRes
     policies.value = policyRes
     stats.value = statRes
     mappings.value = mappingRes.mappings || []
     mappingTotal.value = mappingRes.total || 0
   } catch (error) {
+    if (sequence !== loadSequence) return
     message.error(error.response?.data?.detail || phrase('legacy.1fqwvn2'))
   } finally {
-    loading.value = false
+    if (sequence === loadSequence) loading.value = false
   }
 }
 
@@ -1303,20 +1323,42 @@ const handleDeleteKey = async (record) => {
   await loadAll()
 }
 
+const loadGroupOptions = async () => {
+  if (groupOptionsLoaded.value || groupOptionsLoading.value) return
+  const sequence = loadSequence
+  groupOptionsLoading.value = true
+  groupOptionsError.value = false
+  try {
+    const [userRows, policyRows] = await Promise.all([
+      can('users:view') ? listManagedUsers() : Promise.resolve([]),
+      can('privacy:view') ? listPrivacyPolicies() : Promise.resolve([]),
+    ])
+    if (sequence !== loadSequence) return
+    users.value = userRows
+    policies.value = policyRows
+    groupOptionsLoaded.value = true
+  } catch {
+    if (sequence === loadSequence) groupOptionsError.value = true
+  } finally {
+    if (sequence === loadSequence) groupOptionsLoading.value = false
+  }
+}
+
 const openGroup = (record = null) => {
   editingGroupId.value = record?.id || null
   Object.assign(groupForm, {
     name: record?.name || '',
     description: record?.description || '',
-    user_ids: record?.user_ids || [],
+    user_ids: [...(record?.user_ids || [])],
     privacy_policy_id: record?.privacy_policy_id || null,
     is_active: record?.is_active ?? true,
   })
   groupVisible.value = true
+  loadGroupOptions()
 }
 
 const saveGroup = async () => {
-  if (submitting.value) return
+  if (submitting.value || !groupOptionsLoaded.value) return
   submitting.value = true
   try {
     if (editingGroupId.value) await updateGroup(editingGroupId.value, { ...groupForm })
@@ -1430,13 +1472,6 @@ const removeMapping = async (record) => {
   }
 }
 
-watch(
-  () => activeTab.value,
-  (tab) => {
-    if (tab === 'audit') loadMappings()
-  },
-)
-
 const copy = async (text) => {
   try {
     await copyText(text)
@@ -1447,7 +1482,8 @@ const copy = async (text) => {
   }
 }
 
-onMounted(loadAll)
+watch(activeTab, loadAll, { immediate: true })
+onUnmounted(() => { loadSequence++ })
 </script>
 
 <style scoped>

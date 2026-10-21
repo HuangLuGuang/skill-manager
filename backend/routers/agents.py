@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
@@ -47,12 +48,40 @@ def _agent_response(db: Session, row: models.ManagedAgent) -> schemas.ManagedAge
         .first()
     )
     gateway = db.get(models.ExternalAIGateway, row.external_gateway_id) if row.external_gateway_id else None
+    platform = db.get(models.ExternalPlatform, row.source_platform_id) if row.source_platform_id else None
+    return _present_agent(row, runtime_token, _department_name(db, row.department_group_id), gateway.name if gateway else None, platform.name if platform else None)
+
+
+def _agent_responses(db: Session, rows):
+    results = []
+    for offset in range(0, len(rows), 200):
+        part = rows[offset:offset + 200]
+        token = models.AccessToken
+        latest = db.query(func.max(token.id).label('id')).filter(
+            token.token_type == 'agent_runtime', token.bound_agent_id.in_([row.agent_id for row in part])
+        ).group_by(token.bound_agent_id).subquery()
+        tokens = {row.bound_agent_id: row for row in db.query(token.id, token.name, token.bound_agent_id).join(
+            latest, token.id == latest.c.id)}
+        departments = dict(db.query(models.UserGroup.id, models.UserGroup.name).filter(
+            models.UserGroup.id.in_({row.department_group_id for row in part if row.department_group_id is not None})).all())
+        gateways = dict(db.query(models.ExternalAIGateway.id, models.ExternalAIGateway.name).filter(
+            models.ExternalAIGateway.id.in_({row.external_gateway_id for row in part if row.external_gateway_id is not None})).all())
+        platforms = dict(db.query(models.ExternalPlatform.platform_id, models.ExternalPlatform.name).filter(
+            models.ExternalPlatform.platform_id.in_({row.source_platform_id for row in part if row.source_platform_id})).all())
+        results.extend(_present_agent(row, tokens.get(row.agent_id), departments.get(row.department_group_id),
+                                      gateways.get(row.external_gateway_id), platforms.get(row.source_platform_id)) for row in part)
+    return results
+
+
+def _present_agent(row, runtime_token, department_name, gateway_name, platform_name=None):
     return schemas.ManagedAgentResponse(
+        **{name: getattr(row, name) for name in schemas.RegistrationSource.model_fields},
+        source_platform_name=platform_name,
         id=row.id,
         agent_id=row.agent_id,
         name=row.name,
         department_group_id=row.department_group_id,
-        department_name=_department_name(db, row.department_group_id),
+        department_name=department_name,
         owner=row.owner,
         description=row.description,
         channel=row.channel,
@@ -60,7 +89,7 @@ def _agent_response(db: Session, row: models.ManagedAgent) -> schemas.ManagedAge
         default_model=row.default_model,
         default_model_source=row.default_model_source or "internal",
         external_gateway_id=row.external_gateway_id,
-        external_gateway_name=gateway.name if gateway else None,
+        external_gateway_name=gateway_name,
         origin_type=row.origin_type or "platform",
         skill_names=_json_list(row.skill_names_json),
         allowed_mcp_gateways=gateway_names(row.allowed_mcp_gateways_json),
@@ -254,8 +283,7 @@ def _asset_rows(db: Session, current_user: models.User) -> list[schemas.AgentAss
     }
 
     rows: list[schemas.AgentAssetResponse] = []
-    for managed in managed_agents:
-        response = _agent_response(db, managed)
+    for managed, response in zip(managed_agents, _agent_responses(db, managed_agents)):
         instance_bindings = discovery_bindings if managed.origin_type == "client_discovery" else bindings
         instances = [
             _asset_instance(
@@ -285,6 +313,8 @@ def _asset_rows(db: Session, current_user: models.User) -> list[schemas.AgentAss
                 agent_id=response.agent_id,
                 name=response.name,
                 origin_type=response.origin_type,
+                **{name: getattr(response, name) for name in schemas.RegistrationSource.model_fields},
+                source_platform_name=response.source_platform_name,
                 department_group_id=response.department_group_id,
                 department_name=response.department_name,
                 owner=response.owner,
@@ -395,7 +425,7 @@ def _remove_unused_external_bindings(
 
 
 @router.get("", response_model=list[schemas.ManagedAgentResponse])
-async def list_agents(
+def list_agents(
     department_group_id: int | None = Query(None),
     status: str | None = Query(None),
     q: str | None = Query(None),
@@ -415,11 +445,13 @@ async def list_agents(
             | (models.ManagedAgent.owner.like(keyword))
         )
     rows = query.order_by(models.ManagedAgent.id.asc()).all()
-    return [_agent_response(db, row) for row in rows]
+    return _agent_responses(db, rows)
 
 
 @router.get("/assets", response_model=schemas.AgentAssetListResponse)
-async def list_agent_assets(
+def list_agent_assets(
+    registration_source: str | None = Query(None, pattern="^(console|external_api|client_discovery|unknown)$"),
+    source_platform_id: str | None = Query(None),
     origin: str | None = Query(None, pattern="^(platform|client_discovery)$"),
     department_group_id: int | None = Query(None),
     status: str | None = Query(None),
@@ -434,6 +466,10 @@ async def list_agent_assets(
         "client_discovery": sum(row.origin_type == "client_discovery" for row in all_rows),
     }
     rows = all_rows
+    if registration_source:
+        rows = [row for row in rows if (row.registration_source or "unknown") == registration_source]
+    if source_platform_id:
+        rows = [row for row in rows if row.source_platform_id == source_platform_id]
     if origin:
         rows = [row for row in rows if row.origin_type == origin]
     if department_group_id is not None:
@@ -539,6 +575,7 @@ async def create_agent(
         default_model_source=body.default_model_source,
         external_gateway_id=body.external_gateway_id,
         origin_type="platform",
+        registration_source="console",
         skill_names_json=_dump_list(body.skill_names),
         allowed_mcp_gateways_json=_dump_list(validate_agent_gateways(db, body.allowed_mcp_gateways)),
         prompt_names_json=_dump_list(body.prompt_names),

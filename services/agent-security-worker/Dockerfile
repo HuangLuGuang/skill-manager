@@ -32,6 +32,7 @@ RUN pip install --no-cache-dir -c /opt/agent-security-worker-constraints.txt \
         -r /opt/ai-infra-guard/mcp-scan/requirements.txt "cryptography==46.0.6" && \
     pip install --no-cache-dir --no-deps /opt/ai-infra-guard/agent-scan /opt/ai-infra-guard/mcp-scan
 COPY services/agent-security-worker/worker.py /app/worker.py
+COPY services/agent-security-worker/connection_probe.py /app/connection_probe.py
 COPY agent_manager/security_redaction.py /app/security_redaction.py
 COPY services/agent-security-worker/aig_adapter.py /app/aig_adapter.py
 COPY services/agent-security-worker/mcp_adapter.py /app/mcp_adapter.py

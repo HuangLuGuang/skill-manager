@@ -58,6 +58,7 @@ const routes = [
   { path: '/model-gateway/user-stats', name: 'model-gateway-user-stats', component: () => import('../views/UserTokenStats.vue'), meta: { requiresAuth: true } },
   { path: '/pipeline-trace', name: 'pipeline-trace', component: () => import('../views/PipelineTrace.vue'), meta: { requiresAuth: true } },
   { path: '/settings', name: 'settings', component: () => import('../views/SystemSettings.vue'), meta: { requiresAuth: true } },
+  { path: '/external-access', name: 'external-access', component: () => import('../views/ExternalAccess.vue'), meta: { requiresAuth: true } },
   { path: '/license', name: 'license', component: () => import('../views/License.vue'), meta: { requiresAuth: true } },
   { path: '/docs-settings', name: 'docs-settings', component: () => import('../views/DocsSettings.vue'), meta: { requiresAuth: true } },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('../views/NotFound.vue'), meta: { requiresAuth: true } },

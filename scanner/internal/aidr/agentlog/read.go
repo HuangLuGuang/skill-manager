@@ -42,11 +42,11 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 	if read := logAdapters[s.Agent].Read; read != nil {
 		return read(ctx, s, old, b, since, policy, observer)
 	}
-	return readWithPolicy(ctx, s, old, b, since, policy, 0, observer)
+	return readWithPolicy(ctx, s, old, b, since, policy, 0, false, observer)
 }
 
-// replayEnd rebuilds context only, up to an existing committed checkpoint.
-func readWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since time.Time, policy *AuditPolicy, replayEnd int64, observer *SkillObserver) (ReadBatch, error) {
+// replayEnd bounds repair to the committed checkpoint; replayEvents also restores projections.
+func readWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since time.Time, policy *AuditPolicy, replayEnd int64, replayEvents bool, observer *SkillObserver) (ReadBatch, error) {
 	out := ReadBatch{SchemaVersion: SchemaVersion, Source: s, Events: []Event{}, Cursor: old, Coverage: Coverage{Status: "complete", Reasons: []string{}}}
 	expected, e := NewSource(s.Agent, s.Root, s.Path)
 	if e != nil || expected.ID != s.ID || !b.valid() {
@@ -129,12 +129,26 @@ func readWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 			addGap(&c, reset)
 		}
 	}
-	if replayEnd == 0 && needsContextRepair(s, c) {
+	if s.Agent == "codex" && c.Offset == 0 && policy != nil && policy.CompletionSchema > 0 {
+		c.CompletionSchema = policy.CompletionSchema
+	}
+	completionReplay := s.Agent == "codex" && policy != nil && c.CompletionSchema < policy.CompletionSchema
+	reproject := replayEnd == 0 && (codexMetadataReplay(f, s, c) || completionReplay)
+	if replayEnd == 0 && (reproject || needsContextRepair(s, c)) {
 		var checkpoint Cursor
-		if c.ContextRepair != nil {
+		if c.ContextRepair != nil && (!reproject || c.ContextRepair.ContextRepairVersion == contextRepairVersion) && (!completionReplay || c.ContextRepair.CompletionSchema >= policy.CompletionSchema) {
 			checkpoint = *c.ContextRepair
+		} else if reproject {
+			checkpoint = Cursor{SchemaVersion: SchemaVersion, ParserVersion: ParserVersion,
+				SourceID: s.ID, FileIdentity: c.FileIdentity, Generation: c.Generation,
+				Anchor: digest(""), Since: c.Since, ProjectionVersion: c.ProjectionVersion,
+				ContextRepairVersion: contextRepairVersion}
 		}
-		replay, err := readWithPolicy(ctx, s, checkpoint, b, c.Since, nil, c.Offset, observer)
+		var replayPolicy *AuditPolicy
+		if reproject {
+			replayPolicy = policy
+		}
+		replay, err := readWithPolicy(ctx, s, checkpoint, b, c.Since, replayPolicy, c.Offset, reproject, observer)
 		if err != nil {
 			return out, err
 		}
@@ -148,10 +162,18 @@ func readWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 			c.QoderLinks = replay.Cursor.QoderLinks
 			c.ModelContext, c.ModelProvider, c.ModelTurn = replay.Cursor.ModelContext, replay.Cursor.ModelProvider, replay.Cursor.ModelTurn
 			c.ContextRepair, c.ContextRepairVersion = nil, contextRepairVersion
+			if completionReplay {
+				c.CompletionSchema = policy.CompletionSchema
+			}
+			if reproject {
+				c.Gaps, c.RecoveryGaps = replay.Cursor.Gaps, replay.Cursor.RecoveryGaps
+				c.RecoveryDetailsTruncated = replay.Cursor.RecoveryDetailsTruncated
+			}
 		} else {
 			c.ContextRepair = &replay.Cursor
 		}
 		out.Cursor, out.Coverage = c, replay.Coverage
+		out.Events = replay.Events
 		out.Coverage.mark("partial", "aidr_log_read_budget")
 		return out, nil
 	}
@@ -267,7 +289,18 @@ func readWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 			out.Coverage.mark("partial", "aidr_log_event_budget")
 			break
 		}
-		projectDrafts(ctx, s, drafts, &candidate, c, identity, line, policy, b, observer, deadline, replayEnd, &out)
+		projectionEnd := replayEnd
+		if replayEvents {
+			projectionEnd = 0
+		}
+		firstEvent := len(out.Events)
+		projectDrafts(ctx, s, drafts, &candidate, c, identity, line, policy, b, observer, deadline, projectionEnd, &out)
+		if replayEvents {
+			for i := firstEvent; i < len(out.Events); i++ {
+				// Preserve the old immutable evidence with its original missing identity.
+				out.Events[i].EventID = digest("context-repair/4", out.Events[i].EventID, out.Events[i].LogicalEventID)
+			}
+		}
 		if len(drafts) == 0 {
 			out.Coverage.Ignored++
 		}

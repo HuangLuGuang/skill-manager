@@ -111,6 +111,8 @@ make sandbox-runtime-build
 
 ## 前端注意事项
 
+- Skill 详情完整性校验的内容指纹存在性与预览读取当前版本 `content_fingerprint`，预览前 24 字符加省略号，空值或缺失显示否及 `-`；数字签名校验操作依据 `signature`。双语标签使用 `skillDetail.fingerprintExists` 与 `skillDetail.fingerprintPreview`。
+
 - 策略页风险判定模式的总体说明放在标签旁的悬浮帮助中，按上下文判断项、判为恶意项、AI 复核分组；双语文案使用 `policySettings.modeHelp`，中文严重度沿用“中等”“高”。
 - 前端使用 Vue 3 Composition API、Vite、Ant Design Vue。
 - 管理平台和桌面客户端的所有新增或修改页面必须同时提供简体中文和英文。中文系统名固定为“智能体生命周期管理系统”，英文系统名固定为“Agent Manager”。
@@ -262,3 +264,23 @@ make sandbox-runtime-build
 
 - 深度扫描固定标题、命中说明、解释和建议复用 `deep_scan_display.py`、`deep_scan_catalog.json` 与 `skillDetail.deepRules`；按来源、规则和完整模板识别，保留动态参数和证据原文。同编号的不同子类型及本地分析器分别处理；未知文本不经过 legacy。历史报告只补读取响应，编号标题改为可读规则名，编号正文不得遮住实际解释；规则帮助不替代本次检测解释。展示元数据不参与风险、评分、建议结论和策略判定。新增扫描模板须同步双语资源及资源契约检查 `tests/deep_scan_i18n.test.mjs`。
 - 深度扫描固定说明和建议按SkillSpector返回内容忠实翻译；英文沿用来源模板，中文保持术语、可能性、数量边界和编码列表的含义，复用现有语义资源及页面展示。
+
+- LLM 实际启用时在调用前记录 `llm:{provider}`，失败仍保留该名称；失败状态复用 Skill 列表，失败原因复用详情页 LLM 项及本次报告。
+
+- Skill AI 分析的 `llm.timeout_seconds` 为输入准备、模型调用与结果处理共用的总预算；内部网关请求使用供应商超时与剩余预算的较小值，总超时取消并清理请求，报告以 `llm_analysis_timeout` 编码展示双语原因。
+
+- LLM 供应商请求超时使用本次报告的 `llm_provider_timeout` 原因编码，在详情 LLM 项提供双语说明并保留已有原始错误；异常无文本时同样显示可识别原因。
+
+- 准入非阻断提示以本次报告的 `policy_warnings` 稳定编码和参数展示；旧备注仅在读取时兼容，不回写存储。许可证准入提示在判定依据四项之后按需显示普通样式的“策略说明”，页面和 PDF 保留当时许可证清单；PDF 在“策略说明 / Policy Notes”小节统一列出准入提示和分析备注。策略保存刷新后续 ZIP 任务的管理器，复用持久化队列，已开始扫描保留原实例。
+
+- 工具允许列表检查 `tool_not_in_allowlist` 为非阻断告警，`params` 保存工具名与本次 `allowed_tools_allowlist`；详情黄色“声明检查提示”按“声明的工具 {tool} 不在允许列表中：{allowed}。”展示，列表用逗号和空格连接，双语资源使用 `decisionFlow`。空列表与历史未记录列表分别显示“无 / None”和“未记录 / Not recorded”；历史依据保持原样，PDF 复用同次参数。工具数量超限 `max_allowed_tools` 同为非阻断告警，参数 `count`、`limit` 保存本次计数及上限，以 `decisionFlow.toolCountExceeded` 在黄色声明提示中分行双语展示，PDF 复用；仅声明告警时工具检查显示黄色，明确禁止权限保持失败。历史阻断记录保留原依据和状态，重新检测应用新规则。
+
+- Skill 详情判定过程与准入提示共用首次加载占位，报告完成后统一显示；报告失败提供双语重试入口，刷新保留既有报告，切换记录或版本后仅应用当前请求结果。
+
+- Skill 详情规则分析器按本次报告记录展示；规则发现项合并顶层与本地结果并去除同一发现项副本，保留不同位置及 `snippet`、`code_snippet`、`evidence` 原始证据，兼容仅含顶层结果的历史报告。
+
+- Skill 详情命中 `blocked_permission` 时，红色拒绝说明使用 `skillDetail.blockedPermission`，按“声明的权限 {permission} 命中了公司禁止权限列表：{blocked}。”展示；列表读取本次报告 `risk_reconciliation.policy_snapshot.blocked_permissions`，以逗号和空格连接，历史缺失显示“未记录 / Not recorded”。拒绝摘要直接展示原因，权限原文及实际阻断行为保持。
+
+- 深度扫描 PDF 发现项复用噪声过滤及 `pdf_file` 原因编码，详情复用 `skillDetail.suppressed.reasons.pdf_file` 双语资源，PDF 明细隐藏行号但保留报告原值，其他文件行号展示保持现有行为；全部发现项为 PDF 或位图噪声时有效严重度为 SAFE，剩余有效发现项继续参与判定，原始报告保留；历史明细补齐按规则编码、文件和行号排除已记录的有效发现，保留原计数、风险和存储。
+
+- MCP Server 编辑时鉴权留空，保存前测试按 server_id 复用已保存凭证，Endpoint 的查询参数、路径或地址变化均与保存后发现一致；地址变化且复用非空已存凭证时通过 `iam.check` 校验 `mcp:update`，在调用上游前拒绝无编辑权限的请求；显式测试凭证仅用于本次请求，测试不写回配置。独立临时测试使用请求自身凭证。

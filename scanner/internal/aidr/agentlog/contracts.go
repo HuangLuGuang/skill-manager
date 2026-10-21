@@ -72,6 +72,7 @@ type CallTurn struct {
 	ContentDigest string `json:"content_digest,omitempty"`
 }
 type Cursor struct {
+	CompletionSchema         int           `json:"completion_schema,omitempty"`
 	ScanComplete             bool          `json:"scan_complete,omitempty"`
 	QoderLinks               []QoderLink   `json:"qoder_links,omitempty"`
 	ModelHeaderRead          bool          `json:"model_header_read,omitempty"`
@@ -100,36 +101,37 @@ type Cursor struct {
 	Gaps                     []string      `json:"gap_codes"`
 }
 type Event struct {
-	ModelContext       *ModelContext `json:"model_context,omitempty"`
-	UserScope          string        `json:"user_scope,omitempty"`
-	SkillUse           *SkillUse     `json:"skill_use,omitempty"`
-	Message            *Message      `json:"message,omitempty"`
-	PreviousLogicalIDs []string      `json:"-"`
-	Behavior           *Behavior     `json:"behavior,omitempty"`
-	SchemaVersion      int           `json:"schema_version"`
-	LogicalEventID     string        `json:"logical_event_id"`
-	EventID            string        `json:"event_id"`
-	SourceID           string        `json:"source_id"`
-	SourceInstanceID   string        `json:"source_instance_id"`
-	SourceSeq          int64         `json:"source_seq,string"`
-	RecordOffset       int64         `json:"record_offset,string"`
-	Block              int           `json:"block"`
-	Agent              string        `json:"agent"`
-	AgentVersion       string        `json:"agent_version"`
-	Source             string        `json:"source"`
-	SessionID          string        `json:"session_id"`
-	TurnID             string        `json:"turn_id"`
-	CallID             string        `json:"native_call_id"`
-	LogicalCallID      string        `json:"logical_call_id"`
-	Kind               string        `json:"kind"`
-	Tool               string        `json:"tool"`
-	Outcome            string        `json:"outcome"`
-	ObservedAt         time.Time     `json:"observed_at"`
-	ReceivedAt         time.Time     `json:"received_at"`
-	ContentDigest      string        `json:"content_digest"`
-	ContentBytes       int           `json:"content_bytes"`
-	EvidenceDigest     string        `json:"evidence_digest"`
-	ProcessRelation    string        `json:"process_relation"`
+	Completion         *ToolCompletion `json:"completion,omitempty"`
+	ModelContext       *ModelContext   `json:"model_context,omitempty"`
+	UserScope          string          `json:"user_scope,omitempty"`
+	SkillUse           *SkillUse       `json:"skill_use,omitempty"`
+	Message            *Message        `json:"message,omitempty"`
+	PreviousLogicalIDs []string        `json:"-"`
+	Behavior           *Behavior       `json:"behavior,omitempty"`
+	SchemaVersion      int             `json:"schema_version"`
+	LogicalEventID     string          `json:"logical_event_id"`
+	EventID            string          `json:"event_id"`
+	SourceID           string          `json:"source_id"`
+	SourceInstanceID   string          `json:"source_instance_id"`
+	SourceSeq          int64           `json:"source_seq,string"`
+	RecordOffset       int64           `json:"record_offset,string"`
+	Block              int             `json:"block"`
+	Agent              string          `json:"agent"`
+	AgentVersion       string          `json:"agent_version"`
+	Source             string          `json:"source"`
+	SessionID          string          `json:"session_id"`
+	TurnID             string          `json:"turn_id"`
+	CallID             string          `json:"native_call_id"`
+	LogicalCallID      string          `json:"logical_call_id"`
+	Kind               string          `json:"kind"`
+	Tool               string          `json:"tool"`
+	Outcome            string          `json:"outcome"`
+	ObservedAt         time.Time       `json:"observed_at"`
+	ReceivedAt         time.Time       `json:"received_at"`
+	ContentDigest      string          `json:"content_digest"`
+	ContentBytes       int             `json:"content_bytes"`
+	EvidenceDigest     string          `json:"evidence_digest"`
+	ProcessRelation    string          `json:"process_relation"`
 }
 type ReadBatch struct {
 	TurnLinks     []TurnLink `json:"turn_links,omitempty"`
@@ -138,6 +140,13 @@ type ReadBatch struct {
 	Events        []Event    `json:"events"`
 	Cursor        Cursor     `json:"cursor"`
 	Coverage      Coverage   `json:"coverage"`
+}
+
+// ToolCompletion is host-reported lifecycle evidence, not a Hook or tool output.
+type ToolCompletion struct {
+	Source   string `json:"source"`
+	Status   string `json:"status"`
+	ExitCode *int32 `json:"exit_code,omitempty"`
 }
 
 // TurnLink enriches retained evidence without replaying its captured content.
@@ -250,6 +259,9 @@ func ValidateCursor(c Cursor, s Source) error {
 // ValidateEvent is the local ingestion envelope contract. Device
 // authentication and upload ACK belong to the later authenticated transport.
 func ValidateEvent(e Event) error {
+	if e.Completion != nil && (e.Agent != "codex" || e.SchemaVersion != 2 || e.Kind != "tool_result" || token(e.Tool) == "" || token(e.SessionID) == "" || token(e.TurnID) == "" || e.Outcome != "unknown" || e.Behavior == nil || e.Behavior.Policy == nil || e.Behavior.Policy.CompletionSchema < 1 || (e.Tool == "Bash" && e.Behavior.Policy.CompletionSchema < 2) || (e.Completion.ExitCode != nil && e.Tool != "Bash") || e.Completion.Source != "codex.item_completed" || (e.Completion.Status != "failed" && e.Completion.Status != "completed")) {
+		return errors.New("aidr_log_completion_invalid")
+	}
 	if !e.ModelContext.valid(e.Agent) || (e.ModelContext != nil && (e.SessionID == "" || (e.Agent == "codex" && e.TurnID == ""))) {
 		return errors.New("aidr_log_model_context_invalid")
 	}

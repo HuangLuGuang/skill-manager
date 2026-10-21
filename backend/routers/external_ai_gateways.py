@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from .. import auth, models
 from ..api_errors import ApiError
 from ..external_ai_gateway import gateway_client, delete_binding_remote
+from ..external_access_models import ExternalDeliveryEndpoint
 from ..security_audit import append_security_audit
 from ..security_scan_controls import protect_secret, unprotect_secret
 from ..sqlite_db import get_db
@@ -283,6 +284,8 @@ def delete_gateway(
     db: Session = Depends(get_db),
     _user: models.User = Depends(auth.get_current_admin_user),
 ):
+    from ..services.external_delivery import locked
+    locked(db)
     row = _row(db, gateway_id)
     if db.query(models.ManagedAgent).filter_by(external_gateway_id=gateway_id).first():
         raise ApiError(
@@ -291,6 +294,8 @@ def delete_gateway(
             "外部网关仍被平台智能体使用，请先修改智能体的模型来源",
             "The external gateway is still used by a managed Agent",
         )
+    if db.query(ExternalDeliveryEndpoint).filter_by(external_gateway_id=gateway_id).first():
+        raise ApiError(409, "external_gateway.result_sync_in_use", "外部 AI 网关已被结果同步配置版本引用，可停用并保留历史关联", "The external AI gateway is referenced by result synchronization versions; disable it to retain history")
     defaults = db.query(models.ClientGovernancePolicy).all()
     for policy in defaults:
         try:

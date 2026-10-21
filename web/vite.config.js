@@ -27,6 +27,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      '/openapi': {
+        target: 'http://127.0.0.1:8001',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'http://127.0.0.1:8001',
         changeOrigin: true,

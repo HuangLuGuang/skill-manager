@@ -10,7 +10,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from agent_manager.core.runtime_trace_pdf import build_runtime_trace_pdf
 
@@ -132,7 +132,10 @@ async def _writer_token(
 
 
 def _require_trace(db: Session, trace_id: str) -> models.RuntimeTraceSession:
-    row = db.query(models.RuntimeTraceSession).filter(models.RuntimeTraceSession.trace_id == trace_id).first()
+    row = db.query(models.RuntimeTraceSession).filter(
+        models.RuntimeTraceSession.trace_id == trace_id,
+        models.RuntimeTraceSession.expires_at > datetime.utcnow(),
+    ).first()
     if not row:
         raise ApiError(404, "runtime_trace.not_found", "调用轨迹不存在", "Runtime trace not found")
     return row
@@ -275,7 +278,7 @@ def list_runtime_traces(
     db: Session = Depends(get_db),
     user: models.User = Depends(auth.get_current_active_user),
 ):
-    query = db.query(models.RuntimeTraceSession)
+    query = db.query(models.RuntimeTraceSession).filter(models.RuntimeTraceSession.expires_at > datetime.utcnow())
     if user.role not in {"admin", "super_admin", "security_auditor", "privacy_auditor"}:
         groups = _group_ids(db, user.id)
         query = query.filter(
@@ -471,6 +474,7 @@ def list_runtime_trace_events(
     payloads = {
         row.payload_id: row
         for row in db.query(models.RuntimeTracePayload)
+        .options(load_only(models.RuntimeTracePayload.payload_id, models.RuntimeTracePayload.redacted_json))
         .filter(models.RuntimeTracePayload.payload_id.in_([event.payload_id for event in rows if event.payload_id]))
         .all()
     }

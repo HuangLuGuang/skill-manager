@@ -90,7 +90,7 @@ def test_historical_api_response_is_enriched_without_mutating_saved_report():
 
     report = {"skillspector_analysis": {"findings": [finding(explanation="Mixing characters from multiple Unicode scripts in a single identifier is a common technique to create visually ambiguous tool names.")], "risk_severity": "HIGH", "risk_score": 25}}
     before = deepcopy(report)
-    entry = SimpleNamespace(vetting=SimpleNamespace(scan_report=report), family_id="family", skill_id="v1", version_no=1, name="sample")
+    entry = SimpleNamespace(vetting=SimpleNamespace(scan_report=report, policy_notes=[]), family_id="family", skill_id="v1", version_no=1, name="sample")
     mgr = SimpleNamespace(get_skill=lambda _: entry)
     response = get_scan_report("family", mgr)
     assert response["scan_report"]["skillspector_analysis"]["findings"][0]["display"]["explanation"]["code"] == "TP2_mixed_script_explanation"

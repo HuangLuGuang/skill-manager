@@ -147,6 +147,9 @@ func runtimeChannelSnapshot(paths desktopPaths, prefs desktopPreferences, hook m
 			if validRuntimeCode(logs.State.UploadCode) {
 				value["transport_code"] = logs.State.UploadCode
 			}
+			if _, err := time.Parse(time.RFC3339Nano, logs.State.NextRetryAt); err == nil {
+				value["next_retry_at"] = logs.State.NextRetryAt
+			}
 			coverage := []string{}
 			for _, code := range []string{logs.State.IntakeCode, logs.State.CapacityCode, logs.State.RecoveryCode} {
 				if validRuntimeCode(code) {

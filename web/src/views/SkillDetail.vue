@@ -118,10 +118,10 @@
           <div class="basic-field">
             <dt>{{ $t('skillDetail.toolCheck') }}</dt>
             <dd>
-              <a-tag :color="detail?.declared_tools_valid === true ? 'green' : detail?.declared_tools_valid === false ? 'red' : 'default'" :title="$t('skillDetail.toolCheckHint')" class="summary-tag">
-                <CheckCircleOutlined v-if="detail?.declared_tools_valid === true" />
-                <ExclamationCircleOutlined v-else-if="detail?.declared_tools_valid === false" />
-                {{ detail?.declared_tools_valid === true ? $t('skillDetail.compliant') : detail?.declared_tools_valid === false ? $t('skillDetail.noncompliant') : $t('decisionFlow.unrecorded') }}
+              <a-tag :color="toolDeclarationWarning ? 'orange' : detail?.declared_tools_valid === true ? 'green' : detail?.declared_tools_valid === false ? 'red' : 'default'" :title="$t('skillDetail.toolCheckHint')" class="summary-tag">
+                <ExclamationCircleOutlined v-if="toolDeclarationWarning || detail?.declared_tools_valid === false" />
+                <CheckCircleOutlined v-else-if="detail?.declared_tools_valid === true" />
+                {{ toolDeclarationWarning ? $t('skillDetail.toolDeclarationNotice') : detail?.declared_tools_valid === true ? $t('skillDetail.compliant') : detail?.declared_tools_valid === false ? $t('skillDetail.noncompliant') : $t('decisionFlow.unrecorded') }}
               </a-tag>
             </dd>
           </div>
@@ -213,36 +213,45 @@
       <a-tabs v-model:activeKey="activeTab">
         <a-tab-pane key="decision" :tab="$t('decisionFlow.title')">
           <div id="skill-decision-panel" tabindex="-1">
-            <SkillDecisionFlow v-if="scanReport" :report="scanReport" :status="isCancelled(detail) ? 'CANCELLED' : detail?.status" style="margin: 0" @navigate="jumpToRationale" />
-            <a-skeleton v-else-if="loading || loadingScanReport" active />
-            <a-empty v-else :description="$t('decisionFlow.missing')" />
+            <a-skeleton v-if="decisionLoading" class="decision-loading" active :paragraph="{ rows: 12 }" />
+            <template v-else>
+              <a-alert v-if="scanReportError" class="report-load-error" type="error" show-icon :message="$t('skillDetail.reportLoadFailed')">
+                <template #action>
+                  <a-button size="small" :loading="loadingScanReport" @click="fetchScanReport">{{ $t('skillDetail.retryReport') }}</a-button>
+                </template>
+              </a-alert>
+              <SkillDecisionFlow v-if="scanReport" :report="scanReport" :status="isCancelled(detail) ? 'CANCELLED' : detail?.status" style="margin: 0" @navigate="jumpToRationale" />
+              <a-empty v-else-if="!scanReportError" :description="$t('decisionFlow.missing')" />
+              <template v-if="scanReport || !scanReportError">
+                <a-alert
+                  v-if="manualApprovalRequired"
+                  style="margin-top: 12px"
+                  type="error"
+                  show-icon
+                  :message="vettingFailed ? $t('legacy.11ldhwj') : $t('legacy.gobvd0')"
+                  :description="manualApprovalSummary"
+                />
+                <a-alert
+                  v-if="detail?.status === 'REJECTED' && detail?.rejection_reason && !vettingFailed"
+                  class="rejection-reason"
+                  style="margin-top: 12px"
+                  type="error"
+                  show-icon
+                  :message="$t('decisionFlow.rejectionReason')"
+                  :description="detail.rejection_reason"
+                />
+              </template>
+            </template>
           </div>
-          <a-alert
-            v-if="manualApprovalRequired"
-            style="margin-top: 12px"
-            type="error"
-            show-icon
-            :message="vettingFailed ? $t('legacy.11ldhwj') : $t('legacy.gobvd0')"
-            :description="manualApprovalSummary"
-          />
-          <a-alert
-            v-if="detail?.status === 'REJECTED' && detail?.rejection_reason && !vettingFailed"
-            class="rejection-reason"
-            style="margin-top: 12px"
-            type="error"
-            show-icon
-            :message="$t('decisionFlow.rejectionReason')"
-            :description="detail.rejection_reason"
-          />
         </a-tab-pane>
         <a-tab-pane key="vetting" :tab="$t('decisionFlow.scanResults')">
           <a-tabs v-model:activeKey="analysisTab" class="analysis-result-tabs" type="card">
             <a-tab-pane key="rule" :tab="$t('decisionFlow.ruleScan')">
                 <a-card id="rule-analysis-section" size="small" :title="$t('legacy.1hpgf7r')">
-                  <template v-if="behavioralAnalysis">
+                  <template v-if="behavioralAnalysis || localStaticAnalysis || ruleAnalyzerNames.length || ruleAnalysisFindings.length">
                     <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered>
                       <a-descriptions-item :label="$t('legacy.5p87cu')">
-                        {{ localStaticAnalysis?.scanned_file_count ?? behavioralAnalysis.scanned_file_count ?? behavioralScannedFiles.length }}
+                        {{ localStaticAnalysis?.scanned_file_count ?? behavioralAnalysis?.scanned_file_count ?? (behavioralAnalysis ? behavioralScannedFiles.length : '-') }}
                       </a-descriptions-item>
                       <a-descriptions-item :label="$t('legacy.7yxhns')">
                         {{ ruleAnalysisFindings.length }}
@@ -253,8 +262,10 @@
                         </a-tag>
                       </a-descriptions-item>
                       <a-descriptions-item :label="$t('legacy.13tfl8g')">
-                        <a-tag color="blue">behavioral:local</a-tag>
-                        <a-tag v-if="localStaticAnalysis" color="cyan">agent-manager-local</a-tag>
+                        <a-space v-if="ruleAnalyzerNames.length" wrap :size="[0, 8]">
+                          <a-tag v-for="name in ruleAnalyzerNames" :key="name" :color="name === 'agent-manager-local' ? 'cyan' : 'blue'">{{ name }}</a-tag>
+                        </a-space>
+                        <span v-else>{{ $t('decisionFlow.unrecorded') }}</span>
                       </a-descriptions-item>
                     </a-descriptions>
                     <a-collapse
@@ -368,7 +379,8 @@
                                   <strong>{{ findingTitle(item) }}</strong>
                                   <a-button v-if="item.file" type="link" size="small" style="padding: 0; white-space: normal; height: auto; text-align: left" @click="openFileViewer(item.file)">{{ item.file }}</a-button>
                                 </a-space>
-                                <div v-if="item.line != null" class="muted" style="margin-top: 4px">{{ $t('skillDetail.suppressed.lines') }}: {{ item.line }}</div>
+                                <!-- PDF 二进制解码行号无法用于文件定位，仅在明细展示时隐藏。 -->
+                                <div v-if="item.line != null && !/\.pdf$/i.test(item.file || '')" class="muted" style="margin-top: 4px">{{ $t('skillDetail.suppressed.lines') }}: {{ item.line }}</div>
                                 <!-- 原因编码缺少对应译文时统一显示未知，兼容报告字段缺失和版本差异。 -->
                                 <div style="margin-top: 6px">{{ $t('skillDetail.suppressed.reason') }}: {{ $te(`skillDetail.suppressed.reasons.${item.suppression_reason}`) ? $t(`skillDetail.suppressed.reasons.${item.suppression_reason}`) : $t('skillDetail.suppressed.unknown') }}</div>
                               </div>
@@ -714,8 +726,9 @@
 
         <a-tab-pane key="signature" :tab="$t('legacy.y6whtf')">
           <a-descriptions :column="1" size="small" bordered>
-            <a-descriptions-item :label="$t('legacy.s9rtfe')">{{ detail?.signature ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
-            <a-descriptions-item :label="$t('legacy.14ju5sj')">{{ detail?.signature ? `${detail.signature.slice(0, 24)}...` : '-' }}</a-descriptions-item>
+            <!-- 内容指纹在导入时生成，展示使用当前版本的指纹字段。 -->
+            <a-descriptions-item :label="$t('skillDetail.fingerprintExists')">{{ detail?.content_fingerprint ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
+            <a-descriptions-item :label="$t('skillDetail.fingerprintPreview')">{{ detail?.content_fingerprint ? `${detail.content_fingerprint.slice(0, 24)}...` : '-' }}</a-descriptions-item>
             <a-descriptions-item :label="$t('legacy.1a9csig')">{{ signatureResult ? (signatureResult.valid ? $t('legacy.j666m6') : $t('legacy.12db3qz')) : $t('legacy.39zt54') }}</a-descriptions-item>
           </a-descriptions>
         </a-tab-pane>
@@ -1183,6 +1196,9 @@ const scanDurationDisplay = computed(() => {
 const analysisTab = ref(route.query.tab === 'llm' ? 'llm' : 'rule')
 const loading = ref(false)
 const loadingScanReport = ref(false)
+const scanReportError = ref(false)
+const decisionLoading = computed(() => !scanReport.value && (loading.value || loadingScanReport.value))
+let scanReportRequestId = 0
 const loadingContent = ref(false)
 const loadingFiles = ref(false)
 const loadingAudit = ref(false)
@@ -1491,6 +1507,9 @@ const sandboxProbeColumns = computed(() => [
 
 const fetchDetail = async () => {
   const requestId = ++detailRequestId
+  ++scanReportRequestId
+  scanReportError.value = false
+  loadedTabs.clear()
   ++diffRequestId
   loadedDiffKey = ''
   pendingDiffKey = ''
@@ -1513,20 +1532,10 @@ const fetchDetail = async () => {
     const data = await getSkillDetail(skillId.value)
     if (requestId !== detailRequestId) return
     detail.value = data
-    const versionId = data.version_id || skillId.value
     signatureResult.value = null
     loading.value = false
     await Promise.allSettled([
-      loadDetailResource(() => getAudit({ skill_id: versionId, since_hours: 720, limit: 50 }),
-        result => { auditRows.value = Array.isArray(result) ? result : [] }, loadingAudit),
-      loadDetailResource(() => getSkillScanReport(versionId),
-        result => { scanReport.value = result?.scan_report || null }, loadingScanReport),
-      loadDetailResource(() => getSkillContent(versionId),
-        result => { skillContent.value = result || null }, loadingContent),
-      loadDetailResource(() => getSkillFiles(versionId),
-        result => { skillFiles.value = result?.files || [] }, loadingFiles),
-      loadDetailResource(() => getSkillGovernanceCard(versionId),
-        result => { governanceCard.value = result || null }, loadingGovernanceCard),
+      fetchScanReport(),
       loadDetailResource(() => getSkillVersions(data.skill_id),
         result => { skillVersions.value = result?.items || []; initializeVersionDiff() }, loadingVersions),
     ])
@@ -1583,29 +1592,54 @@ const submitClientInstall = async () => {
   }
 }
 
+// 报告及准入提示共用加载结果，只接收当前记录的最新请求。
 const fetchScanReport = async () => {
   if (!detail.value) return
-  return loadDetailResource(() => getSkillScanReport(currentVersionId.value),
-    result => { scanReport.value = result?.scan_report || null }, loadingScanReport, phrase('legacy.g9q48r'))
+  const requestId = ++scanReportRequestId
+  const detailId = detailRequestId
+  loadingScanReport.value = true
+  scanReportError.value = false
+  try {
+    const result = await getSkillScanReport(currentVersionId.value)
+    if (requestId === scanReportRequestId && detailId === detailRequestId) {
+      scanReport.value = result?.scan_report || null
+    }
+  } catch {
+    if (requestId === scanReportRequestId && detailId === detailRequestId) scanReportError.value = true
+  } finally {
+    if (requestId === scanReportRequestId && detailId === detailRequestId) loadingScanReport.value = false
+  }
 }
 
 const fetchSkillContent = async () => {
-  if (!detail.value) return
+  if (!detail.value || loadingContent.value) return
   return loadDetailResource(() => getSkillContent(currentVersionId.value),
-    result => { skillContent.value = result || null }, loadingContent, phrase('legacy.1iff97n'))
+    result => { skillContent.value = result || null; loadedTabs.add('content') }, loadingContent, phrase('legacy.1iff97n'))
 }
 
 const fetchSkillFiles = async () => {
-  if (!detail.value) return
+  if (!detail.value || loadingFiles.value) return
   return loadDetailResource(() => getSkillFiles(currentVersionId.value),
-    result => { skillFiles.value = result?.files || [] }, loadingFiles, phrase('legacy.1rirokg'))
+    result => { skillFiles.value = result?.files || []; loadedTabs.add('files') }, loadingFiles, phrase('legacy.1rirokg'))
 }
 
 const fetchGovernanceCard = async () => {
-  if (!detail.value) return
+  if (!detail.value || loadingGovernanceCard.value) return
   return loadDetailResource(() => getSkillGovernanceCard(currentVersionId.value),
-    result => { governanceCard.value = result || null }, loadingGovernanceCard, phrase('legacy.82xq4f'))
+    result => { governanceCard.value = result || null; loadedTabs.add('governance-card') }, loadingGovernanceCard, phrase('legacy.82xq4f'))
 }
+
+const loadedTabs = new Set()
+watch(() => [activeTab.value, detail.value?.version_id, detail.value?.skill_id], () => {
+  if (!detail.value || loadedTabs.has(activeTab.value)) return
+  if (activeTab.value === 'content') void fetchSkillContent()
+  else if (activeTab.value === 'files') void fetchSkillFiles()
+  else if (activeTab.value === 'governance-card') void fetchGovernanceCard()
+  else if (activeTab.value === 'audit' && !loadingAudit.value) {
+    void loadDetailResource(() => getAudit({ skill_id: currentVersionId.value, since_hours: 720, limit: 50 }),
+      result => { auditRows.value = Array.isArray(result) ? result : []; loadedTabs.add('audit') }, loadingAudit, phrase('legacy.qrrlus'))
+  }
+})
 
 const handleRefreshGovernanceCard = async () => {
   if (!detail.value) return
@@ -1782,7 +1816,17 @@ const llmAnalysis = computed(() => {
 // 仅按本次报告的关闭原因展示说明，不使用当前系统开关推断历史结果。
 const llmDisabled = computed(() => analysisState(scanReport.value, 'llm') === 'disabled'
   && scanReport.value?.analyzer_timings?.llm?.reason === 'llm_analysis_disabled')
-const llmFailure = computed(() => formatLlmFailureReason(llmFailureReason(scanReport.value, policyNotes.value), t))
+const llmFailure = computed(() => {
+  const timing = scanReport.value?.analyzer_timings?.llm
+  if (timing?.status === 'failed' && timing.reason === 'llm_analysis_timeout') {
+    return t('skillDetail.llmAnalysisTimedOut', { seconds: timing.timeout_seconds })
+  }
+  const raw = formatLlmFailureReason(llmFailureReason(scanReport.value, policyNotes.value), t)
+  if (timing?.status === 'failed' && timing.reason === 'llm_provider_timeout') {
+    return [t('skillDetail.llmProviderTimedOut'), raw].filter(Boolean).join('\n')
+  }
+  return raw
+})
 const llmExplanationHtml = computed(() => {
   const text = llmAnalysis.value?.report || ''
   if (!text) return phrase('legacy.xsay8c')
@@ -1936,6 +1980,16 @@ const behavioralAnalysis = computed(() => scanReport.value?.behavioral_analysis 
 const behavioralFindings = computed(() => behavioralAnalysis.value?.findings || [])
 const behavioralScannedFiles = computed(() => behavioralAnalysis.value?.scanned_files || [])
 const localStaticAnalysis = computed(() => scanReport.value?.local_static_analysis || null)
+// 按本次记录展示规则分析器，兼容仅保存本地分析结果的旧报告。
+const ruleAnalyzerNames = computed(() => {
+  const recorded = scanReport.value?.analyzers_used || detail.value?.vetting?.analyzers_used || []
+  const names = recorded.filter(name => ['static_analyzer', 'bytecode', 'pipeline', 'behavioral:local', 'agent-manager-local', 'basic'].includes(name))
+  if (!recorded.length) {
+    if (behavioralAnalysis.value) names.push('behavioral:local')
+    if (localStaticAnalysis.value) names.push('agent-manager-local')
+  }
+  return [...new Set(names)]
+})
 const normalizeRuleFinding = (item) => ({
   ...item,
   title: item.title || item.rule_id || item.rule || phrase('legacy.10qlo3g'),
@@ -1953,11 +2007,22 @@ const topLevelRuleFindings = computed(() => {
   return findings.filter(isRuleFinding).map(normalizeRuleFinding)
 })
 const ruleAnalysisFindings = computed(() => {
-  const nested = [
-    ...behavioralFindings.value,
-    ...(localStaticAnalysis.value?.findings || []),
-  ].map(normalizeRuleFinding)
-  return nested.length ? nested : topLevelRuleFindings.value
+  // 合并基础与本地规则，去掉顶层报告包含的同一发现项副本。
+  const findings = [
+    ...topLevelRuleFindings.value,
+    ...behavioralFindings.value.map(normalizeRuleFinding),
+    ...(localStaticAnalysis.value?.findings || []).map(normalizeRuleFinding),
+  ]
+  const seen = new Set()
+  return findings.filter(item => {
+    const key = JSON.stringify([
+      item.source || item.analyzer || '', item.rule, item.file, item.line,
+      item.severity, item.title, item.message, item.category, item.code_snippet, item.snippet, item.evidence,
+    ])
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 })
 const groupedRuleAnalysisFindings = computed(() => groupFindingsByClassification(ruleAnalysisFindings.value))
 const nonEmptyRuleClassificationKeys = computed(() => groupedRuleAnalysisFindings.value.map(group => group.key))
@@ -1982,14 +2047,26 @@ const parsePolicyBlock = (note) => {
   const match = noteText.match(/^\[BLOCK\]\s+([^:]+):\s*(.+)$/)
   if (!match) return null
   const [, code, message] = match
+  const countMatch = message.match(/^Skill declares (\d+) tools; policy allows at most (\d+)$/)
+  if (code === 'max_allowed_tools' && countMatch) {
+    return { code, text: t('decisionFlow.toolCountExceeded', { count: countMatch[1], limit: countMatch[2] }) }
+  }
+  const permissionMatch = message.match(/^Tool\/permission ['"](.+)['"] is explicitly blocked by policy$/)
+  if (code === 'blocked_permission' && permissionMatch) {
+    const blocked = scanReport.value?.risk_reconciliation?.policy_snapshot?.blocked_permissions
+    return {
+      code,
+      text: t('skillDetail.blockedPermission', {
+        permission: permissionMatch[1],
+        blocked: Array.isArray(blocked) ? blocked.join(', ') : t('decisionFlow.unrecorded'),
+      }),
+    }
+  }
   const toolMatch = message.match(/Tool '([^']+)' is not in the company allowlist/i)
   if (code === 'tool_not_in_allowlist' && toolMatch) {
     return {
       code,
-      text: text(
-        `工具声明不在白名单：${toolMatch[1]}。安全研判可以是安全，但该工具权限未被公司策略允许，因此准入被拒绝。`,
-        `The declared tool is not allowlisted: ${toolMatch[1]}. The security assessment may be safe, but admission was rejected because company policy does not allow this permission.`,
-      ),
+      text: t('skillDetail.recordedToolBlock', { tool: toolMatch[1] }),
     }
   }
   return {
@@ -2001,6 +2078,12 @@ const policyBlockItems = computed(() =>
   policyNotes.value
     .map(parsePolicyBlock)
     .filter(Boolean),
+)
+// 仅非阻断的工具声明告警显示黄色；真实禁止权限仍按本次记录显示失败。
+const toolDeclarationWarning = computed(() =>
+  !policyBlockItems.value.some(item => ['blocked_permission', 'max_allowed_tools'].includes(item.code))
+  && ((scanReport.value?.policy_warnings || []).some(item => ['tool_not_in_allowlist', 'max_allowed_tools'].includes(item.rule))
+    || policyNotes.value.some(note => /^\[WARN\] (tool_not_in_allowlist|max_allowed_tools):/.test(String(note)))),
 )
 const admissionBlocked = computed(() =>
   detail.value?.status === 'REJECTED' && policyBlockItems.value.length > 0,
@@ -2017,12 +2100,7 @@ const canApproveSkill = computed(() => {
 })
 const admissionBlockedSummary = computed(() => {
   if (!admissionBlocked.value) return ''
-  const risk = detail.value?.risk_level ? riskDisplay(detail.value.risk_level) : phrase('legacy.1lpnuh4')
-  const reasons = policyBlockItems.value.map((item) => item.text).join('；')
-  return text(
-    `安全判定：${risk}。最终状态为已拒绝，是因为准入策略未通过：${reasons}`,
-    `Security assessment: ${risk}. The final status is Rejected because admission policy failed: ${reasons}`,
-  )
+  return policyBlockItems.value.map((item) => item.text).join('；')
 })
 const manualApprovalSummary = computed(() => {
   if (vettingFailed.value) {
@@ -2579,6 +2657,7 @@ const originLabel = (value) => ({
   unknown: phrase('legacy.1lpnuh4'),
 }[value] || value || '-')
 const sourceChannelLabel = (value) => ({
+  external_api: t('externalAccess.sources.external_api'),
   scanner: phrase('legacy.7ucd4c'),
   agent_manager_client: 'Agent Manager Client',
   upload_zip: phrase('legacy.17o43lg'),
@@ -2973,6 +3052,8 @@ watch(
 .basic-info-card :deep(.ant-space-item) { min-width: 0; max-width: 100%; }
 .source-credential { white-space: normal; overflow-wrap: anywhere; }
 
+.decision-loading { min-height: 620px; padding: 20px; }
+.report-load-error { margin-bottom: 12px; }
 .scan-execution-info :deep(.ant-descriptions-item-content),
 .rejection-reason { overflow-wrap: anywhere; white-space: pre-wrap; }
 .scan-execution-info :deep(.ant-descriptions-item-label) { width: 128px; }

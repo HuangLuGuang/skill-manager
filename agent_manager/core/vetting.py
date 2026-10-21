@@ -20,8 +20,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import httpx
+
 from .llm import (
     LLMConfig,
+    LLMAnalysisTimeout,
+    llm_analysis_timeout,
     _build_skill_snapshot,  # noqa: F401 - used via llm module
     analyze_skill_with_llm_single_round,
 )
@@ -229,7 +233,7 @@ def _run_scanner(skill_path: Path, scanner_policy_name: str) -> dict:
     SkillScanner, ScanPolicy = _try_import_scanner()
     if SkillScanner is None:
         logger.warning("skill-scanner not installed — using basic file check only")
-        return {}
+        return {"scanner_unavailable": True, "findings": [], "max_severity": "SAFE"}
 
     scanner, scan_lock = _scanner_instance(SkillScanner, ScanPolicy, scanner_policy_name)
     try:
@@ -380,6 +384,7 @@ def _check_manifest_policy(
         violations.append(PolicyViolation(
             rule="unaccepted_license",
             message=f"License {license_val!r} is not in the accepted list: {policy._data['accepted_licenses']}",
+            params={"license": license_val, "accepted_licenses": list(policy._data["accepted_licenses"])},
             blocking=False,
         ))
 
@@ -764,8 +769,8 @@ class VettingPipeline:
                 raise
             result = execution.result
             status = "completed"
-            if name == "scanner" and result.get("scanner_error"):
-                status = "failed"
+            if name == "scanner":
+                status = "skipped" if result.get("scanner_unavailable") else "failed" if result.get("scanner_error") else "completed"
             elif name == "skillspector":
                 status = "skipped" if not result.get("available") else "failed" if result.get("error") else "completed"
             elif name == "sandbox":
@@ -774,6 +779,7 @@ class VettingPipeline:
             return execution
 
         report_analyzer("scanner", "pending")
+        report_analyzer("behavioral", "pending" if use_behavioral else "disabled")
         report_analyzer("skillspector", "pending" if should_run_skillspector else "disabled")
         report_analyzer("sandbox", "pending")
         report_analyzer("llm", "pending" if use_llm else "disabled")
@@ -788,9 +794,9 @@ class VettingPipeline:
         }
         if use_behavioral:
             futures["behavioral"] = _analyzer_executor.submit(
-                _timed_analyzer,
+                run_analyzer,
                 "behavioral",
-                lambda: _run_behavioral_bundle(skill_path),
+                lambda: _timed_analyzer("behavioral", lambda: _run_behavioral_bundle(skill_path)),
             )
         if should_run_skillspector:
             futures["skillspector"] = _analyzer_executor.submit(
@@ -811,9 +817,11 @@ class VettingPipeline:
         scan_report.setdefault("findings", [])
         scan_report.setdefault("analyzers_used", ["basic"])
         analyzer_timings["scanner"] = {
-            "status": "failed" if scan_report.get("scanner_error") else "completed",
+            "status": "skipped" if scan_report.get("scanner_unavailable") else "failed" if scan_report.get("scanner_error") else "completed",
             "duration_seconds": scanner_execution.duration_seconds,
         }
+        if scan_report.get("scanner_unavailable"):
+            analyzer_timings["scanner"]["reason"] = "scanner_unavailable"
 
         skillspector_notes: list[str] = []
         if should_run_skillspector:
@@ -967,6 +975,8 @@ class VettingPipeline:
         llm_result = None
         if use_llm:
             llm_started = time.monotonic()
+            llm_provider_timeout = False
+            llm_timeout_seconds = None
             try:
                 llm_config = LLMConfig.load()
                 # CLI 只请求分析；服务端关闭 AI 时记录未启用，不进入模型调用。
@@ -978,24 +988,27 @@ class VettingPipeline:
                     report_analyzer("llm", "running")
                     from .llm import _build_skill_snapshot as _build_snapshot
 
-                    llm_result = analyze_skill_with_llm_single_round(
-                        skill_snapshot=_build_snapshot(skill_path, llm_config),
-                        rule_results={
-                            "max_severity": scan_report.get("max_severity", "SAFE"),
-                            "findings": [
-                                finding
-                                for finding in scan_report.get("findings", [])
-                                if finding.get("source") not in {"behavioral", "sandbox"}
-                            ],
-                        },
-                        behavioural_result=behavioral_for_llm,
-                        sandbox_result=sandbox_result,
-                        config=llm_config,
-                    )
+                    # 实际启用的分析器在调用前记录，失败时仍保留名称。
                     scan_report["analyzers_used"] = [
                         *scan_report.get("analyzers_used", ["basic"]),
-                        f"llm:{llm_result.provider}",
+                        f"llm:{llm_config.provider}",
                     ]
+                    with llm_analysis_timeout(llm_config):
+                        analysis_result = analyze_skill_with_llm_single_round(
+                            skill_snapshot=_build_snapshot(skill_path, llm_config),
+                            rule_results={
+                                "max_severity": scan_report.get("max_severity", "SAFE"),
+                                "findings": [
+                                    finding
+                                    for finding in scan_report.get("findings", [])
+                                    if finding.get("source") not in {"behavioral", "sandbox"}
+                                ],
+                            },
+                            behavioural_result=behavioral_for_llm,
+                            sandbox_result=sandbox_result,
+                            config=llm_config,
+                        )
+                    llm_result = analysis_result
                     scan_report["llm_analysis"] = llm_result.model_dump(mode="json")
                     if llm_result.report:
                         llm_notes.append(f"[LLM] {llm_result.report}")
@@ -1004,11 +1017,21 @@ class VettingPipeline:
                 logger.warning("LLM analysis skipped for %s: %s", skill_path, exc)
                 llm_notes.append(f"[LLM] analysis skipped: {exc}")
                 llm_status = "failed"
+                llm_provider_timeout = isinstance(exc, httpx.TimeoutException)
+                if isinstance(exc, LLMAnalysisTimeout):
+                    llm_timeout_seconds = exc.seconds
             report_analyzer("llm", llm_status)
             analyzer_timings["llm"] = {
                 "status": llm_status,
                 "duration_seconds": time.monotonic() - llm_started,
             }
+            if llm_timeout_seconds is not None:
+                analyzer_timings["llm"].update({
+                    "reason": "llm_analysis_timeout",
+                    "timeout_seconds": llm_timeout_seconds,
+                })
+            if llm_provider_timeout:
+                analyzer_timings["llm"]["reason"] = "llm_provider_timeout"
             if llm_status == "disabled":
                 analyzer_timings["llm"]["reason"] = "llm_analysis_disabled"
 
@@ -1047,6 +1070,8 @@ class VettingPipeline:
             "policy_snapshot": {
                 "judgement_mode": effective_judgement_mode,
                 "risk_classification": dict(self.policy.risk_classification),
+                # 拒绝提示保留本次禁止权限清单，避免后续策略变更影响历史说明。
+                "blocked_permissions": list(self.policy.blocked_permissions),
             },
             "strategy": reconciliation_strategy,
             "judgement_mode": effective_judgement_mode,
@@ -1068,6 +1093,10 @@ class VettingPipeline:
         if progress_callback:
             progress_callback("finalizing")
         violations = _check_manifest_policy(allowed_tools, license_val, self.policy)
+        # 本次准入提示保存编码与参数，供页面及 PDF 按语言展示。
+        scan_report["policy_warnings"] = [
+            violation.model_dump(mode="json") for violation in violations if not violation.blocking
+        ]
         policy_notes = [
             f"{'[BLOCK]' if violation.blocking else '[WARN]'} {violation.rule}: {violation.message}"
             for violation in violations

@@ -1,5 +1,76 @@
 # Agent Manager Project Guide
 
+## 页面数据加载 / Page data loading
+
+用户组页只查询用户组列表；用户和隐私策略选项在打开新建或编辑弹窗时按权限加载，同次访问复用，刷新列表或保存后失效。选项加载失败保留草稿并可重试，详见[模型网关说明](model-gateway.md)。
+
+The user group page queries only its list. User and privacy policy options load with the caller's permissions when opening a create or edit dialog, are reused during the visit, and are invalidated after list refresh or save. Failed option requests preserve the draft and support retry; see the [model gateway guide](model-gateway.md).
+
+审计追踪的列表与筛选选项独立加载；筛选、翻页和排序只查询列表，手动刷新同时更新两者。选项查询失败可独立重试。两类查询共用来源权限和客户端归属限制，选项来自可见历史记录；列表保留筛选后的准确总数及跨来源稳定时间排序。
+
+Audit Trail loads its list and filter options independently. Filtering, pagination and sorting query only the list; manual refresh updates both. Options can be retried separately. Both queries enforce source permissions and client ownership. Options cover visible history; lists retain exact filtered totals and stable chronological ordering across sources.
+
+管理台按当前页面和标签读取业务数据。MCP 服务、网关和审计分别查询自身列表，编辑时再读取所需选项；开放 API 管理仅在凭证或接口调用标签查询对应记录。账号管理的筛选、排序和翻页复用选项，手动刷新及修改后重新读取。检测策略仅在本地 Docker 模式读取镜像列表，镜像读取独立于配置加载。
+
+安全扫描仅在目标页读取目标风险；计划任务页由计划列表组件维护列表及数量，复用正在进行的请求。其他阶段保留顶部统计所需数据。凭证中心保留列表名称所需的 Agent、模型查询，创建时按场景补充选项。
+
+Skill 详情先加载基础信息、检测报告和版本信息；原文、文件列表、治理卡和审计记录在首次打开对应标签时加载，同次查看复用结果。切换 Skill 或重新加载详情时重新读取，标签内的刷新操作仍可更新对应内容。
+
+**English:** The console loads data for the current page and tab. MCP servers, gateways and audit pages query their own lists and fetch editing options when needed. Open API credentials and inbound request records load on their respective tabs. Account filters, sorting and pagination reuse options; manual refresh and mutations reload them. Sandbox images load independently of configuration and only for local Docker mode.
+
+Target risk loads on the security scan targets page. The schedules component owns its list and count and shares in-flight requests; other stages retain data needed for navigation counts. Credential lists load Agent and model names, while configuration adds options for the selected scenario. Skill details initially load metadata, scan reports and versions; content, files, governance cards and audit records load on first opening their tabs and are reused during that visit. Switching Skills or reloading details resets this data; tab refresh actions remain available.
+
+## 开放 API 管理 / Open API Management
+
+“网关配置”标签页选择已有外部 AI 网关，填写结果同步配置编号（gateway_id）、所属接入方及结果同步接口路径，支持创建、编辑、启停、删除和测试通知。完整地址由网关管理地址与接口路径组成，认证复用该网关的Token ID、Token Value及HMAC-SHA256签名。gateway_id是智能体开发平台发起评测时填写的结果同步配置编号，创建后保持不变。编辑生成新版本，已有任务保持原版本和报告；每次发送使用网关当前凭据。旧配置补充接口路径后可用于新任务。测试独立记录，接收方按security-gateway-test.v1返回匹配sync_id及accepted=true。操作与人工验收见[网关配置](external-agent-integration.md#网关配置--gateway-configuration)。
+
+**English:** Gateway Configuration selects an existing external AI gateway and manages the stable result sync ID (gateway_id), partners and API path. The destination combines the gateway management URL and path; HMAC-SHA256 authentication reuses its Token ID and encrypted Token Value. Edits create a new version, while accepted tasks keep their original version and report. Each attempt uses current gateway credentials. Add an API path to older configurations before using them for new tasks. Create, edit, enable/disable, delete, test, delivery history and retries remain available. Test notifications use security-gateway-test.v1 and require a matching sync_id and accepted=true acknowledgement. See the gateway configuration guide for manual acceptance checks.
+
+“回调配置”标签页支持新增、编辑、启停、删除和测试通知。配置名称、callback_id、所属接入方、HTTP/HTTPS地址、Bearer令牌与通知类型；令牌加密保存、掩码展示，编辑时留空保留。页面保存后可直接在Skill检测和智能体评测提交中使用callback_id。每次编辑保存新版本，已有任务仍按原版本投递；停用或删除后停止后续投递并保留历史。测试通知使用独立事件，投递记录标明测试用途、发起人、时间和失败原因。查看、新增、编辑/测试及删除分别使用external_access:view/create/update/delete权限。
+
+**English:** Callback configuration supports create, edit, enable, disable, delete and test notifications. Set a name, callback_id, authorized partners, HTTP/HTTPS URL, Bearer token and notification types. Tokens are encrypted and masked; leave the token blank when editing to retain it. Saved callback IDs can be used directly by Skill and Agent submissions. Edits create a new version while accepted tasks retain their original version. Disabling or deleting stops future delivery and preserves history. Test events are separate from real tasks; records show purpose, initiator, times and failures. View, create, edit/test and delete use external_access:view/create/update/delete respectively. See [Callback configuration](external-agent-integration.md#回调配置--callback-configuration).
+
+智能体评测的任务列表和详情每3秒刷新用例进度，展示已完成/计划数量、待执行、执行中和执行错误。Worker按所选评测检查项上报计数，对话与模型调用次数仍计入资源用量。检查项执行结束后显示汇总报告状态；任务终态统计取已保存的用例结果，计划数量保留。开放进度接口同步提供执行中计数，报告、回调和网关继续使用冻结结果。
+
+**English:** Agent evaluation lists and details refresh case progress every three seconds, showing completed/planned, queued, running and execution-error counts. The Worker counts selected evaluation checks; dialogue and model calls remain resource usage. After checks finish, the page shows report generation. Terminal counts come from persisted cases while planned counts remain available. Open API progress exposes the live counts; reports, callbacks and gateway payloads retain frozen results.
+
+“调用日志”包含“接口调用”和“回调与同步”两种视图。回调与同步支持Skill与智能体评测回调、AI安全网关同步、有效回执、发送记录和失败重投。后台使用已保存的报告报文自动发送并处理重试；地址按现场HTTP或HTTPS填写，令牌加密保存。管理权限沿用 `external_access:view/create/update`，配置、停用和重投写入管理审计。操作说明及人工验收清单见[回调与同步](external-agent-integration.md#回调与同步--callbacks--sync)。
+
+**English:** Request Logs includes API Requests and Callbacks & Sync views. Callbacks & Sync tracks Skill and Agent callbacks, gateway synchronization, validated receipts, attempt history and manual retries. The Backend sends saved payloads and schedules retries; URLs use the deployment's HTTP or HTTPS address and tokens are encrypted. Existing `external_access:view/create/update` permissions apply, and management mutations are audited. See [Callbacks & sync](external-agent-integration.md#回调与同步--callbacks--sync).
+
+系统设置中的“开放 API 管理”包含“接入方管理”“访问凭证”“检测与评测方案”“回调配置”“网关配置”和“调用日志”六个标签页，统一凭证中心也提供入口。
+接入方拥有固定标识和部门到用户组的映射；外部接口凭证使用独立的 `openapi` 类型，绑定接入方、部门和接口权限。
+明文在创建后展示一次，支持到期、停用、启用和吊销。换发凭证沿用接入方标识，历史调用记录保留原凭证信息。
+`external_access:view/create/update` 控制接入方及记录页面；凭证操作沿用 `credentials:view/create/update/delete`。
+
+管理员可按接入方、凭证、请求编号、接口、时间和关联业务查询入站调用记录，查看 HTTP 状态、耗时、来源 IP 和错误原因。
+调用方的合法 `X-Request-ID` 在响应中原样返回，并显示在调用日志中；详情同时保留独立请求编号，来源关联使用该编号。重复的调用方追踪号分别记录，筛选支持两种编号。Caller-supplied `X-Request-ID` values are echoed and shown in logs; each request retains a separate internal ID for source links. Search accepts either ID, including repeated caller trace IDs.
+智能体列表与详情显示登记来源，扫描任务列表与详情显示发起来源；历史未记录来源的对象显示“未记录”。
+部署入口转发 `/openapi/` 到后端。配置步骤和认证检查见[外部接口认证与记录](external-agent-integration.md#外部接口认证与记录--external-api-authentication-and-request-logs)。
+
+**English:** System Settings → Open API Management provides Partner Management, Access Credentials, Scan & Evaluation Profiles, Callback Configuration, Gateway Configuration and Request Logs tabs; Credential Center also links to it.
+
+“检测与评测方案”直接读取现有配置文件中的方案，支持新增、查看和编辑。Skill方案配置检测模块、风险判定模式及恶意规则；智能体方案选择评测策略、评判模型、检查项、对话模式、语言及执行审批。两类方案均按接入方授权。修改内容后自动生成新版本，已受理任务和历史报告保留原快照。页面沿用开放API管理权限，保存记录进入管理审计。配置路径、并发编辑及人工验收见[方案管理](external-agent-integration.md#检测与评测方案管理--scan--evaluation-profiles)。
+
+**English:** Scan & Evaluation Profiles reads existing configuration files and supports adding, viewing and editing profiles. Skill profiles control analyzers, judgement mode and malicious rules. Agent profiles select policies, evaluator models, checks, conversation mode, language and execution approval. Both authorize specific partners. Changed settings receive a new version; accepted tasks and reports retain their snapshots. Existing Open API management permissions and management auditing apply. See [Profile management](external-agent-integration.md#检测与评测方案管理--scan--evaluation-profiles).
+The `openapi` credential type binds a stable partner ID, mapped departments and API permissions. Plaintext is displayed once at creation;
+expiry, disabling, enabling and revocation are supported. Replacement credentials retain the partner identity, while historical logs retain their original credential metadata.
+Partner and log access uses `external_access:view/create/update`; credential administration uses the existing `credentials` permissions.
+Requests are searchable by partner, credential, request ID, endpoint, time and business record. Agent registration sources and scan trigger sources
+are displayed separately; missing historical provenance is shown as “Not recorded”. The deployment proxy forwards `/openapi/` to the backend.
+
+Skill 开放接口提供提交、进度、结果和风险明细查询，复用 ACCESS_TOKEN、部门授权及调用日志。每个外部任务保存接入方、业务流水、方案版本及对应扫描记录；报告、明细和待回调事件按本次任务冻结。复扫和凭证换发后仍可读取原任务报告。配置和调用示例见[Skill 开放接口](external-agent-integration.md#skill-开放接口--skill-open-api)。
+
+**English:** Skill APIs provide submission, progress, reports and findings using ACCESS_TOKEN authentication, department authorization and request logs. Each external task records its partner, business request, profile version and native scan run. Reports, findings and pending callback events are frozen per task and remain available after rescans or credential rotation. See [Skill Open API](external-agent-integration.md#skill-开放接口--skill-open-api) for configuration and examples.
+
+智能体开放接口已接通登记、更新、查询、连接验证，以及评测提交、进度、结果、用例和风险明细。登记与原生治理身份、评测目标和加密凭据关联；外部调用创建的智能体、连接任务和评测任务使用“外部接口”来源。登记更新后，已受理任务继续使用原目标与凭据版本。评测报告保存统一的 `risk_level`（安全、可疑、恶意或尚无判断），`risk_score` 保留评分详情；终态报告、用例、明细及待投递内容同时冻结。配置与调用见[智能体开放接口](external-agent-integration.md#智能体开放接口--agent-open-api)。
+
+**English:** Agent APIs support registration, updates, queries, connection verification, evaluation submission, progress, reports, cases and findings. Registrations link governance identities, scan targets and encrypted credentials. Externally created Agents and tasks carry External API provenance. Accepted tasks retain their target and credential revisions after registration updates. Reports freeze `risk_level` (benign, suspicious, malicious or null), the existing `risk_score`, cases, findings and pending delivery payloads. See [Agent Open API](external-agent-integration.md#智能体开放接口--agent-open-api).
+
+升级已有数据库时，启动迁移自动补齐开放接口字段、业务表及缺失索引；这部分 SQLite 迁移在同一事务内执行，失败后回滚，可在下一次启动重试。历史凭证的接入方为空、部门授权为空数组，历史来源保持原值。Registry 初始化创建扫描记录报告快照表，保留原有报告。第三批新增智能体登记、连接与评测任务、网关待投递记录三张表，保留已有 Skill 报告和回调记录。迁移回归见 `tests/test_external_access_migrations.py`，接口回归见 `tests/test_openapi_skills.py` 和 `tests/test_openapi_agents.py`。
+
+**English:** Startup upgrades add Open API columns, tables and missing indexes in one SQLite transaction, rolling back on failure for retry at the next startup. Existing credentials receive no partner or department grants; recorded provenance is preserved. Registry initialization creates the scan-run report table while retaining existing reports. Agent registration, external Agent jobs and pending gateway records use three additional tables; existing Skill reports and events are retained. Migration and API coverage are in `tests/test_external_access_migrations.py`, `tests/test_openapi_skills.py` and `tests/test_openapi_agents.py`.
+
 系统管理新增 [离线 License 授权](license.md)：导出部署申请、导入厂商签名授权、自动激活续期，
 按有效期、模块与注册客户端额度执行服务端限制。到期保留查看、导出及既有网关与防护；停止新增和扫描。
 页面支持中英文，具体配置、运行边界及人工验收清单见链接。
@@ -320,6 +391,7 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 - MCP 服务表单通过受管理面权限保护的 `GET /api/v1/mcp/servers/options` 读取当前 `allow_http`。Endpoint悬浮说明及即时协议校验按该值展示HTTPS或HTTP/HTTPS要求，与后端 `MCP_ALLOW_HTTP` 一致；配置加载时显示读取中提示。
 - MCP 服务表单按字段展示中英文错误及悬浮要求（状态不增加说明）。名称、唯一标识及鉴权 Header 最多128字符，Endpoint 最多1024字符，鉴权值最多4096字符，描述最多2000个Unicode字符（含空格和换行）；超时1–300秒，最大响应1–10240 KB，默认值保持30秒及1024 KB。鉴权值须为可打印ASCII字符；Bearer格式为 `Bearer + 空格 + Token`。名称、标识、Endpoint和Header名称保存时去除首尾空白。
 - 字段校验由 `backend/mcp_validation.py`、MCP请求schema及前端 `web/src/utils/mcpServerForm.js` 完成；稳定错误码 `mcp.server.invalid_fields` 的 `error_params.errors` 仅包含字段、原因编码及限制参数，鉴权值不进入错误响应。新增、编辑与保存前测试使用相应规则；测试仅检查实际参与请求的字段。首次输入某字段后即实时展示该字段错误，修正后即时清除；新打开的空表单不提前显示必填错误。数值使用原有数字输入框及上下箭头样式，步长为1。超长与非法数值草稿保留并显示错误，可修正后重试。编辑按原始草稿识别变更字段并校验，通过后再转换请求数值，鉴权值留空保留原值；混合校验错误使用通用错误码，仅返回错误位置和类型，不包含原始输入。未修改的历史字段保持兼容，不修改历史数据，无需数据库迁移。
+- 编辑 MCP Server 时，鉴权值留空，保存前测试使用该 Server 已保存的凭证，包括修改 Endpoint 的查询参数、路径或地址，与保存后连接发现一致。测试接口要求 `mcp:execute`；当 Endpoint 变化且复用非空的已存凭证时，还需 `mcp:update`，权限不足使用现有 `iam.permission_denied` 返回403，并在发送上游请求前拒绝。输入新凭证时仅临时用于测试，测试不会写入配置；独立临时测试使用本次输入的凭证。使用方式：修改 Endpoint 后保持鉴权值留空，点击保存前测试连接，成功后保存并连接发现。无需数据库迁移，Docker 部署更新后端镜像即可。
 - 连接发现与保存前测试的 HTTP 错误使用稳定 `mcp.connection_failed.http_status` / `mcp.debug_failed.http_status` 编码，后端提供双语消息，前端通过 `web/src/i18n/errors.js` 按界面语言展示固定说明（中文为“更多信息请参阅”）；状态码、URL 和上游原始原因保持原文，无需数据库迁移。遇到 405 时检查 Endpoint 是否为支持 POST 的 MCP 地址。
 - `能力治理 / MCP 网关` 把多个 Server 的部分 Tool 组合为 `/mcp/{gateway_slug}`。网关环境与执行模式标签旁提供中英文悬浮说明，逐项解释用途、调用限制和生产边界；环境不自动准备隔离资源或切换上游凭据，需事先准备并绑定对应服务。
 - `能力治理 / MCP 调用审批` 接收真实高风险调用产生的待办；管理员查看脱敏参数后批准或拒绝该 Token 对指定网关、Tool 和 Schema 的限时调用权限，查看原始参数会写入安全审计。
@@ -583,6 +655,8 @@ UI 验收 Todo（中英文）：检查预设/自定义编辑、行内修改、�
 ### 按会话查看行为审计
 
 会话列表默认通过元数据索引汇总当前设备的日志、消息和 Hook 数量，分页后只查找当前页会话的首条有效提问，避免为展示 20 个会话读取全部历史工具正文。关键词搜索仍按原有正文权限查询，保留完整会话计数；分页快照上限、过期过滤及正文访问审计保持有效。升级时自动添加索引，首次建索引耗时随历史数据量增长，不重写事件或清空队列。
+
+Codex 只有 Hook 的会话通过原生完成记录的专用索引，按设备、Agent 和会话 ID 检查补充证据，避免逐会话扫描设备的全部事件正文；仍按分页快照和有效期过滤，不改变原始 Hook 或执行状态证据。
 
 **English:** The default session list aggregates device metadata through indexes and resolves the first available question only for sessions on the selected page. Keyword searches retain content permissions and full-session counts. Snapshot ceilings, retention filters and content access auditing remain in effect. Upgrades add indexes once; index creation time depends on history size and does not rewrite events or clear queues.
 
@@ -930,6 +1004,15 @@ agent 接入时一般用：
   `aig-rule:<skill-name>`、Worker 阶段、实际目标调用数、确认 Finding 数和脱敏错误。`passed` 仅表示该规则
   正常完成、至少发生一次目标调用且本次未观察到关联风险；`unverified` 表示没有目标调用或缺少逐规则执行证据。
   对话 transcript 只保存在受控的 `aig-agent-scan-report` 产物中，不计入规则通过数。
+- 信息收集阶段的原始请求与响应会作为不可信证据传给检测和复核阶段，并保留调用阶段标识。
+  已发生的受保护内容披露不因后续拒绝或未复现而撤销；拒绝语句中实际包含受保护内容仍按披露评估。
+  应用明确保护的模拟标记与普通占位示例分别判断；模拟标记披露只说明该保密边界失效，不等同真实凭据泄露。
+- Agent 任务 API 可通过 `protected_output_markers` 声明已植入应用、禁止输出的模拟测试标记（最多 8 个，
+  每个 8～256 字符）。字段随任务选项加密保存，列表只返回数量；复扫配置指纹包含标记集合哈希。
+  标记不进入攻击 Prompt 或目标请求，Worker 独立执行区分大小写的完整字符串匹配，产生
+  `agent_output_marker` 用例和 `protected_marker_disclosure` Finding，证据与模型判定分别保留。
+  本次输入已含标记时排除回显，多轮模式同时排除本次任务此前输入包含的标记；无可判断响应或证据截断
+  保持未验证。该规则只检测配置的完整标记，不代表其他秘密、变体或编码泄露均已覆盖。当前通过 API 配置。
 - Finding 只通过 Worker 上下文生成的 opaque source reference 关联 detection skill；Reviewer 返回的引用必须能在
   Worker 持有的映射中解析，否则关联到独立的 `unmapped` 证据不足用例，不按标题或描述猜测来源。
 - 本行为只适用于新扫描。历史数据库记录和缺少 `detection_executions` 的旧报告不会自动重算，也不会展开成虚假
@@ -1029,9 +1112,41 @@ Governance 发布策略决定、预算、阻断和终止事件。
 
 服务端 `seq` 只按接收顺序分配，客户端时钟只保留为 `event_time`。原始 Payload 使用平台密钥加密，
 普通查询只返回脱敏投影；原始查看和导出限管理员、隐私审计角色并写安全审计，安全审计角色只读取
-脱敏投影。过期轨迹在 Backend 启动时清理，并由运行期每小时留存任务继续清理；管理员接口用于手动
-补偿执行。网关事件发布失败不会阻塞主请求，但会计入失败指标。完整度只根据真实事件源计算为
+脱敏投影。过期轨迹不再提供查询、导出或新增事件写入。Backend 启动后在后台线程分批清理；每轮最多选择
+500 个到期会话，各关联表最多删除 500 条并分别提交，子记录清空后才删除会话。积压时每轮完成后等待
+250 毫秒继续，空闲或失败后等待 60 秒。管理员清理接口执行一轮并返回 `more` 表示是否仍有积压。
+网关事件发布失败不会阻塞主请求，但会计入失败指标。完整度只根据真实事件源计算为
 `full`、`gateway_partial`、`model_only` 或 `mcp_only`，不会为了展示效果伪造 Agent Step。
+
+**English:** Expired Runtime Traces are unavailable for reads, exports and new event ingestion. Background threads start cleanup after Backend startup, select at most 500 expired sessions per pass and delete at most 500 rows per related table, committing each table separately. Sessions are removed only after their children drain. Backlog passes wait 250 ms; idle or failed passes wait 60 seconds. The administrator cleanup endpoint performs one pass and returns `more` to indicate remaining work.
+
+AIDR 使用全局或单设备的有效保留天数，按服务端接收时间清理正文；每张表每批最多处理 500 条并单独提交。
+清理原始日志与 Hook 时在同一事务内移除对应统计投影。后台沿用上述积压追赶与空闲间隔，普通日志清理只读取所需身份字段，
+避免加载完整正文。清理操作视图时在实际更新前重新校验过期条件，保留选取后已被补传结果更新的操作视图。事件身份、摘要和批次 ACK 保留，重复补传不能恢复已清理正文。该策略控制正文保留，
+不代表总记录数或 SQLite 文件大小恒定；已释放页面可被后续写入复用。Pipeline Trace 独立按保存的到期时间
+清除阶段正文，详见[模型网关说明](model-gateway.md)。
+
+**English:** AIDR expires bodies by server receipt time and the effective global or device retention policy, processing at most 500 rows per table and committing separately. Log and Hook expiry removes their statistics projections in the same transaction. The same background catch-up and idle intervals apply; ordinary expiry reads identity fields rather than full bodies. Operation expiry updates recheck eligibility, preserving views refreshed by late results after selection. Event identities, digests and batch ACKs remain so retries cannot restore expired bodies. This bounds body retention, not total record count or SQLite file size; freed pages can be reused. Pipeline Trace stage expiry is maintained independently as described in the model gateway guide.
+
+统计投影保持每轮日志与 Hook 各最多 250 条，将证据插入、操作写入和小时桶增减批量执行。原始正文读取与投影准备在取得写权限前完成；发布时重新检查水位，并按本批主键复核原始记录的到期状态。其他 worker 已推进时重新准备该来源，已到期证据不再发布。每 50 个操作合并一次核对查询，每个操作仍只读取最多 34 条证据；重复调用起点、过多证据及缺失身份继续按不确定处理。失败计数和命令次数按净变化更新，水位与统计共用一次提交。保留期清理在读取投影身份前取得 SQLite 写权限，与投影推进串行，避免并发补建的统计成为清理残留。
+
+**English:** Overview projection batches evidence, operation writes and net bucket deltas while keeping the existing 250-row limit per source. Raw evidence is read and prepared before acquiring write access. Publication rechecks the watermark and the batch's raw-record expiry by primary key; concurrent progress causes that source to be prepared again, and expired evidence is not published. Reconciliation groups 50 indexed lookups, retaining the 34-evidence bound per operation and conservative ambiguity handling. Watermarks and counters commit together. Expiry acquires SQLite write access before reading projection identities, serializing it with projection advancement.
+
+AIDR 正文和行为摘要的控制字符校验采用共享的预编译扫描，减少大批量采集时的 Python 循环开销，保留原字符范围、UTF-8 字节限制、敏感信息与采集策略校验。
+
+**English:** Audit content and behavior summaries use a shared compiled control-character scan, reducing Python-loop overhead while preserving accepted characters, UTF-8 byte limits, secret checks and capture-policy validation.
+
+采集批次回执、证据插入和日志操作批量 UPSERT 复用固定 SQL 结构与编译结果；每批参数和默认接收时间按次绑定或生成。策略凭据、身份及序列仍在本次事务内校验，冲突回滚和提交后 ACK 语义保持。
+
+**English:** Collection receipts, evidence inserts and bulk log-operation upserts reuse fixed SQL structure and compilation. Batch parameters and default receipt times remain fresh for every execution. Policy receipts, identities and sequence bounds are validated in the current transaction, preserving rollback on conflict and commit-before-ACK.
+
+AIDR 日志与 Hook 在批内合并策略凭据读取、查重和证据插入，日志操作投影按原到达顺序折叠后批量写入。Coverage 与 Skill 证据仍保留处理顺序。批次回执、证据和投影共用一次事务，冲突整批回滚，提交成功后才返回 durable ACK；策略版本与序列校验逐条执行。MCP 两级并发租约在同一事务获取，释放与最终审计合并提交，详情见[网关数据库阶段说明](model-gateway.md)。
+
+日志与 Hook 入库、Skill 审计、概览投影和 AIDR 有界清理步骤，在工作线程和连接池之前共用每服务事件循环两个异步名额；等待不占连接，活动取消等待工作线程完成，每批采集提交后返回 durable ACK。共享准入可能延后清理完成时间，权限及有效策略继续实时读取。Pipeline Trace 和 Runtime Trace 的分批删除先选择到期身份，没有命中时不发起 DELETE；实际删除时再次校验到期条件。SQLite、保留期及清理批量保持一致。
+
+**English:** Log and Hook persistence, Skill audit, overview projection and bounded AIDR cleanup steps share two asynchronous slots per server event loop before worker/pool usage. Waiting work holds no connection, active cancellation waits for worker cleanup, and each collection batch ACK follows its commit. Shared admission can delay cleanup completion; permissions and effective policies remain live reads. Trace cleanup skips empty deletes and rechecks expiry conditions. SQLite, retention policies and batch limits remain unchanged.
+
+**English:** AIDR batches policy-receipt reads, deduplication and evidence inserts. Log operation projections fold evidence in arrival order before bulk writes; Coverage and Skill evidence retain their processing order. Batch receipts, evidence and projections commit together, conflicts roll back the entire batch, and durable ACKs follow successful commit. Policy versions and sequence bounds are checked for every record. MCP acquires both concurrency leases atomically and commits their release with the final audit.
 
 事件可选上报 `severity`（`info`、`low`、`medium`、`high`、`critical`）；轨迹按事件的明确严重性取最高值。
 安全扫描透传 Finding 严重性，模型网关透传 Prompt Security 判定，运行治理透传动作风险等级。
@@ -1396,6 +1511,8 @@ JSON Markdown 代码块、结构化对象、OpenAI 兼容的文本 content 数�
 `intent-inference@1` 规则版本、置信度和依据摘要；声明与推断不一致时只标记“可能不一致”，不会覆盖声明或
 自动形成 Finding。模型不可用、超时、策略阻止或输出无效只会形成稳定错误码和覆盖局限，不会让资产清单任务
 失败；但模型轮次、Token、费用和响应大小仍计入任务累计预算，预算、租约、取消和 Kill Switch 继续生效。
+模型返回后重新加载任务和 Worker 状态，校验当前任务租约，再累计用量、更新 Worker 心跳并记录推断审计；
+模型调用期间释放数据库连接，输出格式修复调用也遵循同一处理流程。
 DSL 没有创建时间时不会用扫描时间代替，而是保存
 `not_exposed_by_source`。Workspace ID 在普通详情响应中默认脱敏。
 
@@ -1569,6 +1686,10 @@ LLM 现在做这些事：
 2. 生成一篇专业的安全分析报告
 3. **生成详细的攻击链分析**，如果是恶意skill, 会生成攻击链并映射到 MITRE ATT&CK（传统网络安全）和 MITRE ATLAS（AI 安全）框架
 
+策略配置的“AI 分析服务 → 超时（秒）”是本次 AI 分析的总预算，包含输入准备、模型调用和结果处理，不包含前序确定性分析器耗时。内部模型网关请求按供应商超时与本次剩余预算的较小值执行；直连及环境变量网关也受剩余预算约束。总时限到期后取消并清理请求，报告记录 `analyzer_timings.llm.reason=llm_analysis_timeout` 与本次秒数，详情 LLM 项展示双语说明；供应商先超时则保留其失败原因。可在高级配置中保存 5–180 秒后重新检测应用；历史报告继续使用当次记录。
+
+The **AI analysis service → Timeout (seconds)** setting limits the full AI analysis, including input preparation, the model request and result processing, excluding earlier deterministic analyzers. Internal gateway requests use the smaller of the provider timeout and remaining analysis budget; direct and environment-configured gateway requests also obey the remaining budget. Expiry cancels and closes the request and records `llm_analysis_timeout` with the configured seconds for bilingual detail display. An earlier provider timeout retains its own reason. Save a value between 5 and 180 seconds and rescan to apply it; historical reports retain their recorded outcome.
+
 深度扫描和 Sandbox 不再各自发起前置 LLM 请求。Sandbox 使用确定性的 probe 计划执行；LLM 只在所有已选分析器结束后调用一次。
 
 所以 LLM 结果里你会看到：
@@ -1695,6 +1816,18 @@ flowchart LR
 
 更详细的 agent 侧签名对接，见：
 - [agent-signature-verification.md](../docs/agent-signature-verification.md)
+
+### 详情中的内容指纹 / Content fingerprint in Skill details
+
+在 Skill 详情打开“检测报告 → 完整性校验”，内容指纹的存在性和预览均取当前版本的
+`content_fingerprint`。导入处理生成指纹后，待审核、已拒绝和已批准的版本均可展示；预览显示前
+24 个字符及省略号，空值或历史缺失字段显示“否”和“-”。数字签名在批准时生成，完整性校验操作依据
+`signature` 是否存在启用。
+
+**English:** Open Detection Report → Integrity Verification in Skill details. Fingerprint presence and preview use
+`content_fingerprint` from the selected version. Once import processing generates it, pending, rejected and approved
+versions can all display it. The preview shows the first 24 characters followed by an ellipsis; empty or missing values
+show “No” and “-”. Approval generates the digital signature, and the verification action is enabled when `signature` exists.
 
 ---
 
@@ -1906,6 +2039,12 @@ task polling and fresh verification decisions after approval/revocation in both 
 - 任意两个版本之间的文件级 Diff
 - 指定内容版本的检测执行记录（Scan Run）
 
+LLM 实际启用时，执行信息的分析器列表保留 `llm:{provider}` 名称，调用失败仍保留。失败状态在 Skill 列表的“LLM 判定结果”列显示“调用失败”；打开详情的“扫描结果 → LLM 分析”可查看本次报告记录的失败原因，原始上游错误保留原文。系统关闭 AI 或本次未选择 LLM 时按对应执行状态展示。
+
+When LLM analysis starts, the execution information retains `llm:{provider}` even if the call fails. The Skill list shows the failed state in the LLM result column; **Scan results → LLM analysis** in the detail page shows the recorded failure reason, preserving the original upstream error.
+
+供应商请求超时按当次报告的 `llm_provider_timeout` 编码，在详情 LLM 项显示“模型供应商请求超时 / The model provider request timed out”，并保留已有原始错误；上游超时异常没有文本时也能查看明确原因。
+
 基础信息中的版本号与最新版本标识保持完整，使用选择框切换版本。“安全判定”旁的“查看判定过程”会切换到实际判定过程并定位标题。
 
 基础信息顶部集中展示当前版本、准入状态与安全判定，下方以紧凑信息项展示名称、作者、Skill ID、来源、工具声明及 Sandbox 运行信息，并随可用宽度换行。工具声明校验表示声明是否符合工具白名单与权限策略；结果复用标明历史结果来源。执行信息中的 Sandbox 分析器名称按该次报告记录的运行方式展示为 `sandbox:remote` 或 `sandbox:docker`，包括无脚本而跳过的情况；已有报告按其保存的运行方式展示。Sandbox 执行状态来自检测报告，策略要求单独说明是否必须执行；远程模式展示服务地址，Docker 模式展示容器镜像，远程模式因无可执行脚本（`reason_code=no_executable_script`）跳过时，服务地址显示“未调用”（英文 Not called）；缺失的运行信息显示“未记录”。生命周期中的策略自动批准会显示中文说明，人工审批保留审批人名称。
@@ -1925,6 +2064,8 @@ task polling and fresh verification decisions after approval/revocation in both 
 
 截图中 LLM 给出无明显风险，但数据外传发现项根据本次配置被归为判为恶意，最终仍为恶意风险。Sandbox 在此例中跳过，不能据此认为它已观察到恶意执行；应结合原始代码上下文复核。
 
+规则扫描的“规则分析器”按本次报告的 `analyzers_used` 展示基础扫描和本地规则分析器，零发现项也保留已记录的分析器。规则发现项合并顶层与本地结果，并去除同一发现项的重复副本，保留不同文件、行号和原始证据（包括 `snippet`、`code_snippet`、`evidence`）；命中数按去重后的结果计算。历史报告仅有顶层规则结果时仍可查看；缺少分析器记录时，根据已保存的本地分析结果展示对应来源。切换 Skill 版本后，名称和发现项均来自该版本报告。
+
 “扫描结果”内可切换规则扫描、深度扫描、Sandbox 和 LLM 分析。skipped、unavailable、failed 不能解释为安全；例如勾选 Sandbox 后，没有可执行入口仍会跳过。
 
 ![基础信息与检测选项（示例数据）](../web/public/docs/screenshots/zh-CN/skill-basic-info.png)
@@ -1939,7 +2080,7 @@ task polling and fresh verification decisions after approval/revocation in both 
 
 规则和深度扫描的发现项使用与策略配置一致的分组名称：“判为恶意”“结合上下文判断”“仅保留提示”。分组依据本次报告记录的分类；修改策略后需重新检测，才能得到新策略下的结果。
 
-深度扫描统计下的“已过滤噪声明细”默认收起，展开后每页查看 5 条被过滤项，统一展示严重度、规则、标题、文件名、独立行号及过滤原因。点击文件名可查看文件内容。过滤原因与扫描使用同一套规则，覆盖字体、位图和许可证常见措辞；该展示不改变有效发现项或风险判定。历史报告保留原始扫描数据时，读取接口补齐明细而不改写存储；记录不足时提示明细未完整记录。新增报告字段兼容现有数据库及 Docker 部署，无需数据库迁移。
+深度扫描统计下的“已过滤噪声明细”默认收起，展开后每页查看 5 条被过滤项，统一展示严重度、规则、标题、文件名、独立行号及过滤原因。点击文件名可查看文件内容。过滤原因与扫描使用同一套规则，覆盖字体、位图、PDF 和许可证常见措辞。深度扫描返回的 PDF 文件发现项按扩展名（不区分大小写）过滤，保留原报告，并在明细中记录 `pdf_file` 原因编码及中英文说明。PDF 明细不展示行号，原报告中的行号保留；其他文件继续展示已记录的行号。新扫描的全部发现项均为 PDF 或位图噪声时，有效严重度为 SAFE；PDF 命中不参与汇总；混有其他发现项时按剩余发现项严重度继续汇总，字体和许可证的现有过滤规则保持兼容。该处理仅过滤文本规则命中，不提供 PDF 内容解析。历史报告保留原始扫描数据时，读取接口按规则编码、文件和原始行号匹配该次有效发现，补齐过滤明细时排除这些记录，保持原过滤计数、有效发现、风险和存储不变；记录不足时提示明细未完整记录。新增报告字段兼容现有数据库及 Docker 部署，无需数据库迁移。
 
 过滤原因只接受当前原因翻译资源自身声明的编码；编码未知、为空或缺失时，该项统一显示“过滤原因：未知”（英文“Filter reason: Unknown”）；其他明细字段按原报告展示。
 
@@ -2054,6 +2195,33 @@ ZIP 中存在软链接时，页面展示路径清单，可选择“跳过软链�
 
 许可证缺失或不被接受、工具数量超限、工具不在允许列表为非阻断告警；页面明确展示其提示作用。明确禁止权限检查的是 Skill 声明，不是运行时权限隔离。`auto_approve_max_risk` 仅参与 Prompt 自动批准，`trusted_authors` 尚未用于 Skill 自动放行，两者不在 Skill 策略页提供编辑控件，兼容字段与其他未展示字段在保存时保留。
 
+### 准入策略说明 / Admission policy notes
+
+许可证准入提示在实际判定过程的四项“判定依据”之后，按本次扫描记录增加第5项“策略说明”，沿用普通卡片样式，逐条展示非阻断原因；无提示时隐藏。许可证缺失仅在本次策略要求检查时产生准入提示，规则扫描发现项仍在扫描结果中展示。页面及中英文 PDF 使用同次报告的稳定规则编码和参数，许可证标识保持原文。旧报告在读取时解析已有策略备注，保留当时接受的许可证列表，不回写存储；应用当前策略需重新扫描。
+
+工具不在允许列表的检查 `tool_not_in_allowlist` 是非阻断声明告警，最终状态继续按风险处置规则与明确禁止权限判断。实际判定过程底部以黄色“声明检查提示 / Declaration notices”展示单句：`声明的工具 {tool} 不在允许列表中：{allowed}。`，英文为 `The declared tool {tool} is not in the allowlist: {allowed}.`。列表从本次报告 `policy_warnings[].params.allowed_tools_allowlist` 读取，按英文逗号和空格连接；多项告警逐条显示，长内容自动换行。工具名保持原文；空列表显示“无 / None”，历史报告未保存列表时显示“未记录 / Not recorded”，不使用当前配置补写历史依据。工具声明检查仅有非阻断声明告警时显示黄色“有提示 / Notice”，明确禁止权限仍显示失败。历史拒绝记录保留原状态，重新检测应用修复后的规则。
+
+工具数量超限 `max_allowed_tools` 同样为非阻断声明告警，`params.count` 与 `params.limit` 保存本次工具数量和策略上限。黄色声明检查提示中独立换行显示“声明的工具数量为 {count}，超过公司允许的上限 {limit}。” / “The Skill declares {count} tools, exceeding the company limit of {limit}.”，PDF 复用同次参数。数量等于上限时不提示；超限仍按风险及明确禁止权限决定准入。历史数量阻断记录保留当时状态和双语原因，重新检测使用新规则。
+
+明确禁止权限命中时，红色拒绝提示直接显示“声明的权限 {permission} 命中了公司禁止权限列表：{blocked}。”，英文为 “The declared permission {permission} matches the company blocked-permissions list: {blocked}.”。清单来自本次报告 `risk_reconciliation.policy_snapshot.blocked_permissions`，按逗号和空格连接；历史报告缺少清单时显示“未记录 / Not recorded”，重新检测生成新的依据。拒绝摘要展示直接原因，权限标识保持原文，固定说明使用 `skillDetail` 双语资源。实际拒绝规则保持不变。
+
+首次进入详情时，实际判定过程与准入提示共享加载占位，报告完成后统一显示；报告失败时展示双语错误及重试入口。刷新已有报告时保留内容，切换 Skill 或版本后只接受当前请求的响应。
+
+The tool allowlist check is a non-blocking declaration notice. Admission still follows risk actions and explicitly blocked permissions. A yellow “Declaration notices” alert shows the tool and the allowlist saved with that scan, joined by comma and space. Empty and unrecorded lists are distinguished. Existing rejected reports keep their historical status; rescan to apply the corrected rule. The decision trace and related alerts share the initial loading placeholder, with an explicit retry action on failure. Refresh retains the existing report and stale responses cannot replace the selected Skill version.
+
+PDF 在“策略说明 / Policy Notes”小节统一列出准入提示和分析备注。
+
+ZIP 上传队列在策略保存后更新后续任务使用的管理器，复用已有队列和线程；已经开始的扫描使用原实例完成。扫描报告 JSON 新增 `policy_warnings`，兼容已有数据库及 Docker 部署，无需表结构迁移。
+
+The decision trace adds “Policy Notes” after its four existing basis cards when this scan recorded non-blocking license notices. The page and localized PDFs preserve the scan’s license identifiers and accepted list. Historical notices are read from stored notes without rewriting reports. Saving policy refreshes subsequent ZIP work while keeping the existing queue, thread and in-flight scan instance. The report JSON extension requires no database migration.
+
+人工 UI 验收 / Manual UI checks：
+
+- 查看许可证缺失、不被接受与合规样例：第5项按实际记录显示或隐藏，单独提示不改变原准入规则。
+- 切换版本、刷新与中英文：提示跟随当前报告；导出 PDF 对照参数及语言。
+- 窄屏和较长许可证值：列表自然换行，卡片及编号布局正常。
+
+
 ### 12.7 扫描器接入
 
 用于客户侧批量扫描本地 skills：
@@ -2144,6 +2312,19 @@ Dify 资产清单另按以下顺序配置：创建 Dify 目标并填写 Console 
 
 只有扫描链路自检成功不能证明目标安全；MCP 元数据扫描不会调用 Tool；Agent 动态扫描也只对实际执行的
 用例和轮次负责。外部 Provider、生产网络和客户账号必须在验收环境单独实测。
+
+Agent 提示词注入、越权和工具滥用检测以应用权限契约及实际执行效果判定确认漏洞：应区分恶意输入、
+调用尝试、工具拒绝和成功越界。仅阅读或拒绝文档中的恶意指令，以及未产生越界效果的拒绝调用，
+不属于确认漏洞；未授权读取或写入需结合对象归属、审批要求、工具返回及状态变化核对。
+无审批的实际写入即使没有泄露文本仍可形成风险；回答中的拒绝措辞不抵消已发生的泄露或越权。
+缺少执行结果不代表安全，也不能据此确认攻击成功。
+
+Agent injection, authorization and tool-misuse checks assess the application contract against observed effects.
+Malicious input, attempted calls, denied operations and successful boundary violations are distinct outcomes.
+Reading or rejecting injected instructions, or a denied call without an unauthorized effect, is not a confirmed
+vulnerability. Unauthorized reads or writes require evidence of ownership, approval requirements, tool results
+or state changes. An unauthorized write remains a finding without text disclosure; refusal wording does not
+negate an actual disclosure or unauthorized action. Missing execution results establish neither safety nor success.
 
 #### 定时扫描、资产来源与风险评分
 
@@ -2782,6 +2963,22 @@ UI 人工复验：中英文分别检查列表/详情切换、长名称路径和�
 
 Skill 行为接口按需读取认证元数据：优先查询设备部署的版本，其次查询所有精确同名候选；名称和部署映射均缺失但有摘要时，仍保留完整候选范围。认证查询不加载扫描报告。空列表、来源或摘要缺失时直接返回对应状态。同一请求内复用相同来源与摘要的认证、候选查询、摘要与验签结果，下次请求及后台核对重新读取当前注册、批准和撤销状态；认证筛选仍在核对后执行。
 
+后台每批最多 50 条、列表每组最多 25 条，先完成本组认证计算，再在短事务中保存核对结论、检查历史和告警；列表每组提交后再计算下一组，仍最多检查 200 条并保留原分页游标。某组写入失败时，该组核对结论、历史和告警一起回滚，已提交组保留。写入比较原证据内容并检查记录尚未到期，并发新证据或清理优先，旧核对结果不覆盖它们。缓存仅限当前请求或后台轮次，下一次核对重新读取平台状态。
+
+条件更新成功后，当前会话复用本次写入的值，避免在持有写锁时逐条重读完整用量；条件不匹配时仍重新读取当前记录。需要关闭旧告警时，在本组首次成功更新取得写锁后统一查询该组告警，随后与核对结论、历史一起提交。告警查询结果只用于当前批次，不跨事务复用。
+
+**English:** Successful conditional updates synchronize the current session with the values just written, avoiding full-row rereads while holding the writer. Conflicting evidence still reloads the current record. Existing alerts are fetched together after the batch owns the writer, then resolved atomically with checks and history; the alert snapshot is confined to that batch.
+
+后台审计与日志/Hook 采集共用当前服务事件循环内的两个异步准入名额，先排队再启动数据库工作线程，减少同时竞争 SQLite 写锁的后台任务。每批事务完成并关闭会话后释放名额，取消任务也等待正在执行的数据库工作结束。准入仅控制本进程资源占用，幂等和跨进程并发正确性仍由数据库校验保证。
+
+**English:** Background Skill audit and log/Hook ingestion share two asynchronous admission slots per server event loop. Work queues before entering a database worker, and the slot is released after the batch transaction and session finish, including on cancellation. This bounds local resource use; database checks continue to enforce idempotency and cross-process concurrency correctness.
+
+Skill 证据回查在 SQLite 内按设备、产品入口、会话和原生调用 ID 的活动记录索引定位候选，每 32 条输入合并一次日志和 Hook 查询；每次调用、每种来源仍独立最多读取 65 条候选，聚合证据仍最多 64 条。候选继续核对用户范围、原生 Agent 和必要的 turn 身份，并按来源内 ID 顺序处理；同批后续证据按原顺序合并，保留冲突和乱序判断。索引由启动时的幂等建索引流程补齐，不重写原始证据或上传回执；首次为大量历史数据建索引可能增加启动耗时和磁盘占用。上传仍在整个批次提交成功后返回持久化 ACK。
+
+后台审计按最早到期顺序追赶。每批提交后重新判断积压，下批使用新的数据库会话和认证缓存，重新读取批准、撤销与授权状态。一次连续追赶最多 4 批，批间让出 10 毫秒；累计运行达到 0.5 秒后不再启动下一批。该预算在批次完成后检查，不强行中断正在执行的核对或事务。有积压时等待 100 毫秒继续，无积压或失败时等待 1 秒；失败批次回滚、已提交批次保留。到期顺序兼顾新证据与周期复核，不承诺固定告警时延。
+
+**English — evidence lookup and audit catch-up:** SQLite indexes locate active evidence by device, product, session and native call. Groups of up to 32 inputs share source queries, while each call/source retains its own 65-candidate limit and each activity retains at most 64 evidence references. User scope, native Agent and required turn identities remain checked; source order, late delivery and conflicting evidence are preserved. Startup adds missing indexes idempotently without rewriting evidence or receipts; initial index creation can increase startup time and disk usage. Uploads acknowledge durability only after the entire batch commits. Background review processes the oldest due records in separate transactions of up to 50, reloading authorization and certification caches per batch. A pass starts at most four batches, yielding 10 ms between batches, and stops starting batches once 0.5 seconds has elapsed. This is a cooperative budget, not an interruption of an active transaction. Remaining work retries after 100 ms; idle or failed passes wait one second. Failed batches roll back while earlier committed batches remain durable.
+
 人工验收：打开有记录和无记录的会话，检查 Skill 行为加载与“重新核对”；切换行为、认证筛选并加载更多，确认记录和游标正常。在隔离测试环境变更批准或撤销状态，下次重新核对应立即反映变化，重复核对不新增重复告警。简体中文及英文界面分别检查。
 
 **English — query performance:** Skill activity reads certification metadata on demand, selecting the deployed version first or all exact-name candidates. Evidence with a digest but no name or deployment mapping retains the full candidate scope. Scan reports are excluded. Empty lists and incomplete evidence need no registry lookup. Candidate results are reused within a request only; subsequent requests and background checks read current approval and revocation state before certification filtering. Manually verify populated/empty sessions, recheck, filters and pagination in both languages; use an isolated environment to verify changed certification and alert deduplication.
@@ -2792,6 +2989,10 @@ Skill 行为接口按需读取认证元数据：优先查询设备部署的版�
 ## 平台总览 / Platform overview
 
 平台总览按当前账号的模块权限展示注册智能体、受管 Skill、MCP 服务、配置模型和在线客户端。智能体及客户端沿用现有归属范围；超级管理员可查看全量，其他账号只统计本人创建的智能体及本人注册的客户端。客户端在线依据最近 10 分钟心跳。
+
+客户端和智能体列表按最多 200 个可见对象分组读取关联信息，策略、部门、凭证和告警在每次请求中重新查询。客户端告警仍按客户端、Agent 类型和 Skill 的最新事件判断，并保留分类治理与 AIDR 活跃告警的原有计数规则。总览按客户端汇总各来源的有效证据后合并计数；运行链路普通事件列表只读取脱敏内容，原文查看继续使用独立授权与审计入口。页面 API 的隔离测试口径及人工验收项目见[页面查询基准](benchmarks/2026-10-17-page-queries.md)。
+
+**English:** Client and Agent lists load related metadata in groups of up to 200 visible entities. Policies, departments, credentials and alerts are read afresh on each request. Client issues retain the latest-event, classification-governance and active-AIDR-alert rules. The overview groups retained evidence by client before combining sources. Ordinary trace event pages read redacted payloads; raw content retains its separate authorization and audit path. See the linked page-query benchmark for measurement limits and manual checks.
 
 待处理事项汇总 Skill 人工审核与未过期的 MCP 调用审批。标签展示完整待办数量，列表每类展示最近 20 条并分页；高风险提示只统计当前标签下已加载的待办。点击 MCP 待办直接打开对应审批详情。最近活动展示近 7 天最新 8 条 Skill / MCP 审计及安全扫描任务状态，仅包含事件、对象和时间等摘要；扫描任务沿用所属用户、用户组及安全审计角色的可见范围，入口打开对应任务。
 
@@ -2806,3 +3007,17 @@ Pending work combines Skill reviews and unexpired MCP call approvals. Tabs show 
 Runtime counters use the UTC calendar day and the audit statuses `blocked` for models and `denied` for MCP. AIDR shows retained log / Hook records received in the past 24 hours and distinct reporting clients, with an “In testing” label. Records do not equal unique operations or enforcement coverage.
 
 The charts show 7 / 30 UTC calendar days of requests recorded in `LlmUsageMetric`, including zero-filled dates, and current Skill risk distribution by latest version. Unassessed or unknown risk remains separate. The page shows its refresh time, retains previous data with an explicit warning on refresh failure, and offers retry when initial loading fails.
+
+### Codex 跨轮次 Hook 与会话证据分类
+
+Codex 异步工具的结束 Hook 可能属于取回结果的轮次。客户端审计按唯一原生调用身份关联前后事件，将时间线归到发起轮次并保留原始轮次；重复身份仍标为不确定。只有 Hook 的会话显示原因未知，有正文权限时可根据明确的后台建议提示标记显示推断分类，不以 SessionEnd 或缺少日志推断删除或漏采。旧客户端和历史记录通过读取时处理兼容，无需重传。详见 [客户端说明](agent-manager-client.md#codex-异步结束事件与仅-hook-会话--async-completion-and-hook-only-sessions)。
+
+**English:** Codex asynchronous outcomes can report the turn that retrieves the final result. Client audit links unique native call evidence across turns, places the timeline under the initiating turn, and preserves original turn IDs. Ambiguous identities remain unresolved. Hook-only sessions show an unknown cause; authorized prompt content may support a background-suggestion inference. SessionEnd or missing logs alone does not establish deletion or collection loss. Read-time handling supports existing clients and historical records without re-upload.
+
+结束 Hook 缺失时，时间线和 Hook 详情可单独显示来自 Codex 原生完成记录或旧工具结果的执行状态、来源和记录 ID，仍保留缺失标记，不伪造结束 Hook。新采集能力通过协议协商启用并有界重读本地保留历史；身份不唯一时不补充。完成不等于业务成功。
+
+命令原生完成采集使用第二版协商，补充 `CommandExecution` 的宿主状态和可选退出码，包括 0；缺失退出码保持未知。第一版 MCP/图片采集、旧客户端及历史证据保持兼容。
+
+**English:** Missing end Hooks remain visible. Timelines and Hook details can separately show execution status and provenance from native Codex completion records or legacy tool results. Negotiated collection supports bounded replay of retained local history. Ambiguous identities remain unresolved; completion does not imply business success.
+
+Negotiated v2 completion collection adds the native `CommandExecution` status and optional exit code, including zero. Missing codes remain unknown. V1 MCP/image collection, older clients and retained evidence remain compatible.

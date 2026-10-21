@@ -83,8 +83,13 @@ class ApiError(HTTPException):
 
 
 async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
+    request.state.external_error_code = exc.code
     locale = request_locale(request)
     message = exc.en_message if locale == "en-US" else exc.zh_message
+    from .openapi_contract import is_openapi, error_response
+    if is_openapi(request):
+        return error_response(request, exc.status_code, exc.code, message,
+                              details=exc.params.get("details"), headers=exc.headers)
     return JSONResponse(
         status_code=exc.status_code,
         headers=exc.headers,
@@ -103,6 +108,11 @@ async def http_error_handler(request: Request, exc: HTTPException) -> JSONRespon
     code, zh_message, en_message = classify_http_error(exc.status_code, detail)
     locale = request_locale(request)
     params = {}
+    from .openapi_contract import is_openapi, error_response
+    if is_openapi(request):
+        message = (en_message if locale == "en-US" else zh_message) or (
+            "Request could not be processed" if locale == "en-US" else "请求无法处理")
+        return error_response(request, exc.status_code, code, message, headers=exc.headers)
     if code == "upload.symlink_not_allowed" and isinstance(detail, str):
         prefix = "Symlinks are not allowed in ZIP: "
         if detail.startswith(prefix):
@@ -122,12 +132,29 @@ async def http_error_handler(request: Request, exc: HTTPException) -> JSONRespon
     )
 
 
+async def routing_error_handler(request: Request, exc: HTTPException):
+    from .openapi_contract import is_openapi
+    if is_openapi(request):
+        return await http_error_handler(request, exc)
+    from fastapi.exception_handlers import http_exception_handler
+    return await http_exception_handler(request, exc)
+
+
 async def validation_error_handler(
     request: Request,
     exc: RequestValidationError,
 ) -> JSONResponse:
     locale = request_locale(request)
     errors = exc.errors()
+    from .openapi_contract import is_openapi, error_response
+    if is_openapi(request):
+        return error_response(request, 422, "request.validation_failed",
+            "Invalid request parameters" if locale == "en-US" else "请求参数无效",
+            details=[{"field": ".".join(str(x) for x in (e["loc"][1:] if e["loc"] and e["loc"][0] in {"body", "query", "path"} else e["loc"])),
+                      "reason": "required" if e["type"] == "missing" else e["type"]} for e in errors])
+    if request.url.path.startswith("/api/v1/external-access/"):
+        request.state.external_error_code = "request.validation_failed"
+        errors = [{"loc": error["loc"], "type": error["type"]} for error in errors]
     # MCP 表单只返回安全的字段规则，避免校验异常携带鉴权明文。
     if re.search(r"/v1/mcp/(servers(?:/[^/]+)?|debug/upstream)$", request.url.path):
         from .mcp_validation import FIELDS, field_issue, fields_error

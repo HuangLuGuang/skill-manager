@@ -9,6 +9,13 @@ from ..sqlite_db import get_db
 router = APIRouter(prefix='/v1/audit-trail', tags=['audit-trail'])
 
 
+@router.get('/options')
+def filter_options(db: Session = Depends(get_db), manager=Depends(get_manager),
+                   user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, 'skills:view')
+    return audit_trail.options(db, manager, user)
+
+
 @router.get('')
 def list_events(q: str = Query('', max_length=200), agent: str = Query('', max_length=160, pattern='^(|platform:.+|local:.+)$'),
                 client_id: str = Query('', max_length=128),

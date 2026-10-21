@@ -164,3 +164,40 @@ def test_scan_activity_respects_ownership_and_feature_flag(context, monkeypatch)
     result = client.get('/api/v1/dashboard/overview').json()
     assert not any(row['source'] == 'scan' for row in result['activity'])
     assert 'scan' not in result['activity_sources']
+
+
+def test_reporting_clients_union_and_metadata_only_activity(context, monkeypatch):
+    from sqlalchemy import event
+    client, factory, _, permissions = context
+    permissions.add('scans:view')
+    monkeypatch.setattr(dashboard.settings, 'AGENT_SECURITY_SCANNING_ENABLED', True)
+    with factory.begin() as db:
+        for cid, owner in [('both', 'alice'), ('hooks-only', 'alice'), ('hidden', 'bob')]:
+            db.add(models.ManagedClient(client_id=cid, name=cid, hostname=cid, os='linux', arch='x64',
+                                        client_version='test', registered_by=owner))
+        for index, (cid, at, expired) in enumerate([
+            ('both', NOW, None), ('both', NOW, None), ('hooks-only', NOW, None),
+            ('hidden', NOW, None), ('both', NOW, NOW), ('both', NOW+timedelta(seconds=1), None),
+            ('both', NOW-timedelta(days=2), None),
+        ]):
+            db.add(AidrHookEvent(client_id=cid, stream_id='a'*32, event_id=str(index), source_seq=index,
+                                content_hash='a'*64, payload_json='{}', received_at=at, expired_at=expired))
+        db.add(AidrEvent(client_id='both', logical_id='a'*64, content_hash='b'*64, agent='codex',
+                         kind='tool_call', payload_json='{}', received_at=NOW))
+        db.add(models.SecurityScanTask(task_id='scan', target_id='target', policy_id='policy',
+            idempotency_key='scan', request_fingerprint='hash', owner_user_id=1, created_by='alice',
+            timeout_at=NOW+timedelta(hours=1), completed_at=NOW, updated_at=NOW,
+            target_snapshot_json='{"private":"large-body"}'))
+    sql = []
+    def observe(_conn, _cursor, statement, *_):
+        sql.append(statement)
+    engine = factory.kw['bind']
+    event.listen(engine, 'before_cursor_execute', observe)
+    try:
+        response = client.get('/api/v1/dashboard/overview')
+    finally:
+        event.remove(engine, 'before_cursor_execute', observe)
+    assert response.status_code == 200, response.text
+    assert response.json()['runtime']['aidr'] == {'records': 4, 'reporting_clients': 2, 'hours': 24}
+    assert not any('target_snapshot_json' in s or 'arguments_preview' in s for s in sql)
+    assert all(s.lstrip().upper().startswith('SELECT') for s in sql)

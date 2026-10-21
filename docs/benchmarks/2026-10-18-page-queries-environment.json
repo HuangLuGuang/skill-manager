@@ -1,0 +1,146 @@
+{
+  "status": "environment_gate_not_met",
+  "measured_runs": 0,
+  "source_drift": [],
+  "harness_unchanged": true,
+  "initial": {
+    "source_drift": [],
+    "samples": [
+      {
+        "cpu": 48.3,
+        "available_gib": 2.4543304443359375
+      },
+      {
+        "cpu": 58.6,
+        "available_gib": 2.3735198974609375
+      },
+      {
+        "cpu": 48.2,
+        "available_gib": 2.5858154296875
+      },
+      {
+        "cpu": 44.5,
+        "available_gib": 2.636627197265625
+      },
+      {
+        "cpu": 37.3,
+        "available_gib": 2.668426513671875
+      },
+      {
+        "cpu": 37.4,
+        "available_gib": 2.720855712890625
+      }
+    ],
+    "swap_mib": {
+      "Swapins": 11.890625,
+      "Swapouts": 0.0
+    }
+  },
+  "rules": {
+    "preflight_seconds": 30,
+    "cpu_median_max": 25,
+    "cpu_peak_max": 35,
+    "available_gib_min": 3,
+    "swap_in_mib_max": 30,
+    "swap_out_mib_max": 10,
+    "runtime_available_gib_min": 2,
+    "runtime_swap_in_mib_max": 128,
+    "runtime_swap_out_mib_max": 32,
+    "runtime_external_cpu_median_max": 15
+  },
+  "preflights": [
+    {
+      "samples": [
+        {
+          "cpu": 36.3,
+          "available_gib": 2.900726318359375
+        },
+        {
+          "cpu": 42.9,
+          "available_gib": 2.882537841796875
+        },
+        {
+          "cpu": 35.1,
+          "available_gib": 2.737274169921875
+        },
+        {
+          "cpu": 35.1,
+          "available_gib": 2.7380218505859375
+        },
+        {
+          "cpu": 35.3,
+          "available_gib": 2.68572998046875
+        },
+        {
+          "cpu": 35.3,
+          "available_gib": 2.7210845947265625
+        }
+      ],
+      "swap_in_mib": 2.359375,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "samples": [
+        {
+          "cpu": 41.1,
+          "available_gib": 2.8751068115234375
+        },
+        {
+          "cpu": 35.6,
+          "available_gib": 2.8491973876953125
+        },
+        {
+          "cpu": 37.4,
+          "available_gib": 2.75445556640625
+        },
+        {
+          "cpu": 35.1,
+          "available_gib": 2.8095703125
+        },
+        {
+          "cpu": 34.9,
+          "available_gib": 2.9061126708984375
+        },
+        {
+          "cpu": 35.3,
+          "available_gib": 2.8767547607421875
+        }
+      ],
+      "swap_in_mib": 0.671875,
+      "swap_out_mib": 0.0,
+      "passed": false
+    },
+    {
+      "samples": [
+        {
+          "cpu": 42.9,
+          "available_gib": 2.746978759765625
+        },
+        {
+          "cpu": 44.9,
+          "available_gib": 2.8047943115234375
+        },
+        {
+          "cpu": 36.0,
+          "available_gib": 2.8712310791015625
+        },
+        {
+          "cpu": 36.1,
+          "available_gib": 3.003814697265625
+        },
+        {
+          "cpu": 34.6,
+          "available_gib": 2.738372802734375
+        },
+        {
+          "cpu": 46.3,
+          "available_gib": 2.882720947265625
+        }
+      ],
+      "swap_in_mib": 3.546875,
+      "swap_out_mib": 0.0,
+      "passed": false
+    }
+  ]
+}

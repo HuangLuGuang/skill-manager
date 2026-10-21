@@ -1,5 +1,9 @@
 # 模型网关与隐私路由
 
+离线 License 的 `model_gateway` 模块控制模型网关授权。到期后已有网关调用和既有隐私策略维护继续可用，新增供应商、模型、调用凭证与网关需有效授权，详见 [离线 License](license.md)。
+
+**English:** The offline `model_gateway` entitlement controls model gateway access. Expiry preserves existing gateway calls and privacy policy maintenance; adding providers, models, credentials or gateways requires a valid license. See [Offline License](license.md).
+
 Agent 的模型访问与 MCP 工具访问可使用同一张运行凭证组合授权。模型按允许模型范围校验；MCP 按 Agent 允许网关、凭证权限和网关策略共同校验。创建或编辑智能体时可配置 MCP 网关，再通过接入指引完成凭证授权与运行端连接。详见 [MCP 工具访问](agent-governance.md#mcp-工具访问--mcp-tool-access)。
 
 **English:** One Agent runtime credential can combine model and MCP access. Models use model allowlists; MCP uses Agent gateway grants, credential scopes and gateway policies together. Configure MCP gateways on the Agent, then follow the integration guide to grant credentials and connect the runtime. See [MCP tool access](agent-governance.md#mcp-工具访问--mcp-tool-access).
@@ -17,6 +21,10 @@ Agent 的模型访问与 MCP 工具访问可使用同一张运行凭证组合授
 ---
 
 ## 从接入指引配置 / Configure through the integration guide
+
+用户组页面仅加载用户组列表，成员数量和绑定策略名称直接使用列表字段。新建或编辑时才按权限读取用户和隐私策略选项，同次页面访问复用结果；选项失败保留草稿并支持重试。刷新列表或保存用户组后，选项缓存失效，下次打开弹窗重新读取。用户组页面不请求隐私统计。
+
+The user group page loads only its group list, using the returned member IDs and policy names for display. User and privacy policy options load with the caller's permissions when creating or editing a group and are reused during the visit. Failed option requests preserve the draft and can be retried. Refreshing the list or saving a group invalidates the options for the next dialog opening. The group page does not request privacy statistics.
 
 在“接入与运行”选择“现有应用接入模型网关”。按 Agent 身份治理时选择已登记身份，并创建含 `model:chat` 的运行凭证；普通应用选择模型调用凭证。创建时核对允许模型，保存一次性凭证后返回指引，将平台 `/v1` 地址、凭证和模型名配置到运行端，并按运行端选择 Chat Completions、Responses 或 Anthropic Messages。SDK 的 Base URL 规则可能不同，应按其协议要求使用所展示的完整请求路径。
 
@@ -78,6 +86,10 @@ Worker 使用任务租约调用 Backend 的任务专属 OpenAI-compatible 评估
 - `隐私链路追踪`：查看一次请求的 Prompt 防护、脱敏、压缩、响应和还原过程。
 
 “供应商与模型”统一在 `/model-gateway/providers` 管理，原 `/model-gateway/models` 地址重定向到该页面。
+
+页面按当前功能加载数据：“供应商与模型”只加载供应商和模型，统计卡片所在页面才请求隐私统计。隐私统计在线程池中执行同步数据库查询，按当前用户的凭证范围统计；映射计数使用数据库子查询，历史用量和审计按批次读取所需字段，保留差分隐私保护。
+
+**English:** Each page loads the data its features need. Providers & models loads only providers and models; pages with statistics cards request privacy statistics. Synchronous statistics queries run in the thread pool and retain the current user's credential scope and differential privacy protection. Mapping counts use a database subquery, and historical usage and audit statistics read only the required fields in batches.
 新建供应商保存后自动获取模型列表，也可点击“获取模型”重新读取。在获取结果中可多选并批量添加，也可逐个添加、测试模型；已添加的模型不可重复勾选，批量操作失败的条目保留勾选以便重试。
 页面以供应商分组展示一个列表，头部提供凭据配置、获取模型和添加模型入口。模型列表默认收起，点击模型数量展开后显示模型名称、上下文大小、
 默认标记、启用开关、编辑和逐模型测试操作。自定义添加可填写模型名称、上下文窗口、输出限制和默认模型。
@@ -86,9 +98,9 @@ Worker 使用任务租约调用 Backend 的任务专属 OpenAI-compatible 评估
 
 凭证可用模型、文档助手、Skill 扫描策略、智能体默认模型、客户端模型切换、MCP/Agent 安全扫描及 Dify 意图分析均使用网关调用名称；选择器同时显示供应商、上游模型和调用名称。网关 `/v1/models` 返回调用名称，转发到上游时改用上游模型名，响应、用量及审计保持网关调用名称。
 
-统一凭证中心按供应商分组展示已添加到网关的模型，支持按供应商或模型名称搜索；同一张凭证对每个上游模型名只能选择一个供应商，不同名称的模型可跨供应商选择。进入创建配置或点击刷新会重新加载模型选项；供应商下尚未添加的模型需先在“供应商与模型”中添加。
+统一凭证中心按供应商分组展示已添加到网关的模型，支持按供应商或模型名称搜索；同一张凭证对每个上游模型名只能选择一个供应商，不同名称的模型可跨供应商选择。列表加载 Agent 和模型名称；创建配置按所选场景补充所需选项，同页复用已加载结果，点击刷新重新读取。MCP 网关选项仅在配置包含 MCP 能力时加载。供应商下尚未添加的模型需先在“供应商与模型”中添加。
 
-**English:** The Credential Center groups registered gateway models by provider and supports searching by provider or model and selecting one provider per upstream model name in each credential. Models with different upstream names may use different providers. Entering credential configuration or refreshing reloads the model options. Register models under their provider before selecting them in a credential.
+**English:** The Credential Center groups registered gateway models by provider and supports searching by provider or model and selecting one provider per upstream model name in each credential. Models with different upstream names may use different providers. The list loads Agent and model names. Configuration loads additional options for the selected scenario and reuses results within the page; Refresh retrieves them again. MCP gateway options load when configuring MCP access. Register models under their provider before selecting them in a credential.
 
 旧数据迁移保留原调用名称、模型 ID、默认模型及权限引用，将原名称回填为上游模型名。无需批量修改历史凭证或客户端配置。
 
@@ -102,6 +114,10 @@ Worker 使用任务租约调用 Backend 的任务专属 OpenAI-compatible 评估
 隐私链路 Trace 会保存原始 PII。统一 Runtime Trace 默认返回脱敏投影；原始 Payload 仅
 `admin`、`super_admin`、`privacy_auditor` 可以显式查看或导出原始内容，相关动作写入防篡改审计链；
 `security_auditor` 只查看脱敏投影。
+
+Pipeline Trace 按每条阶段记录的 `expires_at` 保留：到期记录立即从列表、详情及压缩诊断中排除，后台每批最多删除 500 条，保留独立的调用审计和用量统计。Backend 启动后由后台线程执行首轮清理；有积压时每批完成后等待 250 毫秒继续，没有积压或发生错误时等待 60 秒。清理错误仅记录异常类型，不记录正文。既有到期数据随后台批次逐步清除。
+
+**English:** Pipeline Trace stages expire at their stored `expires_at`. Expired stages are excluded from lists, details and compression diagnostics immediately, while background cleanup deletes up to 500 rows per batch. Independent request audits and usage metrics remain available. Cleanup starts in a background thread after Backend startup, waits 250 ms between backlog passes, and checks again after 60 seconds when idle or after an error. Errors log only their exception type. Existing expired records drain through the same batches.
 
 ---
 
@@ -590,11 +606,49 @@ export AGENT_MANAGER_LLM_GATEWAY_USER_ID="agent-manager-vetting"
 export AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID="vetting-session"
 ```
 
+Skill AI 分析共用策略配置中的总超时预算：输入准备、模型请求与结果处理计入本次预算，内部网关的单次上游等待取供应商超时和剩余预算较小值。总预算到期取消请求并释放连接；供应商超时更短时可先失败。普通网关调用沿用供应商超时。配置字段和数据库结构不变，Docker 部署沿用现有配置；保存后需重新检测，既有报告不重算。
+
+Skill AI analysis shares a total timeout budget across preparation, the request and result processing. An internal gateway request uses the smaller of the provider timeout and the remaining budget. Budget expiry cancels the request and releases its connection; a shorter provider timeout may fail first. Ordinary gateway calls retain the provider timeout. Existing configuration fields, database structure and Docker deployment remain compatible; rescan after saving to apply the new budget.
+
 如果未配置 `AGENT_MANAGER_LLM_GATEWAY_URL`，系统会保持原有 `LLMConfig` / 系统设置中的直连配置。
 
 ---
 
 ## 11. 安全边界
+
+模型和 MCP 运行时将鉴权/策略读取、审计写入与网络转发拆为独立阶段。同步数据库操作和 SQLite 并发租约在线程中执行；每个数据库阶段结束即归还连接，网络阶段只使用已加载的配置快照。流式输出期间保留并发租约，结束、异常或断开时释放；取消发生在数据库操作途中时，先等待该操作退出，再执行清理。并发限额仍由同一数据库中的原子租约保证。
+
+MCP 凭证与 Tool 的两级并发租约在一个 `BEGIN IMMEDIATE` 事务中检查并获取；任一级达到上限即整组回滚。成功获取后，释放两级租约与完成 MCP 审计共用一次提交，审计失败时另行释放。活动计数只包含尚未过期的租约；请求路径不再扫描删除全局过期租约。Backend 生命周期中的后台任务每次至多删除 500 条过期租约，有积压间隔 250 ms、空闲间隔 60 秒。过期行尚未物理删除也不占用并发额度。
+
+模型网关先提交调用审计、用量与 Pipeline Trace，再在同一事务中保存 Runtime Trace、完成会话状态和释放非流式请求的并发租约。可选运行轨迹失败时整段回滚，已提交的调用审计保留；异常路径独立提交会话完成状态及会话关联指纹，并由请求收尾独立释放租约。只有提交成功才清除内存中的租约标记。流式请求的轨迹与会话状态合并提交，并发租约仍保留到流结束或关闭。运行轨迹锁在 SQLite 写入前获取，避免持有数据库写锁等待轨迹锁。
+
+MCP 动态扫描调用网关后，在扫描收尾阶段重新关联调用记录，再读取或保存最终状态。网关准备阶段拒绝调用时，保留原始 HTTP 错误并将扫描调用记为失败；重复调用标识仍拒绝再次执行。
+
+**English:** Required request audits, usage and Pipeline Trace commit first. Runtime Trace, session completion and non-streaming lease release then share one transaction. Optional trace failures roll back that phase, preserve the committed audit, separately commit session completion and association fingerprints, and leave lease release to request cleanup. Streaming leases remain held until the stream finishes or closes. The trace lock is acquired before SQLite writes. MCP dynamic scans reattach their call record during finalization; early gateway rejection preserves the original HTTP error and records a failed call, while duplicate call IDs remain rejected.
+
+Runtime Trace 发布先取得进程内轨迹锁，再创建轨迹及写入事件，使模型和 MCP 发布采用一致的锁顺序。
+
+日志和 Hook 批量上传也在鉴权结束后归还连接，读取完受限请求体后再执行入库事务并返回 durable ACK。连接池等待不再占用网关事件循环，但数据库写入、线程排队和 CPU 竞争仍可能增加尾延迟，容量判断应结合混合负载实测。
+
+日志与 Hook 入库共用每个服务事件循环两个异步名额。等待阶段不占数据库连接或工作线程；活动请求取消时先等待工作线程完成。每批仍独立提交，客户端超时按原批次字节重试，未收到有效 durable ACK 的本地数据继续保留。跨进程一致性由数据库事务保证。
+
+**English:** Log and Hook persistence share two asynchronous admission slots per server event loop. Waiting requests hold no DB connection or worker; active cancellation waits for worker cleanup. Each batch commits independently. Clients retain frozen bytes until a matching durable ACK, and database transactions enforce cross-process consistency.
+
+采集批次在取得写锁前完成正文序列化及身份摘要计算。取得写锁后按批加载服务器策略凭据、查重并批量插入新证据；策略凭据只在本次事务内复用，每条记录仍校验所属客户端、stream、版本及有效序列区间。日志操作投影先按原到达顺序合并，再按操作批量 upsert；Skill 投影批量读取已有身份并保留原证据处理顺序。Coverage 仍在原位置应用，不跨 Coverage 合并事件组。身份或序号冲突使整个新批次回滚，重复批次保留幂等行为；只有证据、投影和批次回执一起提交成功后才返回 durable ACK。
+
+AIDR 后台正文清理每表每次处理至多 500 条，每张有待清理数据的表提交并归还连接后让出执行机会，让其他任务可以在表与表之间执行；一轮有积压时间隔 250 ms。操作视图按已选主键定位后再次检查过期条件，选取后已被晚到结果更新的操作视图保留；完整条件封装在 CASE 中，避免 UPDATE 改走过期范围索引而重复扫描批次以外的记录。清理计数按实际更新行数计算，候选批次满额时继续短间隔追赶，即使其中记录已被补传刷新。概览投影每来源每次处理至多 250 条，有积压时间隔 200 ms。保留期、证据身份、幂等摘要和 durable ACK 语义不变。
+
+概览清理对已无剩余证据的操作批量扣减调用、失败和命令计数并删除投影；仍有部分证据的操作继续按剩余证据重新核对，保留晚到结果、失败状态和歧义处理语义。
+
+AIDR 正文和行为摘要复用预编译的控制字符扫描，避免逐字符执行 Python 校验；U+0000–U+001F 范围中允许制表符和换行，其余字符仍按原规则拒绝。UTF-8 字节上限、采集范围与敏感信息检查保持原样。
+
+**English:** Audit content and behavior summaries share a compiled control-character scan. Tab and LF remain accepted within U+0000–U+001F; other characters in that range retain their existing rejection rules. UTF-8 byte limits, capture scopes and secret checks are unchanged.
+
+采集批次回执、日志与 Hook 证据插入、日志操作批量 UPSERT 复用固定 SQL 结构的构造与编译结果，减少持锁阶段重复编译的 CPU 开销。每批参数独立绑定，默认接收时间按次生成；策略凭据仍在本次事务内读取并逐条校验，唯一约束、冲突回滚、事务边界和提交后 ACK 保持原样。
+
+**English:** Batch receipts, log/Hook evidence inserts and bulk log-operation upserts reuse fixed SQL construction and compilation. Each execution binds its own batch values and generates fresh default receipt times. Policy receipts are still read and validated within the current transaction; uniqueness checks, conflict rollback, transaction boundaries and commit-before-ACK remain intact.
+
+一次 MCP 调用的初始化、初始化通知和实际请求共用一个 HTTP 客户端及连接池，结束或异常时关闭。MCP 会话和凭据仍限定在本次调用内，每个步骤继续执行目标地址及响应大小检查；DNS 校验在线程中执行。
 
 - Prompt Guard 支持在请求 `metadata.content_sources` 中按消息顺序传入来源数组，或按消息索引传入对象；可选值为 `system`、`user`、`assistant`、`tool`、`rag`、`file`、`web`。未声明时回退到消息 `role`，其中 `tool`、`rag`、`file`、`web` 按不可信内容处理。
 - `stream=true` 支持 SSE 透传和增量反替换；如果客户端中途断开，已完成的并发槽会释放，但未完成请求可能不会写完整 Trace。

@@ -35,7 +35,7 @@ func (c *Client) RuntimeGet(ctx context.Context, resource string) (body []byte, 
 	}
 	diagnostic.ServerCode = responseErrorCode(data)
 	if response.StatusCode == 401 || response.StatusCode == 403 {
-		return nil, Result{Code: "aidr_upload_auth_rejected"}
+		return nil, accessFailure(response.StatusCode, diagnostic.ServerCode)
 	}
 	if resource == "bootstrap" && response.StatusCode != 200 {
 		var problem struct {

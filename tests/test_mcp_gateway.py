@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend import auth, models
+from backend import auth, iam_models as im, models
 from backend.api_errors import ApiError, api_error_handler, validation_error_handler
 from backend.routers import access_tokens, mcp_gateway
 from backend.sqlite_db import Base, get_db
@@ -78,7 +78,7 @@ def test_streamable_http_sse_skips_notifications_before_response():
 def test_upstream_negotiated_protocol_version_is_reused(monkeypatch):
     calls = []
 
-    async def fake_post(server, payload, session_id=None, protocol_version=mcp_gateway.MCP_PROTOCOL_VERSION):
+    async def fake_post(server, payload, session_id=None, protocol_version=mcp_gateway.MCP_PROTOCOL_VERSION, *, client=None):
         calls.append((payload["method"], protocol_version))
         if payload["method"] == "initialize":
             return {"result": {"protocolVersion": "2025-06-18"}}, "session-1"
@@ -162,7 +162,7 @@ def _client(tmp_path, monkeypatch):
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(
-        id=1, username="admin", hashed_password="x", role="super_admin"
+        id=1, username="admin", hashed_password="x", role="super_admin", is_active=True
     )
     app.include_router(
         mcp_gateway.admin_router,
@@ -219,7 +219,7 @@ def _gateway_token(client):
     return created.json()["token"]
 
 
-def test_admin_can_debug_unsaved_endpoint_without_leaking_stored_secret(tmp_path, monkeypatch):
+def test_admin_can_debug_unsaved_endpoint_with_stored_or_temporary_credentials(tmp_path, monkeypatch):
     client, _testing_session = _client(tmp_path, monkeypatch)
     server = client.post(
         "/api/v1/mcp/servers",
@@ -262,13 +262,156 @@ def test_admin_can_debug_unsaved_endpoint_without_leaking_stored_secret(tmp_path
     assert same.status_code == changed.status_code == unsaved.status_code == 200
     assert calls == [
         ("https://private.example.com/mcp", "Bearer stored-secret", "tools/list", {}),
-        ("https://other.example.com/mcp", None, "tools/list", {}),
+        ("https://other.example.com/mcp", "Bearer stored-secret", "tools/list", {}),
         ("https://new.example.com/mcp", "Bearer temporary-secret", "ping", {}),
     ]
     assert client.post(
         "/api/v1/mcp/debug/upstream",
         json={"endpoint": "http://localhost:3000/mcp", "method": "ping"},
     ).status_code == 400
+
+
+@pytest.mark.parametrize("endpoint", [
+    "https://private.example.com/mcp",
+    "https://private.example.com/mcp?changed=1",
+    "https://private.example.com/updated",
+    "https://other.example.com/mcp",
+])
+def test_edit_connection_uses_same_credentials_before_and_after_save(
+    tmp_path, monkeypatch, endpoint,
+):
+    client, sessions = _client(tmp_path, monkeypatch)
+    original_endpoint = "https://private.example.com/mcp"
+    server = client.post("/api/v1/mcp/servers", json={
+        "slug": "retention", "name": "Credential retention",
+        "endpoint": original_endpoint, "authorization_value": "Bearer stored-secret",
+    }).json()
+    calls = []
+
+    async def authenticated_call(target, method, params):
+        # 用真实请求入口验证测试与发现使用同一凭证，避免仅断言临时对象。
+        secret = mcp_gateway._unprotect_secret(target.authorization_value)
+        calls.append((target.endpoint, secret))
+        if secret != "Bearer stored-secret":
+            raise httpx.HTTPStatusError(
+                "401 Unauthorized", request=httpx.Request("POST", target.endpoint),
+                response=httpx.Response(401),
+            )
+        return {"result": {"tools": [
+            {"name": f"tool_{index}", "inputSchema": {"type": "object"}}
+            for index in range(6)
+        ]}}
+
+    monkeypatch.setattr(mcp_gateway, "_call_upstream", authenticated_call)
+    before = client.post("/api/v1/mcp/debug/upstream", json={
+        "server_id": server["id"], "endpoint": endpoint, "method": "tools/list",
+    })
+    assert before.status_code == 200
+    assert len(before.json()["response"]["result"]["tools"]) == 6
+    assert "stored-secret" not in before.text
+    with sessions() as db:
+        stored = db.get(models.McpServer, server["id"])
+        assert stored.endpoint == original_endpoint
+        assert mcp_gateway._unprotect_secret(stored.authorization_value) == "Bearer stored-secret"
+        assert db.query(models.McpTool).count() == 0
+    saved = client.put(f"/api/v1/mcp/servers/{server['id']}", json={"endpoint": endpoint})
+    assert saved.status_code == 200
+    after = client.post(f"/api/v1/mcp/servers/{server['id']}/discover")
+    assert after.status_code == 200
+    assert len(after.json()["tools"]) == 6
+    assert calls == [(endpoint, "Bearer stored-secret")] * 2
+
+
+@pytest.mark.parametrize("value", [None, "", "Bearer temporary-secret"])
+def test_edit_connection_explicit_credential_does_not_change_saved_value(
+    tmp_path, monkeypatch, value,
+):
+    client, sessions = _client(tmp_path, monkeypatch)
+    server = client.post("/api/v1/mcp/servers", json={
+        "slug": "temporary", "name": "Temporary credential",
+        "endpoint": "https://private.example.com/mcp",
+        "authorization_value": "Bearer stored-secret",
+    }).json()
+    calls = []
+
+    async def fake_call(target, method, params):
+        calls.append(mcp_gateway._unprotect_secret(target.authorization_value))
+        return {"result": {"tools": []}}
+
+    monkeypatch.setattr(mcp_gateway, "_call_upstream", fake_call)
+    response = client.post("/api/v1/mcp/debug/upstream", json={
+        "server_id": server["id"], "endpoint": "https://private.example.com/mcp?changed=1",
+        "authorization_value": value, "method": "tools/list",
+    })
+    assert response.status_code == 200
+    assert calls == ["Bearer stored-secret" if value is None else value or None]
+    with sessions() as db:
+        stored = db.get(models.McpServer, server["id"])
+        assert mcp_gateway._unprotect_secret(stored.authorization_value) == "Bearer stored-secret"
+
+
+@pytest.mark.parametrize("can_update", [False, True])
+@pytest.mark.parametrize("endpoint, credentials, has_secret, needs_update", [
+    ("https://private.example.com/mcp", {}, True, False),
+    ("https://private.example.com/mcp?changed=1", {}, True, True),
+    ("https://private.example.com/updated", {"authorization_value": None}, True, True),
+    ("https://other.example.com/mcp", {}, True, True),
+    ("https://other.example.com/mcp", {"authorization_value": "Bearer temporary"}, True, False),
+    ("https://other.example.com/mcp", {"authorization_value": ""}, True, False),
+    ("https://other.example.com/mcp", {}, False, False),
+])
+def test_debug_saved_credential_endpoint_change_requires_update_permission(
+    tmp_path, monkeypatch, can_update, endpoint, credentials, has_secret, needs_update,
+):
+    client, sessions = _client(tmp_path, monkeypatch)
+    original_endpoint = "https://private.example.com/mcp"
+    saved_secret = "Bearer saved-test-secret" if has_secret else None
+    server = client.post("/api/v1/mcp/servers", json={
+        "slug": "permission-test", "name": "Permission test",
+        "endpoint": original_endpoint, "authorization_value": saved_secret,
+    }).json()
+    with sessions() as db:
+        db.add(im.Role(name="mcp_test_role", display_name="MCP test role"))
+        db.flush()
+        permissions = ["mcp:execute"] + (["mcp:update"] if can_update else [])
+        db.add_all(im.RolePermission(role_name="mcp_test_role", permission_code=code)
+                   for code in permissions)
+        db.add(models.User(
+            username="mcp_test_user", hashed_password="unused",
+            role="mcp_test_role", is_active=True,
+        ))
+        db.commit()
+    # 保留真实认证与路由授权，验证执行权限不能代替编辑权限。
+    client.app.dependency_overrides.pop(auth.get_current_admin_user)
+    client.headers["Authorization"] = "Bearer " + auth.create_access_token({
+        "sub": "mcp_test_user",
+    })
+    calls = []
+
+    async def fake_call(target, method, params):
+        calls.append((target.endpoint, mcp_gateway._unprotect_secret(target.authorization_value)))
+        return {"result": {"tools": []}}
+
+    monkeypatch.setattr(mcp_gateway, "_call_upstream", fake_call)
+    response = client.post("/api/v1/mcp/debug/upstream", json={
+        "server_id": server["id"], "endpoint": endpoint,
+        "method": "tools/list", **credentials,
+    })
+    if needs_update and not can_update:
+        assert response.status_code == 403
+        assert response.json()["error_code"] == "iam.permission_denied"
+        assert response.json()["error_params"]["permission"] == "mcp:update"
+        assert calls == []
+    else:
+        assert response.status_code == 200
+        value = credentials.get("authorization_value")
+        expected = saved_secret if value is None else value or None
+        assert calls == [(endpoint, expected)]
+    assert "saved-test-secret" not in response.text
+    with sessions() as db:
+        stored = db.get(models.McpServer, server["id"])
+        assert stored.endpoint == original_endpoint
+        assert mcp_gateway._unprotect_secret(stored.authorization_value) == saved_secret
 
 
 def test_mcp_gateway_discovers_filters_calls_and_audits(tmp_path, monkeypatch):

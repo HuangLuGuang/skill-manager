@@ -20,6 +20,7 @@ from .scan_schedule_models import (  # noqa: F401
     SecurityTaskTrigger,
 )
 from .sqlite_db import Base
+from .external_access_models import ExternalPlatform, ExternalApiRequest  # noqa: F401
 from .aidr_models import AidrPolicyReceipt, AidrDevice, AidrBatch, AidrEvent, AidrSource, AidrCoverageRecord, AidrLegacyDestination, AidrOperation, AidrAuditState  # noqa: F401
 from .aidr_enforcement import AidrEnforcementRevision, AidrRuntimeRecord, AidrResponseCommand  # noqa: F401
 from .iam_models import ManagementAudit, Menu, Permission, Role, RolePermission  # noqa: F401
@@ -61,6 +62,12 @@ class UserGroupMember(Base):
 
 class ManagedAgent(Base):
     __tablename__ = "managed_agents"
+    __table_args__ = (Index("uq_managed_agent_external_identity", "source_platform_id", "external_agent_id", unique=True),)
+    registration_source = Column(String(32), index=True, nullable=True)
+    source_platform_id = Column(String(64), index=True, nullable=True)
+    external_agent_id = Column(String(128), index=True, nullable=True)
+    source_token_id = Column(Integer, nullable=True)
+    source_request_id = Column(String(64), nullable=True)
 
     id = Column(Integer, primary_key=True, index=True)
     agent_id = Column(String(128), unique=True, index=True, nullable=False)
@@ -140,6 +147,8 @@ class LlmApiKey(Base):
 
 class AccessToken(Base):
     __tablename__ = "access_tokens"
+    platform_id = Column(String(64), index=True, nullable=True)
+    allowed_department_ids_json = Column(Text, default="[]", nullable=False)
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(128), index=True, nullable=False)
@@ -1092,6 +1101,12 @@ class SecurityScanApproval(Base):
 
 class SecurityScanTask(Base):
     __tablename__ = "security_scan_tasks"
+    trigger_source = Column(String(32), index=True, nullable=True)
+    source_platform_id = Column(String(64), index=True, nullable=True)
+    external_task_id = Column(String(128), index=True, nullable=True)
+    business_request_id = Column(String(128), index=True, nullable=True)
+    source_token_id = Column(Integer, nullable=True)
+    source_request_id = Column(String(64), nullable=True)
     __table_args__ = (UniqueConstraint("created_by", "idempotency_key", name="uq_security_scan_task_idempotency"),)
 
     id = Column(Integer, primary_key=True, index=True)
