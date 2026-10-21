@@ -246,7 +246,36 @@ cp deploy/offline.sh "$PACKAGE_DIR/deploy/"
 cp deploy/nginx/default.conf "$PACKAGE_DIR/deploy/nginx/"
 cp docs/offline-deployment.md docs/docker-deployment.md docs/license.md "$PACKAGE_DIR/docs/"
 mv "$IMAGE_XZ" "$PACKAGE_DIR/$IMAGE_DIR/"
-cp "$DOCKER_INSTALLER" "$PACKAGE_DIR/installers/docker-installer-28.5.2-x86-arm.tar.gz"
+# The bundled installer must support non-root containers even under umask 027/077.
+python3 - "$DOCKER_INSTALLER" "$PACKAGE_DIR/installers/docker-installer-28.5.2-x86-arm.tar.gz" <<'PY'
+import io
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1], "r:gz") as source:
+    entry = source.getmember("docker-installer/install.sh")
+    script = source.extractfile(entry).read().decode()
+    replacements = {
+        'cp -f $bin_dir/* /usr/local/bin/':
+            'install -m 0755 "$bin_dir"/* /usr/local/bin/ || exit 1',
+        'cp -f "$compose_file" /usr/local/lib/docker/cli-plugins/docker-compose\n'
+        '    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose':
+            'install -m 0755 "$compose_file" /usr/local/lib/docker/cli-plugins/docker-compose || exit 1',
+    }
+    for old, new in replacements.items():
+        if script.count(old) != 1:
+            raise SystemExit("Docker installer layout changed; review its installation permissions before packaging")
+        script = script.replace(old, new)
+    with tarfile.open(sys.argv[2], "w:gz") as target:
+        for member in source:
+            data = source.extractfile(member) if member.isfile() else None
+            if member.name == entry.name:
+                payload = script.encode()
+                member.size = len(payload)
+                member.mode = 0o755
+                data = io.BytesIO(payload)
+            target.addfile(member, data)
+PY
 if [ -n "$CLIENT_RELEASES" ]; then
     log "Copying desktop client release feed..."
     cp -R "$CLIENT_RELEASES"/. "$PACKAGE_DIR/scanner/releases/"

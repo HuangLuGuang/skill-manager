@@ -66,6 +66,12 @@ docker compose version || docker-compose version
 
 如果现场没有 Docker，先按客户环境使用安装包内的 Docker 安装程序完成安装，再确认上述命令可运行。
 
+打包时会将附带 Docker 安装程序的二进制安装权限固定为 `0755`，不受现场 `umask 027/077` 影响。
+旧安装程序使用 `cp`，可能将 `/usr/local/bin/docker-init` 安装为 `0750` 或 `0700`，
+导致非 root 扫描容器启动时报 `exec: "/sbin/docker-init": permission denied`。
+已有现场若确认该文件权限异常，由管理员执行 `chmod 755 /usr/local/bin/docker-init` 后重新运行 `bash start.sh`。
+若权限正常仍失败，继续检查实际 init 路径、挂载限制及主机安全策略。
+
 脚本优先使用 `docker compose`，也支持兼容的 `docker-compose`。Compose 需支持
 `up --wait --wait-timeout`、`config --images` 和 `env_file.required`。
 下文手动命令以 `docker compose` 为例，使用独立程序时替换为 `docker-compose`。
