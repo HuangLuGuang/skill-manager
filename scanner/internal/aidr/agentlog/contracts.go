@@ -126,6 +126,7 @@ type Event struct {
 	Kind               string          `json:"kind"`
 	Tool               string          `json:"tool"`
 	Outcome            string          `json:"outcome"`
+	ObservedAtSource   string          `json:"observed_at_source,omitempty"`
 	ObservedAt         time.Time       `json:"observed_at"`
 	ReceivedAt         time.Time       `json:"received_at"`
 	ContentDigest      string          `json:"content_digest"`
@@ -259,6 +260,9 @@ func ValidateCursor(c Cursor, s Source) error {
 // ValidateEvent is the local ingestion envelope contract. Device
 // authentication and upload ACK belong to the later authenticated transport.
 func ValidateEvent(e Event) error {
+	if e.ObservedAtSource != "" && (e.ObservedAtSource != "collection" || e.Agent != "doubaowork") {
+		return errors.New("aidr_log_event_invalid")
+	}
 	if e.Completion != nil && (e.Agent != "codex" || e.SchemaVersion != 2 || e.Kind != "tool_result" || token(e.Tool) == "" || token(e.SessionID) == "" || token(e.TurnID) == "" || e.Outcome != "unknown" || e.Behavior == nil || e.Behavior.Policy == nil || e.Behavior.Policy.CompletionSchema < 1 || (e.Tool == "Bash" && e.Behavior.Policy.CompletionSchema < 2) || (e.Completion.ExitCode != nil && e.Tool != "Bash") || e.Completion.Source != "codex.item_completed" || (e.Completion.Status != "failed" && e.Completion.Status != "completed")) {
 		return errors.New("aidr_log_completion_invalid")
 	}

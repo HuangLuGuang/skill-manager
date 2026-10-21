@@ -31,6 +31,7 @@ func TestControlDecisionPersistedWithEvent(t *testing.T) {
 	ctx := context.Background()
 	s := openTestStore(t, storeDirectory(t), 100)
 	s.controlMode = "intercept"
+	s.bridgeIntercept.Store(true)
 	s.controlPolicy = &ToolPolicy{Revision: "7", Default: "allow", Rules: []ToolRule{{ID: "delete", Agent: "*", Tool: "*", Decision: "deny", Command: &CommandCondition{Executable: "rm"}}}}
 	for i, tc := range []struct{ command, decision, rule string }{
 		{"rm ./fixture", "deny", "delete"},

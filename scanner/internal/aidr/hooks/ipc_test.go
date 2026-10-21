@@ -4,8 +4,10 @@ package hooks
 
 import (
 	"context"
+	"database/sql"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -13,6 +15,141 @@ import (
 	"testing"
 	"time"
 )
+
+func TestReceiverDatabaseWriterContentionStaysWithinResponseBudget(t *testing.T) {
+	root, err := os.MkdirTemp("", "aidr-writer-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(root)
+	root, _ = filepath.EvalSymlinks(root)
+	s := openTestStore(t, filepath.Join(root, "state"), 10)
+	r, err := Listen(filepath.Join(root, "h.sock"), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go r.Serve(ctx)
+	db, err := sql.Open("sqlite", filepath.Join(s.directory, "hooks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err = db.Exec("BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	req := IPCRequest{Version: 1, Method: "SubmitEvent", EventID: testID(99), Agent: "codex", Hook: "PreToolUse", Raw: json.RawMessage(storeInput)}
+	response, err := Exchange(context.Background(), r.path, req)
+	db.Exec("ROLLBACK")
+	if err != nil || (response.Code != "aidr_hook_receiver_busy" && response.Code != "aidr_hook_storage_failed") {
+		t.Fatal("writer wait escaped response budget", response.Code, err)
+	}
+	response, err = Exchange(context.Background(), r.path, req)
+	if err != nil || response.Code != "aidr_hook_recorded" {
+		t.Fatal("writer release did not recover", response.Code, err)
+	}
+}
+
+func TestExchangeClassifiesResponseFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, code, cause string
+		truncate, timeout       bool
+	}{
+		{name: "eof", truncate: true, code: "aidr_hook_transport_failed", cause: "truncated_frame"},
+		{name: "timeout", timeout: true, code: "aidr_hook_response_timeout", cause: "timeout"},
+		{name: "invalid_json", body: `{"secret":`, code: "aidr_hook_protocol_invalid", cause: "invalid_json"},
+		{name: "unknown_field", body: `{"version":1,"private_payload":"DO_NOT_LOG"}`, code: "aidr_hook_protocol_invalid", cause: "invalid_json"},
+		{name: "version", body: `{"version":2}`, code: "aidr_hook_protocol_invalid", cause: "version_mismatch"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, err := os.MkdirTemp("", "aidr-frame-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.RemoveAll(root)
+			path := filepath.Join(root, "h.sock")
+			listener, err := net.Listen("unix", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				c, e := listener.Accept()
+				if e != nil {
+					return
+				}
+				defer c.Close()
+				var req IPCRequest
+				if readFrame(c, &req) != nil {
+					return
+				}
+				if tc.timeout {
+					time.Sleep(750 * time.Millisecond)
+					return
+				}
+				if tc.truncate {
+					c.Write([]byte{0, 0})
+					return
+				}
+				var header [4]byte
+				binary.BigEndian.PutUint32(header[:], uint32(len(tc.body)))
+				c.Write(header[:])
+				c.Write([]byte(tc.body))
+			}()
+			budget := 3 * time.Second
+			if tc.timeout {
+				budget = 500 * time.Millisecond
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), budget)
+			defer cancel()
+			_, err = Exchange(ctx, path, IPCRequest{Version: 1, Method: "GetHealth"})
+			var failure *IPCError
+			if !errors.As(err, &failure) || failure.Code != tc.code || failure.Cause != tc.cause || failure.Stage != "response_read" {
+				t.Fatalf("unexpected classification: %#v %v", failure, err)
+			}
+			<-done
+		})
+	}
+}
+
+func TestReceiverStorageContentionReturnsBusyAndRecovers(t *testing.T) {
+	root, err := os.MkdirTemp("", "aidr-busy-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(root)
+	root, _ = filepath.EvalSymlinks(root)
+	s := openTestStore(t, filepath.Join(root, "state"), 10)
+	r, err := Listen(filepath.Join(root, "h.sock"), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- r.Serve(ctx) }()
+	s.mu.Lock()
+	s.controlMode = "intercept"
+	s.bridgeIntercept.Store(true)
+	started := time.Now()
+	response, failure := Exchange(context.Background(), r.path, IPCRequest{Version: 1, Method: "GetHealth"})
+	s.mu.Unlock()
+	if failure != nil || response.Code != "aidr_hook_receiver_busy" {
+		t.Fatalf("storage contention mislabeled after %v: response=%s error=%v", time.Since(started), response.Code, failure)
+	}
+	if response.State == nil || response.State.ControlMode != "plugin_pre_tool" {
+		t.Fatal("busy response lost interception mode")
+	}
+	response, failure = Exchange(context.Background(), r.path, IPCRequest{Version: 1, Method: "GetHealth"})
+	if failure != nil || response.Code != "aidr_hook_healthy" {
+		t.Fatal("receiver did not recover without restart", response.Code, failure)
+	}
+	cancel()
+	<-done
+}
 
 func TestReceiverClosePreservesReplacementSocket(t *testing.T) {
 	root, err := os.MkdirTemp("", "aidr-replace-")
@@ -126,7 +263,7 @@ func TestReceiverRealSocketIdentityFramingAndShutdown(t *testing.T) {
 	var out IPCResponse
 	err = readFrame(c, &out)
 	c.Close()
-	if err != nil || out.Code != "aidr_hook_protocol_invalid" {
+	if err != nil || out.Code != "aidr_hook_record_oversized" {
 		t.Fatal("oversized frame not rejected")
 	}
 	// Leave an incomplete frame outstanding while stopping the receiver.

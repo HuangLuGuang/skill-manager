@@ -6,6 +6,8 @@ Provides endpoints for CI/CD pipelines, agent runtimes, and review UIs.
 
 from __future__ import annotations
 
+from agent_manager.core.archives import safe_extract_zip as _safe_extract_zip
+
 import atexit
 import difflib
 import importlib.util
@@ -167,58 +169,6 @@ def _resolve_skill_root(extract_dir: Path) -> Path:
         detail="Multiple SKILL.md files found in uploaded ZIP; package must contain exactly one skill",
     )
 
-
-def _safe_extract_zip(zip_path: Path, extract_dir: Path, *, skipped_symlinks: list[str] | None = None, archive_prefix: str = "", progress=None, budget=None) -> None:
-    extract_root = extract_dir.resolve()
-    budget = budget if budget is not None else {"files": 0, "bytes": 0}
-    with zipfile.ZipFile(zip_path) as zf:
-        entries = zf.infolist()
-        for index, info in enumerate(entries):
-            if progress:
-                progress("extracting", index, len(entries))
-            name = info.filename
-            if ".." in name or name.startswith("/"):
-                raise HTTPException(status_code=400, detail=f"Unsafe path in ZIP: {name}")
-            if not info.flag_bits & 0x800:
-                try:
-                    name = name.encode("cp437").decode("utf-8")
-                except UnicodeError:
-                    pass
-            if stat.S_ISLNK(info.external_attr >> 16):
-                if skipped_symlinks is not None:
-                    skipped_symlinks.append(f"{archive_prefix}{name}")
-                    continue
-                raise HTTPException(status_code=400, detail=f"Symlinks are not allowed in ZIP: {name}")
-            if not info.is_dir():
-                budget["files"] += 1
-                budget["bytes"] += info.file_size
-                if budget["files"] > 50000 or budget["bytes"] > 1024 ** 3 or info.file_size > 100 * 1024 ** 2:
-                    raise HTTPException(status_code=413, detail="Archive extraction limits exceeded")
-            target = (extract_root / name).resolve()
-            try:
-                target.relative_to(extract_root)
-            except ValueError:
-                raise HTTPException(status_code=400, detail=f"Unsafe path in ZIP: {info.filename}")
-            if info.is_dir():
-                target.mkdir(parents=True, exist_ok=True)
-            else:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with zf.open(info) as src, target.open("wb") as dst:
-                    shutil.copyfileobj(src, dst)
-        if progress:
-            progress("extracting", len(entries), len(entries))
-
-
-def _extract_zip_with_nested_archives(zip_path: Path, extract_dir: Path, *, skipped_symlinks: list[str] | None = None, progress=None) -> None:
-    budget = {"files": 0, "bytes": 0}
-    _safe_extract_zip(zip_path, extract_dir, skipped_symlinks=skipped_symlinks, progress=progress, budget=budget)
-    nested_archives = sorted(path for path in extract_dir.rglob("*.zip") if path.is_file())
-    for nested_zip in nested_archives:
-        if not zipfile.is_zipfile(nested_zip):
-            continue
-        nested_target = nested_zip.with_suffix("")
-        nested_target.mkdir(parents=True, exist_ok=True)
-        _safe_extract_zip(nested_zip, nested_target, skipped_symlinks=skipped_symlinks, archive_prefix=f"{nested_zip.relative_to(extract_dir).as_posix()}!/", progress=progress, budget=budget)
 
 
 def _import_root() -> Path:
@@ -1128,7 +1078,7 @@ def submit_skill_zip(
             f.write(content)
 
         extract_dir = tmp_dir / "skill"
-        _extract_zip_with_nested_archives(zip_path, extract_dir)
+        _safe_extract_zip(zip_path, extract_dir)
 
         skill_root = _resolve_skill_root(extract_dir)
         try:
@@ -1182,7 +1132,7 @@ def _prepare_uploaded_zip(content, filename, skip_symlinks, mgr, progress=None):
         extract_dir = tmp_dir / "skill"
         skipped_symlinks: list[str] = []
         extract_dir.mkdir(parents=True, exist_ok=True)
-        _extract_zip_with_nested_archives(zip_path, extract_dir, skipped_symlinks=skipped_symlinks, progress=progress)
+        _safe_extract_zip(zip_path, extract_dir, skipped_symlinks=skipped_symlinks, progress=progress)
         requires_confirmation = bool(skipped_symlinks and not skip_symlinks)
 
         session_id = uuid.uuid4().hex
@@ -1294,7 +1244,7 @@ async def submit_skill_url(
 
         def prepare():
             extract_dir = tmp_dir / "skill"
-            _extract_zip_with_nested_archives(download_path, extract_dir)
+            _safe_extract_zip(download_path, extract_dir)
 
             skill_root = _resolve_skill_root(extract_dir)
             persistent_dir = mgr.registry.data_dir / "downloaded_skills" / uuid.uuid4().hex
@@ -1334,7 +1284,7 @@ async def prepare_remote_import(
         download_path, detected_origin = await _download_remote_archive(body.url, tmp_dir)
         def prepare():
             extract_dir = tmp_dir / "skill"
-            _extract_zip_with_nested_archives(download_path, extract_dir)
+            _safe_extract_zip(download_path, extract_dir)
 
             session_id = uuid.uuid4().hex
             session_root = mgr.registry.data_dir / "remote_import_sessions" / session_id
@@ -1481,7 +1431,7 @@ async def submit_skill_clawhub(
 
         def prepare():
             extract_dir = tmp_dir / "skill"
-            _extract_zip_with_nested_archives(download_path, extract_dir)
+            _safe_extract_zip(download_path, extract_dir)
 
             skill_root = _resolve_skill_root(extract_dir)
             persistent_dir = mgr.registry.data_dir / "clawhub_skills" / uuid.uuid4().hex

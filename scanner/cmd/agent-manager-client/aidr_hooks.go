@@ -21,6 +21,7 @@ import (
 	products "skill-manager/scanner/internal/aidr/catalog"
 	"skill-manager/scanner/internal/aidr/hooks"
 	"skill-manager/scanner/internal/aidr/upload"
+	"skill-manager/scanner/internal/managedclient"
 )
 
 func aidrPluginDoctor(args []string, out io.Writer) error {
@@ -231,8 +232,10 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 		}
 		req = hooks.IPCRequest{Version: 1, Method: "SubmitEvent", EventID: id, Agent: *agent, Hook: *hook, Raw: raw}
 	}
+	started := time.Now()
 	response, err := hooks.ExchangeForHost(context.Background(), *socket, req, 4*time.Second)
 	if err != nil {
+		recordHookIPCFailure(*connection, req, started, err)
 		failureCode = err.Error()
 		return err
 	}
@@ -241,6 +244,7 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 		controlMode = response.State.ControlMode
 	}
 	if response.Code != "aidr_hook_recorded" && response.Code != "aidr_hook_audit_paused" && response.Code != "aidr_hook_healthy" {
+		recordHookIPCFailure(*connection, req, started, errors.New(response.Code))
 		failureCode = response.Code
 		return errors.New(response.Code)
 	}
@@ -283,6 +287,20 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 	}
 	// Return the host's non-blocking audit response (Cursor requires allow).
 	return hooks.WriteHostDecision(out, *agent, *hook, "allow", "")
+}
+
+func recordHookIPCFailure(connection string, req hooks.IPCRequest, started time.Time, err error) {
+	aidr := filepath.Dir(connection)
+	state := filepath.Dir(aidr)
+	if !filepath.IsAbs(connection) || filepath.Base(aidr) != "aidr" || filepath.Base(state) != ".agent-manager" {
+		return
+	}
+	fields := map[string]any{"method": req.Method, "event_id": req.EventID, "duration_ms": time.Since(started).Milliseconds(), "stage": "receiver_response", "cause": hooks.BridgeFailureCode(err.Error())}
+	var transport *hooks.IPCError
+	if errors.As(err, &transport) {
+		fields["stage"], fields["cause"] = transport.Stage, transport.Cause
+	}
+	managedclient.RecordBackgroundSyncDiagnostic(filepath.Dir(state), "hook_ipc", errors.New(hooks.BridgeFailureCode(err.Error())), fields)
 }
 
 func aidrHookServe(args []string, out io.Writer) (resultErr error) {

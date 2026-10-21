@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from .redaction import redact_structure
-from .schema import asset, collected_now, source, stable_hash
+from .schema import asset, collected_now, source, stable_hash, graph_digest
 
 
 _VARIABLE = re.compile(r"\{\{#?([^{}#]+(?:\.[^{}#]+)*)#?\}\}")
@@ -270,6 +270,7 @@ def collect_dsl(
     return {
         "app": app,
         "configuration_sha256": configuration_digest(document),
+        "graph_sha256": graph_digest(graph),
         "workflow": {
             "workflow_id": workflow.get("id") or document.get("workflow_id"),
             "version": workflow.get("version") or document.get("version"),

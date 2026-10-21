@@ -1,5 +1,9 @@
 # Agent Skill Signature Verification
 
+Dify Runtime Adapter 使用工作流结构摘要进行版本准入，并将执行授权绑定到参数摘要；这两个摘要不属于 Skill 发布签名。Dify 接入步骤及检查点范围见 [接入包说明](../integrations/dify-runtime/README.md)。
+
+Dify Runtime Adapter uses graph digests for version admission and parameter digests for execution authorization. These digests are distinct from signed Skill releases. See the [adapter guide](../integrations/dify-runtime/README.md) for installation and control boundaries.
+
 AIDR 的产品适配器负责识别各宿主的 Skill 调用与文件访问字段；后端的来源校验使用
 `backend/aidr_adapters/` 中的产品定义。验签、内容摘要和 Agent 授权仍由公共治理链路处理。
 TeleAgent 的结构化日志与审核接入、证据范围见

@@ -19,7 +19,15 @@ func applyAutomaticObservedAction(ctx context.Context, home string, inventory In
 	if (value.Action != "quarantine" && value.Action != "uninstall") || err != nil || info.Mode()&os.ModeSymlink == 0 {
 		return nil, applyObservedAction(ctx, home, inventory, agent, skill, policy, api, store, value)
 	}
-	release, err := AcquireMutationLock(home)
+	paths := []string{physical, QuarantineRoot(home)}
+	for _, candidate := range inventory.Agents {
+		for _, alias := range candidate.Skills {
+			if canonicalSkillRoot(alias.Path) == physical {
+				paths = append(paths, alias.Path)
+			}
+		}
+	}
+	ctx, release, err := withFileLocks(ctx, home, paths...)
 	if err != nil {
 		value.ErrorCode = "skill_action_busy"
 		return nil, err
@@ -87,7 +95,7 @@ func applyAutomaticObservedAction(ctx context.Context, home string, inventory In
 		}
 		var item QuarantineItem
 		if i == 0 {
-			item, err = quarantineSkill(home, store, reader.agent.AgentType, reader.skill.Name, path, value.Trigger, skill.Signature)
+			item, err = quarantineSkill(ctx, home, store, reader.agent.AgentType, reader.skill.Name, path, value.Trigger, skill.Signature)
 			retained = item
 		} else {
 			item = retained

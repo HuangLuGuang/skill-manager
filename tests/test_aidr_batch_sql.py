@@ -55,7 +55,8 @@ def test_sql_round_trips_bounded_and_single_durable_commit(service, channel, cou
         sql_event.remove(engine, 'commit', committed)
     assert ack['durable'] and ack['accepted'] == count
     assert len(commits) == 1
-    assert len(statements) <= 8
+    # Log batches also check orphan operation and Skill-use projections for Codex repair.
+    assert len(statements) <= (10 if channel == 'logs' else 8)
     assert any(many and sql.startswith('INSERT') for sql, many in statements)
     with factory() as db:
         model = models.AidrEvent if channel == 'logs' else models.AidrHookEvent

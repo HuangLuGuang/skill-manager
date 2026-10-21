@@ -3,7 +3,36 @@ use std::sync::Mutex;
 use serde::Deserialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, State, Wry};
+use tauri::{AppHandle, Emitter, Manager, State, Wry};
+
+#[derive(Default)]
+pub struct WindowDraft(Mutex<serde_json::Value>);
+
+#[tauri::command]
+pub fn take_window_draft(app: AppHandle, state: State<'_, WindowDraft>) -> serde_json::Value {
+    let mut draft = state.0.lock().unwrap().take();
+    if !draft.is_object() {
+        draft = serde_json::json!({});
+    }
+    draft["notifiedVersion"] = super::background_runtime::notified_version(&app).into();
+    draft
+}
+
+#[tauri::command]
+pub fn retire_main_window(
+    window: tauri::WebviewWindow,
+    state: State<'_, WindowDraft>,
+    draft: serde_json::Value,
+) -> Result<(), String> {
+    if super::runtime_watch::active() {
+        return Ok(());
+    }
+    if window.label() != "main" || draft.to_string().len() > 256 * 1024 {
+        return Err("client_window_draft_invalid".into());
+    }
+    *state.0.lock().unwrap() = draft;
+    window.destroy().map_err(|error| error.to_string())
+}
 
 const TRAY_ID: &str = "client-background";
 
@@ -23,6 +52,16 @@ pub struct Labels {
 }
 
 pub fn show_main_window(app: &AppHandle) {
+    if app.get_webview_window("main").is_none() {
+        if let Some(config) = app.config().app.windows.first() {
+            if let Err(error) = tauri::WebviewWindowBuilder::from_config(app, config)
+                .and_then(|builder| builder.build())
+            {
+                eprintln!("could not recreate client window: {error}");
+                return;
+            }
+        }
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -32,14 +71,17 @@ pub fn show_main_window(app: &AppHandle) {
 
 pub fn close_to_background(window: &tauri::WebviewWindow) {
     // Before the webview initializes the tray, keep a taskbar entry on Windows/Linux.
-    let result = if !cfg!(target_os = "macos") && window.app_handle().tray_by_id(TRAY_ID).is_none() {
+    let result = if !cfg!(target_os = "macos") && window.app_handle().tray_by_id(TRAY_ID).is_none()
+    {
         window.minimize()
     } else {
         window.hide()
     };
     if let Err(error) = result {
         eprintln!("could not move client window to background: {error}");
+        return;
     }
+    let _ = window.emit("client-window-close-requested", ());
 }
 
 #[tauri::command]
@@ -62,8 +104,20 @@ fn sync_menu(app: &AppHandle, state: &BackgroundMenu, labels: Labels) -> tauri::
         return Ok(());
     }
 
-    let open = MenuItem::with_id(app, "client-background-open", labels.open, true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "client-background-quit", labels.quit, true, None::<&str>)?;
+    let open = MenuItem::with_id(
+        app,
+        "client-background-open",
+        labels.open,
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(
+        app,
+        "client-background-quit",
+        labels.quit,
+        true,
+        None::<&str>,
+    )?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)

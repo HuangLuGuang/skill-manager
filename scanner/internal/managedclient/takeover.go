@@ -1,6 +1,7 @@
 package managedclient
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -161,6 +162,31 @@ func RecordTakeover(home string, plan TakeoverPlan, store *Store) error {
 
 func RestoreTakeover(plan TakeoverPlan, backupRoot string) {
 	rollback(plan.Items, backupRoot)
+}
+
+// Keep apply, registration and rollback inside one resource scope.
+func ConfirmTakeover(ctx context.Context, home string, plan *TakeoverPlan, store *Store) (string, error) {
+	paths := []string{PendingRoot(home), BackupsRoot(home)}
+	for _, item := range plan.Items {
+		paths = append(paths, item.Source)
+		if item.SkillID != "" {
+			paths = append(paths, filepath.Join(ManagedSkillsRoot(home), item.SkillID))
+		}
+	}
+	_, release, err := withFileLocks(ctx, home, paths...)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	backup, err := ApplyTakeover(home, plan)
+	if err != nil {
+		return "", err
+	}
+	if err := RecordTakeover(home, *plan, store); err != nil {
+		RestoreTakeover(*plan, backup)
+		return "", err
+	}
+	return backup, nil
 }
 
 func ApplyTakeover(home string, plan *TakeoverPlan) (string, error) {

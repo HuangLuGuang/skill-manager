@@ -855,6 +855,21 @@
   let locale = detectLocale()
 
   const semanticMessages = {
+    "ui.diagnostics.error.client_ipc_transport_failed": {"zh-CN": "本机通信中断，操作结果待确认，请刷新状态后再决定是否重试。", "en-US": "Local communication was interrupted. Refresh the state before deciding whether to retry."},
+    "ui.diagnostics.error.client_ipc_busy": {"zh-CN": "平台请求正在处理，请稍后重试。", "en-US": "Platform requests are being processed. Try again shortly."},
+    "ui.diagnostics.error.client_status_unavailable": {"zh-CN": "无法连接平台，请检查地址、网络和服务状态。", "en-US": "Cannot connect to the platform. Check its URL, network and service status."},
+    "ui.diagnostics.error.client_status_invalid_response": {"zh-CN": "平台状态响应格式无效。", "en-US": "The platform status response is invalid."},
+    "ui.diagnostics.error.client_history_unavailable": {"zh-CN": "暂时无法读取平台历史记录。", "en-US": "Platform history is currently unavailable."},
+    "ui.diagnostics.error.client_history_invalid_response": {"zh-CN": "平台历史记录响应格式无效。", "en-US": "The platform history response is invalid."},
+    "ui.diagnostics.error.model_catalog_refresh_unavailable": {"zh-CN": "暂时无法刷新模型目录。", "en-US": "The model catalog cannot be refreshed right now."},
+    "ui.diagnostics.error.model_catalog_refresh_invalid_response": {"zh-CN": "模型目录响应格式无效。", "en-US": "The model catalog response is invalid."},
+    "ui.diagnostics.error.client_platform_http": {"zh-CN": "平台请求失败", "en-US": "Platform request failed"},
+    "ui.diagnostics.error.client_ipc_unavailable": {"zh-CN": "无法连接本机后台服务，请检查服务状态。", "en-US": "Cannot connect to the local background service. Check its status."},
+    "ui.diagnostics.error.client_ipc_timeout": {"zh-CN": "读取本机后台状态超时，请稍后重试。", "en-US": "Reading the local background state timed out. Try again."},
+    "ui.diagnostics.error.client_ipc_invalid_endpoint": {"zh-CN": "本机通信端点无效，请修复后台服务。", "en-US": "The local communication endpoint is invalid. Repair the background service."},
+    "ui.diagnostics.error.client_snapshot_unavailable": {"zh-CN": "暂时无法读取本机状态，请刷新或检查后台服务。", "en-US": "Local state is unavailable. Refresh or check the background service."},
+    "ui.diagnostics.error.client_snapshot_too_large": {"zh-CN": "本机状态超过读取大小限制，请导出诊断信息。", "en-US": "Local state exceeds the read size limit. Export diagnostics."},
+    "ui.diagnostics.error.client_window_draft_invalid": {"zh-CN": "草稿过大，窗口已保留在后台，请返回窗口保存或缩短草稿。", "en-US": "The draft is too large. The window remains in the background; reopen it to save or shorten the draft."},
     "ui.eventRecord.reason_verified": {"zh-CN": "当前内容已通过认证，且 Agent 已获授权。", "en-US": "Current content is certified and the Agent is authorized."},
     "ui.eventRecord.reason_verified_content": {"zh-CN": "当前观察内容已通过平台认证。", "en-US": "Current observed content passed platform certification."},
     "ui.eventRecord.reason_audit_disabled": {"zh-CN": "Skill 认证核对当前已关闭。", "en-US": "Skill certification checking is currently disabled."},
@@ -1351,9 +1366,6 @@
     'ui.overview.todo_hint': { 'zh-CN': "当前有 {count} 项待处理事项。", 'en-US': "Items needing attention: {count}" },
     'ui.overview.service': { 'zh-CN': "后台服务", 'en-US': "Background service" },
     'ui.overview.policy_tab': { 'zh-CN': '检测策略', 'en-US': 'Scan policies' },
-    'ui.agentManagement.rescan_certified_confirm': { 'zh-CN': '该本地 Skill 已认证，是否重新提交平台检测？', 'en-US': 'This local Skill is already certified. Submit it to the platform for another scan?' },
-    'ui.agentManagement.rescan_title': { 'zh-CN': '重新检测 Skill', 'en-US': 'Rescan Skill' },
-    'ui.agentManagement.rescan_submit': { 'zh-CN': '重新检测', 'en-US': 'Rescan' },
     'ui.backups.title': { 'zh-CN': '历史 Skill 备份', 'en-US': 'Skill backups' },
     'ui.backups.hint': { 'zh-CN': '选择备份，查看将恢复的 Skill 与目录。执行时按平台当前策略校验，覆盖前保留现有文件。', 'en-US': 'Select a backup to review its Skills and destinations. Current platform policy is checked before restoring; existing files are retained before replacement.' },
     'ui.backups.tasks': { 'zh-CN': '查看任务记录', 'en-US': 'View tasks' },
@@ -1517,6 +1529,37 @@
     'ui.agentHistory.backed_up': { 'zh-CN': '已备份', 'en-US': 'Backed up' },
     'ui.agentManagement.details': { 'zh-CN': '查看详情', 'en-US': 'View details' },
     'ui.agentManagement.action_pending': { 'zh-CN': '处置任务待完成', 'en-US': 'Remediation Task Pending' },
+    'ui.skillBatch.clear': {"zh-CN": "清空选择", "en-US": "Clear selection"},
+    'ui.skillBatch.processing': {"zh-CN": "正在处理…", "en-US": "Processing…"},
+    'ui.skillBatch.permission': {"zh-CN": "请管理员为客户端凭证授予 client:request-skill-actions 权限。", "en-US": "Ask an administrator to grant client:request-skill-actions to this Client credential."},
+    'ui.skillBatch.selectPage': {"zh-CN": "全选当前页", "en-US": "Select current page"},
+    'ui.skillBatch.selectSkill': {"zh-CN": "选择 {name}", "en-US": "Select {name}"},
+    'ui.skillBatch.selectionHelp': {"zh-CN": "全选当前页；翻页保留选择，切换 Agent 或筛选时清空。", "en-US": "Select all applies to this page. Selection persists across pages and clears when changing Agent or filters."},
+    'ui.skillBatch.empty': {"zh-CN": "勾选 Skill 后批量操作", "en-US": "Select skills for bulk actions"},
+    'ui.skillBatch.selected': {"zh-CN": "已选 {count} 项", "en-US": "{count} selected"},
+    'ui.skillBatch.eligible': {"zh-CN": "可检测 {count} 项 · 已认证 {certified} 项将跳过", "en-US": "{count} eligible for scanning · {certified} certified skipped"},
+    'ui.skillBatch.scan': {"zh-CN": "提交平台检测 ({count})", "en-US": "Submit for scanning ({count})"},
+    'ui.skillBatch.uninstall': {"zh-CN": "批量卸载 ({count})", "en-US": "Uninstall selected ({count})"},
+    'ui.skillBatch.certified': {"zh-CN": "当前内容已认证，无需重复检测", "en-US": "Current content is certified; no resubmission needed."},
+    'ui.skillBatch.scanning': {"zh-CN": "已提交或正在检测，跳过重复提交", "en-US": "Already submitted or scanning; duplicate submission skipped."},
+    'ui.skillBatch.scanDescription': {"zh-CN": "提交当前内容快照。已认证或检测中的 Skill 自动跳过；提交成功不代表检测通过。", "en-US": "Submit current content snapshots. Certified or scanning skills are skipped. Submission does not mean the scan has passed."},
+    'ui.skillBatch.uninstallDescription': {"zh-CN": "从本地目录移除所选 Skill。共用目录中的 Skill 会影响所有读取该目录的 Agent。", "en-US": "Remove selected skills from local directories. Shared skills affect every Agent reading that directory."},
+    'ui.skillBatch.progress': {"zh-CN": "已处理 {done} / {total} 项", "en-US": "Processed {done} / {total}"},
+    'ui.skillBatch.summary': {"zh-CN": "成功 {success} 项 · 跳过 {skipped} 项 · 失败 {failed} 项。失败项已保留选择，可关闭后重试。", "en-US": "Succeeded: {success} · Skipped: {skipped} · Failed: {failed}. Failed items remain selected for retry after closing."},
+    'ui.skillBatch.succeeded': {"zh-CN": "成功", "en-US": "Succeeded"},
+    'ui.skillBatch.skipped': {"zh-CN": "跳过", "en-US": "Skipped"},
+    'ui.skillBatch.failed': {"zh-CN": "失败", "en-US": "Failed"},
+    'ui.skillBatch.waiting': {"zh-CN": "等待执行", "en-US": "Waiting"},
+    'ui.skillBatch.confirm': {"zh-CN": "确认执行 ({count})", "en-US": "Confirm ({count})"},
+    'ui.skillBatch.close': {"zh-CN": "关闭", "en-US": "Close"},
+    'ui.skillBatch.invalid': {"zh-CN": "文件不可用或内容签名缺失，请重新发现后重试。", "en-US": "Files are unavailable or the content signature is missing. Rediscover and retry."},
+    'ui.skillBatch.changed': {"zh-CN": "内容已变化，请重新选择后操作。", "en-US": "Content changed. Select the skill again before retrying."},
+    'ui.skillBatch.unavailable': {"zh-CN": "Skill 已不在当前目录，请重新发现。", "en-US": "The skill is no longer present. Rediscover the directory."},
+    'ui.skillBatch.offline': {"zh-CN": "平台未连接，请连接后重试。", "en-US": "Connect to the platform before retrying."},
+    'ui.skillBatch.busy': {"zh-CN": "该 Skill 有操作正在进行，请稍后重试。", "en-US": "An operation is in progress for this skill. Retry later."},
+    'ui.skillBatch.retained': {"zh-CN": "卸载后保留副本，可从恢复入口还原。", "en-US": "Keep copies to restore these skills later."},
+    'ui.skillBatch.notRetained': {"zh-CN": "不保留副本，无法通过客户端直接恢复。", "en-US": "Without recovery copies, the client cannot restore these skills."},
+    'ui.skillBatch.refreshFailed': {"zh-CN": "操作结果已记录，但列表刷新失败：{error}", "en-US": "Operation results were recorded, but refreshing the list failed: {error}"},
     'ui.agentManagement.action_permission_required': { 'zh-CN': '请管理员为客户端凭证授予 client:request-skill-actions 权限。', 'en-US': 'Ask an administrator to grant client:request-skill-actions to this Client credential.' },
     'ui.agentManagement.no_trusted_version': { 'zh-CN': '无可信版本可恢复', 'en-US': 'No Trusted Version to Restore' },
     'ui.agentManagement.shared_impact': { 'zh-CN': '共用目录，以下 Agent 可能受到影响', 'en-US': 'Shared directory; these Agents may be affected' },
@@ -2043,9 +2086,10 @@
     "ui.aidrDesktop.code.aidr_hook_audit_gap": {"zh-CN": "曾发生 Hook 审计缺口；仅审计模式未阻止工具，恢复接收器不能补齐缺失记录", "en-US": "A Hook audit gap occurred; audit-only mode did not block the tool. Receiver recovery cannot reconstruct missing records"},
     "ui.aidrDesktop.code.aidr_hook_gap_report_failed": {"zh-CN": "本地审计缺口诊断无法保存或读取，请查看宿主 Hook 错误输出", "en-US": "Local audit gap diagnostics could not be saved or read; check the host Hook stderr"},
     "ui.aidrDesktop.code.aidr_hook_receiver_unavailable": {"zh-CN": "本地 Hook 接收器不可用", "en-US": "Local Hook receiver unavailable"},
-    "ui.aidrDesktop.code.aidr_hook_receiver_busy": {"zh-CN": "本地 Hook 接收器达到并发上限", "en-US": "Local Hook receiver reached its concurrency limit"},
+    "ui.aidrDesktop.code.aidr_hook_receiver_busy": {"zh-CN": "本地 Hook 接收器忙碌，请稍后重试", "en-US": "Local Hook receiver is busy. Try again shortly."},
     "ui.aidrDesktop.code.aidr_hook_storage_failed": {"zh-CN": "本地 Hook 记录持久化失败", "en-US": "Local Hook record persistence failed"},
     "ui.aidrDesktop.code.aidr_hook_transport_failed": {"zh-CN": "本地 Hook 请求传输失败", "en-US": "Local Hook request transport failed"},
+    "ui.aidrDesktop.code.aidr_hook_response_timeout": {"zh-CN": "本地 Hook 响应超时", "en-US": "Local Hook response timed out"},
     "ui.aidrDesktop.code.aidr_hook_protocol_invalid": {"zh-CN": "本地 Hook 响应协议无效", "en-US": "Invalid local Hook response protocol"},
     "ui.aidrDesktop.code.aidr_hook_control_decision_missing": {"zh-CN": "工具控制缺少有效授权决定，已拒绝执行", "en-US": "Tool control has no valid authorization decision; execution denied"},
     "ui.aidrDesktop.owner_check": {"zh-CN":"只读核对命令","en-US":"Read-only owner check command"},
@@ -2187,6 +2231,8 @@
 
   const translateRuntime = value => {
     const source = String(value ?? '')
+    const platformError = source.match(/^(?:client_status|client_history|model_catalog_refresh)_http_(\d+)(?::\s*([\s\S]*))?$/)
+    if (platformError) return `${t('ui.diagnostics.error.client_platform_http')} (HTTP ${platformError[1]})${platformError[2] ? `: ${platformError[2]}` : ''}`
     const folderError = source.match(/^(folder_open_[a-z_]+)(?::\s*([\s\S]*))?$/)
     if (folderError && semanticMessages[`ui.folderOpen.error.${folderError[1]}`]) {
       const message = t(`ui.folderOpen.error.${folderError[1]}`)
@@ -2286,6 +2332,8 @@
 
   window.clientI18n = {
     getLocale: () => locale,
+    backgroundLabels: () => Object.fromEntries(Object.keys(semanticMessages)
+      .filter(key => key.startsWith('ui.agentManagement.')).map(key => [key, t(key)])),
     localizeStaticBindings,
     setLocale,
     t,

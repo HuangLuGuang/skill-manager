@@ -15,7 +15,7 @@ from .policy import CompanyPolicy
 from .sandbox import SandboxConfig
 from .skillspector import get_skillspector_version
 
-SCAN_CACHE_SCHEMA_VERSION = "2"
+SCAN_CACHE_SCHEMA_VERSION = "3"
 
 
 def compute_content_fingerprint(skill_path: str | Path) -> str:

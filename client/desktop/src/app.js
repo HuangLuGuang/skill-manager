@@ -98,7 +98,6 @@ const refreshBackgroundRuntime = async () => {
 }
 
 const selectedPendingIDs = new Set()
-const notificationDeliveryAttempts = new Set()
 const operationProgress = new Map()
 const CLIENT_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 const CLIENT_UPDATE_NOTIFIED_KEY = 'agent-manager-client-update-notified'
@@ -131,6 +130,7 @@ let clientSettings = loadClientSettings()
 const saveClientSettings = patch => {
   clientSettings = { ...clientSettings, ...patch }
   localStorage.setItem(CLIENT_SETTINGS_KEY, JSON.stringify(clientSettings))
+  void syncBackgroundRuntime().catch(log)
   syncSettingsControls()
 }
 
@@ -1308,37 +1308,14 @@ const renderNotifications = local => {
       showMessageDialog(t('ui.ydow7a'), String(error))
     }
   }))
-  deliverDesktopNotification(items.find(item => !item.delivered_at))
+  void syncBackgroundRuntime().catch(log)
 }
 
 const refreshLocalNotifications = async () => {
-  const local = JSON.parse(await run('local-status'))
+  const { local } = await invoke('get_local_snapshot')
   if (connection) connection.local = local
   renderNotifications(local)
   return local
-}
-
-const deliverDesktopNotification = async item => {
-  if (!item || notificationDeliveryAttempts.has(item.id)) return
-  notificationDeliveryAttempts.add(item.id)
-  try {
-    const severityRank = { info: 0, warning: 1, critical: 2 }
-    const threshold = severityRank[clientSettings.notificationLevel] ?? 0
-    const severity = severityRank[item.severity] ?? 0
-    if (!clientSettings.systemNotifications || severity < threshold) {
-      await run('deliver-notification', ['--id', String(item.id)])
-      return
-    }
-    const copy = localizedNotification(item)
-    await invoke('show_system_notification', { title: copy.title, body: copy.message })
-    await run('deliver-notification', ['--id', String(item.id)])
-    $('#system-notification-state').hidden = true
-  } catch (error) {
-    notificationDeliveryAttempts.delete(item.id)
-    $('#system-notification-state').classList.remove('success')
-    $('#system-notification-state').hidden = false
-    $('#system-notification-state').textContent = runtimeText(error)
-  }
 }
 
 const notificationSeverity = severity => t(
@@ -1499,6 +1476,30 @@ const localizedNotification = item => {
   return { title, message }
 }
 
+let backgroundPreferencesSignature = ''
+const syncBackgroundRuntime = async () => {
+  const agents = Object.fromEntries((inventory?.agents || []).map(agent => [agent.agent_type, agentLabel(agent.agent_type)]))
+  const notifiedVersion = localStorage.getItem(CLIENT_UPDATE_NOTIFIED_KEY) || ''
+  const signature = JSON.stringify([clientSettings, window.clientI18n.getLocale(), agents, notifiedVersion])
+  if (signature === backgroundPreferencesSignature) return
+  await invoke('sync_background_runtime', {
+    preferences: {
+      ...clientSettings,
+      notifiedVersion,
+      templates: Object.fromEntries([
+        'skill_governance_detected', 'skill_governance_action', 'connection_changed_state_reset',
+        'skill_repaired', 'skill_quarantined', 'skill_modified', 'unmanaged_skill_found',
+        'skill_auto_installed', 'skill_auto_install_failed', 'connection_changed_governance_paused',
+      ].map(event_type => [event_type, localizedNotification({ event_type, agent_type: '{agent}', skill_name: '{skill}' })])),
+      agents,
+      labels: window.clientI18n.backgroundLabels(),
+      updateTitle: tf`客户端新版本 ${'{version}'}`,
+      updateBody: t('ui.en65u1'),
+    },
+  })
+  backgroundPreferencesSignature = signature
+}
+
 const renderEventHistory = events => {
   const element = $('#event-history-list')
   element.classList.toggle('empty', !events.length)
@@ -1643,7 +1644,7 @@ async function refreshConnection() {
     lastInventoryAt = connection.local?.last_inventory_at || lastInventoryAt
     renderConnected(connection)
     syncExternalGatewayPolicyPrompt(connection)
-    renderInventory()
+    if (activePanelName() === 'discover') renderInventory()
     reconcileTrackedSkillActions(connection.platform?.tasks)
     await loadBuiltinAgentSettings().catch(error => {
       $('#builtin-agent-settings').innerHTML = tf`<div class="inline-error"><strong>读取扫描目录失败</strong><span>${escapeHtml(error)}</span></div>`
@@ -1704,7 +1705,7 @@ const refreshLocalStateFromEvent = async ({ source = 'event', eventType = '', re
   const startedAt = Date.now()
   const generation = ++connectionRefreshGeneration
   try {
-    const snapshot = await invoke('get_local_snapshot')
+    const snapshot = await invoke('get_local_snapshot', { recovery: activePanelName() === 'discover' })
     if (generation !== connectionRefreshGeneration || !connection) return false
     connection.local = snapshot.local
     connection.inventory = snapshot.inventory
@@ -1714,22 +1715,21 @@ const refreshLocalStateFromEvent = async ({ source = 'event', eventType = '', re
     inventory = snapshot.inventory
     lastInventoryAt = snapshot.local?.last_inventory_at || lastInventoryAt
     renderConnected(connection)
-    renderInventory()
+    if (activePanelName() === 'discover') renderInventory()
     reconcileTrackedSkillActions(connection.platform?.tasks)
     // These reads are part of the applied snapshot. Do not acknowledge an
     // event until every visible partition needed by the current page succeeds.
-    await loadPending()
-    // Recovery completion removes or changes quarantine rows. Refresh this
-    // partition on every accepted local revision so a completed restore is
-    // reflected without requiring the user to press the manual refresh button.
-    await loadQuarantine()
-    const partitions = ['local_snapshot', 'pending', 'quarantine']
+    const partitions = ['local_snapshot']
+    if (activePanelName() === 'discover') {
+      await loadPending({ silent: true, snapshot })
+      partitions.push('pending', 'quarantine')
+    }
     if ($('#records').classList.contains('active')) {
       if (recordState.kind === 'events') recordState.page = 1
       await loadRecordHistory({ strict: true })
       partitions.push('records')
     }
-    const appliedRevision = targetRevision || normalizeLocalRevision(snapshot.local?.ui_event_revision)
+    const appliedRevision = normalizeLocalRevision(snapshot.revision) || targetRevision
     if (appliedRevision) {
       localStorage.setItem(LOCAL_EVENT_REVISION_KEY, appliedRevision)
       if (!latestLocalEventRevision || !revisionIsNewer(latestLocalEventRevision, appliedRevision)) latestLocalEventRevision = ''
@@ -1869,7 +1869,7 @@ const observedSkillScan = skill => {
   }
   return observation.scan || null
 }
-const observedScanActive = scan => ['pending', 'submitted', 'PENDING', 'VETTED'].includes(scan?.status)
+const observedScanActive = window.clientSkillBatch.isScanActive
 const observedScanLabel = scan => scan?.status === 'PENDING' || scan?.status === 'submitted'
   ? t('ui.agentManagement.scan_in_progress')
   : scan?.status === 'pending' ? t('ui.agentManagement.scan_queued') : pendingStatusLabel(scan?.status)
@@ -1950,6 +1950,11 @@ document.addEventListener('keydown', event => {
 const visibleAgent = agent => Boolean(agent.skills_path?.trim() || agent.install_path || isCustomAgent(agent) || isSharedSkills(agent))
 let selectedAgentID = localStorage.getItem('agent-manager-selected-agent') || ''
 let agentSkillPage = 1
+const selectedLocalSkills = new Map()
+let skillBatch = null
+let skillBatchBusy = false
+const batchText = (key, values = {}) => Object.entries(values).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), t(`ui.skillBatch.${key}`))
+const isCertifiedSkill = window.clientSkillBatch.isCertified
 const expandedSkillDetails = new Set()
 let recoveryItems = []
 let scanHistoryItems = []
@@ -1973,6 +1978,7 @@ const switchAgent = id => {
   localStorage.setItem('agent-manager-selected-agent', id)
   agentSkillPage = 1
   selectedPendingIDs.clear()
+  selectedLocalSkills.clear()
   renderInventory()
 }
 const syncAgentHistory = () => {
@@ -2111,17 +2117,128 @@ $('.agent-content-tabs').addEventListener('keydown', event => {
   switchAgentView(buttons[next].dataset.agentView)
   buttons[next].focus()
 })
-for (const id of ['#agent-skill-search', '#agent-skill-status', '#agent-skill-page-size']) $(id).addEventListener(id.includes('search') ? 'input' : 'change', () => { agentSkillPage = 1; renderInventory() })
+for (const id of ['#agent-skill-search', '#agent-skill-status', '#agent-skill-page-size']) $(id).addEventListener(id.includes('search') ? 'input' : 'change', () => { agentSkillPage = 1; if (!id.includes('page-size')) selectedLocalSkills.clear(); renderInventory() })
 $('#agent-skill-prev').addEventListener('click', () => { agentSkillPage--; renderInventory() })
 $('#agent-skill-next').addEventListener('click', () => { agentSkillPage++; renderInventory() })
 
 
-const confirmCertifiedRescan = () => new Promise(resolve => {
-  const dialog = $('#rescan-confirm-dialog')
-  if (dialog.open) return resolve(false)
-  dialog.returnValue = ''
-  dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), { once: true })
-  dialog.showModal()
+const localSkillSelection = (agent, skill) => ({ agentID: agentKey(agent), agentType: agent.agent_type, path: skill.path, signature: skill.signature, name: skill.name, readers: skillSharedReaders(agent, skill.path) })
+const currentBatchSkill = item => inventory?.agents?.find(agent => agentKey(agent) === item.agentID)?.skills?.find(skill => skill.path === item.path)
+const scanSkipReason = skill => isCertifiedSkill(skill) ? 'certified' : observedScanActive(observedSkillScan(skill)) ? 'scanning' : ''
+const renderSkillBatchToolbar = pageSkills => {
+  const items = [...selectedLocalSkills.values()]
+  const skills = items.map(currentBatchSkill).filter(Boolean)
+  const eligible = skills.filter(skill => !scanSkipReason(skill) && !skill.error && skill.signature && skill.status !== 'broken_link').length
+  $('#skill-batch-count').textContent = items.length ? batchText('selected', {count: items.length}) : batchText('empty')
+  $('#skill-batch-eligible').textContent = items.length ? batchText('eligible', {count: eligible, certified: skills.filter(isCertifiedSkill).length}) : ''
+  $('#skill-batch-clear').hidden = !items.length
+  $('#skill-batch-clear').disabled = skillBatchBusy
+  $('#skill-batch-submit').textContent = batchText('scan', {count: eligible})
+  $('#skill-batch-submit').disabled = skillBatchBusy || !eligible || !connection?.connected
+  $('#skill-batch-uninstall').textContent = batchText('uninstall', {count: items.length})
+  $('#skill-batch-uninstall').disabled = skillBatchBusy || !items.length || !connection?.connected || !connection?.platform?.manual_skill_actions_allowed
+  $('#skill-batch-uninstall').title = !connection?.platform?.manual_skill_actions_allowed ? t('ui.agentManagement.action_permission_required') : ''
+  $('#skill-batch-toolbar').classList.toggle('has-selection', items.length > 0)
+  const select = $('#skill-select-page')
+  select.checked = pageSkills.length > 0 && pageSkills.every(skill => selectedLocalSkills.has(skill.path))
+  select.indeterminate = !select.checked && pageSkills.some(skill => selectedLocalSkills.has(skill.path))
+  select.disabled = skillBatchBusy || !pageSkills.length
+}
+$('#skill-select-page').addEventListener('change', event => {
+  if (skillBatchBusy) return
+  const agent = selectedAgent()
+  const size = Number($('#agent-skill-page-size').value)
+  for (const skill of filteredAgentSkills(agent).slice((agentSkillPage - 1) * size, agentSkillPage * size)) {
+    if (event.target.checked) selectedLocalSkills.set(skill.path, localSkillSelection(agent, skill))
+    else selectedLocalSkills.delete(skill.path)
+  }
+  renderInventory()
+})
+$('#skill-batch-clear').addEventListener('click', () => { if (!skillBatchBusy) { selectedLocalSkills.clear(); renderInventory() } })
+const renderSkillBatchDialog = () => {
+  if (!skillBatch) return
+  if (skillBatch.action === 'scan') {
+    for (const result of skillBatch.results) {
+      const skill = currentBatchSkill(result.item)
+      const scan = observedSkillScan(skill)
+      const submitted = scan?.submitted_at ? scan : scanHistoryItems.find(item => item.id === skill?.governance?.pending_id && item.original_path === result.item.path && Date.parse(item.submitted_at) >= skillBatch.startedAt)
+      if (window.clientSkillBatch.completedInBackground(result, skill, submitted, skillBatch.startedAt)) {
+        result.status = 'succeeded'
+        result.reason = 'already_submitted'
+        delete result.error
+        selectedLocalSkills.delete(result.item.path)
+      }
+    }
+  }
+  const {action, items, results, done, refreshError} = skillBatch
+  $('#skill-batch-title').textContent = batchText(action === 'scan' ? 'scan' : 'uninstall', {count: skillBatch.targetCount})
+  $('#skill-batch-description').textContent = batchText(action === 'scan' ? 'scanDescription' : 'uninstallDescription')
+  $('#skill-batch-progress').textContent = done
+    ? batchText('summary', {success: results.filter(r => r.status === 'succeeded').length, skipped: results.filter(r => r.status === 'skipped').length, failed: results.filter(r => r.status === 'failed').length}) + (refreshError ? ' ' + batchText('refreshFailed', {error: connectionErrorText(refreshError)}) : '')
+    : skillBatchBusy ? batchText('progress', {done: results.length, total: items.length}) : ''
+  $('#skill-batch-items').innerHTML = items.map((item, index) => {
+    const result = results[index]
+    const plannedSkip = !result && action === 'scan' ? scanSkipReason(currentBatchSkill(item)) : ''
+    const status = result?.status || (plannedSkip ? 'skipped' : 'waiting')
+    const reason = result?.error ? (result.error.startsWith('client_skill_batch_') ? batchText(result.error.slice('client_skill_batch_'.length)) : connectionErrorText(result.error)) : result?.reason === 'already_submitted' ? t('ui.agentManagement.already_submitted') : result?.reason || plannedSkip ? batchText(result?.reason || plannedSkip) : ''
+    return `<div class="skill-batch-item"><div><strong>${escapeHtml(item.name)}</strong><code>${escapeHtml(item.path)}</code>${action === 'uninstall' && item.readers?.length ? `<small>${escapeHtml(t('ui.agentManagement.shared_impact'))}: ${escapeHtml(formatList(item.readers))}</small>` : ''}${reason ? `<p>${escapeHtml(reason)}</p>` : ''}</div><span class="batch-status ${status}">${escapeHtml(batchText(status))}</span></div>`
+  }).join('')
+  $('#skill-batch-retain-wrap').hidden = action !== 'uninstall' || done
+  $('#skill-batch-retain').disabled = skillBatchBusy
+  $('#skill-batch-retain-note').hidden = action !== 'uninstall' || done
+  $('#skill-batch-retain-note').textContent = batchText($('#skill-batch-retain').checked ? 'retained' : 'notRetained')
+  $('#skill-batch-close').disabled = skillBatchBusy
+  $('#skill-batch-close').textContent = done ? batchText('close') : t('ui.agentManagement.cancel')
+  $('#skill-batch-confirm').hidden = done
+  $('#skill-batch-confirm').disabled = skillBatchBusy
+  $('#skill-batch-confirm').textContent = skillBatchBusy ? batchText('processing') : batchText('confirm', {count: skillBatch.targetCount})
+  $('#skill-batch-confirm').classList.toggle('batch-danger', action === 'uninstall')
+}
+for (const [id, action] of [['#skill-batch-submit', 'scan'], ['#skill-batch-uninstall', 'uninstall']]) $(id).addEventListener('click', () => {
+  if (skillBatchBusy || requestingSkillAction || !selectedLocalSkills.size) return
+  skillBatch = {action, items: [...selectedLocalSkills.values()].map(item => ({...item, requestID: crypto.randomUUID()})), results: [], done: false}
+  skillBatch.targetCount = action === 'scan' ? skillBatch.items.filter(item => !scanSkipReason(currentBatchSkill(item))).length : skillBatch.items.length
+  $('#skill-batch-retain').checked = true
+  renderSkillBatchDialog()
+  $('#skill-batch-dialog').showModal()
+})
+$('#skill-batch-close').addEventListener('click', () => { if (!skillBatchBusy) $('#skill-batch-dialog').close() })
+$('#skill-batch-dialog').addEventListener('cancel', event => { if (skillBatchBusy) event.preventDefault() })
+$('#skill-batch-retain').addEventListener('change', renderSkillBatchDialog)
+$('#skill-batch-confirm').addEventListener('click', async () => {
+  if (!skillBatch || skillBatchBusy || skillBatch.done) return
+  skillBatchBusy = true
+  const batch = skillBatch
+  batch.startedAt = Date.now()
+  const retain = $('#skill-batch-retain').checked
+  renderSkillBatchDialog()
+  renderInventory()
+  try {
+    batch.results = await window.clientSkillBatch.execute(batch.items, async item => {
+      const skill = currentBatchSkill(item)
+      if (!skill) throw 'client_skill_batch_unavailable'
+      if (!item.signature || skill.error || skill.status === 'broken_link') throw 'client_skill_batch_invalid'
+      if (skill.signature !== item.signature) throw 'client_skill_batch_changed'
+      if (batch.action === 'scan' && scanSkipReason(skill)) return {skipped: scanSkipReason(skill)}
+      if (!connection?.connected) throw 'client_skill_batch_offline'
+      if (submittingObservedPaths.has(item.path) || (connection?.platform?.tasks || []).some(task => task.task_type === 'skill_action' && task.payload?.path === item.path && ['pending', 'running'].includes(task.status))) throw 'client_skill_batch_busy'
+      if (batch.action === 'uninstall' && !connection?.platform?.manual_skill_actions_allowed) throw 'client_skill_batch_permission'
+      const args = ['--agent-type', item.agentType, '--skill', item.path, '--expected-signature', item.signature]
+      if (batch.action === 'uninstall') args.push('--action', 'uninstall', '--request-id', item.requestID, `--retain-copy=${retain}`)
+      return JSON.parse(await run(batch.action === 'scan' ? 'submit-observed' : 'apply-skill-action', args))
+    }, result => {
+      batch.results.push(result)
+      if (result.status !== 'failed') selectedLocalSkills.delete(result.item.path)
+      renderSkillBatchDialog()
+    })
+    try { await discover(); await loadPending(); await refreshConnection() }
+    catch (error) { batch.refreshError = String(error) }
+  } finally {
+    batch.done = true
+    skillBatchBusy = false
+    renderSkillBatchDialog()
+    renderInventory()
+  }
 })
 
 const keepExpandedSkillVisible = details => {
@@ -2148,6 +2265,7 @@ const renderInventory = () => {
   const visibleAgents = inventory.agents.filter(visibleAgent)
   renderAgentNavigation(visibleAgents)
   const currentAgent = selectedAgent()
+  for (const [path, item] of selectedLocalSkills) if (item.agentID !== agentKey(currentAgent || {})) selectedLocalSkills.delete(path)
   const filteredSkills = filteredAgentSkills(currentAgent)
   const pageSize = Number($('#agent-skill-page-size').value)
   const pages = Math.max(1, Math.ceil(filteredSkills.length / pageSize))
@@ -2158,6 +2276,7 @@ const renderInventory = () => {
   $('#agent-skill-page').textContent = `${agentSkillPage} / ${pages}`
   $('#agent-skill-prev').disabled = agentSkillPage <= 1
   $('#agent-skill-next').disabled = agentSkillPage >= pages
+  renderSkillBatchToolbar(pageSkills)
   list.classList.remove('empty')
   list.innerHTML = currentAgent
     ? [currentAgent].map(agent => {
@@ -2173,15 +2292,16 @@ const renderInventory = () => {
             const scan = observedSkillScan(skill)
             const scanning = observedScanActive(scan)
             return tf`
-            <div class="skill-row">
+            <div class="skill-row${selectedLocalSkills.has(skill.path) ? ' skill-selected' : ''}">
+              <input type="checkbox" data-select-local="${escapeHtml(skill.path)}" aria-label="${escapeHtml(batchText('selectSkill', {name: skill.name}))}" ${selectedLocalSkills.has(skill.path) ? 'checked' : ''} ${skillBatchBusy ? 'disabled' : ''} />
               <div class="skill-row-main">
                 <span>
-                  <button class="skill-name-button" type="button" data-ui-icon="file-text" data-toggle-skill-details data-skill-detail-key="${escapeHtml(detailKey)}" aria-expanded="${expanded}"><strong>${escapeHtml(skill.name)}</strong>${renderSkillSharing(agent, skill)}</button>
+                  <button class="skill-name-button" title="${escapeHtml(skill.name)}" type="button" data-ui-icon="file-text" data-toggle-skill-details data-skill-detail-key="${escapeHtml(detailKey)}" aria-expanded="${expanded}"><strong>${escapeHtml(skill.name)}</strong>${renderSkillSharing(agent, skill)}</button>
                   ${renderSkillObservation(skill, expanded)}
                 </span>
               </div>
               <div class="skill-row-actions">
-                ${skill.status === 'broken_link' ? `<button class="skill-scan-button" data-ui-icon="download" type="button" data-reinstall-missing="${escapeHtml(agent.agent_type)}" data-skill-name="${escapeHtml(skill.name)}" data-skill-id="${escapeHtml(skill.skill_id || '')}" ${!connection?.connected ? 'disabled' : ''}>${escapeHtml(t('ui.agentManagement.reinstall_missing'))}</button>` : `                <button class="skill-scan-button" data-ui-icon="shield-check" type="button" data-submit-observed="${escapeHtml(skill.path)}" data-agent-type="${escapeHtml(agent.agent_type)}" data-signature="${escapeHtml(skill.signature || '')}" ${skill.error || !skill.signature || !connection?.connected || submittingObservedPaths.has(skill.path) || scanning ? 'disabled' : ''}>${escapeHtml(submittingObservedPaths.has(skill.path) ? t('ui.agentManagement.submitting') : scanning ? observedScanLabel(scan) : t('ui.agentManagement.action.submit_scan'))}</button>
+                ${skill.status === 'broken_link' ? `<button class="skill-scan-button" data-ui-icon="download" type="button" data-reinstall-missing="${escapeHtml(agent.agent_type)}" data-skill-name="${escapeHtml(skill.name)}" data-skill-id="${escapeHtml(skill.skill_id || '')}" ${!connection?.connected ? 'disabled' : ''}>${escapeHtml(t('ui.agentManagement.reinstall_missing'))}</button>` : `                <button class="skill-scan-button" data-ui-icon="shield-check" type="button" data-submit-observed="${escapeHtml(skill.path)}" data-agent-type="${escapeHtml(agent.agent_type)}" data-signature="${escapeHtml(skill.signature || '')}" title="${escapeHtml(isCertifiedSkill(skill) ? batchText('certified') : '')}" ${isCertifiedSkill(skill) || skillBatchBusy || skill.error || !skill.signature || !connection?.connected || submittingObservedPaths.has(skill.path) || scanning ? 'disabled' : ''}>${escapeHtml(submittingObservedPaths.has(skill.path) ? t('ui.agentManagement.submitting') : scanning ? observedScanLabel(scan) : t('ui.agentManagement.action.submit_scan'))}</button>
                 <details class="skill-more"><summary data-ui-icon="ellipsis" aria-label="${escapeHtml(t('ui.agentManagement.more'))}" title="${escapeHtml(t('ui.agentManagement.more'))}"></summary><div class="skill-more-menu">${renderSkillActions(agent, skill)}${skill.skill_id && !skill.error ? tf`<button type="button" data-ui-icon="download" data-install-other="${escapeHtml(skill.skill_id)}" data-skill-name="${escapeHtml(skill.name)}" data-source-agent="${escapeHtml(agent.agent_type)}">安装到其他 Agent</button>` : ''}</div></details>`}
 
               </div>
@@ -2190,6 +2310,13 @@ const renderInventory = () => {
         </article>`
     }).join('')
     : t('ui.1o0lsp0')
+  list.querySelectorAll('[data-select-local]').forEach(input => input.addEventListener('change', () => {
+    const skill = currentAgent.skills.find(item => item.path === input.dataset.selectLocal)
+    if (!skill || skillBatchBusy) return
+    if (input.checked) selectedLocalSkills.set(skill.path, localSkillSelection(currentAgent, skill))
+    else selectedLocalSkills.delete(skill.path)
+    renderInventory()
+  }))
   list.scrollTop = previousScrollTop
   document.querySelectorAll('[data-toggle-skill-details]').forEach(button => button.addEventListener('click', () => {
     const details = button.closest('.skill-row').querySelector('.skill-facts')
@@ -2218,7 +2345,7 @@ const renderInventory = () => {
     menu.addEventListener('keydown', event => { if (event.key === 'Escape') { menu.open = false; menu.querySelector('summary').focus() } })
   })
   document.querySelectorAll('[data-skill-action]').forEach(select => select.addEventListener('click', () => {
-    if (select.disabled || requestingSkillAction) return
+    if (select.disabled || requestingSkillAction || skillBatchBusy) return
     const agent = inventory.agents.find(item => item.agent_type === select.dataset.agentType)
     const skill = agent?.skills.find(item => item.path === select.dataset.skillAction)
     if (!skill) return
@@ -2242,19 +2369,17 @@ const renderInventory = () => {
   }))
   document.querySelectorAll('[data-submit-observed]').forEach(button => button.addEventListener('click', async () => {
     const path = button.dataset.submitObserved
-    if (submittingObservedPaths.has(path)) return
+    if (skillBatchBusy || submittingObservedPaths.has(path)) return
     const agent = inventory?.agents?.find(agent => agent.agent_type === button.dataset.agentType)
     const skill = agent?.skills?.find(item => item.path === path)
-    if (!skill || observedScanActive(observedSkillScan(skill))) return
+    if (!skill || isCertifiedSkill(skill) || observedScanActive(observedSkillScan(skill))) return
     submittingObservedPaths.add(path)
     try {
-      if (skill?.signature && skill.signature === button.dataset.signature && skill.governance?.signature === skill.signature && skill.governance?.certification === 'certified') {
-        if (!await confirmCertifiedRescan()) return
-      }
       setBusy(button, true)
       const result = JSON.parse(await run('submit-observed', ['--agent-type', button.dataset.agentType, '--skill', path, '--expected-signature', button.dataset.signature]))
       await discover()
       await loadPending()
+      if (result.skipped === 'certified') { showMessageDialog(t('ui.agentTabs.trusted'), batchText('certified')); return }
       showMessageDialog(t(result.already_submitted ? 'ui.agentManagement.already_submitted' : 'ui.agentManagement.submitted'), t(result.already_submitted ? 'ui.agentManagement.existing_submission_description' : 'ui.agentManagement.snapshot_description'))
     } catch (error) {
       showMessageDialog(t('ui.agentManagement.submit_failed'), runtimeText(error))
@@ -2276,7 +2401,7 @@ const renderInventory = () => {
 const renderSkillActions = (agent, skill) => {
   const allowed = Boolean(connection?.platform?.manual_skill_actions_allowed)
   const pending = (connection?.platform?.tasks || []).some(task => task.task_type === 'skill_action' && task.payload?.path === skill.path && ['pending', 'running'].includes(task.status))
-  const disabled = !allowed || !connection?.connected || Boolean(skill.error) || !skill.signature || pending
+  const disabled = skillBatchBusy || !allowed || !connection?.connected || Boolean(skill.error) || !skill.signature || pending
   const title = !allowed ? t('ui.agentManagement.action_permission_required') : pending ? t('ui.agentManagement.action_pending') : ''
   const certified = Boolean(skill.signature) && skill.governance?.signature === skill.signature && skill.governance?.certification === 'certified'
   const actions = [...(certified ? [] : ['quarantine']), 'uninstall', ...(skill.governance?.trusted_version_id ? ['restore_trusted'] : [])]
@@ -2496,13 +2621,13 @@ const syncPendingBatchControls = () => {
   selectAll.indeterminate = selectedCount > 0 && selectedCount < eligible.length
 }
 
-const loadPending = async ({ silent = false } = {}) => {
-  const items = JSON.parse(await run('pending'))
+const loadPending = async ({ silent = false, snapshot } = {}) => {
+  const items = snapshot?.pending ?? JSON.parse(await run('pending'))
   pendingItems = items
   for (const id of [...selectedPendingIDs]) {
     if (!items.some(item => item.id === id && pendingCanSubmit(item))) selectedPendingIDs.delete(id)
   }
-  scanHistoryItems = JSON.parse(await run('scan-history'))
+  scanHistoryItems = snapshot?.scan_history ?? JSON.parse(await run('scan-history'))
   $('#pending-list').classList.toggle('empty', !scanHistoryItems.length)
   $('#pending-list').innerHTML = groupTakeoverItems(scanHistoryItems).map(group => `<div data-pending-agent="${escapeHtml(group.agentType)}">
     <div class="history-columns recovery-columns"><span>Skill</span><span>${escapeHtml(t('ui.agentHistory.status'))}</span><span>${escapeHtml(t('ui.agentHistory.submitted_at'))}</span></div>
@@ -2512,8 +2637,9 @@ const loadPending = async ({ silent = false } = {}) => {
       <span class="history-submitted-at">${escapeHtml(formatTime(item.submitted_at || item.created_at))}</span>
     </div>`).join('')}
   </div>`).join('')
-  await loadQuarantine()
+  await loadQuarantine({ pending: items, quarantined: snapshot?.quarantine })
   syncPendingBatchControls()
+  if ($('#skill-batch-dialog').open) renderSkillBatchDialog()
   renderInventory()
   if (!silent) log(tf`待处理区共有 ${skillCount(items.length)}`)
   return items
@@ -2886,6 +3012,7 @@ const notifyClientUpdate = async result => {
     body: t('ui.en65u1'),
   })
   localStorage.setItem(CLIENT_UPDATE_NOTIFIED_KEY, version)
+  await syncBackgroundRuntime()
 }
 
 const checkClientUpdate = async ({ interactive = false, notify = false, prompt = false } = {}) => {
@@ -3131,9 +3258,9 @@ $('#recovery-status-filter').addEventListener('change', () => {
   selectedPendingIDs.clear()
   syncAgentHistory()
 })
-const loadQuarantine = async () => {
-  pendingItems = JSON.parse(await run('pending'))
-  const quarantined = JSON.parse(await run('quarantine'))
+const loadQuarantine = async ({ pending, quarantined } = {}) => {
+  pendingItems = pending ?? JSON.parse(await run('pending'))
+  quarantined ??= JSON.parse(await run('quarantine'))
   const items = mergeRecoveryCopies(quarantined, pendingItems)
   recoveryItems = items
   $('#quarantine-list').classList.toggle('empty', !items.length)
@@ -3774,6 +3901,11 @@ const updatePlatformInstallProgress = payload => {
 }
 
 if (window.__TAURI__.event?.listen) {
+  window.__TAURI__.event.listen('client-notification-error', event => {
+    $('#system-notification-state').classList.remove('success')
+    $('#system-notification-state').hidden = !event.payload
+    $('#system-notification-state').textContent = runtimeText(event.payload)
+  }).catch(log)
   window.__TAURI__.event.listen('client-operation-progress', event => updatePlatformInstallProgress(event.payload)).catch(error => log(error))
 }
 
@@ -3859,6 +3991,8 @@ invoke('get_build_version').then(version => {
   syncSettingsControls()
 })
 const initializeClient = async () => {
+  const draft = await invoke('take_window_draft')
+  if (draft?.notifiedVersion) localStorage.setItem(CLIENT_UPDATE_NOTIFIED_KEY, draft.notifiedVersion)
   try {
     const result = JSON.parse(await run('reconcile-service'))
     if (result.restarted) log(t('ui.1gpi43u'))
@@ -3869,8 +4003,38 @@ const initializeClient = async () => {
   if (connection?.configured && document.querySelector('.panel.active')?.id === 'connect' && document.querySelector(`#${clientSettings.defaultPanel}`)) {
     showPanel(clientSettings.defaultPanel)
   }
+  if (draft?.panel && document.getElementById(draft.panel)?.classList.contains('panel')) showPanel(draft.panel)
+  for (const [id, field] of Object.entries(draft?.fields || {})) {
+    const input = document.getElementById(id)
+    if (!input || !isDraftInput(input)) continue
+    input.value = field.value
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    changedDraftFields.add(id)
+  }
+  await syncBackgroundRuntime()
 }
+const changedDraftFields = new Set()
+const isDraftInput = input => input.tagName === 'TEXTAREA' ||
+  (input.tagName === 'INPUT' && ['text', 'search', 'url', 'email', 'tel', 'password', 'number'].includes(input.type))
+document.addEventListener('input', event => {
+  if (event.target.id && isDraftInput(event.target)) changedDraftFields.add(event.target.id)
+})
 if (window.__TAURI__.event?.listen) {
+  window.__TAURI__.event.listen('client-window-close-requested', async () => {
+    // Preserve dialogs, file selections and work whose completion still belongs to this window.
+    if (document.querySelector('dialog[open], .is-busy') || clientUpdateInstalling || clientUpdateCheckBusy || modelSwitchBusy
+        || skillBatchBusy || platformInstallBusy || pendingSubmissionBusy || backupRestoreBusy || localStateRefreshBusy) return
+    if ([...document.querySelectorAll('input[type="file"]')].some(input => input.files?.length)) return
+    const fields = {}
+    for (const id of changedDraftFields) {
+      const input = document.getElementById(id)
+      if (input && isDraftInput(input)) fields[id] = { value: input.value }
+    }
+    try {
+      await syncBackgroundRuntime()
+      await invoke('retire_main_window', { draft: { panel: activePanelName(), fields } })
+    } catch (error) { log(error) }
+  }).catch(log)
   window.__TAURI__.event
     .listen('client-local-state-changed', event => {
       const revision = normalizeLocalRevision(event.payload?.revision)
@@ -3894,7 +4058,7 @@ if (window.__TAURI__.event?.listen) {
 }
 
 void syncBackgroundMenu()
-initializeClient()
+initializeClient().catch(log)
 setInterval(checkClientUpdateAutomatically, CLIENT_UPDATE_CHECK_INTERVAL_MS)
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
@@ -3903,6 +4067,7 @@ document.addEventListener('visibilitychange', () => {
   }
 })
 window.addEventListener('agent-manager-client-locale-change', async () => {
+  await syncBackgroundRuntime()
   syncSettingsControls()
   $('#client-build-version').textContent = tf`版本 ${clientBuildVersion}`
   void syncBackgroundMenu()
@@ -3912,6 +4077,7 @@ window.addEventListener('agent-manager-client-locale-change', async () => {
   if (activePanel === 'settings') void refreshLogSettings()
   $('#panel-title').textContent = panelTitle(activePanel)
   if (inventory) renderInventory()
+  if ($('#skill-batch-dialog').open) renderSkillBatchDialog()
   if (builtinAgentSettings.length) renderBuiltinAgentSettings()
   if (pendingItems.length) {
     await loadPending()

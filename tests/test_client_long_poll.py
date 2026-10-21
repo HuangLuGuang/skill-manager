@@ -40,7 +40,7 @@ def test_long_poll_returns_durable_scan_status_revisions(tmp_path):
     })()
 
     class Manager:
-        def get_skill(self, value):
+        def get_skill(self, value, *, include_scan_report=True):
             return entry if value == entry.skill_id else None
 
         def list_scan_runs(self, _version_id):

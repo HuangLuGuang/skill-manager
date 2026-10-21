@@ -1,5 +1,11 @@
 # Agent Manager Project Guide
 
+## Dify 运行接入 / Dify runtime integration
+
+Agent 资产页的“Dify 运行接入”提供应用绑定、观察/管控模式、策略编辑、进程检查点状态、运行轨迹和调用审批。通过 [Dify 接入包](../integrations/dify-runtime/README.md) 将运行检查点加载到 Dify 1.15.0 的 API/Worker。规则覆盖 HTTP、工具、Code、知识检索、工作流摘要准入及同次运行的动作先后关系；人工审批使用原生持久化暂停。在线状态只说明近期收到心跳，实际控制效果须通过工作流和接收端验证。
+
+The Agent asset page provides Dify application bindings, observe/enforce policies, process hook status, runtime traces and call approvals. The [adapter package](../integrations/dify-runtime/README.md) loads into Dify 1.15.0 API/Worker processes. Rules cover HTTP, tools, code, retrieval, graph digests and completed-action ordering; approvals use native persisted pauses. Heartbeats and actual enforcement are verified separately.
+
 ## 页面数据加载 / Page data loading
 
 用户组页只查询用户组列表；用户和隐私策略选项在打开新建或编辑弹窗时按权限加载，同次访问复用，刷新列表或保存后失效。选项加载失败保留草稿并可重试，详见[模型网关说明](model-gateway.md)。
@@ -87,6 +93,14 @@ macOS TeleAgent 代理支持后台自动安全升级：候选程序先自检，�
 **English:** The macOS TeleAgent proxy preflights staged upgrades, waits for in-flight model/review requests, and switches with its listener and PID preserved. Persistent traffic postpones activation. Both the daemon's Hook receiver and the independent proxy survive desktop exit. Settings displays observed process identity, readiness and pending upgrades; local readiness does not prove vendor connectivity. Ordinary events wait at least 300 ms after delivery completion; records waiting past the round budget remain queued. See the linked client reliability guide for limits and live evidence.
 
 ## 客户端后台可靠性 / Client background reliability
+
+桌面高频状态读取通过本地 IPC 获取同一 SQLite 读事务中的快照；Agent 管理页按需加载恢复记录，其余页面减少重复读取。关闭空闲窗口释放 WebView，托盘、原生通知与无窗口更新检查继续运行；重开恢复页面和内存草稿。弹窗、文件选择、进行中操作与实时观察保留隐藏窗口。具体生命周期和跨平台验证边界见[客户端说明](agent-manager-client.md#后台可靠性与更新--background-reliability-and-updates)。
+
+**English:** Frequent desktop reads use local IPC snapshots from one SQLite read transaction. Recovery partitions load on Agent Management only. Closing an idle window releases its WebView while the tray, native notifications and windowless update checks continue. Reopening restores the page and in-memory drafts; dialogs, file selections, active operations and live observation retain their hidden window. See the client guide for lifecycle and platform acceptance boundaries.
+
+平台状态、历史和模型目录 HTTP 统一由 Go 层处理，本地 IPC 只接受固定操作；平台慢请求保留独立并发预算，避免耗尽快照读取容量。普通事件在事务提交后跨进程唤醒上传，按持久化重试与节流时间调度，空闲时每 30 秒检查队列补偿漏通知。原生更新器继续负责签名校验和系统安装。
+
+**English:** Go owns platform status, history and model-catalog HTTP requests through fixed IPC operations. Slow platform calls have a separate concurrency budget to preserve snapshot capacity. Committed ordinary events wake the uploader across processes; persisted retry and pacing deadlines control dispatch, with 30-second idle queue reconciliation. The native updater retains signature verification and OS installation.
 
 主用户守护服务负责 Hook、日志和治理任务；Skill 文件监听独立恢复，状态展示文件故障不停止 Hook。运行、修改及服务协调采用操作系统锁。自动更新先下载验签，将后台程序保存在独立版本目录，安装桌面期间保持服务运行，后台版本切换检查进程与 Hook 就绪并支持失败回滚。切换前更新命令桥并建立有期限的升级窗口；未连上的工具请求最多等待 8 秒，已接收请求在原有期限内完成，仍按有效策略审核。TeleAgent 模型代理保持独立。本机真实升级期间 20 次连续工具调用及对应 40 条 Hook ACK 已通过；超时边界、首次代理程序加载要求和详细结果见 [客户端后台可靠性与更新](agent-manager-client.md#后台可靠性与更新--background-reliability-and-updates)。
 
@@ -2944,3 +2958,35 @@ Codex 异步工具的结束 Hook 可能属于取回结果的轮次。客户端�
 **English:** Missing end Hooks remain visible. Timelines and Hook details can separately show execution status and provenance from native Codex completion records or legacy tool results. Negotiated collection supports bounded replay of retained local history. Ambiguous identities remain unresolved; completion does not imply business success.
 
 Negotiated v2 completion collection adds the native `CommandExecution` status and optional exit code, including zero. Missing codes remain unknown. V1 MCP/image collection, older clients and retained evidence remain compatible.
+
+独立版豆包工作在 macOS 上支持日志采集（来源 `doubaowork`），覆盖文件工具、命令、MCP 调用及关联返回内容，复用客户端缓存和上报。需升级客户端与服务端并在日志策略中选择该来源；时间为采集时间，结果不自动判定成功。详见[客户端接入说明](agent-manager-client.md#macos-独立版豆包工作日志)。
+
+**English:** Standalone Doubao Work supports macOS log collection (`doubaowork`) for file tools, commands, MCP calls and linked results through the existing client pipeline. Upgrade server and client and select the source in the log policy. Times reflect collection; returned results do not automatically establish success.
+
+### 客户端本地 Skill 批量操作 / Client local Skill batch actions
+
+Agent 管理支持当前页全选、跨页保留选择、批量卸载及批量提交检测。当前内容签名匹配的已认证 Skill 跳过检测，内容变化后允许提交。卸载确认包含共用目录影响和恢复副本选择。逐项展示成功、跳过或失败，失败项保留选择供重试。切换 Agent 或筛选时清空选择。详见 [客户端说明](agent-manager-client.md)。
+
+English: Agent management supports page selection, selection across pages, batch uninstall and batch scan submission. Certified skills with matching content signatures are skipped; changed content remains eligible. Uninstall confirmation includes shared-directory impact and recovery copies. Each item reports success, skip or failure; failed items remain selected for retry. Changing Agent or filters clears selection.
+
+客户端文件操作按目录入口及软链接解析后的物理资源协调前后台并发。提交在锁内生成快照 ZIP，上传阶段释放文件锁，并用独立记录/指纹锁防重复提交。正在上传的副本不能删除，进程退出自动释放锁。Scanner 服务端在展开内嵌 ZIP 前验证原始上传 manifest，避免分析新增文件导致指纹不一致；内嵌文件继续参与分析。锁的范围、等待与重试行为见[客户端文件并发说明](agent-manager-client.md#本地文件并发与上传--local-file-concurrency-and-uploads)。
+
+English: Client file operations coordinate foreground and background work by directory entries and resolved physical resources. Uploads use completed snapshot ZIPs outside file locks, with separate record/fingerprint coordination for deduplication. Active uploads prevent snapshot deletion; process exit releases locks. Scanner imports verify the original manifest before nested-ZIP expansion, preserving analysis coverage without transport fingerprint mismatches.
+
+单次上传只锁本次快照，AIDR 配置使用独立锁。前台与后台协调同一提交结果，批量弹窗依据同一内容的新平台提交记录纠正锁忙结果；冲突日志记录实际资源和申请模式，不推断持锁 PID。
+
+English: Each upload locks only its own snapshot; AIDR configuration uses a separate lock. Foreground and background submissions share results, and the batch dialog reconciles lock-busy outcomes against newly confirmed submissions of the same content. Conflict logs identify the actual resource and requested mode without inferring an owner PID.
+
+Hook 接收器的存储锁等待受请求预算约束，SQLite 单次锁等待不超过 250 毫秒；资源忙碌、响应超时、连接中断与协议错误分别返回稳定编码。本机 `hook_ipc` 诊断保留阶段、原因、耗时与事件 ID，具体边界见客户端说明。
+
+English: Hook storage mutex waits respect the request budget and SQLite lock waits are limited to 250 ms per attempt. Busy resources, response timeouts, transport interruption and invalid protocols have distinct stable codes. Local hook_ipc diagnostics retain stage, cause, duration and event ID; see the client guide for details.
+
+### 内嵌 ZIP 与原始发布内容 / Nested ZIPs and original release contents
+
+ZIP 上传、Scanner 和网络 ZIP 导入仅解开外层传输包，保留 Skill 根目录中的原始文件和内嵌 ZIP。签名、内容指纹、发布包及详情文件树均基于该原始目录；详情直接预览普通文件，不提供内嵌 ZIP 的展开树。
+
+安全扫描独立创建临时副本，展开内嵌 ZIP（包括后续内嵌 ZIP，最多 8 层），各压缩包合计最多 50,000 个展开文件、1 GiB，单文件最多 100 MiB；路径逃逸、软链接及超限均中止扫描。展开目录独立命名，避免覆盖原始同名目录。分析结束或异常退出会清理副本；在 Windows/macOS/Linux 上，下次扫描通过跨平台进程存活检查回收已退出进程留下的专用临时目录，不向进程发送信号；仍存活或无法确认状态的进程目录保留。
+
+旧版本保持历史内容，不原地改写签名包；重新提交原始目录以生成一致的版本。扫描缓存版本已更新，避免沿用旧分析流程的结果。
+
+English: ZIP uploads, Scanner submissions, and network ZIP imports unpack only the transport archive. Original Skill files and embedded ZIPs remain unchanged for fingerprints, signatures, release packages, and the detail file tree. Ordinary files remain previewable; embedded ZIPs are not expanded in that tree. Security analysis uses a disposable copy and recursively expands ZIPs with an eight-level limit, aggregate limits of 50,000 files / 1 GiB, and a 100 MiB per-file limit. Unsafe paths, symlinks, and exceeded limits stop the scan. Copies are cleaned on completion or exceptions; subsequent scans on Windows/macOS/Linux reclaim directories owned by exited processes using a cross-platform liveness probe without sending signals. Directories with live or unknown owners are preserved. Historical signed versions remain unchanged; resubmit originals for a consistent version. The scan-cache schema has been updated.

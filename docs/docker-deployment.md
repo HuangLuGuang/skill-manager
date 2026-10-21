@@ -687,3 +687,11 @@ Legacy upgrades also repair indexes for client bindings, Agent creators and cont
 Update both Backend and Agent Security Worker for the Agent APIs. The Worker image includes `connection_probe.py` for live connection checks. Startup creates the three Agent registration, external job and gateway-event tables. Place `openapi-agents.json` in Backend `DATA_DIR`, or set `OPENAPI_AGENT_CONFIG` to a readable mounted file. Verify Worker network access, native policies and the judge model before testing registration, connection verification, evaluation and report queries.
 
 The Backend starts the result dispatcher and migrates receiver-version, delivery and attempt-history tables while preserving existing reports and events. Manage current receivers in Callback Configuration and Gateway Configuration and verify Backend access to callback and gateway URLs. Historical events with missing configurations become failed records and can be retried after configuration. Preserve the data volume and credential-encryption settings. Database leases coordinate processes and recover unacknowledged attempts after interruption.
+
+## Dify 接入容器 / Dify adapter containers
+
+[Dify Runtime Adapter](../integrations/dify-runtime/README.md) 的安装器为 Dify 1.15.0 生成附加 Compose 文件，挂载只读 Python 接入包、配置和凭证，并为 API/Worker 分别挂载可写 SQLite 事件队列。平台启动时创建 Dify 应用绑定、运行关联、调用关联和进程状态表；无需独立数据库服务。
+
+保留原部署的项目名、Compose 文件顺序和环境参数，加入生成的覆盖文件后重建 API/Worker。维护窗口内完成首次接入、升级和卸载。已有 `sitecustomize` 或非默认镜像需要先处理兼容性；非默认容器用户需要匹配文件读取权限与队列写入权限。升级后重新验证检查点、事件上传和实际阻断。
+
+The installer generates a Compose override for Dify 1.15.0, with read-only adapter/configuration/credentials and separate writable API/Worker queues. Preserve the original project, Compose order and environment settings, then recreate both services. Validate existing startup customization and container-user permissions. Platform startup creates the adapter tables. Revalidate hooks, event delivery and real blocking after upgrades; preserve queued events when removing the adapter.

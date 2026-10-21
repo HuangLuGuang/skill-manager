@@ -493,3 +493,42 @@ func TestRescannedApprovalClearsPreviousMaliciousVerdict(t *testing.T) {
 		t.Fatalf("old verdict survived fresh approval: %+v", current)
 	}
 }
+
+func TestManualSubmissionSkipsOnlyCurrentCertifiedContent(t *testing.T) {
+	for _, certifiedSignature := range []string{"current", "older"} {
+		t.Run(certifiedSignature, func(t *testing.T) {
+			home, store, _, skill := observedFixture(t)
+			signature := skill.Signature
+			if certifiedSignature == "older" {
+				signature = "older-signature"
+			}
+			if err := store.SaveObservation(skill.Path, SkillObservation{Signature: signature, Certification: "certified"}); err != nil {
+				t.Fatal(err)
+			}
+			var uploads atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/v1/scanner/imports" {
+					uploads.Add(1)
+					w.Write([]byte(`{"skill_id":"scanned","version_id":"v1","status":"PENDING"}`))
+					return
+				}
+				w.Write([]byte(`{}`))
+			}))
+			defer server.Close()
+			result, err := SubmitDiscoveredSkillWithResult(context.Background(), home, NewAPI(server.URL, "token", time.Second), store, "codex", skill.Path, skill.Signature)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if certifiedSignature == "current" {
+				if result.Skipped != "certified" || result.PendingID != "" || uploads.Load() != 0 {
+					t.Fatalf("certified content uploaded: %+v, %d", result, uploads.Load())
+				}
+			} else if result.Skipped != "" || uploads.Load() != 1 {
+				t.Fatalf("modified content skipped: %+v, %d", result, uploads.Load())
+			}
+			if err := checkObservedContent(skill); err != nil {
+				t.Fatal("submission changed source", err)
+			}
+		})
+	}
+}

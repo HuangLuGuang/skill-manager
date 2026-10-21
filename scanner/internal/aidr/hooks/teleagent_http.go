@@ -163,7 +163,7 @@ func NewTeleAgentHTTP(options TeleAgentHTTP) (http.Handler, error) {
 		if err != nil {
 			reason := "aidr_hook_receiver_unavailable"
 			switch err.Error() {
-			case "aidr_hook_peer_rejected", "aidr_hook_transport_failed", "aidr_hook_protocol_invalid":
+			case "aidr_hook_peer_rejected", "aidr_hook_transport_failed", "aidr_hook_protocol_invalid", "aidr_hook_response_timeout", "aidr_hook_record_oversized":
 				reason = err.Error()
 			}
 			reply("deny", reason)

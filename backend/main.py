@@ -47,6 +47,7 @@ from .routers import (
     mcp_gateway,
     runtime_governance,
     runtime_traces,
+    dify_runtime,
     security_audit,
     audit_trail,
     security_scans,
@@ -214,6 +215,7 @@ app.include_router(asset_lifecycle.router, prefix=settings.API_PREFIX)
 app.include_router(scan_schedules.router, prefix=settings.API_PREFIX)
 app.include_router(runtime_governance.router, prefix=settings.API_PREFIX)
 app.include_router(runtime_traces.router, prefix=settings.API_PREFIX)
+app.include_router(dify_runtime.router, prefix=settings.API_PREFIX)
 app.include_router(mcp_gateway.admin_router, prefix=f"{settings.API_PREFIX}/v1", dependencies=[Depends(get_current_admin_user)])
 app.include_router(mcp_gateway.runtime_router)
 app.include_router(clients.router, prefix=settings.API_PREFIX)

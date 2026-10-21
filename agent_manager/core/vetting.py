@@ -721,6 +721,25 @@ class VettingPipeline:
         progress_callback: Callable[[str], None] | None = None,
         analyzer_callback: Callable[[str, str], None] | None = None,
     ) -> tuple[VettingResult, list[PolicyViolation], str, str, list[str]]:
+        from .archives import analysis_directory
+        with analysis_directory(Path(skill_path).resolve()) as analysis_path:
+            return self._vet(
+                analysis_path, source, use_behavioral, use_llm, use_sandbox,
+                use_skillspector, judgement_mode, progress_callback, analyzer_callback,
+            )
+
+    def _vet(
+        self,
+        skill_path: Path,
+        source: SourceInfo,
+        use_behavioral: bool = False,
+        use_llm: bool = False,
+        use_sandbox: bool = False,
+        use_skillspector: bool | None = None,
+        judgement_mode: str | None = None,
+        progress_callback: Callable[[str], None] | None = None,
+        analyzer_callback: Callable[[str, str], None] | None = None,
+    ) -> tuple[VettingResult, list[PolicyViolation], str, str, list[str]]:
         """Run selected analyzers and return the final policy-ready result."""
         from .licensing import require_license
         require_license("security_scanning")

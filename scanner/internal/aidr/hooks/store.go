@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"skill-manager/scanner/internal/aidr/agentlog"
@@ -35,6 +36,7 @@ type Store struct {
 	instance          string
 	controlKey        []byte
 	controlMode       string
+	bridgeIntercept   atomic.Bool
 	controlPolicy     *ToolPolicy
 	controlPayload    []byte
 	policy            agentlog.AuditPolicy
@@ -96,7 +98,9 @@ func OpenStore(directory, platform, device string, capacity int) (*Store, error)
 		return fail(err)
 	}
 	db.SetMaxOpenConns(1)
-	_, err = db.Exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=1048576; PRAGMA max_page_count=65536;
+	// SQLite's busy handler can outlive Go context cancellation. Keep each
+	// writer wait below the receiver's one-second work budget.
+	_, err = db.Exec(`PRAGMA busy_timeout=250; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=1048576; PRAGMA max_page_count=65536;
 CREATE TABLE IF NOT EXISTS hook_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 INSERT OR IGNORE INTO hook_meta VALUES('schema','1');
 CREATE TABLE IF NOT EXISTS hook_events(seq INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT UNIQUE NOT NULL,input_hash TEXT NOT NULL,payload BLOB NOT NULL);
@@ -232,15 +236,47 @@ type StoreStatus struct {
 func (s *Store) Destination() (string, string) { return s.platform, s.device }
 
 func (s *Store) BridgeControlMode() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.controlMode == "intercept" {
+	if s.bridgeIntercept.Load() {
 		return "plugin_pre_tool"
 	}
 	return "audit"
 }
+
+// Socket deadlines cannot cancel sync.Mutex.Lock; queueing must share the
+// request budget so a busy store still leaves time to send a framed response.
+func (s *Store) lockContext(ctx context.Context) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if s.mu.TryLock() {
+			return nil
+		}
+		timer := time.NewTimer(5 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (s *Store) bridgeControlModeContext(ctx context.Context) (string, error) {
+	if err := s.lockContext(ctx); err != nil {
+		return "", err
+	}
+	defer s.mu.Unlock()
+	if s.controlMode == "intercept" {
+		return "plugin_pre_tool", nil
+	}
+	return "audit", nil
+}
+
 func (s *Store) Status(ctx context.Context) (StoreStatus, error) {
-	s.mu.Lock()
+	if err := s.lockContext(ctx); err != nil {
+		return StoreStatus{}, err
+	}
 	defer s.mu.Unlock()
 	status := StoreStatus{Stream: s.stream, Device: s.device, Policy: s.policy, ReceiverInstance: s.instance}
 	if s.runtimeCollection != nil {
@@ -278,7 +314,9 @@ func (s *Store) Receive(ctx context.Context, id, user, agent, hook string, raw [
 }
 
 func (s *Store) receiveWithBridge(ctx context.Context, id, user, agent, hook string, raw []byte, bridge *BridgeProcess) (Record, error) {
-	s.mu.Lock()
+	if err := s.lockContext(ctx); err != nil {
+		return Record{}, err
+	}
 	defer s.mu.Unlock()
 	var r Record
 	if !eventID.MatchString(id) || !validID(user, true) {

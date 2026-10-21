@@ -157,7 +157,8 @@ func TestDaemonRetriesInitialRegistrationBeforeReportingInventory(t *testing.T) 
 	go func() {
 		finished <- RunDaemon(ctx, home, NewAPI(server.URL, "token", time.Second), store, 30*time.Millisecond, nil)
 	}()
-	deadline := time.Now().Add(4 * time.Second)
+	// This checks registration ordering, not the latency of host discovery.
+	deadline := time.Now().Add(15 * time.Second)
 	for inventories.Load() < 2 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}

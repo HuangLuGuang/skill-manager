@@ -12,6 +12,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
+#[cfg(test)]
 use std::time::Duration;
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -33,6 +34,8 @@ const BUILD_VERSION: &str = match option_env!("AGENT_MANAGER_RELEASE_VERSION") {
 const UI_STATE_SIGNAL_NAME: &str = "ui-state-revision.json";
 mod aidr_manager;
 mod background;
+mod background_runtime;
+mod desktop_ipc;
 mod update_lifecycle;
 mod system_collector;
 mod runtime_watch;
@@ -162,10 +165,18 @@ struct ConnectionStatus {
     platform: Option<serde_json::Value>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct LocalSnapshot {
     local: serde_json::Value,
     inventory: serde_json::Value,
+    #[serde(default)]
+    revision: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scan_history: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    quarantine: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -260,6 +271,8 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "stage-update",
         "reconcile-service",
         "local-status",
+        "local-snapshot",
+        "desktop-platform",
         "read-notifications",
         "clear-notifications",
         "deliver-notification",
@@ -519,40 +532,26 @@ async fn record_desktop_diagnostic(record: serde_json::Value) -> Result<(), Stri
 async fn get_client_history(
     filters: std::collections::HashMap<String, String>,
 ) -> Result<serde_json::Value, String> {
-    let config = try_load_client_config()?.ok_or("client_not_configured")?;
-    let inventory: serde_json::Value = serde_json::from_str(&execute_client_sync(
-        "cached-inventory".to_string(),
-        Vec::new(),
-    )?)
-    .map_err(|_| "client_inventory_unavailable")?;
-    let id = inventory
-        .get("client_id")
-        .and_then(|value| value.as_str())
-        .ok_or("client_inventory_unavailable")?;
-    let response = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|_| "client_history_unavailable")?
-        .get(format!(
-            "{}/api/v1/clients/{}/history",
-            config.server.trim_end_matches('/'),
-            id
-        ))
-        .query(&filters)
-        .bearer_auth(&config.token)
-        .send()
-        .await
-        .map_err(|_| "client_history_unavailable")?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "client_history_http_{}",
-            response.status().as_u16()
-        ));
+    platform_request(serde_json::json!({"version":1,"method":"platform-history","filters":filters})).await
+}
+
+async fn platform_request(request: serde_json::Value) -> Result<serde_json::Value, String> {
+    let root = client_runtime_root().ok_or("client_not_configured")?;
+    let response = match desktop_ipc::request(&root, request.clone(), 35).await {
+        Ok(response) => response,
+        Err(error) if error == "client_ipc_unavailable" => {
+            // Only a failed connection is safe to retry; a sent POST may already have run.
+            tauri::async_runtime::spawn_blocking(move || {
+                let body = execute_client_sync("desktop-platform".into(), vec!["--desktop-request".into(), request.to_string()])?;
+                serde_json::from_str::<serde_json::Value>(&body).map_err(|_| "client_snapshot_unavailable".to_string())
+            }).await.map_err(|_| "client_snapshot_unavailable".to_string())??
+        }
+        Err(error) => return Err(error),
+    };
+    if let Some(error) = response.get("error").and_then(|v| v.as_str()) {
+        return Err(error.to_owned());
     }
-    response
-        .json()
-        .await
-        .map_err(|_| "client_history_unavailable".to_string())
+    response.get("result").cloned().ok_or("client_snapshot_unavailable".into())
 }
 
 #[tauri::command]
@@ -578,32 +577,19 @@ async fn get_connection_status() -> Result<ConnectionStatus, String> {
         Vec::new(),
     )?)
     .map_err(|error| format!("无法读取后台服务状态: {error}"))?;
-    let local: serde_json::Value = serde_json::from_str(&execute_client_sync(
-        "local-status".to_string(),
-        Vec::new(),
-    )?)
-    .map_err(|error| format!("无法读取本地治理状态: {error}"))?;
-    let inventory_output = execute_client_sync("cached-inventory".to_string(), Vec::new())
-        .or_else(|_| execute_client_sync("inventory".to_string(), Vec::new()))?;
-    let inventory: serde_json::Value = serde_json::from_str(&inventory_output)
-        .map_err(|error| format!("无法读取本机 Agent 信息: {error}"))?;
-    let client_id = inventory
-        .get("client_id")
-        .and_then(|value| value.as_str())
-        .ok_or_else(|| "本机客户端 ID 无效".to_string())?;
-    let url = format!(
-        "{}/api/v1/clients/{}/status",
-        config.server.trim_end_matches('/'),
-        client_id
-    );
-    let response = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .map_err(|error| format!("无法初始化连接检查: {error}"))?
-        .get(url)
-        .bearer_auth(&config.token)
-        .send()
-        .await;
+    let snapshot = match get_local_snapshot(None).await {
+        Ok(snapshot) => snapshot,
+        Err(error) if error == "client_snapshot_unavailable" || error.contains("client_inventory_unavailable") => {
+            tauri::async_runtime::spawn_blocking(|| {
+                execute_client_sync("inventory".to_string(), Vec::new())
+            }).await.map_err(|_| "client_inventory_unavailable".to_string())??;
+            get_local_snapshot(None).await?
+        }
+        Err(error) => return Err(error),
+    };
+    let local = snapshot.local;
+    let inventory = snapshot.inventory;
+    let response = platform_request(serde_json::json!({"version":1,"method":"platform-status"})).await;
     let mut result = ConnectionStatus {
         configured: true,
         connected: false,
@@ -631,22 +617,11 @@ async fn get_connection_status() -> Result<ConnectionStatus, String> {
     let response = match response {
         Ok(response) => response,
         Err(error) => {
-            result.error = Some(format!("无法连接 Agent Manager: {error}"));
+            result.error = Some(error);
             return Ok(result);
         }
     };
-    if !response.status().is_success() {
-        let status = response.status();
-        let detail = response.text().await.unwrap_or_default();
-        result.error = Some(format!("Agent Manager 返回 {status}: {detail}"));
-        return Ok(result);
-    }
-    result.platform = Some(
-        response
-            .json()
-            .await
-            .map_err(|error| format!("平台状态响应格式错误: {error}"))?,
-    );
+    result.platform = Some(response);
     result.connected = true;
     Ok(result)
 }
@@ -657,63 +632,28 @@ async fn refresh_model_catalog(
     agent_type: String,
     managed_agent_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let config = try_load_client_config()?.ok_or("client_not_configured")?;
-    let inventory: serde_json::Value = serde_json::from_str(&execute_client_sync(
-        "cached-inventory".to_string(),
-        Vec::new(),
-    )?)
-    .map_err(|_| "client_inventory_unavailable")?;
-    let client_id = inventory
-        .get("client_id")
-        .and_then(|value| value.as_str())
-        .ok_or("client_inventory_unavailable")?;
-    let response = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|_| "model_catalog_refresh_unavailable")?
-        .post(format!(
-            "{}/api/v1/clients/{}/model-catalog/refresh",
-            config.server.trim_end_matches('/'),
-            client_id
-        ))
-        .bearer_auth(&config.token)
-        .json(&serde_json::json!({
+    platform_request(serde_json::json!({
+            "version": 1, "method": "model-catalog",
             "local_agent_id": local_agent_id,
             "agent_type": agent_type,
             "managed_agent_id": managed_agent_id.unwrap_or_default(),
-        }))
-        .send()
-        .await
-        .map_err(|_| "model_catalog_refresh_unavailable")?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let detail = response.text().await.unwrap_or_default();
-        return Err(format!(
-            "model_catalog_refresh_http_{}: {}",
-            status.as_u16(),
-            detail
-        ));
-    }
-    response
-        .json()
-        .await
-        .map_err(|_| "model_catalog_refresh_invalid_response".to_string())
+        })).await
 }
 
 #[tauri::command]
-async fn get_local_snapshot() -> Result<LocalSnapshot, String> {
+async fn get_local_snapshot(recovery: Option<bool>) -> Result<LocalSnapshot, String> {
+    let recovery = recovery.unwrap_or(false);
+    let root = client_runtime_root().ok_or("client_not_configured")?;
+    match desktop_ipc::snapshot(&root, recovery).await {
+        Ok(snapshot) => return Ok(snapshot),
+        // Older or stopped services still need a usable diagnosis and repair UI.
+        Err(error) if error == "client_ipc_unavailable" => {}
+        Err(error) => return Err(error),
+    }
     tauri::async_runtime::spawn_blocking(move || {
-        let local = serde_json::from_str(&execute_client_sync(
-            "local-status".to_string(),
-            Vec::new(),
-        )?)
-        .map_err(|error| format!("无法读取本地治理状态: {error}"))?;
-        let inventory = serde_json::from_str(&execute_client_sync(
-            "cached-inventory".to_string(),
-            Vec::new(),
-        )?)
-        .map_err(|error| format!("无法读取本机 Agent 信息: {error}"))?;
-        Ok(LocalSnapshot { local, inventory })
+        let args = if recovery { vec!["--recovery".to_string()] } else { Vec::new() };
+        serde_json::from_str(&execute_client_sync("local-snapshot".to_string(), args)?)
+            .map_err(|_| "client_snapshot_unavailable".to_string())
     })
     .await
     .map_err(|error| format!("读取本地状态异常: {error}"))?
@@ -954,6 +894,7 @@ fn start_local_state_watcher(app: AppHandle) {
                 }
                 last_revision = signal.revision.clone();
                 let _ = app.emit("client-local-state-changed", signal);
+                background_runtime::wake(&app);
             }) {
                 Ok(watcher) => watcher,
                 Err(error) => {
@@ -1070,23 +1011,25 @@ fn client_binary() -> Result<PathBuf, String> {
 fn main() {
     tauri::Builder::default()
         .manage(background::BackgroundMenu::default())
+        .manage(background::WindowDraft::default())
+        .manage(background_runtime::Runtime::default())
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
+                    api.prevent_close();
+                    background::close_to_background(&webview);
+                }
+            }
+        })
         .setup(|app| {
             #[cfg(target_os = "macos")]
             if let Err(error) = notify_rust::set_application(&app.config().identifier) {
                 eprintln!("could not register macOS notification identity: {error}");
             }
             start_local_state_watcher(app.handle().clone());
+            background_runtime::start(app.handle().clone());
             if let (Some(home), Ok(binary)) = (client_homes().into_iter().next(), client_binary()) {
                 aidr_manager::init(home, binary);
-            }
-            if let Some(window) = app.get_webview_window("main") {
-                let closing_window = window.clone();
-                window.on_window_event(move |event| {
-                    if let WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        background::close_to_background(&closing_window);
-                    }
-                });
             }
             Ok(())
         })
@@ -1098,6 +1041,9 @@ fn main() {
         )
         .invoke_handler(tauri::generate_handler![
             background::sync_background_menu,
+            background::take_window_draft,
+            background::retire_main_window,
+            background_runtime::sync_background_runtime,
             execute_client,
             aidr_receiver_status,
             aidr_collection_status,
@@ -1137,7 +1083,11 @@ fn main() {
                 runtime_watch::begin_shutdown();
                 let _ = runtime_watch::shutdown();
             }
-            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+                if code.is_none() && app.get_webview_window("main").is_none() {
+                    api.prevent_exit();
+                    return;
+                }
                 aidr_manager::shutdown();
                 if runtime_watch::begin_shutdown() {
                     api.prevent_exit();

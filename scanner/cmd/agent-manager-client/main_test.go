@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"skill-manager/scanner/internal/managedclient"
 )
@@ -45,18 +44,43 @@ func TestConfirmedLegacyTakeoverUsesEffectiveClassification(t *testing.T) {
 }
 
 func TestPendingCopyCommandsRespectMutationLock(t *testing.T) {
-	previousTimeout := interactiveMutationLockTimeout
-	interactiveMutationLockTimeout = 20 * time.Millisecond
-	t.Cleanup(func() { interactiveMutationLockTimeout = previousTimeout })
 	for _, command := range []string{"discard-pending", "discard-quarantine", "queue-quarantine"} {
 		t.Run(command, func(t *testing.T) {
 			home := t.TempDir()
+			source := filepath.Join(home, ".codex", "skills", "example")
+			if err := os.MkdirAll(source, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("---\nname: example\n---\nexample"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			store, err := managedclient.OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			q, err := managedclient.QuarantineSkill(home, store, "codex", "example", source, "manual")
+			if err != nil {
+				t.Fatal(err)
+			}
+			items, err := store.QuarantineItems()
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := q.ID
+			if command == "discard-pending" {
+				p, err := managedclient.QueueQuarantineForDetection(home, store, q.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				id = p.ID
+			}
 			release, err := managedclient.AcquireMutationLock(home)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer release()
-			err = run([]string{command, "--home", home, "--id", "example", "--confirm"})
+			err = run([]string{command, "--home", home, "--id", id, "--expected-signature", items[0].Signature, "--confirm"})
 			if err == nil || !strings.Contains(err.Error(), "skill_action_busy") {
 				t.Fatal("command bypassed mutation lock", err)
 			}

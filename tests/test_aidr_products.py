@@ -32,7 +32,7 @@ def test_combined_product_log_entry_preserves_source_contract():
             assert not products[source]['hooks']
 
 
-@pytest.mark.parametrize('agent', ['workbuddy', 'qoder-cli', 'opencode'])
+@pytest.mark.parametrize('agent', ['workbuddy', 'qoder-cli', 'opencode', 'doubaowork'])
 def test_new_log_product_ingestion_session_and_replay(service, agent):
     client, _ = service
     value = batch()
