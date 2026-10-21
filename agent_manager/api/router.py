@@ -1722,7 +1722,9 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
     ):
         # 仅补齐响应中的历史噪声明细，保留已存储报告与风险判定。
         report = {**report, "skillspector_analysis": {
-            **deep, "suppressed_findings": get_suppressed_findings(deep["raw_report"]),
+            **deep, "suppressed_findings": get_suppressed_findings(
+                deep["raw_report"], effective_findings=deep.get("findings"),
+            ),
         }}
     return {
         "skill_id": entry.family_id or entry.skill_id,
