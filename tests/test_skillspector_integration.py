@@ -566,6 +566,7 @@ def test_skillspector_v223_report_is_normalized(tmp_path, monkeypatch):
             "remediation": "Remove the override instruction.",
             "code_snippet": None,
             "line": 9,
+            "display": {"rule": "P1", "title": {"code": "P1_message", "params": {}}},
         }
     ]
 

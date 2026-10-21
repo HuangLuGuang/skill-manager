@@ -169,6 +169,9 @@ class Registry:
                     report TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                -- 执行筛选直接读取索引，避免每次解析完整扫描报告。
+                CREATE INDEX IF NOT EXISTS idx_skill_scan_reports_sandbox_executed
+                    ON skill_scan_reports(json_type(report, '$.sandbox_analysis.executed'), skill_id);
 
                 CREATE TABLE IF NOT EXISTS skill_finding_stats (
                     skill_id TEXT NOT NULL,
@@ -1330,6 +1333,7 @@ class Registry:
         loadable_only: bool = False,
         risk_level: str | None = None,
         sandbox_triggered: bool | None = None,
+        sandbox_executed: bool | None = None,
         sandbox_required_by_policy: bool | None = None,
         trusted_only: bool = False,
         q: str | None = None,
@@ -1362,6 +1366,13 @@ class Registry:
         if sandbox_triggered is not None:
             where.append("coalesce(json_extract(s.payload, '$.vetting.sandbox_triggered'), 0) = ?")
             params.append(1 if sandbox_triggered else 0)
+        if sandbox_executed is not None:
+            # 通过覆盖索引取得已执行版本集合，计数和分页共用执行依据。
+            executed_condition = """s.skill_id IN (
+                SELECT skill_id FROM skill_scan_reports
+                WHERE json_type(report, '$.sandbox_analysis.executed') = 'true'
+            )"""
+            where.append(executed_condition if sandbox_executed else f"NOT {executed_condition}")
         if sandbox_required_by_policy is not None:
             where.append("coalesce(json_extract(s.payload, '$.vetting.sandbox_required_by_policy'), 0) = ?")
             params.append(1 if sandbox_required_by_policy else 0)
@@ -1482,6 +1493,10 @@ class Registry:
             analysis_results["llm"]["risk_level"] = row["llm_risk"]
             analysis_results["skillspector"]["risk_level"] = row["deep_risk"]
             analysis_results["sandbox"]["risk_level"] = row["sandbox_risk"] if row["sandbox_executed"] else None
+            analysis_results["sandbox"]["executed"] = row["sandbox_executed"] == 1
+            # 旧报告可缺少 timing；已保存的执行证据只在读取时补齐列表状态。
+            if row["sandbox_executed"] and not timings.get("sandbox", {}).get("status"):
+                analysis_results["sandbox"]["status"] = "completed"
             if row["llm_risk"] and not timings.get("llm", {}).get("status"):
                 analysis_results["llm"]["status"] = "completed"
             items.append({

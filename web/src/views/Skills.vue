@@ -27,7 +27,7 @@
         </a-select>
         <a-select v-model:value="sandboxFilter" style="width: 180px">
           <a-select-option value="all">{{ $t("legacy.1u4z956") }}</a-select-option>
-          <a-select-option value="triggered">{{ $t("legacy.1da4nqr") }}</a-select-option>
+          <a-select-option value="executed">{{ $t('skillColumns.sandboxExecutedOnly') }}</a-select-option>
           <a-select-option value="policy">{{ $t("legacy.s4jlvl") }}</a-select-option>
         </a-select>
         <a-button type="primary" @click="handleKeywordSearch" :loading="loading">{{ text('查询', 'Search') }}</a-button>
@@ -182,6 +182,7 @@ watch(visibleColumns, value => {
 })
 const analysisTag = (record, key) => {
   const cell = analysisCell(record, key)
+  if (cell.state === 'executed') return { label: t('skillColumns.sandboxExecuted'), color: 'default' }
   if (cell.state) return { label: t(`decisionFlow.${cell.state}`), color: cell.state === 'failed' ? 'red' : cell.state === 'pending' ? 'gold' : 'default' }
   if (cell.count !== undefined) return { label: t('skillColumns.findings', { count: cell.count }), color: 'default' }
   const level = String(cell.risk)
@@ -264,7 +265,7 @@ const fetchSkills = async ({ background = false } = {}) => {
       status: ['all', 'scanning'].includes(status.value) ? undefined : status.value,
       scanning: status.value === 'scanning' ? true : status.value === 'VETTED' ? false : undefined,
       risk_level: risk.value === 'all' ? undefined : risk.value,
-      sandbox_triggered: sandboxFilter.value === 'triggered' ? true : undefined,
+      sandbox_executed: sandboxFilter.value === 'executed' ? true : undefined,
       sandbox_required_by_policy: sandboxFilter.value === 'policy' ? true : undefined,
       q: keyword.value.trim() || undefined,
       page: pagination.value.current,

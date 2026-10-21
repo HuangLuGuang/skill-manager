@@ -344,6 +344,9 @@ LLM 分析生成详细的安全报告，如果是恶意skill，还会生成攻�
 - Scanner 的 `--llm` 是请求开关；系统关闭 AI 分析时，上传和其他检测继续，报告以 `analyzer_timings.llm.status=disabled`、`reason=llm_analysis_disabled` 记录本次未调用模型。列表及版本摘要显示“未启用”，详情显示原因说明；系统开启后的缺配置或真实调用异常仍为失败。既有报告保留本次记录，不随当前开关改变；重新检测生成新的实际状态。
 - The Scanner `--llm` flag requests analysis. If AI analysis is disabled on the server, uploads and other checks continue, and the report records `disabled` with reason `llm_analysis_disabled`. The list, detail and version summary show the recorded state. Configuration or model request errors while enabled remain failures. Existing reports retain their historical state; rescan to apply new settings.
 
+- Skill 列表 Sandbox 的“仅已执行 / Executed only”按当前版本保存报告的 `sandbox_analysis.executed=true` 筛选，排除已跳过、缺少执行字段或没有报告的记录；退出非零、执行超时和缺少风险值不改变实际已执行的事实。历史报告明确已执行但未保存检测状态时，列表读取时补齐状态；风险缺失显示“已执行 / Executed”。选择后回到第一页，可与关键词、状态和风险组合；重置或切回“全部 Sandbox”取消限制，“仅策略强制”仍按策略要求筛选。
+- API 的可选参数 `sandbox_executed` 在分页和非分页列表均按各条记录对应版本的报告判断；旧 `sandbox_triggered` 参数保持原检测安排语义。分页计数与查询通过 `idx_skill_scan_reports_sandbox_executed` 覆盖索引获取已执行版本集合，避免逐条解析报告。SQLite 自动维护报告更新和删除对应的索引项。服务首次升级启动时幂等创建索引，会读取已有报告并短暂占用写锁；报告内容和表字段保持原样，后续启动复用索引，Docker 数据卷和启动方式不变。
+- The Sandbox “Executed only” filter uses `sandbox_analysis.executed=true` from the displayed version’s saved report. Skipped or missing execution records are excluded; nonzero exit codes, execution timeouts and missing risk values still count as executed. Historical execution evidence fills a missing list status at read time without changing stored reports. Select “All Sandbox” or reset to clear the filter. The optional `sandbox_executed` API parameter applies the same execution rule to paginated and non-paginated records; the existing `sandbox_triggered` parameter keeps its scheduling meaning. Paginated counts and queries use a covering index of execution evidence and version IDs, maintained by SQLite on report updates and deletion. The first upgraded startup creates the index by reading existing reports and briefly holding a write lock. Later startups reuse it. Report contents, table columns, Docker volumes and startup commands remain compatible.
 - Skill 列表搜索与审核队列一致：输入或清空关键词后停止操作 300 毫秒自动查询全部分页数据，回到第一页并清除当前页勾选，保留状态、风险及 Sandbox 筛选条件。连续输入合并查询，点击“查询”或按 Enter 可立即查询；刷新、重置或切换筛选条件会取消待执行的延迟查询，离开页面时清理定时器。
 - 是否复用只在“策略配置”全局控制，提交页和客户端不再提供单次“禁用缓存”。
 - 如需重新检测，在 Skill 详情的版本列表中点击“重新检测”。重扫会新增 Scan Run，不会创建内容版本；重扫完成前或重扫失败时，上一份可信结果继续有效。
@@ -1662,6 +1665,18 @@ behavioral 分析主要扫文本代码文件，优先：
 - `subprocess(..., shell=True)`
 - 下载后执行
 - 敏感文件访问
+
+### 深度扫描发现项的双语展示
+
+Skill 详情的“扫描结果 → 深度扫描”保留规则编号以便核对，同时提供可读标题、规则悬浮解释及该条命中的说明和建议。编号和问号在同一标签内相邻显示，换行时保持整体，支持悬浮或键盘聚焦查看解释。编号正文不会遮住报告已经记录的实际解释。TP2 的形似字符、文字方向控制、不可见格式字符和混合文字系统分别展示自己的原因及建议；同编号的本地分析器输出单独识别。
+
+固定模板按来源、规则及完整文本识别。`agent_manager/core/deep_scan_catalog.json` 保存当前已支持的模板，`deep_scan_display.py` 为新报告及历史读取响应补齐语言无关的 `display` 元数据，`web/src/i18n/deepScan.js` 通过 `skillDetail.deepRules` 提供简体中文和英文。当前基线依据 SkillSpector `a5092dd` 的默认规则目录及实际分析器分支，包含 64 个默认规则；新增模板时须同步语义资源。运行时不依赖扫描器源码目录，也不调用翻译服务。
+
+文件路径、包名、标识符、字符编码、代码及证据保留原文。自由生成的分析或未识别文本同样保留原文，不用默认建议替换本条实际建议，也不进入 legacy 哈希翻译。历史报告无需重新扫描，读取时仅补响应，不回写存储。翻译不影响严重度、风险分、推荐结论、策略分类和最终判定，无数据库迁移或额外部署配置。
+
+固定说明和建议忠实翻译 SkillSpector 返回内容：英文沿用来源模板，中文准确表达术语、可能性和数量边界。TP2 通用解释中的编码列表按原文保留；“文本方向控制字符可改变文字的显示顺序”描述该类字符的作用。该说明随界面语言渲染，已有报告刷新页面即可使用校正后的译文。
+
+验证命令：`python -m pytest tests/test_deep_scan_display.py tests/test_skillspector_integration.py -q`；资源契约检查：`node --test tests/deep_scan_i18n.test.mjs`（先安装 web 依赖）。前端继续执行 `npm run test:i18n` 和 `npm run build`。人工核验关注中英文切换、规则帮助、长文本换行及原始文件查看；完整 Skill 须通过前端上传后生成实际扫描结果。
 
 ### 7.3 LLM
 

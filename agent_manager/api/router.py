@@ -33,6 +33,7 @@ from agent_manager.api.import_work import import_endpoint, run_import_work
 from backend.api_errors import ApiError
 from agent_manager.api.upload_progress import stream_upload_progress
 
+from agent_manager.core.deep_scan_display import with_deep_scan_analysis_display
 from agent_manager.core.llm import LLMConfig
 from agent_manager.core.manager import AgentManager, findings_summary_from_report
 from agent_manager.core.models import RegistryEntry, SkillOrigin, SkillStatus, SourceInfo
@@ -45,6 +46,7 @@ from agent_manager.core.sandbox import (
     SandboxConnectionTest,
     sandbox_url_error,
     test_sandbox_connection,
+    with_sandbox_reason_metadata,
 )
 from agent_manager.core.scan_report_pdf import build_scan_report_pdf
 from agent_manager.core.skillspector import get_suppressed_findings, is_skillspector_available
@@ -1528,6 +1530,7 @@ def list_skills(
     loadable_only: bool = Query(False),
     risk_level: str | None = Query(None),
     sandbox_triggered: bool | None = Query(None),
+    sandbox_executed: bool | None = Query(None),
     sandbox_required_by_policy: bool | None = Query(None),
     q: str | None = Query(None),
     sort_by: str = Query("updated_at"),
@@ -1560,6 +1563,7 @@ def list_skills(
             loadable_only=loadable_only,
             risk_level=risk_level,
             sandbox_triggered=sandbox_triggered,
+            sandbox_executed=sandbox_executed,
             sandbox_required_by_policy=sandbox_required_by_policy,
             q=q,
             sort_by=sort_by,
@@ -1589,6 +1593,14 @@ def list_skills(
         entries = [
             e for e in entries
             if bool(e.vetting.sandbox_triggered if e.vetting else False) == sandbox_triggered
+        ]
+
+    if sandbox_executed is not None:
+        # 与分页查询相同，只有本版本报告明确记录 true 才算实际执行。
+        entries = [
+            e for e in entries
+            if bool(e.vetting and e.vetting.scan_report.get("sandbox_analysis", {}).get("executed") is True)
+            == sandbox_executed
         ]
 
     if sandbox_required_by_policy is not None:
@@ -1711,10 +1723,16 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
     if entry is None:
         raise HTTPException(status_code=404, detail="Skill not found")
     report = entry.vetting.scan_report if entry.vetting else {}
+    if isinstance(report.get("sandbox_analysis"), dict):
+        # 历史说明只在响应中补齐编码，保留原始报告及执行判定。
+        report = {**report, "sandbox_analysis": with_sandbox_reason_metadata(report["sandbox_analysis"])}
     report = {**report, "policy_warnings": get_policy_warnings(
         report, entry.vetting.policy_notes if entry.vetting else [],
     )}
     deep = report.get("skillspector_analysis")
+    if isinstance(deep, dict):
+        deep = with_deep_scan_analysis_display(deep)
+        report = {**report, "skillspector_analysis": deep}
     if (
         isinstance(deep, dict)
         and "suppressed_findings" not in deep

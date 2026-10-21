@@ -254,6 +254,17 @@ make sandbox-runtime-build
 
 - Scanner 的 `--llm` 以服务端 AI 开关为执行边界；关闭时本次报告记录 `analyzer_timings.llm.status=disabled`、`reason=llm_analysis_disabled`，其他检测继续，提交选项保持原请求。列表、详情与版本摘要使用本次报告状态；开启后的配置或调用异常仍为 failed。Scanner 的 LLM/Sandbox 参数说明须同时说明服务端启用与配置要求。
 
+- Skill 列表“仅已执行 / Executed only”使用可选参数 `sandbox_executed`，按对应版本报告的 `sandbox_analysis.executed=true` 筛选；分页计数与查询共用 IN 版本集合及 `idx_skill_scan_reports_sandbox_executed` 覆盖索引，避免逐条解析报告。Registry 初始化幂等建索引，首次升级考虑读报告及写锁成本，SQLite 自动维护更新和删除；报告不回写。分页和非分页执行依据一致，历史已执行报告缺少 timing 时仅补齐列表读取状态，缺风险值显示已执行。保留旧 `sandbox_triggered` 的检测安排语义。
+
+- Sandbox 调试“说明”及 Probe 原因使用 `reason_code` / `reason_params` 与 `skillDetail.sandboxReasons` 双语资源；原因识别复用 `sandbox_reason_metadata`，历史扫描报告仅在读取响应中补齐汇总和 Probe 元数据。保留 `reason` 原文、已有编码、动态异常及 URL/路径/状态码；未知编码显示原文。原因翻译不改变执行状态或风险判定。
+- Sandbox 验收样本由实际 Runner、扫描流程或历史报告生成，标注测试用途及来源；执行状态、超时、退出码、Probe 和说明保持一致。
+- 远程 Sandbox 超时识别兼容响应 message/error 中的 `timeout` 与 `timed out`，忽略大小写；保留上游退出码，沿用现有超时信号与风险汇总。
+- Sandbox HTTP 状态异常只解析 HTTPX 完整固定模板，保留 `reason`、`detail`、已有编码及上游状态和地址；读取时补齐 `reason_params.http_*`，使用 `skillDetail.sandboxHttpErrors` 双语展示。顶部摘要等于原因时复用原因翻译，Probe 不重复显示相同摘要；独立摘要保持自身语义。
+- Sandbox 固定摘要、建议、默认 Probe 描述及平台全部固定信号使用 `skillDetail.sandboxText`；新报告保存和历史读取共用字段展示编码与参数补齐。已有编码、原始文本及证据保留，类别与策略通过语义资源显示，未知字段直接保留原文和空白，不经过 legacy；风险与诊断列表共用语义渲染，证据使用纯文本保留原文及换行；摘要、信号、建议和描述保留可视空白，Probe 说明组合仅排除缺失或空字符串；展示元数据不参与风险和执行状态计算。
+
+- 深度扫描固定标题、命中说明、解释和建议复用 `deep_scan_display.py`、`deep_scan_catalog.json` 与 `skillDetail.deepRules`；按来源、规则和完整模板识别，保留动态参数和证据原文。同编号的不同子类型及本地分析器分别处理；未知文本不经过 legacy。历史报告只补读取响应，编号标题改为可读规则名，编号正文不得遮住实际解释；规则帮助不替代本次检测解释。展示元数据不参与风险、评分、建议结论和策略判定。新增扫描模板须同步双语资源及资源契约检查 `tests/deep_scan_i18n.test.mjs`。
+- 深度扫描固定说明和建议按SkillSpector返回内容忠实翻译；英文沿用来源模板，中文保持术语、可能性、数量边界和编码列表的含义，复用现有语义资源及页面展示。
+
 - LLM 实际启用时在调用前记录 `llm:{provider}`，失败仍保留该名称；失败状态复用 Skill 列表，失败原因复用详情页 LLM 项及本次报告。
 
 - Skill AI 分析的 `llm.timeout_seconds` 为输入准备、模型调用与结果处理共用的总预算；内部网关请求使用供应商超时与剩余预算的较小值，总超时取消并清理请求，报告以 `llm_analysis_timeout` 编码展示双语原因。
