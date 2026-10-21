@@ -17,6 +17,7 @@ export const skillDetailMessages = {
       reasons: {
         font_file: '字体文件中的扫描命中，按字体噪声过滤。',
         raster_image: '位图文件中的扫描命中，按图片噪声过滤。',
+        pdf_file: 'PDF 文件中的扫描命中，按 PDF 二进制噪声过滤。',
         license_scope_wording: '许可证文件中的 EA3 规则命中“limited to”措辞，按许可证常见措辞过滤。',
       },
     },
@@ -83,6 +84,7 @@ export const skillDetailMessages = {
       reasons: {
         font_file: 'A finding in a font file, filtered as font noise.',
         raster_image: 'A finding in a raster image file, filtered as image noise.',
+        pdf_file: 'A finding in a PDF file, filtered as PDF binary noise.',
         license_scope_wording: 'EA3 matched “limited to” in a license file, filtered as common license wording.',
       },
     },

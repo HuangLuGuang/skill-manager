@@ -379,7 +379,8 @@
                                   <strong>{{ findingTitle(item) }}</strong>
                                   <a-button v-if="item.file" type="link" size="small" style="padding: 0; white-space: normal; height: auto; text-align: left" @click="openFileViewer(item.file)">{{ item.file }}</a-button>
                                 </a-space>
-                                <div v-if="item.line != null" class="muted" style="margin-top: 4px">{{ $t('skillDetail.suppressed.lines') }}: {{ item.line }}</div>
+                                <!-- PDF 二进制解码行号无法用于文件定位，仅在明细展示时隐藏。 -->
+                                <div v-if="item.line != null && !/\.pdf$/i.test(item.file || '')" class="muted" style="margin-top: 4px">{{ $t('skillDetail.suppressed.lines') }}: {{ item.line }}</div>
                                 <!-- 原因编码缺少对应译文时统一显示未知，兼容报告字段缺失和版本差异。 -->
                                 <div style="margin-top: 6px">{{ $t('skillDetail.suppressed.reason') }}: {{ $te(`skillDetail.suppressed.reasons.${item.suppression_reason}`) ? $t(`skillDetail.suppressed.reasons.${item.suppression_reason}`) : $t('skillDetail.suppressed.unknown') }}</div>
                               </div>

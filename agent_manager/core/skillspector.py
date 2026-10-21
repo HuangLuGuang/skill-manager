@@ -149,15 +149,23 @@ def run_skillspector_scan(
                 "risk_recommendation",
                 risk_assessment.get("recommendation"),
             )
+            # PDF 命中不参与汇总；其余噪声仍按原有规则处理。
+            severity_for_summary = raw_risk_severity
+            if any(item["suppression_reason"] == "pdf_file" for item in suppressed_findings):
+                severity_for_summary = _max_severity(*(
+                    item["severity"] for item in raw_findings
+                    if _noise_reason(item) != "pdf_file"
+                ))
             effective_severity = _effective_severity(
-                raw_risk_severity,
+                severity_for_summary,
                 findings,
                 risk_score=risk_score,
                 recommendation=raw_risk_recommendation,
-                all_suppressed_as_raster_image_noise=(
+                all_suppressed_as_binary_noise=(
                     bool(raw_findings)
                     and not findings
-                    and all(_is_raster_image_noise_finding(item) for item in raw_findings)
+                    # PDF 与位图噪声共用汇总规则，避免过滤后仍残留上游风险。
+                    and all(_noise_reason(item) in {"raster_image", "pdf_file"} for item in raw_findings)
                 ),
             )
             return {
@@ -233,11 +241,21 @@ def _normalize_raw_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
     return findings
 
 
-def get_suppressed_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return display details using the same rules as scan filtering."""
-    # 新扫描与历史报告复用过滤原因，避免统计和展示规则不一致。
+def get_suppressed_findings(
+    report: dict[str, Any],
+    *,
+    effective_findings: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Return noise details while preserving recorded effective findings."""
+    # 历史报告的有效发现以原记录为准，避免新过滤规则将其重复列为噪声。
+    effective_keys = {
+        (item["rule_id"], item["file"], item.get("line"))
+        for item in _normalize_raw_findings({"findings": effective_findings})
+    }
     details = []
     for finding in _normalize_raw_findings(report):
+        if (finding["rule_id"], finding["file"], finding.get("line")) in effective_keys:
+            continue
         reason = _noise_reason(finding)
         if reason:
             details.append({
@@ -257,12 +275,12 @@ def _effective_severity(
     *,
     risk_score: Any = None,
     recommendation: Any = None,
-    all_suppressed_as_raster_image_noise: bool = False,
+    all_suppressed_as_binary_noise: bool = False,
 ) -> str:
     findings_severity = _max_severity(*(str(item.get("severity") or "SAFE") for item in findings))
     if findings_severity != "SAFE":
         return findings_severity
-    if all_suppressed_as_raster_image_noise:
+    if all_suppressed_as_binary_noise:
         return "SAFE"
     if _is_empty_safe_low(raw_severity, risk_score, recommendation):
         return "SAFE"
@@ -296,6 +314,8 @@ def _noise_reason(finding: dict[str, Any]) -> str | None:
         return "font_file"
     if _is_raster_image_noise_finding(finding):
         return "raster_image"
+    if suffix == ".pdf":
+        return "pdf_file"
     if rule == "EA3" and _is_license_file(file) and "limited to" in message:
         return "license_scope_wording"
     return None
