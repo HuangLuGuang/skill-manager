@@ -587,14 +587,23 @@ async def update_server(server_id: int, body: schemas.McpServerUpdate, db: Sessi
         data["endpoint"] = _validate_endpoint(data["endpoint"])
     if "authorization_header" in data:
         data["authorization_header"] = _validate_header(data["authorization_header"])
+    connection_changed = any(
+        field in data and data[field] != getattr(row, field)
+        for field in ("endpoint", "authorization_header")
+    )
     if "authorization_value" in data:
         value = data.pop("authorization_value")
         if value is not None:
+            connection_changed |= (value or None) != _unprotect_secret(row.authorization_value)
             row.authorization_value = _protect_secret(value) if value else None
     if "name" in data and not data["name"].strip():
         raise HTTPException(status_code=400, detail="MCP Server 名称不能为空")
     for field, value in data.items():
         setattr(row, field, value.strip() if field == "name" else value)
+    if connection_changed:
+        # 旧检测只适用于原连接配置，实际变更后等待重新检测。
+        row.health_status = "unknown"
+        row.last_checked_at = None
     row.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(row)

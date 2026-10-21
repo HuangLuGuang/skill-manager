@@ -897,3 +897,91 @@ def test_mcp_server_options_match_endpoint_protocol_policy(tmp_path, monkeypatch
         assert response.json()["error_params"]["errors"][0] == {
             "field": "endpoint", "reason": "https",
         }
+
+
+@pytest.mark.parametrize("health", ["healthy", "unhealthy"])
+@pytest.mark.parametrize("changes, reset", [
+    ({"endpoint": "https://mcp.example.com/alternate"}, True),
+    ({"authorization_header": "X-Api-Key"}, True),
+    ({"authorization_value": "Bearer changed-test-secret"}, True),
+    ({"authorization_value": ""}, True),
+    ({"endpoint": " https://mcp.example.com/mcp "}, False),
+    ({"authorization_header": " Authorization "}, False),
+    ({"authorization_value": "Bearer upstream-secret"}, False),
+    ({"authorization_value": None}, False),
+    ({"name": "Renamed", "description": "Updated description"}, False),
+    ({"status": "disabled", "timeout_seconds": 60, "max_response_kb": 2048}, False),
+    ({}, False),
+])
+def test_server_health_tracks_effective_connection_changes(tmp_path, monkeypatch, health, changes, reset):
+    """连接配置实际变化才使旧检测失效，留空保留凭据等编辑沿用原结果。"""
+    client, sessions = _client(tmp_path, monkeypatch)
+    _configured_gateway(client)
+    server = client.get("/api/v1/mcp/servers").json()[0]
+    checked_at = datetime(2026, 10, 18, 1, 2, 3)
+    with sessions() as db:
+        row = db.get(models.McpServer, server["id"])
+        row.health_status = health
+        row.last_checked_at = checked_at
+        db.commit()
+    response = client.put(f"/api/v1/mcp/servers/{server['id']}", json=changes)
+    assert response.status_code == 200
+    expected_health = "unknown" if reset else health
+    expected_time = None if reset else checked_at
+    assert response.json()["health_status"] == expected_health
+    assert response.json()["last_checked_at"] == (expected_time.isoformat() if expected_time else None)
+    assert len(response.json()["tools"]) == 2
+    with sessions() as db:
+        row = db.get(models.McpServer, server["id"])
+        assert row.health_status == expected_health
+        assert row.last_checked_at == expected_time
+        expected_secret = changes.get("authorization_value")
+        if expected_secret is None:
+            expected_secret = "Bearer upstream-secret"
+        assert mcp_gateway._unprotect_secret(row.authorization_value) == (expected_secret or None)
+    listed = client.get("/api/v1/mcp/servers").json()
+    assert next(row for row in listed if row["id"] == server["id"])["health_status"] == expected_health
+
+
+def test_server_health_recovers_after_authentication_failure(tmp_path, monkeypatch):
+    """验证正常、配置变更、401 失败和恢复的完整服务端状态流。"""
+    client, _sessions = _client(tmp_path, monkeypatch)
+    _configured_gateway(client)
+    server = client.get("/api/v1/mcp/servers").json()[0]
+    path = f"/api/v1/mcp/servers/{server['id']}"
+
+    async def authenticated_call(target, _method, _params):
+        if mcp_gateway._unprotect_secret(target.authorization_value) != "Bearer upstream-secret":
+            httpx.Response(401, request=httpx.Request("POST", target.endpoint)).raise_for_status()
+        return {"result": {"tools": [{"name": "search", "inputSchema": {"type": "object"}}]}}
+
+    monkeypatch.setattr(mcp_gateway, "_call_upstream", authenticated_call)
+    changed = client.put(path, json={"authorization_value": "Bearer wrong-test-secret"})
+    assert changed.json()["health_status"] == "unknown"
+    failed = client.post(f"{path}/discover")
+    assert failed.status_code == 502
+    assert failed.json()["error_code"] == "mcp.connection_failed.http_status"
+    listed = client.get("/api/v1/mcp/servers").json()
+    assert next(row for row in listed if row["id"] == server["id"])["health_status"] == "unhealthy"
+    restored = client.put(path, json={"authorization_value": "Bearer upstream-secret"})
+    assert restored.json()["health_status"] == "unknown"
+    discovered = client.post(f"{path}/discover")
+    assert discovered.status_code == 200
+    assert discovered.json()["health_status"] == "healthy"
+    assert discovered.json()["last_checked_at"] is not None
+
+
+@pytest.mark.parametrize("value", [None, "", "Bearer added-test-secret"])
+def test_server_health_without_existing_authentication(tmp_path, monkeypatch, value):
+    """无凭据时保留空值不使检测失效，新增凭据需要重新检测。"""
+    client, _sessions = _client(tmp_path, monkeypatch)
+    created = client.post("/api/v1/mcp/servers", json={
+        "slug": "no-auth", "name": "No auth", "endpoint": "https://mcp.example.com/mcp",
+    }).json()
+    path = f"/api/v1/mcp/servers/{created['id']}"
+    discovered = client.post(f"{path}/discover").json()
+    assert discovered["health_status"] == "healthy"
+    updated = client.put(path, json={"authorization_value": value})
+    assert updated.status_code == 200
+    assert updated.json()["health_status"] == ("unknown" if value else "healthy")
+    assert updated.json()["last_checked_at"] == (None if value else discovered["last_checked_at"])

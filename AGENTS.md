@@ -111,6 +111,8 @@ make sandbox-runtime-build
 
 ## 前端注意事项
 
+- MCP 服务连接发现成功或失败后均刷新列表；Endpoint、鉴权 Header 或鉴权值实际变化时，后端将健康状态重置为 unknown 并清空 last_checked_at。相同连接配置及留空保留鉴权的编辑保持旧检测结果，凭据按解密后有效值比较。
+
 - Skill 详情完整性校验的内容指纹存在性与预览读取当前版本 `content_fingerprint`，预览前 24 字符加省略号，空值或缺失显示否及 `-`；数字签名校验操作依据 `signature`。双语标签使用 `skillDetail.fingerprintExists` 与 `skillDetail.fingerprintPreview`。
 
 - 策略页风险判定模式的总体说明放在标签旁的悬浮帮助中，按上下文判断项、判为恶意项、AI 复核分组；双语文案使用 `policySettings.modeHelp`，中文严重度沿用“中等”“高”。

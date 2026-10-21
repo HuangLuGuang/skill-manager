@@ -440,11 +440,12 @@ const discover = async record => {
   actionId.value = `discover-${record.id}`
   try {
     await discoverMcpServer(record.id)
-    await fetchAll()
     message.success(phrase('legacy.1r5dof'))
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.8ufi7f'))
   } finally {
+    // 发现失败也会更新服务端健康状态，完成后统一刷新。
+    await fetchAll()
     actionId.value = null
   }
 }
