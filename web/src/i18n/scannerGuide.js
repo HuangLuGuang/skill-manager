@@ -25,15 +25,19 @@ export const scannerGuideMessages = {
     },
     "examples": {
       "local": "仅本地发现、预检和打包，不上传（覆盖已有平台地址环境变量）",
-      "upload": "上传到平台",
+      "upload": "上传平台基础扫描，不主动开启可选分析",
       "all": "上传并启用全部分析",
-      "cliTab": "命令行上传",
-      "cli": "命令行上传，覆盖对应环境变量",
       "rules": "规则分析",
       "deep": "静态深度扫描",
       "sandbox": "Sandbox 分析",
       "llm": "LLM 分析",
-      "combined": "组合分析"
+      "combined": "部分能力组合：规则分析 + 深度扫描",
+      "title": "客户侧运行示例",
+      "help": "规则分析、深度扫描、Sandbox 和 LLM 由服务端执行；请求前需配置平台地址和 Scanner 凭证。amat_xxx 是占位符，请替换为实际凭证。",
+      "localTab": "本地轻量预检",
+      "uploadTab": "上传平台基础扫描",
+      "switchesTab": "按需启用分析能力",
+      "fullTab": "全能力扫描"
     },
     "rows": {
       "path": {
@@ -63,8 +67,8 @@ export const scannerGuideMessages = {
       "output": {
         "name": "本地报告",
         "required": "可选",
-        "value": "默认 skill-scan-report.json；例：--output report.json",
-        "usage": "相对路径以命令当前目录为基准，目录需可写。报告含预检和提交信息；上传成功才有 skill_id，不会等待全部后台分析完成。"
+        "value": "默认 skill-scan-report.json",
+        "usage": "相对路径以命令当前目录为基准，目录需可写。报告包含 fingerprint、本地预检结果和上传状态；上传成功后，skills[].submission 中还包含 skill_id 等服务端结果。不会等待全部后台分析完成，详细分析结果在平台查看。"
       },
       "host": {
         "name": "来源标识",
@@ -75,7 +79,7 @@ export const scannerGuideMessages = {
       "timeout": {
         "name": "请求超时",
         "required": "可选，仅上传时生效",
-        "value": "默认 120s；例：--timeout 2m。建议正时长。",
+        "value": "默认 120s。建议正时长。",
         "usage": "限制上传 HTTP 请求时长，不是服务端整个扫描任务的耗时上限。"
       },
       "behavioral": {
@@ -130,8 +134,15 @@ export const scannerGuideMessages = {
         "name": "忽略名称",
         "required": "可选",
         "value": "默认 .git,.venv,node_modules,__pycache__,dist,build",
-        "usage": "逗号分隔名称，不是路径或通配符；自定义值替换默认列表，需保留的默认项一起填写。跳过同名目录，打包时也跳过同名文件。"
+        "usage": "逗号分隔名称，不是路径或通配符。"
       }
+    },
+    "credentials": {
+      "open": "前往统一凭证中心",
+      "title": "Scanner 凭证在“统一凭证中心”创建",
+      "description": "创建凭证，调用者选择“{caller}”，权限至少包含 scanner:submit。Agent Skill Verifier 接入说明请到“智能体管理 → 接入与运行”查看。",
+      "path": "智能体管理 → 统一凭证中心",
+      "intro": "适合命令行、服务器和 CI 场景。先在“智能体管理 → 统一凭证中心”创建凭证，调用者选择“{caller}”，再用 CLI 扫描本地 skills 目录；上传后在 Skill 列表查看状态和详情。"
     }
   },
   "en-US": {
@@ -160,15 +171,19 @@ export const scannerGuideMessages = {
     },
     "examples": {
       "local": "Local discovery, precheck and packaging only (override any platform URL environment variable)",
-      "upload": "Upload to the platform",
+      "upload": "Upload for basic scanning without requesting optional analysis",
       "all": "Upload with all analysis options",
-      "cliTab": "CLI upload",
-      "cli": "CLI upload, overriding matching environment variables",
       "rules": "Rule analysis",
       "deep": "Static deep analysis",
       "sandbox": "Sandbox analysis",
       "llm": "LLM analysis",
-      "combined": "Combined analysis"
+      "combined": "Partial combination: rule analysis + deep scanning",
+      "title": "Client-side examples",
+      "help": "Rule analysis, deep scanning, Sandbox and LLM run on the server. Configure the platform URL and Scanner credential before requesting them. Replace amat_xxx with your actual credential.",
+      "localTab": "Local lightweight precheck",
+      "uploadTab": "Upload for basic scanning",
+      "switchesTab": "Choose analysis capabilities",
+      "fullTab": "All analysis capabilities"
     },
     "rows": {
       "path": {
@@ -198,8 +213,8 @@ export const scannerGuideMessages = {
       "output": {
         "name": "Local report",
         "required": "Optional",
-        "value": "Default: skill-scan-report.json. Example: --output report.json",
-        "usage": "Relative to the working directory; the destination must be writable. Contains precheck and submission data, with skill_id after successful submission. Does not wait for all background analysis."
+        "value": "Default: skill-scan-report.json",
+        "usage": "Relative to the working directory; the destination must be writable. Contains fingerprint, local precheck results and upload status. After a successful upload, skills[].submission also contains skill_id and other server results. Does not wait for all background analysis; view detailed analysis on the platform."
       },
       "host": {
         "name": "Source identifier",
@@ -210,7 +225,7 @@ export const scannerGuideMessages = {
       "timeout": {
         "name": "Request timeout",
         "required": "Optional; uploads only",
-        "value": "Default: 120s. Example: --timeout 2m. Use a positive duration.",
+        "value": "Default: 120s. Use a positive duration.",
         "usage": "Limits the upload HTTP request, not the entire server-side scan task."
       },
       "behavioral": {
@@ -265,8 +280,15 @@ export const scannerGuideMessages = {
         "name": "Ignored names",
         "required": "Optional",
         "value": "Default: .git,.venv,node_modules,__pycache__,dist,build",
-        "usage": "Comma-separated names, not paths or globs. Replaces the default list; include defaults you want to keep. Skips matching directories and, during packaging, matching files."
+        "usage": "Comma-separated names, not paths or globs."
       }
+    },
+    "credentials": {
+      "open": "Open Unified Credential Center",
+      "title": "Create Scanner credentials in Unified Credential Center",
+      "description": "Create a credential and select “{caller}” as the caller, with at least scanner:submit. For Agent Skill Verifier, see Agent Management → Integration & Runtime.",
+      "path": "Agent Management → Unified Credential Center",
+      "intro": "For command-line, server and CI use. Create a credential in Agent Management → Unified Credential Center and select “{caller}” as the caller. Scan local skills with the CLI, then view uploaded Skills and their results in the Skill list."
     }
   }
 }

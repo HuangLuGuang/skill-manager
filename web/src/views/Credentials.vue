@@ -293,7 +293,7 @@
                 <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.scopes" mode="multiple" style="width: 100%" @change="handleScopesChange">
                   <a-select-option v-for="scope in availableScopes" :key="scope" :value="scope">{{ scope }}</a-select-option>
                 </a-select>
-                <div class="field-hint">{{ $t('credentials.rawPermissionsHint') }}</div>
+                <div v-if="form.token_type !== 'scanner'" class="field-hint">{{ $t('credentials.rawPermissionsHint') }}</div>
               </a-form-item>
 
               <template v-if="form.scopes.includes('model:chat')">

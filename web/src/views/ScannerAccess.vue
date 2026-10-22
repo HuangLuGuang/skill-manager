@@ -29,22 +29,22 @@
       </a-col>
 
       <a-col :xs="24" :xl="15">
-        <a-card :title="$t('legacy.19h1kid')">
+        <a-card class="scanner-credentials" :title="$t('legacy.19h1kid')">
           <template #extra>
             <a-space>
-              <a-button type="primary" @click="router.push('/credentials')">{{ $t("legacy.ntpgmd") }}</a-button>
+              <a-button type="primary" @click="router.push('/credentials')">{{ t('scannerGuide.credentials.open') }}</a-button>
             </a-space>
           </template>
 
           <a-alert
             type="info"
             show-icon
-            :message="$t('legacy.aox33a')"
-            :description="$t('legacy.g5c5tx')"
+            :message="t('scannerGuide.credentials.title')"
+            :description="t('scannerGuide.credentials.description', { caller: t('credentials.scenarios.scanner.title') })"
             style="margin-bottom: 16px"
           />
           <a-descriptions bordered size="small" :column="1">
-            <a-descriptions-item :label="$t('legacy.1acdaj8')">{{ $t("legacy.3k18bg") }}</a-descriptions-item>
+            <a-descriptions-item :label="$t('legacy.1acdaj8')">{{ t('scannerGuide.credentials.path') }}</a-descriptions-item>
             <a-descriptions-item :label="$t('legacy.1tguuvg')">scanner:submit、scanner:read-own-results、scanner:read-own-sessions</a-descriptions-item>
             <a-descriptions-item :label="$t('legacy.basi5o')">
               <a @click="router.push('/runtime')">{{ $t("legacy.mulvsl") }}</a>
@@ -70,25 +70,25 @@
       </section>
     </a-card>
 
-    <a-card :title="$t('legacy.1ue20m4')" style="margin-top: 16px">
+    <a-card :title="t('scannerGuide.examples.title')" style="margin-top: 16px">
       <a-alert
         type="info"
         show-icon
-        :message="$t('legacy.1jdabo8')"
+        :message="t('scannerGuide.examples.help')"
         style="margin-bottom: 16px"
       />
       <a-tabs>
-        <a-tab-pane key="basic" :tab="$t('legacy.18pb0yp')">
+        <a-tab-pane key="basic" :tab="t('scannerGuide.examples.localTab')">
           <pre class="code-block">{{ basicCommand }}</pre>
         </a-tab-pane>
-        <a-tab-pane key="full" :tab="$t('legacy.uftzek')">
-          <pre class="code-block">{{ fullCommand }}</pre>
+        <a-tab-pane key="upload" :tab="t('scannerGuide.examples.uploadTab')">
+          <pre class="code-block">{{ uploadCommand }}</pre>
         </a-tab-pane>
-        <a-tab-pane key="switches" :tab="$t('legacy.moasaw')">
+        <a-tab-pane key="switches" :tab="t('scannerGuide.examples.switchesTab')">
           <pre class="code-block">{{ switchesCommand }}</pre>
         </a-tab-pane>
-        <a-tab-pane key="env" :tab="t('scannerGuide.examples.cliTab')">
-          <pre class="code-block">{{ envCommand }}</pre>
+        <a-tab-pane key="full" :tab="t('scannerGuide.examples.fullTab')">
+          <pre class="code-block">{{ fullCommand }}</pre>
         </a-tab-pane>
       </a-tabs>
     </a-card>
@@ -167,28 +167,35 @@ const parameterGroups = computed(() => [
   })),
 })))
 
-const serverOrigin = computed(() => window.location.origin)
 const quickStartCommand = computed(() => `chmod +x ./skill-scanner
 # ${t('scannerGuide.examples.local')}
 ./skill-scanner scan /path/to/skills --server="" --output skill-scan-report.json
 
 # ${t('scannerGuide.examples.upload')}
-export SKILL_SCANNER_SERVER="${serverOrigin.value}"
+export SKILL_SCANNER_SERVER="http://10.10.71.35"
 export SKILL_SCANNER_TOKEN="amat_xxx"
-./skill-scanner scan /path/to/skills --behavioral
+./skill-scanner scan /path/to/skills --output skill-scan-platform-report.json
 
 # ${t('scannerGuide.examples.all')}
 ./skill-scanner scan /path/to/skills --behavioral --deep-scan --sandbox --llm`)
 const basicCommand = computed(() => `# ${t('scannerGuide.examples.local')}
 ./skill-scanner scan /path/to/skills --server="" --output skill-scan-report.json`)
 
-const fullCommand = computed(() => `export SKILL_SCANNER_SERVER="${serverOrigin.value}"
+// 每个上传场景独立展示地址和凭证，复制时保留必要前置配置。
+const uploadCommand = computed(() => `export SKILL_SCANNER_SERVER="http://10.10.71.35"
+export SKILL_SCANNER_TOKEN="amat_xxx"
+export SKILL_SCANNER_HOST_ID="customer-prod-01"
+
+# ${t('scannerGuide.examples.upload')}
+./skill-scanner scan /path/to/skills --output skill-scan-platform-report.json`)
+
+const fullCommand = computed(() => `export SKILL_SCANNER_SERVER="http://10.10.71.35"
 export SKILL_SCANNER_TOKEN="amat_xxx"
 export SKILL_SCANNER_HOST_ID="customer-prod-01"
 
 ./skill-scanner scan /path/to/skills --behavioral --deep-scan --sandbox --llm --output skill-scan-report.json`)
 
-const switchesCommand = computed(() => `export SKILL_SCANNER_SERVER="${serverOrigin.value}"
+const switchesCommand = computed(() => `export SKILL_SCANNER_SERVER="http://10.10.71.35"
 export SKILL_SCANNER_TOKEN="amat_xxx"
 
 # ${t('scannerGuide.examples.rules')}
@@ -204,10 +211,7 @@ export SKILL_SCANNER_TOKEN="amat_xxx"
 ./skill-scanner scan /path/to/skills --llm
 
 # ${t('scannerGuide.examples.combined')}
-./skill-scanner scan /path/to/skills --behavioral --deep-scan --sandbox --llm`)
-
-const envCommand = computed(() => `# ${t('scannerGuide.examples.cli')}
-./skill-scanner scan /path/to/skills --server "${serverOrigin.value}" --token "amat_xxx" --output skill-scan-report.json`)
+./skill-scanner scan /path/to/skills --behavioral --deep-scan --output report-rules-and-deep-scan.json`)
 
 const fetchDownloads = async () => {
   try {
@@ -253,6 +257,23 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 窄屏分行展示入口按钮，保留中英文凭证标题。 */
+@media (max-width: 575px) {
+  .scanner-credentials :deep(.ant-card-head-wrapper) {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 0;
+  }
+
+  .scanner-credentials :deep(.ant-card-head-title) {
+    flex-basis: 100%;
+  }
+
+  .scanner-credentials :deep(.ant-card-extra) {
+    margin-inline-start: 0;
+  }
+}
+
 .code-block {
   margin: 0;
   padding: 12px;
