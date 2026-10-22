@@ -902,12 +902,13 @@ const syncExternalGatewayPolicyPrompt = data => {
 }
 
 const renderModelSwitcher = data => {
-  const agents = localModelAgents(data)
+  const agents = (data?.inventory?.agents || []).filter(agent => (agent.capabilities?.model_config_auto_apply || visibleAgent(agent)) && !isSharedSkills(agent))
   const permission = data?.platform?.model_configuration || {}
   if (!selectedModelAgentID || !agents.some(agent => agent.local_agent_id === selectedModelAgentID)) {
     selectedModelAgentID = agents[0]?.local_agent_id || ''
   }
   const selected = agents.find(agent => agent.local_agent_id === selectedModelAgentID)
+  $('.model-catalog-toolbar').hidden = Boolean(selected && !selected.capabilities?.model_config_auto_apply)
   const platformAgent = selected ? platformAgentForLocal(data, selected) : null
   const routing = permission.model_routing || {}
   const internalModels = routing.external_gateway_enabled
@@ -941,15 +942,17 @@ const renderModelSwitcher = data => {
   const externalStatus = externalCatalog
     ? ` · ${externalCatalog.status === 'active' ? t('client.models.catalog_ready') : t('client.models.catalog_error')}${externalCatalog.models_refreshed_at ? ` · ${formatTime(externalCatalog.models_refreshed_at)}` : ''}`
     : ''
-  $('#model-permission-note').textContent = permission.can_configure_models
+  $('#model-permission-note').textContent = selected && !selected.capabilities?.model_config_auto_apply
+    ? t(permission.can_export_manual_credentials ? 'ui.manualModel.permissionReady' : 'ui.manualModel.permissionHelp')
+    : permission.can_configure_models
     ? hasExternalCatalog
       ? `${t('client.models.external_catalog')} · ${tf`当前凭证可配置 ${models.length} 个网关模型；首次切换会自动建立运行身份并创建独立凭证。`}${externalStatus}`
       : tf`当前凭证可配置 ${models.length} 个网关模型；首次切换会自动建立运行身份并创建独立凭证。`
     : t('client.models.issuance_disabled')
   $('#model-agent-tabs').innerHTML = agents.map(agent => `
     <button type="button" role="tab" aria-selected="${agent.local_agent_id === selectedModelAgentID}" class="${agent.local_agent_id === selectedModelAgentID ? 'active' : ''}" data-model-agent="${escapeHtml(agent.local_agent_id)}">
-      ${agentLogo(agent)}<span class="model-agent-copy"><strong>${escapeHtml(agentLabel(agent.agent_type))}</strong>
-      <span>${escapeHtml(modelConfigState(agent).model || t('client.models.not_configured'))}</span></span>
+      ${agentLogo(agent)}<span class="model-agent-copy"><strong>${escapeHtml(agent.name || agent.display_name || agentLabel(agent.agent_type))}</strong>
+      <span>${escapeHtml(agent.capabilities?.model_config_auto_apply ? (modelConfigState(agent).model || t('client.models.not_configured')) : t('ui.manualModel.capabilityUnknown'))}</span></span>
     </button>`).join('')
   document.querySelectorAll('[data-model-agent]').forEach(button => button.addEventListener('click', () => {
     selectedModelAgentID = button.dataset.modelAgent
@@ -960,6 +963,16 @@ const renderModelSwitcher = data => {
     $('#model-catalog').classList.add('empty')
     $('#model-catalog').textContent = t('client.models.no_local_agent')
     $('#model-result-count').textContent = tf`${models.length} 个模型`
+    return
+  }
+  if (!selected.capabilities?.model_config_auto_apply) {
+    $('#refresh-models').disabled = true
+    $('#external-model-readiness').hidden = true
+    $('#model-current').innerHTML = `<div class="model-current-main"><span>${escapeHtml(t('client.models.current_config'))}</span><strong>${escapeHtml(modelConfigState(selected).model || t('ui.manualModel.notRead'))}</strong><span>${escapeHtml(t('ui.manualModel.unverified'))}</span></div><p>${escapeHtml(t('ui.manualModel.manualReason'))}</p>`
+    $('#model-result-count').textContent = ''
+    $('#model-catalog').classList.remove('empty')
+    $('#model-catalog').innerHTML = `<section class="manual-model-intro"><h3>${escapeHtml(t('ui.manualModel.title'))}</h3><p>${escapeHtml(t('ui.manualModel.intro'))}</p><button type="button" class="primary" id="open-manual-model">${escapeHtml(t('ui.manualModel.conditions'))}</button></section>`
+    $('#open-manual-model').addEventListener('click', () => window.manualModelGuide.open(selected))
     return
   }
   const state = modelConfigState(selected)
@@ -3436,7 +3449,7 @@ function taskTypeLabel(task) {
   }
   if (value === 'skill_action') return task.payload?.action ? governanceLabelFor('action', task.payload.action) : t('ui.records.skillAction')
   if (value === 'rescan' && task?.payload?.reason === 'policy_changed') return t('ui.q9utgp')
-  return { aidr_skill_observe: t('ui.skillAudit.observeTask'), install_skill: t('ui.14fftle'), remove_skill: t('ui.s2pmon'), repair_skill: t('ui.14oueep'), apply_model_config: t('client.models.task_type'), verify_model_config: t('ui.modelConfig.verify'), restore_model_config: t('ui.modelConfig.restore'), rescan: t('ui.1rnx8gk'), sync_policy: t('ui.q9utgp') }[value] || value || tf`平台任务`
+  return { aidr_skill_observe: t('ui.skillAudit.observeTask'), install_skill: t('ui.14fftle'), remove_skill: t('ui.s2pmon'), repair_skill: t('ui.14oueep'), apply_model_config: t('client.models.task_type'), manual_model_credential: t('ui.manualModel.task'), verify_model_config: t('ui.modelConfig.verify'), restore_model_config: t('ui.modelConfig.restore'), rescan: t('ui.1rnx8gk'), sync_policy: t('ui.q9utgp') }[value] || value || tf`平台任务`
 }
 
 function aidrTaskAgents(payload) {

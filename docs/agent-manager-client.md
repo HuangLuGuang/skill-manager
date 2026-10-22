@@ -92,6 +92,24 @@ Subsequent pacing changes use actual delivery completion and defer unsent record
 
 ## 在线操作指南 / Online operating guides
 
+### 手动配置模型 / Manual model configuration
+
+在“模型切换”选择没有自动配置适配器的 Agent，打开“手动配置引导”：
+
+1. 在 Agent 自身设置中确认自定义 Base URL、API Key、模型名称和协议选项，选择实际支持的协议。
+2. 选择模型并复制地址、模型调用名称。有手动领取权限时点击“申请凭证”，随后“复制凭证”，粘贴到 Agent 并保存。无权限时按页面说明由管理员为当前客户端凭证开启手动领取权限，再点击“重新检查权限”。本次凭证仅能在 5 分钟的临时复制窗口内复制；关闭后需要重新领取，内置网关会替换上次手动申请的凭证。
+3. 重启 Agent 并创建新会话，发送测试消息，在对应网关的调用记录中核对 Agent、模型及结果。完成引导只结束本次操作指引，不将调用标为已验证，也不自动写入 Agent 配置。
+
+In Model switching, select an Agent without an automatic adapter and open the manual guide:
+
+1. Find the Agent’s custom Base URL, API Key, model and protocol settings; select a protocol supported by the installed version.
+2. Select a model and copy its endpoint and invocation name. With manual retrieval permission, request and copy a credential, paste it into the Agent, and save. Otherwise, ask an administrator to enable manual retrieval on this Client credential and recheck permission. The temporary copy is available for five minutes; closing the guide requires retrieval again, replacing the previous manual credential for the internal gateway.
+3. Restart the Agent, start a new session and send a test message. Check the Agent, model and result in the relevant gateway’s call records. Finishing only confirms the guide actions; it does not mark calls as verified or write Agent configuration automatically.
+
+授权、凭证范围及外部网关边界见[手动配置与凭证领取](model-gateway.md#手动配置与凭证领取--manual-configuration-and-credential-retrieval)。
+
+See [manual configuration and credential retrieval](model-gateway.md#手动配置与凭证领取--manual-configuration-and-credential-retrieval) for authorization, credential scope and external gateway behavior.
+
 平台帮助中心的 `/docs/aidr-client` 提供客户端接入、日志目录、Hook 安装/信任、系统目标与权限、停止退出和补传步骤及中英文截图。三通道比较见 `/docs/aidr-overview`，平台操作见 `/docs/aidr-platform`，审计/拦截与审批见 `/docs/aidr-policies`，Skill 异步认证见 `/docs/aidr-skill-audit`，排障与性能验收见 `/docs/aidr-troubleshooting`。
 
 The online Help Center provides illustrated bilingual procedures at `/docs/aidr-client`, with separate guides for channel comparison, platform operations, control/content policies, asynchronous Skill certification and troubleshooting. This repository document retains implementation and integration details. Help screenshots are direct captures of the local platform and native macOS Dev client on 2026-10-10. Visible states describe that local installation; customer-device permissions and enforcement require separate validation.

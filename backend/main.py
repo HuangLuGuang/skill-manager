@@ -371,6 +371,8 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE access_tokens ADD COLUMN allow_agent_credential_issuance BOOLEAN NOT NULL DEFAULT 0"
             )
+        if "allow_manual_credential_export" not in access_token_columns:
+            conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN allow_manual_credential_export BOOLEAN NOT NULL DEFAULT 0")
         if "issued_by_client_token_id" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN issued_by_client_token_id INTEGER")
             conn.exec_driver_sql(

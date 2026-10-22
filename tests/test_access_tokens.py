@@ -599,6 +599,66 @@ def test_removing_model_scope_clears_allowed_models(tmp_path):
     assert updated.json()["allowed_models"] == []
 
 
+def test_permission_edit_keeps_secret_and_settings_and_enforces_new_scopes(tmp_path):
+    client = _client(tmp_path)
+    created = client.post("/api/v1/access/tokens", json={
+        "name": "editable-runtime", "token_type": "agent_runtime", "bound_agent_id": "risk-agent",
+        "scopes": ["runtime:can-load", "model:chat"], "allowed_models": ["model-a"],
+        "prompt_guard_mode": "block", "enable_compression": True, "max_concurrent_requests": 3,
+    }).json()
+    endpoint = f"/api/v1/access/tokens/{created['record']['id']}"
+    headers = {"Authorization": f"Bearer {created['token']}", "X-Agent-ID": "risk-agent"}
+    runtime_endpoint = "/api/v1/access/runtime/can-load/risk-skill"
+    assert client.get(runtime_endpoint, headers=headers).status_code == 200
+    response = client.put(endpoint, json={"scopes": ["model:chat"], "allowed_models": ["model-b"]})
+    assert response.status_code == 200
+    edited = response.json()
+    assert edited["allowed_models"] == ["model-b"]
+    assert edited["token"] is None and edited["token_hash"] is None
+    for field in ("token_prefix", "bound_agent_id", "name", "prompt_guard_mode", "enable_compression", "max_concurrent_requests"):
+        assert edited[field] == created["record"][field]
+    assert client.get(runtime_endpoint, headers=headers).status_code == 403
+    assert client.put(endpoint, json={"scopes": ["runtime:can-load", "model:chat"]}).status_code == 200
+    assert client.get(runtime_endpoint, headers=headers).status_code == 200
+
+
+def test_edit_rejects_empty_or_wrong_type_scopes_without_mutation(tmp_path):
+    client = _client(tmp_path)
+    created = client.post("/api/v1/access/tokens", json={
+        "name": "restricted-scanner", "token_type": "scanner", "scopes": ["scanner:submit"],
+    }).json()["record"]
+    endpoint = f"/api/v1/access/tokens/{created['id']}"
+    for scopes in ([], None, [" "]):
+        response = client.put(endpoint, json={"scopes": scopes})
+        assert response.status_code == 400
+        assert response.json()["error_code"] == "credential.scopes_required"
+    invalid = client.put(endpoint, json={"scopes": ["model:chat"]})
+    assert invalid.status_code == 400
+    assert invalid.json()["error_code"] == "credential.scope_type_mismatch"
+    assert client.get("/api/v1/access/tokens").json()["items"][0]["scopes"] == ["scanner:submit"]
+    assert client.post(endpoint + "/revoke").status_code == 200
+    revoked = client.put(endpoint, json={"status": "active", "scopes": ["scanner:submit"]})
+    assert revoked.status_code == 409
+    assert revoked.json()["error_code"] == "credential.revoked"
+
+
+def test_client_scope_edit_preserves_delegated_model_boundary(tmp_path):
+    client = _client(tmp_path)
+    created = client.post("/api/v1/access/tokens", json={
+        "name": "client-boundary", "token_type": "client", "allow_agent_credential_issuance": True,
+        "allow_manual_credential_export": True, "allowed_models": ["model-a"],
+    }).json()["record"]
+    endpoint = f"/api/v1/access/tokens/{created['id']}"
+    edited = client.put(endpoint, json={"scopes": ["client:heartbeat"]})
+    assert edited.status_code == 200
+    assert edited.json()["allowed_models"] == ["model-a"]
+    assert edited.json()["allow_manual_credential_export"] is True
+    disabled = client.put(endpoint, json={"allow_agent_credential_issuance": False})
+    assert disabled.status_code == 200
+    assert disabled.json()["allowed_models"] == []
+    assert disabled.json()["allow_manual_credential_export"] is False
+
+
 def test_agent_runtime_token_enforces_bound_prompt(tmp_path):
     client = _client(tmp_path)
     token = client.post(

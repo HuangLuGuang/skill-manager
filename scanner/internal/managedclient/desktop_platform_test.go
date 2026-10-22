@@ -28,11 +28,17 @@ func TestDesktopPlatformContracts(t *testing.T) {
 			if r.URL.Query().Get("keyword") != "原始 & ? /" {
 				t.Error(r.URL.RawQuery)
 			}
-		case "/api/v1/clients/test-client/model-catalog/refresh":
+		case "/api/v1/clients/test-client/model-catalog/refresh", "/api/v1/clients/test-client/manual-model/options":
 			var body map[string]string
 			json.NewDecoder(r.Body).Decode(&body)
 			if r.Method != "POST" || body["local_agent_id"] != "local" || body["agent_type"] != "codex" || body["managed_agent_id"] != "managed" {
 				t.Errorf("unexpected model request: %s %v", r.Method, body)
+			}
+		case "/api/v1/clients/test-client/manual-model/credential":
+			var body map[string]string
+			json.NewDecoder(r.Body).Decode(&body)
+			if r.Method != "POST" || body["request_id"] != "request" || body["model"] != "team-chat" {
+				t.Errorf("unexpected manual handoff request: %v", body)
 			}
 		default:
 			t.Error(r.URL.Path)
@@ -43,13 +49,13 @@ func TestDesktopPlatformContracts(t *testing.T) {
 	if err := SaveConfig(home, Config{Server: server.URL, Token: "fixture-token"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, method := range []string{"platform-status", "platform-history", "model-catalog"} {
-		result, err := DesktopPlatform(context.Background(), home, DesktopRequest{Version: 1, Method: method, Filters: map[string]string{"keyword": "原始 & ? /"}, LocalAgentID: "local", AgentType: "codex", ManagedAgentID: "managed"})
+	for _, method := range []string{"platform-status", "platform-history", "model-catalog", "manual-model-options", "manual-model-credential"} {
+		result, err := DesktopPlatform(context.Background(), home, DesktopRequest{Version: 1, Method: method, Filters: map[string]string{"keyword": "原始 & ? /"}, LocalAgentID: "local", AgentType: "codex", ManagedAgentID: "managed", ManualModel: map[string]string{"request_id": "request", "model": "team-chat"}})
 		if err != nil || !json.Valid(result) {
 			t.Fatalf("%s: %s %v", method, result, err)
 		}
 	}
-	if _, err := DesktopPlatform(context.Background(), home, DesktopRequest{Method: "https://untrusted"}); err == nil || calls != 3 {
+	if _, err := DesktopPlatform(context.Background(), home, DesktopRequest{Method: "https://untrusted"}); err == nil || calls != 5 {
 		t.Fatal("unknown operation reached network")
 	}
 }

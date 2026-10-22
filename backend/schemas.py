@@ -506,6 +506,7 @@ class AccessTokenCreate(BaseModel):
     bound_agent_id: Optional[str] = None
     bound_client_id: Optional[str] = None
     allow_agent_credential_issuance: bool = False
+    allow_manual_credential_export: bool = False
     user_id: Optional[int] = None
     group_id: Optional[int] = None
     scopes: list[str] = []
@@ -529,6 +530,7 @@ class AccessTokenUpdate(BaseModel):
     bound_agent_id: Optional[str] = None
     bound_client_id: Optional[str] = None
     allow_agent_credential_issuance: Optional[bool] = None
+    allow_manual_credential_export: Optional[bool] = None
     user_id: Optional[int] = None
     group_id: Optional[int] = None
     scopes: Optional[list[str]] = None
@@ -559,6 +561,7 @@ class AccessTokenResponse(BaseModel):
     bound_agent_id: Optional[str] = None
     bound_client_id: Optional[str] = None
     allow_agent_credential_issuance: bool = False
+    allow_manual_credential_export: bool = False
     issued_by_client_token_id: Optional[int] = None
     user_id: Optional[int] = None
     group_id: Optional[int] = None
@@ -1083,6 +1086,17 @@ class ClientModelConfigurationRequest(BaseModel):
     gateway_id: Optional[int] = Field(default=None, ge=1)
     parameters: dict[str, Any] = Field(default_factory=dict)
     expected_revision: Optional[str] = None
+
+
+class ClientManualModelCredentialRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    local_agent_id: str = Field(min_length=1, max_length=128)
+    agent_type: str = Field(min_length=1, max_length=64)
+    request_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+    replace_request_id: Optional[str] = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
+    model: str = Field(min_length=1, max_length=255)
+    source: str = Field(pattern=r"^(internal|external_gateway)$")
+    protocol: str = Field(pattern=r"^(openai|anthropic|responses)$")
 
 
 class ClientExternalModelCatalogRequest(BaseModel):

@@ -19,6 +19,7 @@ type DesktopRequest struct {
 	LocalAgentID   string            `json:"local_agent_id,omitempty"`
 	AgentType      string            `json:"agent_type,omitempty"`
 	ManagedAgentID string            `json:"managed_agent_id,omitempty"`
+	ManualModel    map[string]string `json:"manual_model,omitempty"`
 }
 
 // DesktopPlatform owns the platform HTTP contract; callers cannot supply URLs or credentials.
@@ -32,6 +33,10 @@ func DesktopPlatform(ctx context.Context, home string, request DesktopRequest) (
 		suffix, code, method = "/history", "client_history", http.MethodGet
 	case "model-catalog":
 		suffix, code, method, timeout = "/model-catalog/refresh", "model_catalog_refresh", http.MethodPost, 30*time.Second
+	case "manual-model-options":
+		suffix, code, method, timeout = "/manual-model/options", "manual_model", http.MethodPost, 30*time.Second
+	case "manual-model-credential":
+		suffix, code, method, timeout = "/manual-model/credential", "manual_model", http.MethodPost, 30*time.Second
 	default:
 		return nil, fmt.Errorf("client_ipc_invalid_request")
 	}
@@ -54,7 +59,11 @@ func DesktopPlatform(ctx context.Context, home string, request DesktopRequest) (
 	}
 	var body io.Reader
 	if method == http.MethodPost {
-		data, _ := json.Marshal(map[string]string{"local_agent_id": request.LocalAgentID, "agent_type": request.AgentType, "managed_agent_id": request.ManagedAgentID})
+		payload := map[string]string{"local_agent_id": request.LocalAgentID, "agent_type": request.AgentType, "managed_agent_id": request.ManagedAgentID}
+		if request.Method == "manual-model-credential" {
+			payload = request.ManualModel
+		}
+		data, _ := json.Marshal(payload)
 		body = bytes.NewReader(data)
 	}
 	api := NewAPI(config.Server, config.Token, timeout)

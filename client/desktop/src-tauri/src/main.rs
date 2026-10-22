@@ -33,6 +33,7 @@ const BUILD_VERSION: &str = match option_env!("AGENT_MANAGER_RELEASE_VERSION") {
 };
 const UI_STATE_SIGNAL_NAME: &str = "ui-state-revision.json";
 mod aidr_manager;
+mod manual_model;
 mod background;
 mod background_runtime;
 mod desktop_ipc;
@@ -1062,6 +1063,7 @@ fn main() {
             record_desktop_diagnostic,
             get_connection_status,
             refresh_model_catalog,
+            manual_model::manual_model_action,
             get_local_snapshot,
             get_client_history,
             show_system_notification,

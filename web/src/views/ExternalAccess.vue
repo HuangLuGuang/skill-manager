@@ -129,7 +129,7 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import { can, pageAllowed } from '../access'
@@ -143,6 +143,7 @@ import { externalAccessOptions, listExternalPlatforms, createExternalPlatform, u
 
 const { t, te } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const tab = ref(route.query.request_id ? 'requests' : route.query.tab || 'partners')
 const recordType = ref('inbound')
 const partners = ref([]), tokens = ref([]), records = ref([]), options = ref({ groups: [], scopes: [] })
@@ -281,6 +282,15 @@ async function changeToken(row, revoke = false) {
   catch (error) { fail(error) } finally { busyToken.value = null }
 }
 async function copyToken() { try { await copyText(plaintext.value); message.success(t('externalAccess.copied')) } catch { message.error(t('externalAccess.copyFailed')) } }
+watch(() => route.query.edit_token, value => { if (value) tab.value = 'tokens' }, { immediate: true })
+watch([() => route.query.edit_token, tokens, loading], () => {
+  if (!route.query.edit_token || loading.value || !can('credentials:update')) return
+  const row = tokens.value.find(item => String(item.id) === route.query.edit_token)
+  if (!row || row.status === 'revoked') return
+  openToken(row)
+  const query = { ...route.query }; delete query.edit_token
+  void router.replace({ query })
+})
 watch(() => route.query.request_id, value => { if (value) {
   const alreadyInbound = tab.value === 'requests' && recordType.value === 'inbound'
   recordType.value = 'inbound'; resetFilters(); filters.request_id = String(value); pagination.current = 1; tab.value = 'requests'

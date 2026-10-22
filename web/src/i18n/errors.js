@@ -2,6 +2,8 @@ import { formatMcpFieldError } from './mcpServerForm.js'
 import { scanScheduleMessages } from './scanSchedule.js'
 import { skillAuditReview } from './skill-audit-review.js'
 const errorMessages = {
+  'credential.scopes_required': { 'zh-CN': '请至少保留一项权限；停止使用请吊销凭证', 'en-US': 'Keep at least one permission; revoke the credential to stop using it' },
+  'credential.revoked': { 'zh-CN': '凭证已吊销，请创建新凭证', 'en-US': 'This credential is revoked; create a new one' },
   "license.invalid": {"zh-CN": "授权文件格式或签名无效", "en-US": "Invalid license format or signature"},
   "license.untrusted_key": {"zh-CN": "签发公钥不受信任，请联系管理员配置", "en-US": "The issuing key is not trusted; contact your administrator"},
   "license.deployment_mismatch": {"zh-CN": "授权与当前部署不匹配", "en-US": "The license belongs to a different deployment"},

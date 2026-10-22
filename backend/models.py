@@ -160,6 +160,7 @@ class AccessToken(Base):
     bound_agent_id = Column(String(128), index=True, nullable=True)
     bound_client_id = Column(String(128), index=True, nullable=True)
     allow_agent_credential_issuance = Column(Boolean, default=False, nullable=False)
+    allow_manual_credential_export = Column(Boolean, default=False, nullable=False)
     issued_by_client_token_id = Column(Integer, index=True, nullable=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     group_id = Column(Integer, ForeignKey("user_groups.id"), index=True, nullable=True)

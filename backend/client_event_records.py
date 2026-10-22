@@ -19,7 +19,7 @@ def expressions():
         (e.event_type.in_(['skill_scan_submitted','platform_scan_status']), 'scan'),
         (e.event_type.in_(['skill_governance_action','skill_quarantined','skill_removed','skill_repaired','skill_quarantine_restored','skill_blocked']), 'remediation'),
         (e.event_type.in_(['skill_installed','skill_auto_installed','skill_auto_install_failed']), 'installation'),
-        (e.event_type.in_(['agent_credential_issued','local_agent_binding_updated','managed_agent_auto_created','connection_changed_governance_paused','connection_changed_state_reset']), 'configuration'), else_='other')
+        (e.event_type.in_(['manual_model_credential_issued','agent_credential_issued','local_agent_binding_updated','managed_agent_auto_created','connection_changed_governance_paused','connection_changed_state_reset']), 'configuration'), else_='other')
     state = case(
         (e.event_type == 'aidr_skill_alert', case((field('active') == 1, 'alert_active'), (field('active') == 0, 'alert_inactive'), else_='unknown')),
         (or_failure(field('error_code'), status), 'failed'),
@@ -86,7 +86,7 @@ def present(event, details, usage=None):
             result.update(category='scan', title=kind)
         elif kind in {'skill_auto_installed','skill_auto_install_failed'}:
             result.update(category='installation', title='action_install')
-        elif kind in {'agent_credential_issued','local_agent_binding_updated','managed_agent_auto_created','connection_changed_governance_paused','connection_changed_state_reset'}:
+        elif kind in {'manual_model_credential_issued','agent_credential_issued','local_agent_binding_updated','managed_agent_auto_created','connection_changed_governance_paused','connection_changed_state_reset'}:
             result.update(category='configuration', title=kind)
         if status == 'failed' or result['error'] or kind == 'skill_auto_install_failed': result['state'] = 'failed'
         elif kind in {'skill_governance_recorded','skill_governance_detected'} and action in {'record_only','record'}: result['state'] = 'recorded'
