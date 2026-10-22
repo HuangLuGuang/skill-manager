@@ -220,6 +220,15 @@ def test_frontend_release_image_fails_closed_on_known_dependency_vulnerabilities
     assert package["overrides"]["esbuild"].startswith("^0.28.")
     assert package["overrides"]["nanoid"].startswith("^3.3.18")
     assert package["overrides"]["postcss"].startswith("^8.5.23")
+    # 检查锁定版本，防止已确认的重定向与开发工具漏洞随依赖回退再次进入构建。
+    lock = json.loads((ROOT / "web" / "package-lock.json").read_text(encoding="utf-8"))
+    packages = lock["packages"]
+    assert tuple(map(int, packages["node_modules/follow-redirects"]["version"].split("."))) >= (
+        1, 16, 1,
+    )
+    assert tuple(map(int, packages["node_modules/vite"]["version"].split("."))) >= (
+        7, 3, 7,
+    )
 
 
 @pytest.mark.parametrize(("platform", "arch", "version"), [

@@ -89,6 +89,7 @@ make sandbox-runtime-build
 - Python 依赖优先使用 `uv` 管理，不要直接引入未记录的运行时依赖。
 - 后台管理 API 依赖在 `backend/pyproject.toml`，核心包依赖在根目录 `pyproject.toml`。
 - 前端依赖在 `web/package.json`，不要提交 `node_modules/`。
+- 更新前端依赖时同步锁文件，并在 Node 22 下通过 `npm audit --audit-level=low`、语言检查和构建；审计包含开发依赖。
 - 手动代码修改使用小范围补丁，避免重写无关文件。
 - 仓库可能存在用户未提交改动；不要执行 `git reset --hard`、`git checkout -- <file>` 等破坏性命令，除非用户明确要求。
 - 大改动前先看现有实现和文档，尤其是 `docs/project-guide.md`、`docs/external-agent-integration.md`、`docs/sandbox-service-architecture.md`。
