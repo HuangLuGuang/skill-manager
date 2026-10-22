@@ -56,7 +56,7 @@ def test_catchup_commits_each_batch_and_reloads_revocation(service, monkeypatch,
     assert len(generations)==3 and all(t!=get_ident() for t in threads)
     with factory() as db:
         rows=db.query(AidrSkillUse).order_by(AidrSkillUse.id).all()
-        assert [r.certification for r in rows]==['verified_content']*50+['revoked']*70
+        assert [r.certification for r in rows]==['verified']*50+['revoked']*70
         assert db.query(models.ClientEvent).count()==70
 
 

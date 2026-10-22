@@ -1,9 +1,12 @@
 package agentlog
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,9 +22,79 @@ func doubaoTrajectory(root, path string) []string {
 
 func doubaoWorkLogAdapter() logAdapter {
 	return logAdapter{
+		Read: readDoubaoWork,
+		ReadOffset: func(s Source, c Cursor) int64 {
+			if doubaoCacheSource(s.Root, s.Path) {
+				if c.ScanComplete {
+					if info, err := os.Stat(s.Path); err == nil {
+						return info.Size()
+					}
+				}
+				return 0
+			}
+			if c.ContextRepair != nil {
+				return 0
+			}
+			return c.Offset
+		},
 		Parse: normalizeDoubaoWork, DraftTurn: true, ObservedAtSource: "collection",
-		SourceFile: func(root, path string) bool { return doubaoTrajectory(root, path) != nil },
+		SourceFile: func(root, path string) bool {
+			return doubaoTrajectory(root, path) != nil || doubaoCacheSource(root, path)
+		},
 	}
+}
+
+func readDoubaoWork(ctx context.Context, s Source, c Cursor, b Budget, since time.Time, policy *AuditPolicy, observer *SkillObserver) (ReadBatch, error) {
+	if doubaoCacheSource(s.Root, s.Path) {
+		return readDoubaoCache(ctx, s, c, b, since, policy, observer)
+	}
+	collectMessages := policy != nil && policy.CollectionEnabled() && policy.MessageSchema == 1 && policy.Capture != nil
+	var turns map[string]string
+	var revision string
+	if parts := doubaoTrajectory(s.Root, s.Path); parts != nil && policy != nil && policy.CollectionEnabled() {
+		turns, revision = doubaoTurns(ctx, s.Root, parts[0])
+	}
+	b.Events = min(b.Events, 128)
+	enrich := func(out ReadBatch) ReadBatch {
+		for _, e := range out.Events {
+			if turn := turns[e.CallID]; turn != "" && (e.Kind == "tool_call" || e.Kind == "tool_result") {
+				out.TurnLinks = append(out.TurnLinks, TurnLink{e.LogicalEventID, e.SessionID, e.CallID, turn, e.ContentDigest})
+			}
+		}
+		return out
+	}
+	if ((collectMessages && !c.DoubaoMessages) || (revision != "" && revision != c.DoubaoTurns)) && c.Offset > 0 {
+		// Keep the committed offset while replay advances in a separate checkpoint.
+		checkpoint := Cursor{}
+		if c.ContextRepair != nil && c.ContextRepair.DoubaoTurns == revision {
+			checkpoint = *c.ContextRepair
+		}
+		out, err := readWithPolicy(ctx, s, checkpoint, b, c.Since, policy, c.Offset, true, observer)
+		if err != nil {
+			return out, err
+		}
+		if out.Cursor.FileIdentity != c.FileIdentity || (out.Coverage.Status == "complete" && out.Cursor.Offset < c.Offset) {
+			return readWithPolicy(ctx, s, c, b, since, policy, 0, false, observer)
+		}
+		if out.Cursor.Offset == c.Offset {
+			c.DoubaoMessages, c.ContextRepair = c.DoubaoMessages || collectMessages, nil
+			c.DoubaoTurns = revision
+		} else {
+			progress := out.Cursor
+			progress.DoubaoTurns = revision
+			c.ContextRepair = &progress
+		}
+		out.Cursor = c
+		return enrich(out), nil
+	}
+	out, err := readWithPolicy(ctx, s, c, b, since, policy, 0, false, observer)
+	if err == nil && out.Cursor.SchemaVersion != 0 && collectMessages {
+		out.Cursor.DoubaoMessages = true
+	}
+	if err == nil && out.Cursor.SchemaVersion != 0 && revision != "" {
+		out.Cursor.DoubaoTurns = revision
+	}
+	return enrich(out), err
 }
 
 func normalizeDoubaoWork(s Source, raw []byte, c *Cursor) ([]draft, error) {
@@ -73,6 +146,14 @@ func normalizeDoubaoWork(s Source, raw []byte, c *Cursor) ([]draft, error) {
 	case "user", "system":
 	default:
 		return nil, errors.New("aidr_log_schema_unsupported")
+	}
+	if row.Role == "user" || row.Role == "assistant" {
+		// Offsets distinguish repeated identical messages without inventing host turn IDs.
+		id := "trajectory:" + strconv.FormatInt(c.Offset, 10)
+		if message, ok := messageDraft(row.Role, "unspecified", id, "", row.Content, now); ok {
+			message.Block = len(row.Calls)
+			drafts = append(drafts, message)
+		}
 	}
 	return validateDrafts(drafts)
 }

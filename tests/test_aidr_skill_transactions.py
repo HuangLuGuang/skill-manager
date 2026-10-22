@@ -69,6 +69,23 @@ def test_list_checks_release_writer_between_groups_and_preserve_cursor(service, 
     assert len(calls) == 35
 
 
+def test_detail_checks_do_not_hold_writer(service, monkeypatch):
+    from backend import aidr_skill_review
+    client, factory = service
+    seed(factory, 1)
+    calls = []
+    monkeypatch.setattr(aidr_skill_review, 'registry_manager', lambda: probing_manager(factory, calls))
+    with factory() as db:
+        row_id = db.query(AidrSkillUse).one().id
+    response = client.get(f'/api/v1/clients/one/aidr/skill-uses/{row_id}')
+    assert response.status_code == 200, response.text
+    assert len(calls) == 1
+    assert response.json()['certification']['status'] == 'unregistered'
+    assert len(response.json()['evidence']) == 1
+    with factory() as db:
+        assert db.query(AidrSkillCheck).count() == 1
+
+
 @pytest.mark.parametrize('change', ['evidence', 'expire'])
 def test_refresh_batch_does_not_overwrite_concurrent_evidence_or_expiry(service, monkeypatch, change):
     _, factory = service
@@ -154,8 +171,8 @@ def test_list_rechecks_revocation_and_alert_resolution_on_next_request(service, 
         db.commit()
     monkeypatch.setattr(usage, 'registry_manager', lambda: SimpleNamespace(
         list_certification_candidates=lambda **_: [entry], checks={}))
-    for state, expected, active in [('APPROVED', 'verified_content', False),
-                                    ('RETIRED', 'revoked', True), ('APPROVED', 'verified_content', False)]:
+    for state, expected, active in [('APPROVED', 'verified', False),
+                                    ('RETIRED', 'revoked', True), ('APPROVED', 'verified', False)]:
         entry.status = state
         response = client.get('/api/v1/clients/one/aidr/skill-uses',
                               params=dict(agent='workbuddy', session_id='session', certification=expected))

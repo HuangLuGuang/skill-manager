@@ -105,6 +105,31 @@ def prepare_observation(db):
     return db.query(AidrSkillUse).one()
 
 
+@pytest.mark.parametrize('source', ['log', 'hook'])
+def test_skill_evidence_content_identity_opens_body(service, source):
+    from backend import auth, iam
+    client, factory = service
+    client.app.dependency_overrides[auth.get_current_active_user] = lambda: models.User(id=1, username='owner', role='admin', is_active=True)
+    with factory() as db:
+        iam.initialize(db)
+        record = evidence(db, source=source, skill={'behavior':'invocation', 'name':'sample'})
+        raw = json.loads(record.payload_json)
+        event = raw['event'] if source == 'hook' else raw
+        event['contents'] = [{'kind':'tool_output', 'text':'Skill loaded', 'source_field':'result'}]
+        record.payload_json = json.dumps(raw)
+        usage_id, record_id = db.query(AidrSkillUse).one().id, record.id
+        content_id = str(record.id) if source == 'hook' else record.logical_id
+        db.commit()
+    base = '/api/v1/clients/one/aidr'
+    response = client.get(f'{base}/skill-uses/{usage_id}/evidence', params={'source':source, 'record_id':record_id})
+    assert response.status_code == 200
+    assert response.json()['content_record_id'] == content_id
+    assert 'Skill loaded' not in response.text
+    content = client.get(f'{base}/content', params={'source':source, 'record_id':content_id})
+    assert content.status_code == 200, content.text
+    assert content.json()['contents'][0]['text'] == 'Skill loaded'
+
+
 @pytest.mark.parametrize('redaction_enabled', [True, False])
 def test_observation_idempotency_policy_and_original_preservation(service, monkeypatch, redaction_enabled):
     _, factory = service

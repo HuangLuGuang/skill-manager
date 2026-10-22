@@ -72,6 +72,8 @@ type CallTurn struct {
 	ContentDigest string `json:"content_digest,omitempty"`
 }
 type Cursor struct {
+	DoubaoMessages           bool          `json:"doubao_messages,omitempty"`
+	DoubaoTurns              string        `json:"doubao_turns,omitempty"`
 	CompletionSchema         int           `json:"completion_schema,omitempty"`
 	ScanComplete             bool          `json:"scan_complete,omitempty"`
 	QoderLinks               []QoderLink   `json:"qoder_links,omitempty"`

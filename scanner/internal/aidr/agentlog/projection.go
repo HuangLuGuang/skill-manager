@@ -34,6 +34,7 @@ func projectDrafts(ctx context.Context, s Source, drafts []draft, candidate *Cur
 			contentHash := digest(canonical(d.Content))
 			id := digest("message/1", s.Agent, s.ID, candidate.Session, d.Call, d.MessageRole, d.MessagePhase, contentHash)
 			out.Events = append(out.Events, Event{ModelContext: collectedModel(d, policy), SchemaVersion: 3, Message: message, EventID: digest(id, identity, strconv.FormatInt(c.Offset, 10)), LogicalEventID: id, SourceID: s.ID, SourceInstanceID: digest(s.ID, identity, strconv.FormatUint(c.Generation, 10)), SourceSeq: c.Offset + int64(d.Block), RecordOffset: c.Offset, Block: d.Block, Agent: s.Agent, AgentVersion: candidate.AgentVersion, Source: "agent_log", SessionID: candidate.Session, TurnID: d.Turn, CallID: d.Call, LogicalCallID: digest(s.Agent, s.ID, candidate.Session, d.Call), Kind: d.Kind, Outcome: "unknown", ObservedAt: d.Time, ReceivedAt: time.Now().UTC(), ContentDigest: contentHash, ContentBytes: len(d.Content), EvidenceDigest: digest(string(line)), ProcessRelation: "unknown"})
+			out.Events[len(out.Events)-1].ObservedAtSource = logAdapters[s.Agent].ObservedAtSource
 			continue
 		}
 		if candidate.Session == "" {

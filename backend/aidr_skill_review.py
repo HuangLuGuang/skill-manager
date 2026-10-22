@@ -8,7 +8,7 @@ from sqlalchemy import func
 
 from . import aidr_adapters, aidr_policy, models
 from .aidr_models import AidrSkillUse, AidrSkillCheck
-from .aidr_skill_usage import dump, hydrate_evidence, aggregate_stage, refresh, registry_manager
+from .aidr_skill_usage import dump, refresh, registry_manager
 from .api_errors import ApiError
 
 
@@ -68,16 +68,7 @@ def task_view(task):
 
 
 def detail(db, row, before=0):
-    original = row.payload_json
-    data = json.loads(row.payload_json)
-    # Re-read exact evidence, including legacy rows whose projection lacked time
-    # and denial state. Never infer identity from proximity or mutate raw events.
-    data = hydrate_evidence(db, row, data)
-    data['stage'] = aggregate_stage(data['evidence']) if data['evidence'] else 'unknown'
-    # The projection only is refreshed; historical source records are immutable.
-    db.query(AidrSkillUse).filter_by(id=row.id, payload_json=original).update({'payload_json':dump(data)}, synchronize_session=False)
-    db.expire(row)
-    item = refresh(db, row, registry_manager())
+    item = refresh(db, row, registry_manager(), hydrate=True)
     db.flush()
     query = db.query(AidrSkillCheck).filter_by(usage_id=row.id, client_id=row.client_id, expired_at=None)
     if before:

@@ -36,7 +36,7 @@ import { getClientAidrSkillUses } from '../api'
 import AidrSkillUseDetail from './AidrSkillUseDetail.vue'
 import { useSkillAuditLabels } from '../utils/skillAudit'
 const props = defineProps({ clientId:String, agent:String, sessionId:String })
-defineEmits(['collection'])
+const emit = defineEmits(['collection', 'count'])
 const { t } = useI18n()
 const { name, time, phase, tone, outcomeTone } = useSkillAuditLabels()
 const tr = (key, args) => t('aidr.skillUse.' + key, args), ui = (key, args) => tr('review.' + key, args)
@@ -54,6 +54,7 @@ async function load(append = false) {
   try {
     const data = await getClientAidrSkillUses(props.clientId, { agent:props.agent, session_id:props.sessionId, behavior:behavior.value, certification:certification.value, result:result.value, keyword:keyword.value, turn_id:turn.value, order:order.value, after:append ? cursor.value : 0 })
     if (id !== request) return
+    emit('count', data.session_total)
     items.value = append ? [...items.value, ...data.items.filter(item => !items.value.some(old => old.id === item.id))] : data.items
     hasMore.value = data.has_more; cursor.value = data.next_cursor
   } catch { if (id === request) error.value = true }

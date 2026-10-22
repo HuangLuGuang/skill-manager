@@ -7,6 +7,7 @@ require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/fsnotify/fsnotify v1.7.0
+	github.com/golang/snappy v0.0.4
 	golang.org/x/text v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.29.10

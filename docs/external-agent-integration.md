@@ -1458,8 +1458,16 @@ Dify 1.15.0（graphon 0.5.3）通过 [Runtime Adapter 接入包](../integrations
 
 事件带运行、工作流摘要、节点与调用标识。资产关联使用应用绑定和摘要；阻断记录不计为实际执行。Adapter 不上传原始参数、代码或模型内容，仅上传控制所需标识和摘要。插件内部、Sandbox 内部及重定向后的每个网络跳转需另行部署相应控制。
 
-独立版豆包工作新增 macOS 日志适配器 `doubaowork`：采集文件工具、命令和 MCP 调用，以来源文件、会话和原生工具 ID 关联返回结果，沿用客户端队列与 `events:batch` 接口。需同时升级服务端与客户端，在策略中选择该来源。日志时间为采集时间，结果成败保持未知；接入配置与内容范围见[客户端说明](agent-manager-client.md#macos-独立版豆包工作日志)。
+独立版豆包工作 macOS 日志适配器 `doubaowork` 采集文件工具、命令、MCP 调用及按开关启用的用户输入、模型回复，以来源文件、会话和原生工具 ID 关联结果，沿用客户端队列、脱敏与 `events:batch` 接口。升级后可恢复地补采保留的历史消息，不重复新增工具记录。日志时间为采集时间，结果成败保持未知；接入配置与内容范围见[客户端说明](agent-manager-client.md#macos-独立版豆包工作日志)。
 
-**English:** The standalone Doubao Work macOS adapter (`doubaowork`) collects file tools, commands and MCP calls through the existing client queue and batch endpoint. Source-file and native call identities pair results within conversations. Upgrade both server and client before selecting this source. Times represent collection, and execution outcomes remain unknown; see the client guide for capture controls.
+豆包轮次通过原生工具调用 ID、运行任务 ID 和前端消息 ID 准确关联，沿用 `turn_links` 对历史记录补关联，原始事件保持不变。缺失或冲突的关联、没有原生消息 ID 的聊天正文及尚未打通身份链的 MCP 调用保留未归属。
+
+豆包 IM 的 IndexedDB 缓存补充带原生消息 ID 的已发送提问和已结束的可见回复正文块；回复按 `reply_id` 归入提问轮次。沿用现有日志开关、脱敏和上报，不需要 Hook。缓存中的未完成回复与已被清理的历史不补造，原轨迹无 ID 的消息仍保留未归属。
+
+**English — message cache:** Doubao's local IndexedDB IM cache supplies acknowledged prompts and finished visible reply blocks with native IDs. Replies use `reply_id` to identify the prompt turn. Existing log controls, redaction and delivery apply without a Hook. Incomplete replies and removed history are not reconstructed; ID-less transcript messages remain unassigned.
+
+**English — turns:** Doubao native tool, runtime-task and frontend message IDs enrich retained history through `turn_links`, preserving original events. Missing/conflicting identities, transcript messages without native message IDs and MCP calls without a verified identity chain remain unassigned.
+
+**English:** The standalone Doubao Work macOS adapter (`doubaowork`) collects file tools, commands, MCP calls and policy-controlled user/assistant messages through existing redaction and batch delivery. Upgrades resume bounded historical message backfill without duplicating tools. Source-file and native call identities pair results within conversations. Times represent collection and execution outcomes remain unknown; see the client guide for capture controls.
 
 **English:** The [Dify Runtime Adapter](../integrations/dify-runtime/README.md) supports Dify 1.15.0 / graphon 0.5.3. Bind the asset, workspace and application to a platform Agent and an owner-matched runtime credential. Observe requires `runtime:trace`; enforce additionally requires `runtime:govern`. Rules cover controlled HTTP, tool, code and retrieval invocation points, graph digests, native checkpoint approvals and completed-action ordering. Authorization is consumed once before execution. Blocked attempts are not execution evidence; plugin internals, sandbox internals and individual redirected network hops require separate controls.

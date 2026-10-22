@@ -482,7 +482,8 @@ window.aidrProducts = [
     ],
     "logs": "doubaowork-jsonl",
     "roots": [
-      "Library/Application Support/DoubaoWork/Default/.doubaowork/agent_mode/workspace/.sessions"
+      "Library/Application Support/DoubaoWork/Default/.doubaowork/agent_mode/workspace/.sessions",
+      "Library/Application Support/DoubaoWork/Default/IndexedDB"
     ],
     "hooks": "",
     "block": false,

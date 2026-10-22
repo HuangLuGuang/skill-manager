@@ -670,7 +670,11 @@ Codex 只有 Hook 的会话通过原生完成记录的专用索引，按设备�
 
 **English:** The default session list aggregates device metadata through indexes and resolves the first available question only for sessions on the selected page. Keyword searches retain content permissions and full-session counts. Snapshot ceilings, retention filters and content access auditing remain in effect. Upgrades add indexes once; index creation time depends on history size and does not rewrite events or clear queues.
 
-性能人工验收 / Performance checks：首次打开行为审计、刷新会话、Agent 筛选、提问关键词搜索、更多会话；核对加载提示、标题与各来源数量，并确认翻页期间新收到的提问不会混入旧快照。Check initial loading, refresh, Agent filtering, question search and pagination, including loading feedback, titles, counts and snapshot isolation.
+会话轮次查询在单次 SQL 内复用 Hook 上下文和日志模型信息的中间结果，减少轮次关联表达式的重复计算；返回字段、排序、分页快照、正文权限及查看审计保持不变。
+
+**English:** Session turn queries reuse intermediate Hook context and log model results within each SQL statement to reduce repeated turn association work. Response fields, ordering, pagination snapshots, content permissions and view auditing remain unchanged.
+
+性能人工验收 / Performance checks：首次打开行为审计、刷新会话、Agent 筛选、提问关键词搜索、更多会话；核对加载提示、标题与各来源数量，并确认翻页期间新收到的提问不会混入旧快照。切换会话及翻页时核对轮次、模型、工作目录和提问内容，中英文均需检查。Check initial loading, refresh, Agent filtering, question search and pagination, including loading feedback, titles, counts and snapshot isolation. Verify turns, models, working directories and question content when switching sessions and paging in both languages.
 
 行为审计使用各子页面自己的刷新入口；会话左侧“刷新”更新会话列表、轮次及当前时间线。设备数据刷新在概览等设备信息页面使用。人工验收：切换会话活动、系统事件和采集状态，确认顶部不显示设备刷新按钮，且各自刷新正常；切回概览确认设备刷新仍可用。中英文均需检查。
 
@@ -2878,15 +2882,17 @@ UI 复验清单：中英文与窄屏下检查全局/单机继承、两种核对�
 
 **English — policy and performance:** Global and device policies configure background content checks, a 300-second maximum digest reuse window, and a separate 30-second registry refresh interval. Defaults are one concurrent check, 256 files, 2 MiB per file and 8 MiB total. Metadata is checked before reuse and original observation timestamps are retained. Windows metadata here does not expose change time, so same-size rewrites with restored mtime may wait for full rehash. Cache and refresh batches are bounded; scheduling intervals do not guarantee alert latency. Three alert categories support record-only or record-and-alert under a master switch. Save previews and timestamped client reports distinguish configuration from reported application. Manually verify both languages, narrow layouts, inheritance, invalid limits, preview/cancel, stale reports and observation status.
 
-Skill 行为采用会话列表、行为表格和记录详情三栏结构。点击记录显示按时间排序的证据、内容观察和平台核对；窄屏在列表与详情之间切换。行为结果与认证状态独立展示，明确拒绝为“已拒绝”，成功与拒绝/失败证据冲突时保留“结果未确认”。可按 Skill/路径、行为、操作结果、认证和原生轮次 ID 筛选，关键词采用 300 毫秒防抖，默认最新记录优先。认证和结果筛选在本次核对后执行；单批最多检查 200 条，尚有未查记录时显示“继续查找”，只有游标耗尽才展示最终空结果。
+Skill 行为审计遵循客户端治理模式：`registry` 模式下，内容匹配平台批准版本且签名验证通过即显示“已认证”；`strict` 模式额外检查可唯一确认的智能体身份、启用状态及 Skill 授权。身份不足显示“内容已认证 · 授权未知”，授权未通过显示“内容已认证 · 未授权给此智能体”。切换模式后重新核对更新当前结论，保留历史核对记录，并将已不适用的告警标记为历史告警。English: Skill activity audit follows the client governance mode. In registry mode, approved matching content with a verified signature is Certified. Strict mode additionally checks a uniquely identified Agent, its active status and Skill authorization. Missing identity leaves authorization unknown; failed authorization is shown separately from certified content. Rechecking after a mode change updates the current conclusion and deactivates obsolete alerts while retaining check history.
 
-记录详情提供原始证据入口，按设备和原生调用身份校验归属，正文继续遵守 `clients:read-audit-content` 权限、采集范围、脱敏与保留策略。核对结论变化写入 `aidr_skill_checks`，保留当时结论和观察来源；相同结论只更新当前核对时间。历史从升级后的首次核对开始记录，不能还原升级前或调用瞬间的认证状态。
+Skill 行为页签显示当前会话有效行为记录总数，独立于筛选和分页；同一次调用的多条证据不重复计数。时间线将发起记录显示为“已发起调用/已发起读取”，并说明完成状态以结果记录为准；不重复展示轮次 ID，保留原生轮次筛选。Skill 行为采用会话列表、行为表格和记录详情三栏结构。点击记录显示按时间排序的证据、内容观察和平台核对；窄屏在列表与详情之间切换。行为结果与认证状态独立展示，明确拒绝为“已拒绝”，成功与拒绝/失败证据冲突时保留“结果未确认”。可按 Skill/路径、行为、操作结果、认证和原生轮次 ID 筛选，关键词采用 300 毫秒防抖，默认最新记录优先。认证和结果筛选在本次核对后执行；单批最多检查 200 条，尚有未查记录时显示“继续查找”，只有游标耗尽才展示最终空结果。
+
+记录详情仅在证据包含正文片段且原记录可用时提供“查看调用内容”入口，弹窗直接展示输入或输出正文；日志正文使用 logical_id、Hook 正文使用记录 ID，并按设备和原生调用身份校验归属，正文继续遵守 `clients:read-audit-content` 权限、采集范围、脱敏与保留策略。详情先在只读阶段回查证据并完成认证核对，再以原始记录为条件一次性更新投影、核对历史和告警，避免文件读取期间占用数据库写锁；并发上报改变记录后保留最新数据。English: Detail review hydrates evidence and checks certification before acquiring the database writer. A conditional update preserves concurrent ingestion while committing the projection, check history and alerts together. 核对结论变化写入 `aidr_skill_checks`，保留当时结论和观察来源；相同结论只更新当前核对时间。历史从升级后的首次核对开始记录，不能还原升级前或调用瞬间的认证状态。
 
 待确认时按原因显示处理步骤。“刷新平台状态”只重新查询当前平台状态；“请求重新采集”创建 `aidr_skill_observe` 任务，需要客户端修改权限、在线且心跳新鲜、唯一来源实例和 `skill_audit_observe` 能力。任务读取前获取当前策略，按资源上限在后台只读观察，最长 30 秒；5 分钟内未开始则过期，已启动读取有 30 秒完成宽限。任务支持幂等提交、过期后重试和回执重传；策略变化的旧回执不更新认证。新观察单独保存，原始调用证据不覆盖。旧客户端需升级并同步清单后才能执行重新采集。
 
 受管安装目录软链接只在本机安装记录、Skill ID/版本和实际发布目录精确一致时允许读取；任意外链及 `SKILL.md` 文件自身软链接不放行。正常日志采集和人工重新采集共用路径核验。未经核验、超限或读取失败时保留待确认。
 
-**English — Skill activity review:** Sessions, an activity table and a record detail pane form the main view; narrow layouts switch between list and detail. Outcome and certification remain independent. Explicit denial is terminal; conflicting success and denial/failure evidence stays unconfirmed. Filters include Skill/path, behavior, outcome, certification and native turn ID, with 300 ms keyword debounce and newest-first ordering. Each request checks up to 200 candidates; an empty batch with a remaining cursor offers Continue searching. Evidence drilldown verifies device and native-call identity and preserves content permissions, redaction and retention. Check changes are recorded with their observation source from the first post-upgrade check; unchanged conclusions only update the current check time.
+**English — Skill activity review:** Sessions, an activity table and a record detail pane form the main view; narrow layouts switch between list and detail. Outcome and certification remain independent. Explicit denial is terminal; conflicting success and denial/failure evidence stays unconfirmed. Filters include Skill/path, behavior, outcome, certification and native turn ID, with 300 ms keyword debounce and newest-first ordering. Each request checks up to 200 candidates; an empty batch with a remaining cursor offers Continue searching. The Skill tab shows the active session activity count independently of filtering and pagination. Start records are labeled Invocation started or Read started; completion comes from result records. Repeated turn IDs are omitted from the timeline, while turn filtering remains available. View invocation content opens input/output directly for available records with fragments, using logical IDs for logs and record IDs for Hooks. Device and call identity, content permissions, redaction and retention remain enforced. Check changes are recorded with their observation source from the first post-upgrade check; unchanged conclusions only update the current check time.
 
 **English — resolving pending checks:** Refresh registry status only rechecks platform state. Request recollection creates an idempotent `aidr_skill_observe` task for a recently online client with a unique source instance and advertised support, requiring client update permission. The worker fetches current policy before a bounded, read-only observation (30-second timeout). Tasks expire after five minutes with a 30-second completion allowance; stale-policy receipts cannot update certification. New observations remain separate from original call evidence. Upgrade older clients and synchronize inventory to enable this action. Managed directory aliases are accepted only when the local installation and actual managed release match exactly; arbitrary or file-level symlinks remain unavailable.
 
@@ -2898,7 +2904,7 @@ UI 人工复验：中英文分别检查列表/详情切换、长名称路径和�
 
 会话活动新增 Skill 行为视图。产品适配模块提取可选 `skill_use` 元数据，经原有日志/Hook 持久化和 ACK 链路写入，`aidr_skill_uses` 按可靠原生身份聚合。后台按有效全局/单机策略核对 registry、签名和实例绑定，以 `aidr_skill_alert` 复用客户端事件告警。每次调用一条告警，查询失败和证据不足为待确认，不新增阻断。界面只把明确调用/文件读取作为行为；尝试、宿主确认和未知结果分别展示。来源摘要是采集时观察，不是调用时内容证明。
 
-Skill 行为接口按需读取认证元数据：优先查询设备部署的版本，其次查询所有精确同名候选；名称和部署映射均缺失但有摘要时，仍保留完整候选范围。认证查询不加载扫描报告。空列表、来源或摘要缺失时直接返回对应状态。同一请求内复用相同来源与摘要的认证、候选查询、摘要与验签结果，下次请求及后台核对重新读取当前注册、批准和撤销状态；认证筛选仍在核对后执行。
+Skill 行为接口按需读取认证元数据：优先查询设备部署的版本，其次查询所有精确同名候选；名称和部署映射均缺失但有摘要时，仍保留完整候选范围。认证查询不加载扫描报告。 未绑定确切安装版本时，任一候选内容不可读取就无法唯一确认匹配，立即返回待确认并停止读取剩余候选；已绑定版本仍保留其注册、内容和审批检查字段。English: Without an exact installed version, an unreadable candidate prevents unique content identification; return pending immediately instead of hashing the remaining candidates. Exact installed-version checks retain their registry, content and approval fields.空列表、来源或摘要缺失时直接返回对应状态。同一请求内复用相同来源与摘要的认证、候选查询、摘要与验签结果，下次请求及后台核对重新读取当前注册、批准和撤销状态；认证筛选仍在核对后执行。
 
 后台每批最多 50 条、列表每组最多 25 条，先完成本组认证计算，再在短事务中保存核对结论、检查历史和告警；列表每组提交后再计算下一组，仍最多检查 200 条并保留原分页游标。某组写入失败时，该组核对结论、历史和告警一起回滚，已提交组保留。写入比较原证据内容并检查记录尚未到期，并发新证据或清理优先，旧核对结果不覆盖它们。缓存仅限当前请求或后台轮次，下一次核对重新读取平台状态。
 
@@ -2959,9 +2965,17 @@ Codex 异步工具的结束 Hook 可能属于取回结果的轮次。客户端�
 
 Negotiated v2 completion collection adds the native `CommandExecution` status and optional exit code, including zero. Missing codes remain unknown. V1 MCP/image collection, older clients and retained evidence remain compatible.
 
-独立版豆包工作在 macOS 上支持日志采集（来源 `doubaowork`），覆盖文件工具、命令、MCP 调用及关联返回内容，复用客户端缓存和上报。需升级客户端与服务端并在日志策略中选择该来源；时间为采集时间，结果不自动判定成功。详见[客户端接入说明](agent-manager-client.md#macos-独立版豆包工作日志)。
+独立版豆包工作在 macOS 上支持日志采集（来源 `doubaowork`），覆盖用户输入、模型回复、文件工具、命令、MCP 调用及关联返回内容，复用现有采集开关、脱敏、客户端缓存和上报。升级后按预算补采保留的历史消息，工具记录去重；会话标题下直接展示完整会话 ID。时间为采集时间，结果不自动判定成功。详见[客户端接入说明](agent-manager-client.md#macos-独立版豆包工作日志)。
 
-**English:** Standalone Doubao Work supports macOS log collection (`doubaowork`) for file tools, commands, MCP calls and linked results through the existing client pipeline. Upgrade server and client and select the source in the log policy. Times reflect collection; returned results do not automatically establish success.
+**English:** Standalone Doubao Work supports macOS collection of user input, assistant replies, file tools, commands, MCP calls and linked results with existing capture switches and redaction. Upgrades backfill retained messages in bounded batches without duplicating tool records. Full session IDs appear below session titles. Times reflect collection; returned results do not automatically establish success.
+
+豆包工具轮次优先使用原生消息 ID，通过运行日志与前端生命周期元数据准确连接，支持历史记录补关联；不能准确关联的消息和 MCP 调用保留“未归属轮次”。
+
+豆包本地 IM 缓存还可补采带消息 ID 的已发送提问和已结束的可见回复正文块，按回复的 `reply_id` 关联轮次，复用原有采集开关与脱敏。缓存不保证保存完整历史或最终回复；缺少准确 ID 的轨迹消息仍保留未归属。
+
+**English — message cache:** Doubao's local IM cache supplements acknowledged prompts and finished visible reply blocks, associating turns through `reply_id` under existing capture and redaction settings. The cache does not guarantee complete history or final replies; transcript messages without reliable IDs remain unassigned.
+
+**English:** Doubao tool turns use native message IDs joined through runtime and frontend lifecycle metadata, including historical enrichment. Messages and MCP calls without a verified identity chain remain unassigned.
 
 ### 客户端本地 Skill 批量操作 / Client local Skill batch actions
 

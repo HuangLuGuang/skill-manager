@@ -57,6 +57,7 @@
   let systemPrerequisites = null, systemError = ''
   let collectionCheckedAt = 0
   const bridgeRechecks = new Map()
+  let gapAckError = false
   let renderedSnapshot = ''
   const renderedHosts = new Map()
   const enrollmentActionState = agent => {
@@ -107,7 +108,13 @@
     const gapError = snapshot.receiver_diagnostic?.audit_gap_code
     $('aidr-plugin-error').hidden = !error && !statusError && !gapError
     $('aidr-plugin-error').textContent = [error, statusError, gapError].filter(Boolean).map(codeText).join(' · ')
-    $('aidr-audit-history').hidden = !auditGap
+    let acknowledged = false
+    try { acknowledged = window.clientAidrGapAck.isAcknowledged(window.localStorage, snapshot.receiver_diagnostic) } catch {}
+    $('aidr-audit-history').hidden = !auditGap || acknowledged
+    $('aidr-audit-history-ack').textContent = t('audit_history_ack')
+    $('aidr-audit-history-ack').title = t('audit_history_ack_help')
+    $('aidr-audit-history-ack-error').hidden = !gapAckError
+    $('aidr-audit-history-ack-error').textContent = gapAckError ? t('audit_history_ack_failed') : ''
     if (auditGap) {
       const product = products.find(item => item.id === auditGap.agent)
       const name = product?.name || t('unknown')
@@ -353,6 +360,14 @@
     finally { busy = false; pendingAction = ''; pendingAgent = ''; render() }
   }
   document.querySelectorAll('[data-aidr-action]').forEach(button => button.addEventListener('click', () => { void act(button.dataset.aidrAction, button.dataset.aidrAgent || '') }))
+  $('aidr-audit-history-ack').addEventListener('click', () => {
+    try {
+      window.clientAidrGapAck.acknowledge(window.localStorage, snapshot.receiver_diagnostic)
+      gapAckError = false
+    } catch { gapAckError = true }
+    renderedSnapshot = ''
+    render()
+  })
   $('aidr-open-connection').addEventListener('click', () => document.querySelector('.nav-item[data-panel="connect"]')?.click())
   window.addEventListener('agent-manager-client-locale-change', render)
   document.addEventListener('visibilitychange', () => { if (!document.hidden) void poll() })
