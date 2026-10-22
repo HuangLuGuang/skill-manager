@@ -2033,9 +2033,9 @@ const maxSeverity = (...values) => {
   }
   return current
 }
+// 仅汇总规则来源，避免其他分析器的全局严重度混入规则结果。
 const ruleAnalysisMaxSeverity = computed(() =>
   maxSeverity(
-    scanReport.value?.max_severity,
     behavioralAnalysis.value?.max_severity,
     localStaticAnalysis.value?.max_severity,
     ...ruleAnalysisFindings.value.map(item => item.severity),

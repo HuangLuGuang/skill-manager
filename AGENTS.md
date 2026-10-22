@@ -280,6 +280,8 @@ make sandbox-runtime-build
 
 - Skill 详情判定过程与准入提示共用首次加载占位，报告完成后统一显示；报告失败提供双语重试入口，刷新保留既有报告，切换记录或版本后仅应用当前请求结果。
 
+- Skill 详情规则扫描最高严重度仅汇总本次规则发现项、behavioral_analysis 和 local_static_analysis 的严重度；规则无命中且本地结果均为 SAFE 时显示 SAFE。
+
 - Skill 详情规则分析器按本次报告记录展示；规则发现项合并顶层与本地结果并去除同一发现项副本，保留不同位置及 `snippet`、`code_snippet`、`evidence` 原始证据，兼容仅含顶层结果的历史报告。
 
 - Skill 详情命中 `blocked_permission` 时，红色拒绝说明使用 `skillDetail.blockedPermission`，按“声明的权限 {permission} 命中了公司禁止权限列表：{blocked}。”展示；列表读取本次报告 `risk_reconciliation.policy_snapshot.blocked_permissions`，以逗号和空格连接，历史缺失显示“未记录 / Not recorded”。拒绝摘要直接展示原因，权限原文及实际阻断行为保持。
