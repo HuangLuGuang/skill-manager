@@ -429,7 +429,21 @@
             <a-select-option v-for="format in ['openai', 'responses_api', 'anthropic']" :key="format" :value="format">{{ $t(`modelGateway.provider.formats.${format}`) }}</a-select-option>
           </a-select>
         </a-form-item>
+        <a-form-item :label="$t('modelGateway.provider.authType')">
+          <a-select v-model:value="providerForm.auth_type">
+            <a-select-option value="bearer">Bearer</a-select-option>
+            <a-select-option value="raw">{{ $t('modelGateway.provider.rawAuth') }}</a-select-option>
+          </a-select>
+        </a-form-item>
         <a-form-item label="API Key"><a-input-password v-model:value="providerForm.api_key" :placeholder="$t('legacy.x2xaci')" /></a-form-item>
+        <a-form-item :label="$t('modelGateway.provider.headers')" :extra="$t('modelGateway.provider.headersHelp')" :validate-status="providerHeaderError ? 'error' : undefined" :help="providerHeaderError || undefined">
+          <div v-for="(header, index) in providerForm.custom_headers" :key="index" class="provider-header-row">
+            <a-input v-model:value="header.name" :aria-label="$t('modelGateway.provider.headerName')" :placeholder="$t('modelGateway.provider.headerName')" />
+            <a-input-password v-model:value="header.value" :aria-label="$t('modelGateway.provider.headerValue')" :placeholder="$t(header.configured ? 'modelGateway.provider.headerKeep' : 'modelGateway.provider.headerValue')" />
+            <a-button @click="providerForm.custom_headers.splice(index, 1)">{{ $t('modelGateway.provider.removeHeader') }}</a-button>
+          </div>
+          <a-button :disabled="providerForm.custom_headers.length >= 32" @click="providerForm.custom_headers.push({ name: '', value: '' })">{{ $t('modelGateway.provider.addHeader') }}</a-button>
+        </a-form-item>
         <a-form-item><a-checkbox v-model:checked="providerForm.clear_api_key">{{ $t("legacy.1h2ipsy") }}</a-checkbox></a-form-item>
         <a-form-item :label="$t('legacy.tabbi8')"><a-input-number v-model:value="providerForm.timeout_seconds" :min="1" :max="600" style="width: 100%" /></a-form-item>
         <a-form-item><a-checkbox v-model:checked="providerForm.enabled">{{ $t("legacy.5pm2ma") }}</a-checkbox></a-form-item>
@@ -908,7 +922,9 @@ const editingGroupId = ref(null)
 const selectedGroup = ref(null)
 const policyRuleRows = ref([])
 
-const providerForm = reactive({ name: '', base_url: '', api_format: 'openai', api_key: '', clear_api_key: false, enabled: true, timeout_seconds: 60 })
+const providerForm = reactive({ name: '', base_url: '', api_format: 'openai', api_key: '', auth_type: 'bearer', custom_headers: [], clear_api_key: false, enabled: true, timeout_seconds: 60 })
+const providerHeaderErrorIndex = ref(null)
+const providerHeaderError = computed(() => providerHeaderErrorIndex.value === null ? '' : t('modelGateway.provider.headerError', { index: providerHeaderErrorIndex.value }))
 const providerTestForm = reactive({ model: '' })
 const providerTestModelOptions = computed(() => models.value
   .filter(item => item.provider_id === providerUnderTest.value?.id && item.enabled)
@@ -1090,12 +1106,15 @@ const loadAll = async () => {
 }
 
 const openProvider = (record = null) => {
+  providerHeaderErrorIndex.value = null
   editingProviderId.value = record?.id || null
   Object.assign(providerForm, {
     name: record?.name || '',
     base_url: record?.base_url || '',
     api_format: record?.api_format || 'openai',
     api_key: '',
+    auth_type: record?.auth_type || 'bearer',
+    custom_headers: (record?.custom_headers || []).map(header => ({ name: header.name, value: '', configured: header.configured, originalName: header.name })),
     clear_api_key: false,
     enabled: record?.enabled ?? true,
     timeout_seconds: record?.timeout_seconds || 60,
@@ -1105,9 +1124,23 @@ const openProvider = (record = null) => {
 
 const saveProvider = async () => {
   if (submitting.value) return
+  providerHeaderErrorIndex.value = null
+  const seenHeaders = new Set()
+  for (const [index, header] of providerForm.custom_headers.entries()) {
+    const name = header.name.toLowerCase()
+    const kept = !header.value && header.configured && name === header.originalName
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || name.length > 128 || seenHeaders.has(name) ||
+      ['content-length', 'transfer-encoding', 'connection', 'trailer', 'te', 'upgrade', 'keep-alive', 'proxy-authorization', 'proxy-connection'].includes(name) ||
+      (!kept && (!header.value || header.value.length > 4096 || !/^[\x20-\x7e]+$/.test(header.value) || header.value !== header.value.trim()))) {
+      providerHeaderErrorIndex.value = index + 1
+      return
+    }
+    seenHeaders.add(name)
+  }
   submitting.value = true
   try {
     const payload = { ...providerForm }
+    payload.custom_headers = providerForm.custom_headers.map(({ name, value }) => ({ name, value }))
     if (!payload.api_key) delete payload.api_key
     const isNew = !editingProviderId.value
     const saved = isNew ? await createModelProvider(payload) : await updateModelProvider(editingProviderId.value, payload)
@@ -1487,6 +1520,8 @@ onUnmounted(() => { loadSequence++ })
 </script>
 
 <style scoped>
+.provider-header-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.provider-header-row > .ant-input, .provider-header-row > .ant-input-affix-wrapper { flex: 1 1 160px; min-width: 0; }
 .prompt-guard-hint { margin: 0 0 20px; color: #64748b; font-size: 13px; line-height: 1.7; }
 .prompt-guard-mode { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
 .prompt-guard-mode > span { font-weight: 500; }

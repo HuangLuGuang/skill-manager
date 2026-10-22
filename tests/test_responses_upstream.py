@@ -93,7 +93,9 @@ def test_other_provider_formats_require_actual_output(api_format, payload):
 @pytest.mark.parametrize("base", ["https://example.test/custom/v2", "https://example.test/custom/v2/responses/"])
 def test_provider_format_schema_endpoint_and_bearer_auth(base):
     data = schemas.ModelProviderCreate(name="test", api_format="responses_api", base_url=base, api_key="secret")
-    provider = models.ModelProvider(**data.model_dump())
+    settings = data.model_dump()
+    gateway._prepare_provider_settings(settings)
+    provider = models.ModelProvider(**settings)
     url, body, headers = gateway._upstream_request(provider, {"model": "test-model", "messages": [{"role": "user", "content": "Hi"}]})
     assert url == "https://example.test/custom/v2/responses"
     assert headers["authorization"] == "Bearer secret"

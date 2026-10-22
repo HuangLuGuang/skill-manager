@@ -16,6 +16,8 @@ The Agent asset page provides Dify application bindings, observe/enforce policie
 
 用户组页只查询用户组列表；用户和隐私策略选项在打开新建或编辑弹窗时按权限加载，同次访问复用，刷新列表或保存后失效。选项加载失败保留草稿并可重试，详见[模型网关说明](model-gateway.md)。
 
+模型供应商支持 Bearer 或原始 Authorization 认证，以及加密保存的自定义 Header。旧配置默认 Bearer；模型发现、连接测试、实际调用及 Agent/Skill 扫描走模型网关的调用共用这些设置。编辑保留、覆盖规则与接口示例见[供应商认证与自定义 Header](model-gateway.md#供应商认证与自定义-header--provider-authentication-and-custom-headers)。
+
 The user group page queries only its list. User and privacy policy options load with the caller's permissions when opening a create or edit dialog, are reused during the visit, and are invalidated after list refresh or save. Failed option requests preserve the draft and support retry; see the [model gateway guide](model-gateway.md).
 
 审计追踪的列表与筛选选项独立加载；筛选、翻页和排序只查询列表，手动刷新同时更新两者。选项查询失败可独立重试。两类查询共用来源权限和客户端归属限制，选项来自可见历史记录；列表保留筛选后的准确总数及跨来源稳定时间排序。

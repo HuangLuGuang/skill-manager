@@ -109,6 +109,24 @@ Worker 使用任务租约调用 Backend 的任务专属 OpenAI-compatible 评估
 
 “供应商与模型”统一在 `/model-gateway/providers` 管理，原 `/model-gateway/models` 地址重定向到该页面。
 
+### 供应商认证与自定义 Header / Provider authentication and custom headers
+
+供应商认证方式默认 `bearer`，发送 `Authorization: Bearer <API Key>`；选择 `raw`（原始 Authorization）时发送 `Authorization: <API Key>`。API Key 为空时不自动添加认证头。旧库升级默认 Bearer，自定义 Header 为空；旧 API 调用修改供应商时省略新字段会保留已有配置。
+
+自定义 Header 最多 32 项，名称最多 128 字符，值最多 4096 个可打印 ASCII 字符，不允许换行及首尾空白。名称不区分大小写且不得重复。请求先生成协议默认头和认证头，再应用自定义 Header，因此自定义 `Authorization` 优先于认证方式与 API Key。支持覆盖 `Host`；`Content-Length`、`Transfer-Encoding`、`Connection`、`Trailer`、`TE`、`Upgrade`、`Keep-Alive`、`Proxy-Authorization`、`Proxy-Connection` 由客户端管理，不允许配置。
+
+Header 值加密存储，读取接口仅返回名称、配置状态和掩码。编辑时值留空保留同名已保存值，填写新值替换，删除行移除；新建或改名必须填写值。API 的 `custom_headers` 是完整行列表（`name`、`value`），空列表清除全部，省略字段保持原样。请勿把掩码当作新值提交。
+
+例如客户要求不带 Bearer 且指定 Host：选择原始 Authorization，在 API Key 填写客户凭证，添加 `Host: model.internal.example`，Base URL 填写客户提供的版本基础路径（如 `http://model.internal.example:8080/service/v1`）。模型发现、连接测试、非流式与流式调用统一使用这些设置。Agent 扫描的评估、分析、攻击模型以及 Skill 扫描走平台网关的模型调用同样生效；独立直连 LLM 使用自身配置。修改供应商会影响其所有模型后续发起的请求，包括运行中扫描任务的后续调用。
+
+连接测试仍发送非流式请求，模型发现仍需上游提供 `/models`；上游未提供模型列表时可手动添加。Header 兼容不代表客户的请求参数、响应格式或网络已经通过验收。
+
+**English:** Providers default to `bearer` (`Authorization: Bearer <API Key>`). Select `raw` to send the API key directly as Authorization. An empty API key produces no automatic authentication header. Existing databases retain Bearer behavior; omitted fields in updates preserve saved settings.
+
+Configure up to 32 custom headers with unique, case-insensitive HTTP names (128 characters maximum) and printable ASCII values (4096 characters maximum, without line breaks or surrounding whitespace). Custom headers override protocol defaults and generated authentication headers, including Authorization. Host overrides are supported. Framing, connection and proxy authentication headers listed above are managed by the client. Values are encrypted and returned only as configuration status and masks. Blank values preserve saved values under the same name; replacing a value updates it, removing a row deletes it, and new or renamed headers require a value. The API accepts a complete `custom_headers` list of `name`/`value` entries; an empty list clears all entries, omission preserves them. Never submit a mask as a replacement value.
+
+Discovery, connection tests, streaming and non-streaming requests share these settings, including Agent scan evaluator/analysis/attack models and Skill scans using the platform gateway. Independent direct LLM connections use their own settings. Provider edits affect subsequent requests for every associated model, including subsequent calls in running scans. Tests remain non-streaming; discovery requires `/models`, otherwise add models manually. Customer network, request parameters and response compatibility still require integration acceptance.
+
 页面按当前功能加载数据：“供应商与模型”只加载供应商和模型，统计卡片所在页面才请求隐私统计。隐私统计在线程池中执行同步数据库查询，按当前用户的凭证范围统计；映射计数使用数据库子查询，历史用量和审计按批次读取所需字段，保留差分隐私保护。
 
 **English:** Each page loads the data its features need. Providers & models loads only providers and models; pages with statistics cards request privacy statistics. Synchronous statistics queries run in the thread pool and retain the current user's credential scope and differential privacy protection. Mapping counts use a database subquery, and historical usage and audit statistics read only the required fields in batches.

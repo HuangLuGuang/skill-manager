@@ -1165,6 +1165,8 @@ class ClientTakeoverReport(BaseModel):
 
 
 class ModelProviderCreate(BaseModel):
+    auth_type: str = "bearer"
+    custom_headers: list[dict[str, Any]] = Field(default_factory=list)
     name: str
     base_url: str
     api_format: str = Field(default="openai", pattern="^(openai|anthropic|responses_api)$")
@@ -1174,6 +1176,8 @@ class ModelProviderCreate(BaseModel):
 
 
 class ModelProviderUpdate(BaseModel):
+    auth_type: Optional[str] = None
+    custom_headers: Optional[list[dict[str, Any]]] = None
     name: Optional[str] = None
     base_url: Optional[str] = None
     api_format: Optional[str] = Field(default=None, pattern="^(openai|anthropic|responses_api)$")
@@ -1184,6 +1188,8 @@ class ModelProviderUpdate(BaseModel):
 
 
 class ModelProviderResponse(BaseModel):
+    auth_type: str = "bearer"
+    custom_headers: list[dict[str, Any]] = Field(default_factory=list)
     id: int
     name: str
     base_url: str
