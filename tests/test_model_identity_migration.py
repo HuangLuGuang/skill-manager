@@ -55,6 +55,13 @@ def test_model_provider_migration_removes_legacy_required_compression_column(tmp
         columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(model_providers)")}
         assert "enable_compression" not in columns
         assert conn.exec_driver_sql("SELECT name FROM model_providers").scalar_one() == "legacy"
+        assert conn.exec_driver_sql("SELECT auth_type, custom_headers_encrypted FROM model_providers").one() == ("bearer", None)
+        conn.exec_driver_sql("UPDATE model_providers SET auth_type = 'raw', custom_headers_encrypted = 'encrypted-test'")
+        conn.exec_driver_sql("ALTER TABLE model_providers ADD COLUMN enable_compression BOOLEAN NOT NULL DEFAULT 1")
+    migrate_compression.migrate()
+    migrate_compression.migrate()
+    with engine.begin() as conn:
+        assert conn.exec_driver_sql("SELECT auth_type, custom_headers_encrypted FROM model_providers").one() == ("raw", "encrypted-test")
         conn.exec_driver_sql("""
             INSERT INTO model_providers
                 (id, name, base_url, api_format, enabled, timeout_seconds, created_at, updated_at)

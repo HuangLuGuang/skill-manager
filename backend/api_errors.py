@@ -146,6 +146,8 @@ async def validation_error_handler(
 ) -> JSONResponse:
     locale = request_locale(request)
     errors = exc.errors()
+    if "/model-providers" in request.url.path:
+        errors = [{"loc": error["loc"], "type": error["type"]} for error in errors]
     from .openapi_contract import is_openapi, error_response
     if is_openapi(request):
         return error_response(request, 422, "request.validation_failed",

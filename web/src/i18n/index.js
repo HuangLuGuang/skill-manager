@@ -204,6 +204,11 @@ export const i18n = createI18n({
           baseUrlPlaceholder: '例如 https://api.openai.com/v1',
           formats: { openai: 'OpenAI Chat Completions 兼容', responses_api: 'OpenAI Responses API 兼容', anthropic: 'Anthropic Messages 兼容' },
           baseUrlHelp: '请填写包含供应商 API 版本路径的 Base URL；系统按协议追加 /chat/completions、/responses 或 /messages，不会自动插入 /v1。',
+          authType: '认证方式', rawAuth: '原始 Authorization（不添加 Bearer）',
+          headers: '自定义 Header', headerName: 'Header 名称', headerValue: 'Header 值',
+          headerKeep: '留空保留已保存值', addHeader: '添加 Header', removeHeader: '删除',
+          headersHelp: '最多 32 项。自定义 Header 按名称（不区分大小写）覆盖默认头；Authorization 会覆盖 API Key 生成的认证头。值加密保存，编辑留空保留，删除行移除。Host 可自定义；报文边界、连接与代理认证头由客户端管理。',
+          headerError: '第 {index} 项 Header 无效：名称须为合法 HTTP Header、最多 128 字符且不重复；值须为可打印 ASCII、最多 4096 字符且无首尾空白。保留头不可配置；新建或改名后须填写值。',
         },
         providerTest: {
           action: '测试', title: '测试模型', provider: '供应商', model: '测试模型',
@@ -1359,6 +1364,11 @@ export const i18n = createI18n({
           baseUrlPlaceholder: 'For example, https://api.openai.com/v1',
           formats: { openai: 'OpenAI Chat Completions compatible', responses_api: 'OpenAI Responses API compatible', anthropic: 'Anthropic Messages compatible' },
           baseUrlHelp: 'Include the provider API version path in the Base URL. The selected protocol appends /chat/completions, /responses or /messages; /v1 is not inserted automatically.',
+          authType: 'Authentication', rawAuth: 'Raw Authorization (without Bearer)',
+          headers: 'Custom headers', headerName: 'Header name', headerValue: 'Header value',
+          headerKeep: 'Leave blank to keep saved value', addHeader: 'Add header', removeHeader: 'Remove',
+          headersHelp: 'Up to 32 headers. Custom headers override defaults by case-insensitive name; Authorization overrides authentication generated from the API key. Values are encrypted. Leave blank to keep a saved value; remove a row to delete it. Host is supported; framing, connection and proxy authentication headers are managed by the client.',
+          headerError: 'Header {index} is invalid: use a valid, unique HTTP header name of up to 128 characters and a printable ASCII value of up to 4096 characters without surrounding whitespace. Reserved headers are unavailable; new or renamed headers require a value.',
         },
         providerTest: {
           action: 'Test', title: 'Test model', provider: 'Provider', model: 'Test model',

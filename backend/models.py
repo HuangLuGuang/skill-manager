@@ -100,6 +100,8 @@ class ModelProvider(Base):
     base_url = Column(String(512), nullable=False)
     api_format = Column(String(32), default="openai", nullable=False)
     api_key = Column(Text, nullable=True)
+    auth_type = Column(String(16), default="bearer", server_default="bearer", nullable=False)
+    custom_headers_encrypted = Column(Text, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
     timeout_seconds = Column(Integer, default=60, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
