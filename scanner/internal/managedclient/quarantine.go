@@ -45,7 +45,7 @@ func QuarantineSkill(home string, store *Store, agentType, skillName, source, re
 }
 
 func quarantineCurrentSkill(ctx context.Context, home string, store *Store, agentType, skillName, source, reason, expectedSignature string) (QuarantineItem, error) {
-	_, release, err := withMutationLock(ctx, home)
+	_, release, err := withFileLocks(ctx, home, source)
 	if err != nil {
 		return QuarantineItem{}, err
 	}
@@ -63,14 +63,25 @@ func quarantineCurrentSkill(ctx context.Context, home string, store *Store, agen
 	if expectedSignature == "" {
 		return QuarantineItem{}, fmt.Errorf("skill_content_changed")
 	}
-	return quarantineSkill(home, store, agentType, skillName, source, reason, expectedSignature)
+	return quarantineSkill(ctx, home, store, agentType, skillName, source, reason, expectedSignature)
 }
 
-func quarantineSkill(home string, store *Store, agentType, skillName, source, reason, expectedSignature string) (result QuarantineItem, err error) {
+func quarantineSkill(ctx context.Context, home string, store *Store, agentType, skillName, source, reason, expectedSignature string) (result QuarantineItem, err error) {
 	now := time.Now().UTC()
 	sum := sha256.Sum256([]byte(source + "\x00" + now.Format(time.RFC3339Nano)))
 	id := now.Format("20060102T150405Z") + "-" + hex.EncodeToString(sum[:6])
 	root := filepath.Join(QuarantineRoot(home), id)
+	// This unpublished event directory is unique; keep it pinned until the
+	// durable row and removal of the active source have both completed.
+	scope, scoped := ctx.Value(fileLockScopeKey{}).(fileLockScope)
+	covered := scoped && scope.home == lockPath(home) && pathCovered(lockPath(root), scope.paths)
+	if !covered && ctx.Value(mutationLockContextKey{}) != canonicalExistingPath(home) {
+		release, err := tryFileLocks(home, fileLockPaths([]string{root}))
+		if err != nil {
+			return QuarantineItem{}, err
+		}
+		defer release()
+	}
 	if err := os.MkdirAll(QuarantineRoot(home), 0700); err != nil {
 		return QuarantineItem{}, err
 	}
@@ -231,7 +242,7 @@ func (store *Store) resolvePermittedUnverifiedCopy(ctx context.Context, home, ag
 		AND reason IN ('unverified','unverified_content_changed','unmanaged_skill')`, agentType, skill.Path).Scan(&count); err != nil || count == 0 {
 		return err
 	}
-	_, release, err := withMutationLock(ctx, home)
+	_, release, err := withFileLocks(ctx, home, skill.Path)
 	if err != nil {
 		return err
 	}
@@ -294,6 +305,11 @@ func (store *Store) ResolveInstalledRecovery(agentType, skillName, targetPath, i
 // current Agent path and the audit row. The selected signature is required so
 // content changed after confirmation cannot be deleted accidentally.
 func (store *Store) DiscardQuarantine(id, expectedSignature string) (QuarantineItem, error) {
+	return store.discardQuarantine(context.Background(), id, expectedSignature)
+}
+
+func (store *Store) discardQuarantine(ctx context.Context, id, expectedSignature string) (QuarantineItem, error) {
+	home := filepath.Dir(store.root)
 	items, err := store.QuarantineItems()
 	if err != nil {
 		return QuarantineItem{}, err
@@ -308,6 +324,16 @@ func (store *Store) DiscardQuarantine(id, expectedSignature string) (QuarantineI
 	if item.ID == "" {
 		return QuarantineItem{}, fmt.Errorf("quarantined Skill not found: %s", id)
 	}
+	if item.PendingID != "" {
+		releaseUpload, err := trySubmissionLock(home, "pending:"+item.PendingID)
+		if err != nil {
+			if errors.Is(err, ErrAlreadyRunning) {
+				err = ErrSkillActionBusy
+			}
+			return QuarantineItem{}, err
+		}
+		defer releaseUpload()
+	}
 	if strings.TrimSpace(expectedSignature) == "" || item.Signature != expectedSignature {
 		return QuarantineItem{}, fmt.Errorf("skill_content_changed")
 	}
@@ -320,6 +346,18 @@ func (store *Store) DiscardQuarantine(id, expectedSignature string) (QuarantineI
 		if err == nil {
 			linkedPending = &pending
 		}
+	}
+	paths := []string{item.QuarantinePath, item.OriginalPath}
+	if linkedPending != nil {
+		paths = append(paths, linkedPending.PendingPath)
+	}
+	_, release, err := withFileLocks(ctx, home, paths...)
+	if err != nil {
+		return QuarantineItem{}, err
+	}
+	defer release()
+	if err := checkObservedContent(Skill{Path: item.QuarantinePath, Signature: expectedSignature}); err != nil {
+		return QuarantineItem{}, err
 	}
 
 	var otherReferences int
@@ -370,6 +408,15 @@ func (store *Store) DiscardQuarantine(id, expectedSignature string) (QuarantineI
 // is removed as well. The original Agent path is deliberately never touched:
 // it may already contain a subsequently installed trusted version.
 func (store *Store) DiscardPending(id string) (PendingItem, error) {
+	home := filepath.Dir(store.root)
+	releaseUpload, err := trySubmissionLock(home, "pending:"+id)
+	if err != nil {
+		if errors.Is(err, ErrAlreadyRunning) {
+			err = ErrSkillActionBusy
+		}
+		return PendingItem{}, err
+	}
+	defer releaseUpload()
 	item, err := store.PendingItem(id)
 	if err != nil {
 		return PendingItem{}, err
@@ -386,6 +433,15 @@ func (store *Store) DiscardPending(id string) (PendingItem, error) {
 			break
 		}
 	}
+	paths := []string{item.PendingPath, item.OriginalPath}
+	if linkedQuarantine != nil {
+		paths = append(paths, linkedQuarantine.QuarantinePath)
+	}
+	_, release, err := withFileLocks(context.Background(), home, paths...)
+	if err != nil {
+		return PendingItem{}, err
+	}
+	defer release()
 
 	if strings.TrimSpace(item.PendingPath) == "" {
 		return PendingItem{}, fmt.Errorf("pending skill has no local path: %s", id)
@@ -455,6 +511,17 @@ func QueueQuarantineForDetectionExpected(home string, store *Store, id, expected
 	if quarantine.ID == "" {
 		return PendingItem{}, fmt.Errorf("quarantined Skill not found: %s", id)
 	}
+	paths := []string{quarantine.QuarantinePath}
+	for _, candidate := range items {
+		if candidate.QuarantinePath == quarantine.QuarantinePath {
+			paths = append(paths, candidate.OriginalPath, filepath.Join(PendingRoot(home), candidate.AgentType, filepath.Base(candidate.QuarantinePath)+"-quarantine-"+candidate.ID))
+		}
+	}
+	_, release, err := withFileLocks(context.Background(), home, paths...)
+	if err != nil {
+		return PendingItem{}, err
+	}
+	defer release()
 	if expectedSignature != "" && quarantine.Signature != expectedSignature {
 		return PendingItem{}, fmt.Errorf("skill_content_changed")
 	}

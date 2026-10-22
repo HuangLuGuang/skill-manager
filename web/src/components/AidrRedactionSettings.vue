@@ -1,5 +1,5 @@
 <template>
-  <a-card :title="t('aidr.redactionSettings.title')" :loading="loading" class="aidr-redaction-settings">
+  <a-card :title="t(section === 'skill' ? 'clientPolicy.usageAudit' : 'aidr.redactionSettings.title')" :loading="loading" class="aidr-redaction-settings">
     <template #extra><a-tag color="blue">{{ t(clientId ? (inherit ? 'aidr.policyNavigation.inherited' : 'aidr.policyNavigation.clientScope') : 'aidr.policyNavigation.global') }}</a-tag></template>
     <a-alert v-if="failed" type="error" :message="t('aidr.redactionSettings.loadFailed')" show-icon>
       <template #action><a-button :disabled="loading || busy" @click="load">{{ t('aidr.redactionSettings.retry') }}</a-button></template>
@@ -8,7 +8,6 @@
       <a-space wrap>
         <a-tag>{{ t(policy.lifecycle?.enabled ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }}</a-tag>
         <a-tag>{{ t(policy.enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }}</a-tag>
-        <span>{{ t('aidr.redactionSettings.version') }}: {{ policy.version }}</span>
       </a-space>
       <p>{{ t('aidr.policyNavigation.scope') }}</p>
       <router-link v-if="pageAllowed('/clients') && can('settings:view')" :to="{ path: '/clients', query: { policy: 'audit' } }">
@@ -16,29 +15,29 @@
       </router-link>
     </template>
     <template v-else>
-      <a-alert type="info" show-icon :message="t(clientId ? 'aidr.policyNavigation.clientHelp' : 'aidr.policyNavigation.scope')" style="margin-bottom: 16px" />
+      <a-alert type="info" show-icon :message="t(section === 'skill' ? 'clientPolicy.usageHelp' : clientId ? 'aidr.policyNavigation.clientHelp' : 'aidr.policyNavigation.scope')" style="margin-bottom: 16px" />
       <template v-if="clientId">
         <p>{{ t('aidr.policyNavigation.clientIdentity', { id: clientId }) }}</p>
-        <a-space wrap class="inherit-control"><a-switch :checked="inherit" :disabled="busy || !editable" :aria-label="t('aidr.policyNavigation.inherit')" @change="setInheritance" /><span>{{ t('aidr.policyNavigation.inherit') }}</span></a-space>
+        <a-space wrap class="inherit-control"><a-switch :checked="inherit" :disabled="busy || !editable" :aria-label="t(section === 'skill' ? 'clientPolicy.inheritUsage' : 'clientPolicy.inheritContent')" @change="setInheritance" /><span>{{ t(section === 'skill' ? 'clientPolicy.inheritUsage' : 'clientPolicy.inheritContent') }}</span></a-space>
       </template>
       <a-alert v-if="saveFailed" type="error" :message="t('aidr.redactionSettings.saveFailed')" show-icon>
         <template #action><a-button :disabled="loading || busy" @click="load">{{ t('aidr.redactionSettings.retry') }}</a-button></template>
       </a-alert>
-      <details class="other-policy"><summary>{{ t('aidr.policyNavigation.redaction') }}</summary>
+      <details v-if="section === 'content'" class="other-policy"><summary>{{ t('aidr.policyNavigation.redaction') }}</summary>
       <a-space wrap><a-switch v-model:checked="enabled" :disabled="fieldsDisabled" :aria-label="t('aidr.policyNavigation.redaction')" /><span>{{ t(enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }}</span></a-space>
       <p>{{ t('aidr.redactionSettings.warning') }}</p><p>{{ t('aidr.redactionSettings.timing') }}</p><p>{{ t('aidr.redactionSettings.history') }}</p>
       </details>
-      <SkillAuditPolicyFields v-model="skillAudit" :disabled="fieldsDisabled" />
-      <div class="delivery-state">
+      <SkillAuditPolicyFields v-if="section === 'skill'" v-model="skillAudit" :disabled="fieldsDisabled" />
+      <div v-if="section === 'skill'" class="delivery-state">
         <strong>{{ t('aidr.skillUse.policy.delivery') }}</strong>
         <p>{{ t('aidr.skillUse.policy.deliveryHelp') }}</p>
         <template v-if="clientId && policy.skill_audit_runtime?.skill_audit">
-          <p>{{ t('aidr.skillUse.policy.reported', { version: policy.skill_audit_runtime.version, time: policy.skill_audit_runtime.reported_at || '—' }) }}</p>
+          <p>{{ t('aidr.skillUse.policy.reported', { time: policy.skill_audit_runtime.reported_at || '—' }) }}</p>
           <p>{{ t(sameSkillAudit(policy.skill_audit_runtime.skill_audit, policy.skill_audit) ? 'aidr.skillUse.policy.reportMatches' : 'aidr.skillUse.policy.reportDiffers') }}</p>
         </template>
         <p v-else-if="clientId">{{ t('aidr.skillUse.policy.noReport') }}</p>
       </div>
-      <details class="other-policy"><summary>{{ t('aidr.content.scopeTitle') }}</summary>
+      <details v-if="section === 'content'" class="other-policy"><summary>{{ t('aidr.content.scopeTitle') }}</summary>
       <a-space wrap><a-switch v-model:checked="lifecycle.enabled" :disabled="fieldsDisabled" :aria-label="t('aidr.lifecycle.collection')" /><span>{{ t(lifecycle.enabled ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }}</span></a-space>
       <p>{{ t('aidr.lifecycle.collectionHelp') }}</p>
       <a-space direction="vertical"><a-checkbox v-for="kind in scopeKinds" :key="kind" v-model:checked="capture[kind]" :disabled="fieldsDisabled">{{ t('aidr.content.kinds.' + kind) }}</a-checkbox></a-space>
@@ -52,24 +51,24 @@
       <a-space wrap><label for="aidr-retention-days">{{ t('aidr.lifecycle.retention') }}</label><a-input-number id="aidr-retention-days" v-model:value="lifecycle.retention_days" :min="1" :max="365" :precision="0" :disabled="fieldsDisabled" /></a-space>
       <p>{{ t('aidr.lifecycle.retentionHelp') }}</p><p>{{ t('aidr.lifecycle.compatibilityHelp') }}</p>
       </details>
-      <p>{{ t('aidr.redactionSettings.version') }}: {{ policy.version }} · {{ policy.updated_by || '—' }} · {{ policy.updated_at || '—' }}</p>
-      <a-button v-if="editable && !externalActions" type="primary" :loading="busy" :disabled="!canReview" @click="review">{{ t('aidr.redactionSettings.save') }}</a-button>
+      <a-button v-if="editable && !externalActions" type="primary" :loading="busy" :disabled="!canReview" @click="review">{{ t(section === 'skill' ? 'clientPolicy.saveUsage' : 'aidr.redactionSettings.save') }}</a-button>
     </template>
     <a-modal :z-index="1020" :width="720" wrap-class-name="aidr-policy-review" v-model:open="reviewOpen" :title="t('aidr.redactionSettings.reviewTitle')" :ok-text="t('aidr.redactionSettings.confirmSave')" :cancel-text="t('aidr.redactionSettings.cancelReview')" :confirm-loading="busy" :ok-button-props="{ disabled: busy || !editable || (requiresAcknowledgement && !acknowledged) }" :cancel-button-props="{ disabled: busy }" :closable="!busy" :mask-closable="!busy" :keyboard="!busy" @ok="save" @cancel="cancelReview">
       <template v-if="reviewTarget">
         <p>{{ t('aidr.redactionSettings.reviewHelp') }}</p>
-        <h4>{{ t('aidr.skillUse.policyTitle') }}</h4>
-        <SkillAuditPolicyReview :current="policy.skill_audit" :target="reviewTarget.skill_audit" />
+        <h4 v-if="section === 'skill'">{{ t('aidr.skillUse.policyTitle') }}</h4>
+        <SkillAuditPolicyReview v-if="section === 'skill'" :current="policy.skill_audit" :target="reviewTarget.skill_audit" />
         <a-descriptions :column="1" bordered size="small">
           <a-descriptions-item v-if="clientId" :label="t('aidr.policyNavigation.source')">{{ t(reviewTarget.inherit ? 'aidr.policyNavigation.inherited' : 'aidr.policyNavigation.clientScope') }}</a-descriptions-item>
-          <a-descriptions-item :label="t('aidr.redactionSettings.version')">{{ reviewTarget.version }}</a-descriptions-item>
+          <template v-if="section === 'content'">
           <a-descriptions-item :label="t('aidr.policyNavigation.redaction')">{{ t(policy.enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }} → {{ t(reviewTarget.enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }}</a-descriptions-item>
           <a-descriptions-item :label="t('aidr.lifecycle.collection')">{{ t((policy.lifecycle?.enabled ?? true) ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }} → {{ t(reviewTarget.lifecycle.enabled ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }}</a-descriptions-item>
           <a-descriptions-item v-for="kind in scopeKinds" :key="kind" :label="t('aidr.content.kinds.' + kind)">{{ t((policy.capture?.[kind] ?? false) ? 'aidr.redactionSettings.collect' : 'aidr.redactionSettings.doNotCollect') }} → {{ t(reviewTarget.capture[kind] ? 'aidr.redactionSettings.collect' : 'aidr.redactionSettings.doNotCollect') }}</a-descriptions-item>
           <a-descriptions-item :label="t('aidr.lifecycle.retention')">{{ policy.lifecycle?.retention_days ?? 7 }} → {{ reviewTarget.lifecycle.retention_days }}</a-descriptions-item>
           <a-descriptions-item v-for="(fallback, key) in limitDefaults" :key="key" :label="t(key === 'max_fragment_bytes' ? 'aidr.content.fragmentLimit' : 'aidr.content.eventLimit')">{{ policy.capture?.[key] ?? fallback }} → {{ reviewTarget.capture[key] }}</a-descriptions-item>
+          </template>
         </a-descriptions>
-        <p>{{ t('aidr.redactionSettings.history') }}</p>
+        <p v-if="section === 'content'">{{ t('aidr.redactionSettings.history') }}</p>
         <a-alert v-if="requiresAcknowledgement" type="warning" show-icon :message="t('aidr.redactionSettings.reviewWarning')" />
         <a-checkbox v-if="requiresAcknowledgement" v-model:checked="acknowledged" :disabled="busy">{{ t('aidr.redactionSettings.acknowledge') }}</a-checkbox>
       </template>
@@ -86,7 +85,9 @@ import SkillAuditPolicyFields from './SkillAuditPolicyFields.vue'
 import SkillAuditPolicyReview from './SkillAuditPolicyReview.vue'
 import { normalizeSkillAudit, validSkillAudit, sameSkillAudit } from '../skill-audit-policy'
 const { t } = useI18n()
-const props = defineProps({ summary: Boolean, externalActions: Boolean, clientId: { type: String, default: '' } })
+const props = defineProps({ summary: Boolean, externalActions: Boolean, section: { type: String, default: 'content' }, clientId: { type: String, default: '' } })
+const emit = defineEmits(['saved'])
+const policyInheritance = value => (props.section === 'skill' ? value.skill_audit_inherit ?? value.inherit : value.inherit) ?? true
 const inherit = ref(true)
 const editable = computed(() => can('settings:update') && (!props.clientId || can('clients:update')) && policy.value.can_edit === true)
 const policy = ref({ enabled: true, version: '1' }), enabled = ref(true)
@@ -98,12 +99,14 @@ const skillAudit = ref(normalizeSkillAudit())
 const lifecycle = ref({ enabled: true, retention_days: 7 })
 const validRetention = computed(() => Number.isInteger(lifecycle.value.retention_days) && lifecycle.value.retention_days >= 1 && lifecycle.value.retention_days <= 365)
 const validLimits = computed(() => Object.keys(limitDefaults).every(key => Number.isInteger(capture.value[key]) && capture.value[key] >= 256 && capture.value[key] <= 32768) && capture.value.max_fragment_bytes <= capture.value.max_event_bytes)
-const changed = computed(() => validLimits.value && validRetention.value && validSkillAudit(skillAudit.value) && ((props.clientId && inherit.value !== policy.value.inherit) || enabled.value !== policy.value.enabled || scopeKinds.some(kind => capture.value[kind] !== (policy.value.capture?.[kind] ?? false)) || Object.entries(limitDefaults).some(([key, fallback]) => capture.value[key] !== (policy.value.capture?.[key] ?? fallback)) || !sameSkillAudit(skillAudit.value, policy.value.skill_audit) || lifecycle.value.enabled !== (policy.value.lifecycle?.enabled ?? true) || lifecycle.value.retention_days !== (policy.value.lifecycle?.retention_days ?? 7)))
+const changed = computed(() => props.section === 'skill'
+  ? validSkillAudit(skillAudit.value) && ((props.clientId && inherit.value !== policyInheritance(policy.value)) || !sameSkillAudit(skillAudit.value, policy.value.skill_audit))
+  : validLimits.value && validRetention.value && ((props.clientId && inherit.value !== policyInheritance(policy.value)) || enabled.value !== policy.value.enabled || scopeKinds.some(kind => capture.value[kind] !== (policy.value.capture?.[kind] ?? false)) || Object.entries(limitDefaults).some(([key, fallback]) => capture.value[key] !== (policy.value.capture?.[key] ?? fallback)) || lifecycle.value.enabled !== (policy.value.lifecycle?.enabled ?? true) || lifecycle.value.retention_days !== (policy.value.lifecycle?.retention_days ?? 7)))
 const loading = ref(false), failed = ref(false), saveFailed = ref(false), busy = ref(false)
 const reviewOpen = ref(false), reviewTarget = ref(null), acknowledged = ref(false)
 const canReview = computed(() => !busy.value && !loading.value && !failed.value && !reviewOpen.value && editable.value && changed.value)
 defineExpose({ editable, canReview, busy, reviewOpen, review })
-const requiresAcknowledgement = computed(() => reviewTarget.value && (
+const requiresAcknowledgement = computed(() => props.section === 'content' && reviewTarget.value && (
   (policy.value.enabled && !reviewTarget.value.enabled) ||
   scopeKinds.some(kind => reviewTarget.value.capture[kind] && !(policy.value.capture?.[kind] ?? false)) ||
   Object.entries(limitDefaults).some(([key, fallback]) => reviewTarget.value.capture[key] > (policy.value.capture?.[key] ?? fallback)) ||
@@ -133,18 +136,28 @@ function applyDraft(value) {
 }
 function applyPolicy(value) {
   policy.value = { ...value, can_edit: value.can_edit ?? policy.value.can_edit }
-  inherit.value = value.inherit ?? true
+  inherit.value = policyInheritance(value)
   applyDraft(value)
 }
 function setInheritance(value) {
   inherit.value = value
   if (value) applyDraft(policy.value.global_policy)
 }
-function review() {
+async function review() {
   if (!canReview.value) return
-  reviewTarget.value = { skill_audit: normalizeSkillAudit(skillAudit.value), enabled: enabled.value, capture: { ...capture.value }, lifecycle: { ...lifecycle.value }, version: policy.value.version, ...(props.clientId ? { inherit: inherit.value, global_version: policy.value.global_policy.version } : {}) }
+  busy.value = true
+  try {
+    const latest = await (props.clientId ? getClientAuditPolicy(props.clientId) : getAidrRedaction())
+    if (!mounted) return
+    const ownValues = value => JSON.stringify(props.section === 'skill' ? [normalizeSkillAudit(value.skill_audit), policyInheritance(value)] : [value.enabled, value.capture, value.lifecycle, policyInheritance(value)])
+    if (ownValues(latest) !== ownValues(policy.value)) { message.warning(t('clientPolicy.auditConflict')); return }
+    policy.value = latest
+    const draft = props.clientId && inherit.value ? latest.global_policy : { skill_audit: normalizeSkillAudit(skillAudit.value), enabled: enabled.value, capture: { ...capture.value }, lifecycle: { ...lifecycle.value } }
+    reviewTarget.value = { section: props.section, skill_audit: props.section === 'skill' ? draft.skill_audit : latest.skill_audit, enabled: props.section === 'content' ? draft.enabled : latest.enabled, capture: props.section === 'content' ? draft.capture : latest.capture, lifecycle: props.section === 'content' ? draft.lifecycle : latest.lifecycle, version: latest.version, ...(props.clientId ? { inherit: inherit.value, global_version: latest.global_policy.version } : {}) }
   acknowledged.value = false
   reviewOpen.value = true
+  } catch { message.error(t('aidr.redactionSettings.loadFailed')) }
+  finally { if (mounted) busy.value = false }
 }
 function cancelReview() {
   if (busy.value) return
@@ -163,6 +176,7 @@ async function save() {
     reviewOpen.value = false
     reviewTarget.value = null
     message.success(t('aidr.redactionSettings.saved'))
+    emit('saved')
   }
   catch { if (mounted) { saveFailed.value = true; reviewOpen.value = false; reviewTarget.value = null } }
   finally { if (mounted) busy.value = false }

@@ -75,7 +75,7 @@ def defaults():
         result.append(AgentDefinition(agent_type=kind, name=name, enabled=bool(root), skill_roots=roots).model_dump())
     return result
 
-def view(db: Session):
+def view(db: Session, client=None):
     row = db.get(models.SystemConfig, KEY)
     agents = json.loads(row.value) if row else defaults()
     existing_types = {agent.get('agent_type') for agent in agents}
@@ -83,14 +83,33 @@ def view(db: Session):
         agent for agent in defaults()
         if agent['agent_type'] in REQUIRED_BUILTIN_TYPES and agent['agent_type'] not in existing_types
     )
+    global_agents = agents
+    overrides = json.loads(client.discovery_overrides_json or '[]') if client else []
+    by_type = {agent['agent_type']: agent for agent in global_agents}
+    by_type.update({agent['agent_type']: agent for agent in overrides})
+    agents = list(by_type.values())
     version = hashlib.sha256(json.dumps(agents, sort_keys=True).encode()).hexdigest()
-    return {'version': version, 'agents': agents}
+    if client is None:
+        return {'version': version, 'agents': agents}
+    edit_version = hashlib.sha256(json.dumps([global_agents, overrides], sort_keys=True).encode()).hexdigest()
+    return {'version': version, 'edit_version': edit_version, 'agents': agents,
+            'global_agents': global_agents, 'overrides': overrides}
 
-def save(db: Session, body: CatalogChange):
-    current = view(db)
-    if body.expected_version != current['version']:
+def save(db: Session, body: CatalogChange, client=None):
+    current = view(db, client)
+    if body.expected_version != current.get('edit_version', current['version']):
         raise ApiError(409, 'client.discovery_conflict', 'Agent 配置已更新，请重新打开后修改', 'Agent configuration changed; reopen it before editing')
     value = json.dumps([a.model_dump() for a in body.agents], ensure_ascii=False)
+    if client:
+        result = db.execute(update(models.ManagedClient).where(
+            models.ManagedClient.id == client.id,
+            models.ManagedClient.discovery_overrides_json == client.discovery_overrides_json,
+        ).values(discovery_overrides_json=value))
+        if result.rowcount != 1:
+            raise ApiError(409, 'client.discovery_conflict', 'Agent 配置已更新，请重新打开后修改', 'Agent configuration changed; reopen it before editing')
+        db.flush()
+        db.refresh(client)
+        return view(db, client)
     row = db.get(models.SystemConfig, KEY)
     if row:
         result = db.execute(update(models.SystemConfig).where(models.SystemConfig.key == KEY, models.SystemConfig.value == row.value).values(value=value))

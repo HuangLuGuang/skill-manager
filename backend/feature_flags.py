@@ -38,6 +38,7 @@ EXECUTION_MODES = (
     "active_full",
 )
 TRACE_EVENT_SOURCES = (
+    "dify_adapter",
     "agent_sdk",
     "model_gateway",
     "mcp_gateway",

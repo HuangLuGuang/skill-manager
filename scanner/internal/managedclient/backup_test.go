@@ -23,7 +23,12 @@ func TestListAndPlanBackup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, blocked := RequestBackupRestore(context.Background(), home, backups[0].Name, "request", API{}, nil)
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, blocked := RequestBackupRestore(context.Background(), home, backups[0].Name, "request", API{}, store)
 	release()
 	if blocked == nil || blocked.Error() != "skill_action_busy" {
 		t.Fatalf("backup restore bypassed an in-flight file operation: %v", blocked)

@@ -1,6 +1,7 @@
 package managedclient
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -624,14 +626,30 @@ func (store *Store) UpdatePendingVersionMetadata(skillID, versionID string, vers
 	return err
 }
 
-func (store *Store) ResetPendingSubmission(id string) error {
-	_, err := store.db.Exec(
-		`UPDATE client_pending
+const resetPendingSubmissionSQL = `UPDATE client_pending
 		 SET status = 'pending', skill_id = NULL, version_id = NULL, version_no = 0, source_version = '', submitted_at = NULL, progress_json = '{}'
-		 WHERE id = ?`,
-		id,
-	)
+		 WHERE id = ?`
+
+func (store *Store) ResetPendingSubmission(id string) error {
+	_, err := store.db.Exec(resetPendingSubmissionSQL, id)
 	return err
+}
+
+func (store *Store) resetPendingForRescan(id string) error {
+	tx, err := store.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(resetPendingSubmissionSQL, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO client_state(key,value,updated_at) VALUES(?,'1',?)
+		ON CONFLICT(key) DO UPDATE SET value='1',updated_at=excluded.updated_at`,
+		"pending:force-rescan:"+id, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (store *Store) UpdatePendingFingerprint(id, fingerprint string) error {
@@ -650,10 +668,28 @@ func (store *Store) LinkPendingGroup(fingerprint, status, skillID, versionID str
 }
 
 func (store *Store) RemovePending(id string) error {
+	return store.removePending(context.Background(), id)
+}
+
+func (store *Store) removePending(ctx context.Context, id string) error {
+	home := filepath.Dir(store.root)
+	releaseUpload, err := trySubmissionLock(home, "pending:"+id)
+	if err != nil {
+		if errors.Is(err, ErrAlreadyRunning) {
+			return ErrSkillActionBusy
+		}
+		return err
+	}
+	defer releaseUpload()
 	item, err := store.PendingItem(id)
 	if err != nil {
 		return err
 	}
+	_, release, err := withFileLocks(ctx, home, item.PendingPath)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if err := os.RemoveAll(item.PendingPath); err != nil {
 		return err
 	}
@@ -665,6 +701,10 @@ func (store *Store) RemovePending(id string) error {
 // trusted installation at the same Agent path. The path constraint prevents
 // one Agent or custom root from clearing another same-name pending Skill.
 func (store *Store) ResolvePendingForInstall(agentType, skillName, targetPath string) error {
+	return store.resolvePendingForInstall(context.Background(), agentType, skillName, targetPath)
+}
+
+func (store *Store) resolvePendingForInstall(ctx context.Context, agentType, skillName, targetPath string) error {
 	items, err := store.PendingItems()
 	if err != nil {
 		return err
@@ -674,7 +714,7 @@ func (store *Store) ResolvePendingForInstall(agentType, skillName, targetPath st
 		if item.AgentType != agentType || item.SkillName != skillName || filepath.Clean(item.OriginalPath) != targetPath {
 			continue
 		}
-		if err := store.RemovePending(item.ID); err != nil {
+		if err := store.removePending(ctx, item.ID); err != nil {
 			return err
 		}
 	}
@@ -1091,6 +1131,11 @@ func (store *Store) SetState(key, value string) error {
 		var before, after Policy
 		_ = json.Unmarshal([]byte(previous), &before)
 		if json.Unmarshal([]byte(value), &after) == nil {
+			if after.Classification != nil && (before.Classification == nil || !reflect.DeepEqual(before.Classification.DesktopMenuVisibility, after.Classification.DesktopMenuVisibility)) {
+				if signalErr := store.EmitUIStateEvent(filepath.Dir(store.root), "desktop_menu_visibility_changed", nil); signalErr != nil {
+					return signalErr
+				}
+			}
 			fields := map[string]any{"mode": after.Mode, "classification": after.Classification, "full_scan_seconds": after.FullScanSeconds}
 			if before.Classification != nil {
 				fields["previous_version"] = before.Classification.Version

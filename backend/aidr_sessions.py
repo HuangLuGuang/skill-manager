@@ -9,7 +9,7 @@ from sqlalchemy import func, text
 
 from .aidr_content import metadata_view, record_contents
 from .aidr_hook_queries import present as present_hook
-from .aidr_models import AidrHookEvent, AidrOperation, AidrEvent
+from .aidr_models import AidrHookEvent, AidrOperation, AidrEvent, AidrSkillUse
 from .aidr_operations import present as present_operation
 from .aidr_turns import event_turn_sql, present as present_log
 from .aidr_hook_context import cwd_expression, MAX_ID
@@ -124,6 +124,14 @@ def sessions(db, client_id, *, cursor='', limit=20, keyword='', agent='', includ
           {continuation} ORDER BY sort_at DESC, key DESC LIMIT :limit
     """), params).mappings().all()
     items = [{k: v for k, v in row.items() if k not in ('sort_at', 'question_hit')} for row in rows[:limit]]
+    skill_counts = {(entry, session): count for entry, session, count in db.query(
+        AidrSkillUse.agent, AidrSkillUse.session_id, func.count(AidrSkillUse.id)
+    ).filter(AidrSkillUse.client_id == client_id, AidrSkillUse.expired_at.is_(None),
+             AidrSkillUse.session_id.in_([item['session_id'] for item in items if item['session_id']])
+    ).group_by(AidrSkillUse.agent, AidrSkillUse.session_id).all()} if items else {}
+    for item in items:
+        entries = ('qoder-hooks', 'qoder-cli') if item['agent'] == 'qoder-hooks' else (item['agent'],)
+        item['skill_count'] = sum(skill_counts.get((entry, item['session_id']), 0) for entry in entries) if item['session_id'] else 0
     if not search_questions:
         for item in items:
             item['prompt_id'] = _session_prompt_id(db, params, item)
@@ -316,7 +324,8 @@ def session_log_models(db, client_id, agent, session_id, ceiling, keys):
         return {**json.loads(row['context']), 'id': str(row['id']), 'at': row['at']}
     if row:
         result['latest'] = report(row)
-    rows = db.execute(text(f"""WITH reports AS (SELECT {fields} {scope}), ranked AS (
+    # Reuse resolved turn identities across filtering and window ranking.
+    rows = db.execute(text(f"""WITH reports AS MATERIALIZED (SELECT {fields} {scope}), ranked AS (
         SELECT *, row_number() OVER (PARTITION BY key, context ORDER BY id DESC) AS n FROM reports
         WHERE key IN (SELECT value FROM json_each(:keys))
     ) SELECT * FROM ranked WHERE n=1 ORDER BY id"""), params).mappings().all()
@@ -339,7 +348,8 @@ def turn_hook_contexts(db, client_id, agent, session_id, ceiling, keys, log_ceil
     linked_cwd = aidr_adapters.get(agent).hook_cwd_from_logs
     context_index = 'ix_aidr_hook_session_turns' if linked_cwd else 'ix_aidr_hook_session_context'
     context_filter = '' if linked_cwd else "AND json_type(payload_json, '$.event.context')='object'"
-    rows = db.execute(text(f"""WITH reports AS (
+    # Avoid repeating correlated Hook identity lookups during window ranking.
+    rows = db.execute(text(f"""WITH reports AS MATERIALIZED (
         SELECT {turn_key_expression('hooks')} AS key, aidr_hook_events.id AS id,
           field.key AS field, field.value AS value, field.type AS value_type,
           json_extract(payload_json, '$.received_at') AS at,

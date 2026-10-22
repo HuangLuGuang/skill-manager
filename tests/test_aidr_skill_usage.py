@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from backend import models
 from backend.aidr_models import AidrEvent, AidrHookEvent, AidrSkillUse
-from backend.aidr_skill_usage import certification, merge, refresh
+from backend.aidr_skill_usage import certification, hydrate_evidence, merge, refresh
 from agent_manager.core.signer import compute_content_digest
 from tests.test_aidr_api import service
 
@@ -40,6 +40,28 @@ def test_native_identity_dedup_result_before_call_and_user_isolation(service):
         assert db.query(AidrSkillUse).count() == 3
 
 
+@pytest.mark.parametrize('source', ['hook', 'log'])
+@pytest.mark.parametrize('location', [None, 'event', 'behavior', 'message'])
+def test_evidence_content_availability_is_hydrated_for_existing_records(service, source, location):
+    _, factory = service
+    with factory() as db:
+        record = evidence(db, source=source, skill={'behavior':'invocation', 'name':'sample'})
+        row = db.query(AidrSkillUse).one()
+        raw = json.loads(record.payload_json)
+        event = raw['event'] if source == 'hook' else raw
+        if location:
+            part = event if location == 'event' else event.setdefault(location, {})
+            part['contents'] = [{'kind':'tool_input', 'source_field':'skill'}]
+        record.payload_json = json.dumps(raw)
+        data = json.loads(row.payload_json)
+        for ref in data['evidence']:
+            ref.pop('has_content', None)
+        assert hydrate_evidence(db, row, data)['evidence'][0]['has_content'] is bool(location)
+        record.expired_at = datetime.utcnow()
+        db.flush()
+        assert hydrate_evidence(db, row, data)['evidence'][0]['available'] is False
+
+
 def setup_certification(db, tmp_path):
     root = tmp_path/'sample'; root.mkdir(); (root/'SKILL.md').write_text('---\nname: sample\n---\nBenign text')
     digest = compute_content_digest(root)
@@ -71,7 +93,7 @@ def test_known_path_without_digest_has_specific_pending_reason(service):
         assert db.query(models.ClientEvent).count() == 0
 
 
-@pytest.mark.parametrize('state,expected',[('APPROVED','verified_content'),('PENDING','unapproved'),('REJECTED','unapproved'),('RETIRED','revoked')])
+@pytest.mark.parametrize('state,expected',[('APPROVED','verified'),('PENDING','unapproved'),('REJECTED','unapproved'),('RETIRED','revoked')])
 def test_registry_states_and_single_alert(service,tmp_path,monkeypatch,state,expected):
     _,factory=service
     monkeypatch.setattr('backend.aidr_skill_usage.verify_signature',lambda *a:True)
@@ -84,7 +106,7 @@ def test_registry_states_and_single_alert(service,tmp_path,monkeypatch,state,exp
             first_alert.last_seen_at = datetime(2020, 1, 1)
             db.flush()
         db.flush(); refresh(db,row,manager); db.flush()
-        assert db.query(models.ClientEvent).count()==(expected!='verified_content')
+        assert db.query(models.ClientEvent).count()==(expected!='verified')
         if first_alert:
             db.refresh(first_alert)
             assert first_alert.last_seen_at == datetime(2020, 1, 1)
@@ -95,16 +117,53 @@ def test_content_change_source_ambiguity_and_authorization(service,tmp_path,monk
     monkeypatch.setattr('backend.aidr_skill_usage.verify_signature',lambda *a:True)
     with factory() as db:
         row,entry,manager,root=setup_certification(db,tmp_path)
+        db.query(models.ManagedClient).filter_by(client_id='one').one().governance_mode = 'strict'
         db.add(models.ClientSkillInstall(client_id='one',agent_type='workbuddy',skill_name='sample',skill_path=str(root),version_id='v1'))
         db.add(models.ClientAgent(client_id='one',local_agent_id='workbuddy',agent_type='workbuddy',skills_path=str(root.parent),managed_agent_id='agent'))
         db.add(models.ManagedAgent(agent_id='agent',name='Agent',skill_names_json='[]'));db.flush()
-        assert certification(db,row,manager)['status']=='unauthorized'
+        check = certification(db,row,manager)
+        assert check['status']=='unauthorized'
+        assert check['approved'] is True and check['content_matches'] is True
+        assert check['authorized'] is False
         agent=db.query(models.ManagedAgent).one(); agent.skill_names_json='["v1"]';db.flush()
         assert certification(db,row,manager)['status']=='verified'
         data=json.loads(row.payload_json);data['skill']['content_digest']='f'*64;row.payload_json=json.dumps(data)
         assert certification(db,row,manager)['status']=='content_changed'
         data['identity_ambiguous']=True;row.payload_json=json.dumps(data)
         assert certification(db,row,manager)['status']=='pending'
+
+
+@pytest.mark.parametrize('mode', ['registry', 'strict'])
+@pytest.mark.parametrize('agent_state', ['missing', 'empty', 'disabled', 'authorized'])
+def test_certification_follows_governance_mode(service, tmp_path, monkeypatch, mode, agent_state):
+    _, factory = service
+    monkeypatch.setattr('backend.aidr_skill_usage.verify_signature', lambda *a: True)
+    with factory() as db:
+        row, entry, manager, root = setup_certification(db, tmp_path)
+        client = db.query(models.ManagedClient).filter_by(client_id='one').one()
+        client.governance_mode = mode
+        if agent_state != 'missing':
+            db.add(models.ClientAgent(client_id='one', local_agent_id='workbuddy', agent_type='workbuddy',
+                                      skills_path=str(root.parent), managed_agent_id='agent'))
+            db.add(models.ManagedAgent(agent_id='agent', name='Agent', origin_type='client_discovery',
+                                       status='disabled' if agent_state == 'disabled' else 'active',
+                                       skill_names_json='[]' if agent_state == 'empty' else '["v1"]'))
+        db.flush()
+        check = refresh(db, row, manager)['certification']
+        expected = 'verified' if mode == 'registry' or agent_state == 'authorized' else 'verified_content' if agent_state == 'missing' else 'unauthorized'
+        assert check['status'] == expected
+        assert check['governance_mode'] == mode
+        if mode == 'registry':
+            assert check['authorized'] is None
+        db.flush()
+        if expected == 'unauthorized':
+            assert json.loads(db.query(models.ClientEvent).one().details_json)['active'] is True
+            client.governance_mode = 'registry'
+            assert refresh(db, row, manager)['certification']['status'] == 'verified'
+            db.flush()
+            assert json.loads(db.query(models.ClientEvent).one().details_json)['active'] is False
+        monkeypatch.setattr('backend.aidr_skill_usage.verify_signature', lambda *a: False)
+        assert certification(db, row, manager)['reason'] == 'signature_unverified'
 
 
 def test_query_failure_is_pending_and_rechecked_without_cache(service,tmp_path):
@@ -131,6 +190,26 @@ def test_missing_registry_content_and_same_name_are_not_certification(service, t
         assert certification(db, row, manager)['reason'] == 'identity_ambiguous'
 
 
+@pytest.mark.parametrize('matching_first', [False, True])
+def test_unreadable_candidate_stops_remaining_digest_reads(service, tmp_path, matching_first):
+    _, factory = service
+    with factory() as db:
+        row, entry, manager, root = setup_certification(db, tmp_path)
+        missing = SimpleNamespace(**{**vars(entry), 'skill_id':'missing', 'skill_path':None})
+        later = SimpleNamespace(**{**vars(entry), 'skill_id':'later', 'skill_path':'must-not-read'})
+        manager.list_certification_candidates = lambda **_: ([entry] if matching_first else []) + [missing, later]
+        reads = []
+        def digest(path):
+            reads.append(path)
+            assert path != 'must-not-read'
+            return compute_content_digest(path)
+        manager.content_digest = digest
+        check = certification(db, row, manager)
+        assert check['status'] == 'pending'
+        assert check['reason'] == 'registry_content_unavailable'
+        assert reads == ([str(root)] if matching_first else []) + [None]
+
+
 def test_real_signature_and_revocation_recheck(service, tmp_path, monkeypatch):
     from agent_manager.core.signer import compute_signature
     monkeypatch.setenv('AGENT_MANAGER_DATA_DIR', str(tmp_path/'keys'))
@@ -138,7 +217,7 @@ def test_real_signature_and_revocation_recheck(service, tmp_path, monkeypatch):
     with factory() as db:
         row, entry, manager, root = setup_certification(db, tmp_path)
         entry.signature = compute_signature(root)
-        assert refresh(db, row, manager)['certification']['status'] == 'verified_content'
+        assert refresh(db, row, manager)['certification']['status'] == 'verified'
         entry.status = 'RETIRED'
         assert refresh(db, row, manager)['certification']['status'] == 'revoked'
         db.flush()

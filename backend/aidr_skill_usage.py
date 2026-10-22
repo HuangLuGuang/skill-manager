@@ -68,6 +68,7 @@ def aggregate_stage(evidence):
 
 def evidence_ref(source, record, event):
     return {'source': source, 'id': str(record.id), 'kind': event.get('kind'), 'stage': stage(event),
+            'has_content': any(part.get('contents') for part in (event, event.get('behavior') or {}, event.get('message') or {})),
             'at': event.get('observed_at'), 'received_at': record.received_at.isoformat() + 'Z',
             'turn_id': event.get('turn_id') or '', 'tool': event.get('tool')}
 
@@ -302,17 +303,16 @@ def _certification(db, row, manager):
     # No name fallback. A known installed version or exact content identifies
     # a registry entry; multiple registrations of identical content stay unknown.
     candidates = [entry] if entry else [e for e in entries if not skill.get('name') or e.name == skill['name']]
-    unavailable = False
     for candidate in candidates:
         digest = signature_content_digest(candidate.signature)
         try:
             digests[candidate.skill_id] = digest or getattr(manager, 'content_digest', compute_content_digest)(candidate.skill_path)
         except (OSError, ValueError, TypeError):
-            unavailable = True
+            # An unreadable candidate already prevents a unique content match.
+            if not entry:
+                return {**result,'reason':'registry_content_unavailable'}
     if not entry:
         matches = [e for e in candidates if digests.get(e.skill_id) == skill['content_digest']]
-        if unavailable:
-            return {**result,'reason':'registry_content_unavailable'}
         if len(matches) > 1:
             return {**result,'reason':'identity_ambiguous'}
         if not matches:
@@ -335,6 +335,10 @@ def _certification(db, row, manager):
                 else bool(entry.signature and getattr(manager, 'verify_path', verify_signature)(entry.skill_path, entry.signature)))
     if not verified:
         return {**result,'reason':'signature_unverified'}
+    client = db.query(models.ManagedClient).filter_by(client_id=row.client_id).one()
+    result['governance_mode'] = client.governance_mode
+    if client.governance_mode == 'registry':
+        return {**result, 'status':'verified', 'reason':'verified'}
     # Inventory ownership is usable only for a unique product instance whose
     # configured Skill root contains this exact observed source.
 
@@ -355,8 +359,8 @@ def _certification(db, row, manager):
             'identity_basis':'unique_inventory_skill_root'}
 
 
-def refresh(db, row, manager, settings=None):
-    return _apply_refresh(db, _prepare_refresh(db, row, manager, settings))
+def refresh(db, row, manager, settings=None, *, hydrate=False):
+    return _apply_refresh(db, _prepare_refresh(db, row, manager, settings, hydrate=hydrate))
 
 
 def refresh_batch(db, rows, manager, settings=None):
@@ -388,15 +392,17 @@ def refresh_batch(db, rows, manager, settings=None):
     return [_apply_refresh(db, plan, find_alert=find_alert) for plan in prepared]
 
 
-def _prepare_refresh(db, row, manager, settings=None):
+def _prepare_refresh(db, row, manager, settings=None, *, hydrate=False):
     original = row.payload_json
     data = json.loads(row.payload_json)
-    if 'turn_id' not in data:
+    if hydrate or 'turn_id' not in data:
         data = hydrate_evidence(db, row, data)
     for ref in data['evidence']:
         if ref['kind'] == 'permission.denied':
             ref['stage'] = 'denied'
     data['stage'] = aggregate_stage(data['evidence'])
+    if hydrate and not data['evidence']:
+        data['stage'] = 'unknown'
     settings = settings if settings is not None else aidr_policy.current(db,row.client_id)['skill_audit']
     try:
         check = certification(db, row, manager) if settings['enabled'] else {'status':'pending','reason':'audit_disabled','checked_at':datetime.utcnow().isoformat()+'Z'}

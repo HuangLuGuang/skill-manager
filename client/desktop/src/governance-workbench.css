@@ -1,13 +1,7 @@
-.shell:has(.workspace[data-panel="runtime-governance"]) { grid-template-columns: 210px minmax(0, 1fr); }
 .workspace[data-panel="runtime-governance"] { display: flex; flex-direction: column; padding: 22px 24px 20px; overflow: hidden; }
 .workspace[data-panel="runtime-governance"] > header { flex: none; align-items: center; margin-bottom: 16px; }
 .workspace[data-panel="runtime-governance"] .eyebrow { display: none; }
 .workspace[data-panel="runtime-governance"] h1 { font-size: 26px; }
-.shell:has(.workspace[data-panel="runtime-governance"]) .brand { padding-inline: 0; gap: 8px; }
-.shell:has(.workspace[data-panel="runtime-governance"]) .brand > div { min-width: 0; }
-.shell:has(.workspace[data-panel="runtime-governance"]) .brand small,
-.shell:has(.workspace[data-panel="runtime-governance"]) .rail-note strong { white-space: normal; }
-.shell:has(.workspace[data-panel="runtime-governance"]) .nav-item .nav-label { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 #runtime-governance.active { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 #runtime-governance .governance-tabs { flex: none; justify-content: flex-start; margin: 0 0 12px; background: transparent; border-bottom: 1px solid #d7e1e5; }
 #runtime-governance .governance-tabs button { flex: 0 1 220px; padding: 12px 20px; font-size: 14px; }
@@ -107,7 +101,6 @@
 .governance-event-content details { font-size: 11px; margin-top: 10px; color: #6d7e89; }
 .governance-event-content pre { max-width: 100%; overflow: auto; white-space: pre-wrap; word-break: break-word; }
 @media (max-width: 1150px) {
-  .shell:has(.workspace[data-panel="runtime-governance"]) { grid-template-columns: 180px minmax(0,1fr); }
   .workspace[data-panel="runtime-governance"] { padding: 16px; }
   .governance-workbench { grid-template-columns: 165px minmax(0,1fr); gap: 12px; }
   .governance-system-layout { grid-template-columns: 210px minmax(0,1fr); gap: 12px; }

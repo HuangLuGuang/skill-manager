@@ -3,6 +3,7 @@ package managedclient
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,14 +175,18 @@ func TestDiagnosticCredentialFormatsAreRedacted(t *testing.T) {
 	}
 }
 
-func TestBusyCommandDiagnosticIncludesLockOwner(t *testing.T) {
+func TestBusyCommandDiagnosticIncludesActualConflict(t *testing.T) {
 	home := t.TempDir()
 	release, err := AcquireMutationLock(home)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer release()
-	RecordCommandDiagnostic(home, "queue-quarantine", time.Now(), ErrSkillActionBusy)
+	_, conflict := tryFileLocks(home, []string{filepath.Join(home, "skill")})
+	if !errors.Is(conflict, ErrSkillActionBusy) {
+		t.Fatal(conflict)
+	}
+	RecordCommandDiagnostic(home, "queue-quarantine", time.Now(), conflict)
 	files, err := diagnosticFiles(filepath.Join(home, ".agent-manager"))
 	if err != nil || len(files) != 1 {
 		t.Fatalf("diagnostic files: %v, %v", files, err)
@@ -194,8 +199,8 @@ func TestBusyCommandDiagnosticIncludesLockOwner(t *testing.T) {
 	if err := json.Unmarshal(bytes.TrimSpace(body), &record); err != nil {
 		t.Fatal(err)
 	}
-	if record.Fields["lock_owner_pid"] != float64(os.Getpid()) || record.Fields["lock_modified_at"] == nil || record.Fields["lock_age_ms"] == nil {
-		t.Fatalf("missing lock owner evidence: %#v", record.Fields)
+	if record.Fields["lock_resource"] != filepath.Join(home, ".agent-manager", "mutation.lock") || record.Fields["lock_requested_mode"] != "shared" || record.Fields["lock_owner_status"] != "unknown" || record.Fields["lock_owner_pid"] != nil {
+		t.Fatalf("incorrect lock evidence: %#v", record.Fields)
 	}
 }
 

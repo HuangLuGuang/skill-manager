@@ -3,6 +3,7 @@ package managedclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,32 @@ import (
 )
 
 func SubmitPending(ctx context.Context, home, server, token string, store *Store, id string) (scannerclient.SubmitResult, error) {
+	return submitPendingRequested(ctx, home, server, token, store, id, false)
+}
+
+func submitPendingRequested(ctx context.Context, home, server, token string, store *Store, id string, retryTerminal bool) (scannerclient.SubmitResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	release, err := submissionLock(ctx, home, "pending:"+id)
+	if err != nil {
+		return scannerclient.SubmitResult{}, err
+	}
+	defer release()
+	return submitPendingLocked(ctx, home, server, token, store, id, retryTerminal)
+}
+
+func submitPendingLocked(ctx context.Context, home, server, token string, store *Store, id string, retryTerminal bool) (scannerclient.SubmitResult, error) {
+	if retryTerminal {
+		item, err := store.PendingItem(id)
+		if err != nil {
+			return scannerclient.SubmitResult{}, err
+		}
+		if pendingStatusTerminal(item.Status) {
+			if err := store.resetPendingForRescan(id); err != nil {
+				return scannerclient.SubmitResult{}, err
+			}
+		}
+	}
 	forceRescan, _, err := store.State("pending:force-rescan:" + id)
 	if err != nil {
 		return scannerclient.SubmitResult{}, err
@@ -44,6 +71,11 @@ func submitPending(ctx context.Context, home, server, token string, store *Store
 		return scannerclient.SubmitResult{}, os.ErrNotExist
 	}
 	if item.SkillID != "" {
+		if forceRescan {
+			if err := store.SetState("pending:force-rescan:"+id, ""); err != nil {
+				return scannerclient.SubmitResult{}, err
+			}
+		}
 		return scannerclient.SubmitResult{
 			AlreadySubmitted: true,
 			SkillID:          item.SkillID,
@@ -55,6 +87,11 @@ func submitPending(ctx context.Context, home, server, token string, store *Store
 			Message:          "相同内容的 Skill 已提交平台检测",
 		}, nil
 	}
+	_, releaseFiles, err := withFileLocks(ctx, home, item.PendingPath)
+	if err != nil {
+		return scannerclient.SubmitResult{}, err
+	}
+	defer releaseFiles()
 	skillRoot, err := filepath.EvalSymlinks(item.PendingPath)
 	if err != nil {
 		return scannerclient.SubmitResult{}, err
@@ -70,9 +107,6 @@ func submitPending(ctx context.Context, home, server, token string, store *Store
 	if err := store.UpdatePendingFingerprint(item.ID, item.Fingerprint); err != nil {
 		return scannerclient.SubmitResult{}, err
 	}
-	if err := fingerprintPendingPeers(store, items, item); err != nil {
-		return scannerclient.SubmitResult{}, err
-	}
 	tmp, err := os.MkdirTemp("", "agent-manager-pending-")
 	if err != nil {
 		return scannerclient.SubmitResult{}, err
@@ -84,6 +118,36 @@ func submitPending(ctx context.Context, home, server, token string, store *Store
 	}
 	// The platform rebuilds file hashes from the ZIP and checks this fingerprint.
 	// Keep the multipart field small even for Skills with many template files.
+	releaseFiles()
+	if err := fingerprintPendingPeers(home, store, items, item); err != nil {
+		return scannerclient.SubmitResult{}, err
+	}
+	releaseUpload, err := submissionLock(ctx, home, "content:"+value.Fingerprint)
+	if err != nil {
+		return scannerclient.SubmitResult{}, err
+	}
+	defer releaseUpload()
+	// Another foreground/background submission may have completed while waiting.
+	peers, e := store.PendingItems()
+	if e != nil {
+		return scannerclient.SubmitResult{}, e
+	}
+	if !forceRescan {
+		peers, e = linkPendingGroups(store, peers)
+		if e != nil {
+			return scannerclient.SubmitResult{}, e
+		}
+	}
+	for _, peer := range peers {
+		if peer.ID == id && peer.SkillID != "" {
+			if forceRescan {
+				if err := store.SetState("pending:force-rescan:"+id, ""); err != nil {
+					return scannerclient.SubmitResult{}, err
+				}
+			}
+			return scannerclient.SubmitResult{AlreadySubmitted: true, SkillID: peer.SkillID, VersionID: peer.VersionID, Status: peer.Status}, nil
+		}
+	}
 	submissionManifest := value
 	submissionManifest.Files = nil
 	submissionManifest.Root = ""
@@ -291,11 +355,6 @@ func pendingOriginalPath(item PendingItem, agent Agent) string {
 }
 
 func installApprovedPending(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, item PendingItem, managedAgentID string) error {
-	ctx, release, err := withMutationLock(ctx, home)
-	if err != nil {
-		return err
-	}
-	defer release()
 	agent, ok := findAgent(inventory, item.AgentType)
 	if !ok {
 		return fmt.Errorf("skill_target_unavailable")
@@ -311,6 +370,11 @@ func installApprovedPending(ctx context.Context, home string, inventory Inventor
 	if item.OriginalPath == "" {
 		return fmt.Errorf("skill_target_unavailable")
 	}
+	ctx, release, err := withFileLocks(ctx, home, item.OriginalPath, filepath.Join(ManagedSkillsRoot(home), item.SkillID), item.PendingPath)
+	if err != nil {
+		return err
+	}
+	defer release()
 	root := filepath.Dir(item.OriginalPath)
 	allowed := false
 	for _, candidate := range agentSkillRoots(agent) {
@@ -427,17 +491,26 @@ func prepareApprovedLocalCopy(ctx context.Context, home string, api API, clientI
 	}}, cleanup, nil
 }
 
-func fingerprintPendingPeers(store *Store, items []PendingItem, submitted PendingItem) error {
+func fingerprintPendingPeers(home string, store *Store, items []PendingItem, submitted PendingItem) error {
 	for index := range items {
 		candidate := &items[index]
 		if candidate.ID == submitted.ID || candidate.Fingerprint != "" || candidate.SkillName != submitted.SkillName {
 			continue
 		}
+		release, err := tryFileLocks(home, fileLockPaths([]string{candidate.PendingPath}))
+		if err != nil {
+			if errors.Is(err, ErrSkillActionBusy) {
+				continue
+			}
+			return err
+		}
 		root, err := filepath.EvalSymlinks(candidate.PendingPath)
 		if err != nil {
+			release()
 			continue
 		}
 		value, err := manifest.Build(root, DefaultManifestOptions())
+		release()
 		if err != nil {
 			continue
 		}

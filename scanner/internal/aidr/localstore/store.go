@@ -271,7 +271,7 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 	if err != nil || expected.ID != b.Source.ID || b.SchemaVersion != 1 || len(b.Events) > 4096 {
 		return zero, ErrInvalid
 	}
-	if len(b.TurnLinks) > 128 || (len(b.TurnLinks) > 0 && b.Source.Agent != "teleagent") {
+	if len(b.TurnLinks) > 128 || (len(b.TurnLinks) > 0 && b.Source.Agent != "teleagent" && b.Source.Agent != "doubaowork") {
 		return zero, ErrInvalid
 	}
 	if b.Cursor.SchemaVersion != 0 {
@@ -437,6 +437,8 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 	if oldCoverage != string(coverage) || oldCursor != string(cursor) || len(newLinks) > 0 {
 		// Repair progress is local scheduling state, not part of the wire cursor.
 		wireCursor := b.Cursor
+		wireCursor.DoubaoMessages = false
+		wireCursor.DoubaoTurns = ""
 		wireCursor.ContextRepair = nil
 		wireCursor.ContextRepairVersion = 0
 		wireCursor.CompletionSchema = 0

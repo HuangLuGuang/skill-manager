@@ -77,6 +77,7 @@ def route_permission(request):
         ("/api/v1/agent-security", "scans", None),
         ("/api/v1/runtime-traces", "traces", None),
         ("/api/v1/runtime-governance", "runtime", None),
+        ("/api/v1/dify-runtime", "runtime", None),
         ("/api/v1/mcp", "mcp", None),
         ("/api/agents", "agents", None),
         ("/api/clients", "clients", None),

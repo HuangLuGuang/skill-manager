@@ -47,6 +47,7 @@ from .routers import (
     mcp_gateway,
     runtime_governance,
     runtime_traces,
+    dify_runtime,
     security_audit,
     audit_trail,
     security_scans,
@@ -214,6 +215,7 @@ app.include_router(asset_lifecycle.router, prefix=settings.API_PREFIX)
 app.include_router(scan_schedules.router, prefix=settings.API_PREFIX)
 app.include_router(runtime_governance.router, prefix=settings.API_PREFIX)
 app.include_router(runtime_traces.router, prefix=settings.API_PREFIX)
+app.include_router(dify_runtime.router, prefix=settings.API_PREFIX)
 app.include_router(mcp_gateway.admin_router, prefix=f"{settings.API_PREFIX}/v1", dependencies=[Depends(get_current_admin_user)])
 app.include_router(mcp_gateway.runtime_router)
 app.include_router(clients.router, prefix=settings.API_PREFIX)
@@ -351,6 +353,15 @@ def ensure_sqlite_schema() -> None:
                 "ADD COLUMN models_refreshed_at DATETIME"
             )
         governance_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(client_governance_policies)").fetchall()}
+        for column, definition in {
+            "desktop_menu_visibility_json": "TEXT NOT NULL DEFAULT '{}'",
+            "desktop_menu_protocol": "INTEGER NOT NULL DEFAULT 0",
+            "desktop_menu_applied_json": "TEXT",
+            "desktop_menu_reported_at": "DATETIME",
+            "runtime_revision": "INTEGER",
+        }.items():
+            if column not in governance_columns:
+                conn.exec_driver_sql(f"ALTER TABLE client_governance_policies ADD COLUMN {column} {definition}")
         if "prompt_guard_json" not in governance_columns:
             conn.exec_driver_sql("ALTER TABLE client_governance_policies ADD COLUMN prompt_guard_json TEXT NOT NULL DEFAULT 'null'")
         if "compression_json" not in governance_columns:
@@ -369,6 +380,8 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE access_tokens ADD COLUMN allow_agent_credential_issuance BOOLEAN NOT NULL DEFAULT 0"
             )
+        if "allow_manual_credential_export" not in access_token_columns:
+            conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN allow_manual_credential_export BOOLEAN NOT NULL DEFAULT 0")
         if "issued_by_client_token_id" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN issued_by_client_token_id INTEGER")
             conn.exec_driver_sql(
@@ -639,6 +652,8 @@ def ensure_sqlite_schema() -> None:
                 "ON mcp_call_audits (approval_request_id)"
             )
         managed_client_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(managed_clients)").fetchall()}
+        if managed_client_columns and "discovery_overrides_json" not in managed_client_columns:
+            conn.exec_driver_sql("ALTER TABLE managed_clients ADD COLUMN discovery_overrides_json TEXT NOT NULL DEFAULT '[]'")
         if managed_client_columns and "policy_mode" not in managed_client_columns:
             conn.exec_driver_sql("ALTER TABLE managed_clients ADD COLUMN policy_mode VARCHAR(32) NOT NULL DEFAULT 'audit'")
         if managed_client_columns and "governance_mode" not in managed_client_columns:

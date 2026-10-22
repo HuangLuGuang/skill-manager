@@ -982,7 +982,7 @@ def _client_policy_response(db: Session, row: models.ManagedClient) -> dict:
         )
     return {
         "mode": row.policy_mode,
-        "agent_discovery": client_discovery.view(db),
+        "agent_discovery": {key: value for key, value in client_discovery.view(db, row).items() if key in {"version", "agents"}},
         "classification": classification,
         "governance_mode": row.governance_mode,
         "light_scan_seconds": 300,
@@ -1220,6 +1220,7 @@ def heartbeat(
     if body.client_version:
         row.client_version = body.client_version
     client_governance.record_protocol(db, client_id, body.governance_protocol)
+    client_governance.record_desktop_menus(db, client_id, body.desktop_menu_protocol, body.applied_desktop_menu_visibility)
     if body.runtime_governance is not None:
         runtime_governance.record_enrollment(db, client_id, body.runtime_governance)
         runtime_governance.record(db, client_id, body.runtime_governance)
@@ -1231,22 +1232,25 @@ def heartbeat(
 
 
 @router.get("/discovery-config")
-def get_discovery_config(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
-    return client_discovery.view(db)
+def get_discovery_config(client_id: str | None = None, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
+    return client_discovery.view(db, _client_or_404(db, client_id) if client_id else None)
 
 
 @router.put("/discovery-config")
-def update_discovery_config(body: client_discovery.CatalogChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
-    previous = client_discovery.view(db)
-    result = client_discovery.save(db, body)
-    if result["version"] != previous["version"]:
-        for (client_id,) in db.query(models.ManagedClient.client_id).all():
+def update_discovery_config(body: client_discovery.CatalogChange, client_id: str | None = None, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
+    client = _client_or_404(db, client_id) if client_id else None
+    clients = [client] if client else db.query(models.ManagedClient).all()
+    previous = {row.client_id: client_discovery.view(db, row)['version'] for row in clients}
+    result = client_discovery.save(db, body, client)
+    for row in clients:
+        effective = client_discovery.view(db, row)
+        if effective['version'] != previous[row.client_id]:
             db.add(models.ClientTask(
-                client_id=client_id,
+                client_id=row.client_id,
                 task_type="sync_policy",
-                payload_json=_dump({"agent_discovery_version": result["version"]}),
+                payload_json=_dump({"agent_discovery_version": effective["version"]}),
             ))
-    _operation(db, current_user, "client_discovery_updated", "clients", json.dumps(result, ensure_ascii=False))
+    _operation(db, current_user, "client_discovery_updated", client_id or "clients", json.dumps(result, ensure_ascii=False))
     db.commit()
     return result
 
@@ -1385,6 +1389,7 @@ def get_client_runtime_status(
     result["model_configuration"] = {
         "adapters": MODEL_ADAPTERS,
         "can_configure_models": can_configure_models,
+        "can_export_manual_credentials": can_configure_models and bool(token.allow_manual_credential_export),
         "allowed_model_scope": "selected" if allowed_model_names else "all",
         "automatic_agent_credential_scopes": list(_AUTO_AGENT_CREDENTIAL_SCOPES),
         "models": [
@@ -1452,6 +1457,139 @@ def get_client_runtime_status(
     result["tasks"] = _task_history(db, client_id, 20)
     result["events"] = _event_history(db, client_id, 50)
     return result
+
+
+def _manual_model_target(db, client_id, body, request, authorization):
+    token = _runtime_token("client:read-tasks", authorization, request, db)
+    _bind_client(token, client_id, db)
+    client = _client_or_404(db, client_id)
+    if not token.allow_agent_credential_issuance or not token.allow_manual_credential_export:
+        raise ApiError(403, "client.manual_credential_permission", "当前客户端未获准领取并复制 Agent 凭证", "This Client is not authorized to retrieve and copy Agent credentials")
+    _lock_model_task_agent(db, client_id, body.local_agent_id)
+    local = db.query(models.ClientAgent).filter_by(client_id=client_id, local_agent_id=body.local_agent_id, agent_type=body.agent_type).first()
+    if not local:
+        raise ApiError(404, "client.agent_not_found", "未找到当前客户端的目标 Agent", "The target Agent was not found on this Client")
+    if not local.managed_agent_id:
+        identity = _ensure_inventory_agent_identity(db, client=client, client_agent=local, owner=token.created_by, group_id=token.group_id, source="manual_model")
+        local.managed_agent_id = identity.agent_id
+        db.flush()
+    agent = db.query(models.ManagedAgent).filter_by(agent_id=local.managed_agent_id, status="active").first()
+    if not agent or not _token_can_use_agent(db, token, agent):
+        raise ApiError(403, "client.manual_agent_unavailable", "目标 Agent 未启用或无权访问", "The target Agent is disabled or inaccessible")
+    routing = client_governance.policy_view(db, client_id)["model_routing"]
+    if routing.get("external_gateway_enabled") and not routing.get("client_select_model", True):
+        raise ApiError(403, "client.external_model_selection_disabled", "平台策略未允许客户端自主选择外部模型", "Client-side external model selection is disabled")
+    return token, client, local, agent, routing
+
+
+def _manual_handoff(db, client_id, token_id, local_id, source):
+    rows = db.query(models.ClientTask).filter_by(client_id=client_id, task_type="manual_model_credential").order_by(models.ClientTask.id.desc()).all()
+    for row in rows:
+        value = _load(row.payload_json, {})
+        if value.get("issuer_id") != token_id or value.get("local_agent_id") != local_id or value.get("source") != source:
+            continue
+        credential = db.get(models.AccessToken, value.get("credential_id")) if value.get("credential_id") else None
+        if credential and (credential.status != "active" or (credential.expires_at and credential.expires_at < datetime.utcnow())):
+            continue
+        return value
+    return None
+
+
+@router.post("/{client_id}/manual-model/options")
+def manual_model_options(client_id: str, body: schemas.ClientExternalModelCatalogRequest, request: Request,
+                         authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    token, client, local, agent, routing = _manual_model_target(db, client_id, body, request, authorization)
+    if routing.get("external_gateway_enabled"):
+        result = _external_catalog_response(db, client=client, client_agent=local, managed_agent=agent)
+        result["gateway_url"] = result["gateway"]["model_base_url"]
+        result["models"] = [{"name": item["id"], "display_name": item.get("name") or item["id"]} for item in result["models"]]
+    else:
+        allowed = _load(token.allowed_models_json, [])
+        query = db.query(models.ModelEndpoint).join(models.ModelProvider).filter(models.ModelEndpoint.enabled.is_(True), models.ModelProvider.enabled.is_(True))
+        if allowed:
+            query = query.filter(models.ModelEndpoint.name.in_(allowed))
+        result = {"source": "internal", "models": [{"name": item.name, "display_name": item.display_name or item.name} for item in query.order_by(models.ModelEndpoint.name).all()]}
+    result["handoff"] = _manual_handoff(db, client_id, token.id, local.local_agent_id, result["source"])
+    db.commit()
+    return result
+
+
+@router.post("/{client_id}/manual-model/credential")
+def manual_model_credential(client_id: str, body: schemas.ClientManualModelCredentialRequest, request: Request, response: Response,
+                            authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    token, client, local, agent, routing = _manual_model_target(db, client_id, body, request, authorization)
+    source = "external_gateway" if routing.get("external_gateway_enabled") else "internal"
+    if source != body.source:
+        raise ApiError(409, "client.manual_route_changed", "网关策略已变化，请重新读取接入信息", "Gateway policy changed; reload connection information")
+    key = hashlib.sha256(f"manual-model:{client_id}:{token.id}:{body.request_id}".encode()).hexdigest()
+    existing = db.query(models.ClientTask).filter_by(request_key=key).first()
+    if existing:
+        value = _load(existing.payload_json, {})
+        if any(value.get(field) != getattr(body, field) for field in ("local_agent_id", "agent_type", "model", "source", "protocol")):
+            raise ApiError(409, "client.manual_request_conflict", "本次申请的目标已变化，请重新打开配置引导", "The request target changed; reopen the guide")
+        allowed = _load(token.allowed_models_json, [])
+        if source == "internal":
+            issued = db.get(models.AccessToken, value.get("credential_id"))
+            enabled = db.query(models.ModelEndpoint).join(models.ModelProvider).filter(models.ModelEndpoint.name == body.model, models.ModelEndpoint.enabled.is_(True), models.ModelProvider.enabled.is_(True)).first()
+            if not issued or issued.status != "active" or (issued.expires_at and issued.expires_at < datetime.utcnow()) or not enabled or (allowed and body.model not in allowed):
+                raise ApiError(403, "client.manual_credential_unavailable", "本次领取的凭证已失效或模型授权已变化", "The credential expired or its model authorization changed")
+        else:
+            gateway = db.get(models.ExternalAIGateway, routing.get("external_gateway_id"))
+            binding = db.query(models.ExternalGatewayAgentBinding).filter_by(gateway_id=routing.get("external_gateway_id"), managed_agent_id=agent.agent_id, status="active").first()
+            if not gateway or not gateway.enabled or not binding or binding.key_id != value.get("key_id") or body.model not in {item["id"] for item in binding_models(db, gateway, binding)}:
+                raise ApiError(403, "client.manual_credential_unavailable", "外部凭证或模型授权已变化", "The external credential or model authorization changed")
+        response.headers["Cache-Control"] = "no-store"
+        return value
+    previous = _manual_handoff(db, client_id, token.id, local.local_agent_id, source)
+    if previous and body.replace_request_id != previous["request_id"]:
+        raise ApiError(409, "client.manual_already_issued", "已有手动领取记录，请重新读取后继续或明确重新领取", "A handoff already exists; reload to continue or explicitly replace it")
+    plain = ""
+    credential = None
+    binding = None
+    if source == "external_gateway":
+        gateway = db.get(models.ExternalAIGateway, routing.get("external_gateway_id"))
+        if not gateway or not gateway.enabled:
+            raise ApiError(409, "client.external_gateway_unavailable", "外部网关未启用", "The external gateway is disabled")
+        binding = db.query(models.ExternalGatewayAgentBinding).filter_by(gateway_id=gateway.id, managed_agent_id=agent.agent_id).first()
+        if not binding or binding.status != "active":
+            raise ApiError(409, "client.external_binding_unavailable", "请先读取外部网关模型目录", "Load the external model catalog first")
+        if body.model not in {item["id"] for item in binding_models(db, gateway, binding)}:
+            raise ApiError(403, "client.model_not_delegated", "当前 Agent 无权使用所选模型", "This Agent cannot use the selected model")
+        plain = unprotect_secret(binding.api_key_encrypted)
+        if not plain:
+            raise ApiError(409, "external_gateway.credential_unavailable", "外部 Agent API Key 不可用", "The external Agent API key is unavailable")
+    else:
+        allowed = _load(token.allowed_models_json, [])
+        model = db.query(models.ModelEndpoint).join(models.ModelProvider).filter(models.ModelEndpoint.name == body.model, models.ModelEndpoint.enabled.is_(True), models.ModelProvider.enabled.is_(True)).first()
+        if not model or (allowed and body.model not in allowed):
+            raise ApiError(403, "client.model_not_delegated", "当前客户端无权配置所选模型", "This Client cannot configure the selected model")
+        policy = client_governance.policy_view(db, client_id)
+        plain = _new_token()
+        credential = models.AccessToken(
+            name=f"{agent.name} · 手动模型配置"[:128], token_type="agent_runtime", token_hash=_hash_token(plain), token_prefix=plain[:12],
+            bound_agent_id=agent.agent_id, issued_by_client_token_id=token.id, scopes_json=_dump(["model:chat"]),
+            allowed_models_json=_dump([body.model]), allowed_ips_json=token.allowed_ips_json,
+            expires_at=token.expires_at, user_id=token.user_id, group_id=token.group_id,
+            max_body_kb=token.max_body_kb, max_concurrent_requests=token.max_concurrent_requests,
+            prompt_guard_mode=policy["prompt_guard"]["mode"], prompt_guard_llm_review=policy["prompt_guard"]["llm_review"],
+            enable_compression=policy["compression"]["enabled"], compression_level=policy["compression"]["level"], created_by=f"client:{client_id}")
+        db.add(credential)
+        db.flush()
+    # Only an explicitly replaced manual handoff may be revoked; automatic configurations have a separate lifecycle.
+    if previous and previous.get("credential_id"):
+        old = db.get(models.AccessToken, previous["credential_id"])
+        if old and old.issued_by_client_token_id == token.id and old.bound_agent_id == agent.agent_id:
+            old.status, old.revoked_at, old.revoked_by = "revoked", datetime.utcnow(), f"client:{client_id}:manual-replacement"
+    value = {**body.model_dump(exclude={"replace_request_id"}), "issuer_id": token.id, "bound_agent_id": agent.agent_id,
+             "credential_id": credential.id if credential else None, "key_id": binding.key_id if binding else None,
+             "expires_at": credential.expires_at.isoformat() + "Z" if credential and credential.expires_at else None,
+             "gateway_url": gateway.model_base_url if source == "external_gateway" else None}
+    db.add(models.ClientTask(client_id=client_id, task_type="manual_model_credential", request_key=key,
+                            status="succeeded", payload_json=_dump(value), finished_at=datetime.utcnow()))
+    db.add(models.ClientEvent(client_id=client_id, agent_type=local.agent_type, event_type="manual_model_credential_issued", details_json=_dump({**value, "status": "succeeded"})))
+    db.commit()
+    response.headers["Cache-Control"] = "no-store"
+    return {**value, "token": plain}
 
 
 @router.post("/{client_id}/model-catalog/refresh")
@@ -2298,6 +2436,8 @@ def report_task_result(
             models.ClientTask.id == task_id, models.ClientTask.client_id == client_id,
             models.ClientTask.status.in_(("pending", "running")),
         ).update(updates, synchronize_session=False)
+        if changed and row.task_type == "sync_policy" and body.status == "succeeded" and body.applied_desktop_menu_visibility is not None:
+            client_governance.record_desktop_menus(db, client_id, 1, body.applied_desktop_menu_visibility)
         db.commit()
         db.refresh(row)
         return {"ok": True, "ignored": not bool(changed), "status": row.status}

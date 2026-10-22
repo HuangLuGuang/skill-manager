@@ -7,12 +7,12 @@
       <p class="muted">{{ tr(selected.skill.behavior) }} · {{ time(selected.first_at) }} · {{ entryName }}</p>
       <div class="state-pair"><div><span>{{ ui('outcome') }}</span><a-tag :color="outcomeTone(selected.stage)">{{ phase(selected) }}</a-tag></div><div><span>{{ ui('certification') }}</span><a-tag :color="tone(selected.certification?.status)">{{ tr(selected.certification?.status || 'pending') }}</a-tag></div></div>
       <p class="skill-path"><span class="muted">{{ tr('path') }}</span> {{ selected.skill.path || tr('source_unknown') }}</p>
-      <p v-if="selected.certification?.reason" class="muted">{{ reason(selected.certification.reason) }}</p>
+      <p v-if="selected.certification?.reason" class="muted">{{ selected.certification.status === 'unauthorized' ? tr('authorizationHelp') : reason(selected.certification.reason) }}</p>
       <section class="detail-section"><h4>{{ ui('timeline') }}</h4>
         <a-timeline>
           <a-timeline-item v-for="node in timeline" :key="node.key" :color="node.color">
-            <time>{{ node.at ? time(node.at) : ui('arrivalAt', { time:time(node.receivedAt) }) }}</time><strong>{{ node.title }}</strong>
-            <template v-if="node.kind === 'evidence'"><p class="muted">{{ ui(node.ref.source === 'hook' ? 'sourceHook' : 'sourceLog') }} · {{ node.ref.tool || selected.tool }}<template v-if="node.ref.turn_id"> · {{ ui('turn', { id:node.ref.turn_id }) }}</template></p><a-button type="link" size="small" :disabled="node.ref.available === false" @click="openEvidence(node.ref)">{{ node.ref.available === false ? ui('evidenceExpired') : ui('viewEvidence') }}</a-button></template>
+            <time>{{ node.at ? time(node.at) : ui('arrivalAt', { time:time(node.receivedAt) }) }}</time><strong>{{ node.title }}</strong><p v-if="node.kind === 'evidence' && node.ref.stage === 'attempted'" class="muted">{{ tr('attemptedHelp') }}</p>
+            <template v-if="node.kind === 'evidence'"><p class="muted">{{ ui(node.ref.source === 'hook' ? 'sourceHook' : 'sourceLog') }} · {{ node.ref.tool || selected.tool }}</p><a-button v-if="node.ref.has_content && node.ref.available !== false" type="link" size="small" @click="openEvidence(node.ref)">{{ ui('viewContent') }}</a-button></template>
             <template v-else-if="node.kind === 'observation'"><p v-if="node.observation.skill.content_status === 'reused'" class="muted">{{ tr('contentState.reused') }}</p><p class="digest">{{ node.observation.skill.content_digest || reason('content_' + node.observation.skill.content_reason) }}</p><p v-if="node.observation.resolved_path" class="skill-path">{{ ui('resolvedPath') }} {{ node.observation.resolved_path }}</p></template>
             <p v-else class="muted">{{ reason(node.check.reason) }}</p>
           </a-timeline-item>
@@ -31,9 +31,9 @@
       <section v-if="selected.tasks?.length" class="detail-section"><h4>{{ ui('requests') }}</h4><p v-for="task in selected.tasks" :key="task.id"><time>{{ time(task.created_at) }}</time> · {{ ui('taskStatus.' + task.status) }}<span v-if="task.error_code"> · {{ taskError(task.error_code) }}</span><span v-if="task.status === 'succeeded'"> · {{ ui('receiptOnly') }}</span></p></section>
       <footer><a-button :loading="loading" :disabled="loading" @click="load">{{ ui('refreshPlatform') }}</a-button><p class="muted">{{ ui('refreshHelp') }}</p></footer><p class="observation-note"><InfoCircleOutlined /> {{ tr('observation') }}</p>
     </template>
-    <a-drawer v-model:open="evidenceOpen" :title="ui('viewEvidence')" width="min(720px, 100vw)" :destroy-on-close="true">
+    <a-drawer v-model:open="evidenceOpen" :title="ui('viewContent')" width="min(720px, 100vw)" :destroy-on-close="true">
       <a-spin v-if="evidenceLoading" /><a-alert v-if="evidenceError" type="error" :message="ui('evidenceUnavailable')" show-icon />
-      <template v-if="evidenceData"><dl class="check-facts"><dt>{{ tr('tool') }}</dt><dd>{{ evidenceData.event.tool || '—' }}</dd><dt>{{ ui('call') }}</dt><dd>{{ evidenceData.event.native_call_id || '—' }}</dd><dt>{{ ui('turnLabel') }}</dt><dd>{{ evidenceData.event.turn_id || '—' }}</dd><dt>{{ ui('nativeEvent') }}</dt><dd>{{ evidenceData.event.hook_event || evidenceData.event.kind }}</dd><template v-if="evidenceData.event.skill_use?.path"><dt>{{ tr('path') }}</dt><dd>{{ evidenceData.event.skill_use.path }}</dd></template></dl><p v-if="!evidenceData.event.contents?.length && !evidenceData.event.behavior?.contents?.length && !evidenceData.event.message?.contents?.length" class="muted">{{ ui('noFragments') }}</p><AidrAuditContent :key="evidenceData.source + evidenceData.record_id" :client-id="clientId" :source="evidenceData.source" :record-id="evidenceData.record_id" :evidence="evidenceData.event" /></template>
+      <AidrAuditContent v-if="evidenceData" :key="evidenceData.source + evidenceData.content_record_id" :client-id="clientId" :source="evidenceData.source" :record-id="evidenceData.content_record_id" :evidence="evidenceData.event" />
     </a-drawer>
   </aside>
 </template>
@@ -51,7 +51,7 @@ const { tr, ui, name, time, phase, tone, outcomeTone, reason, taskError } = useS
 const selected = ref(null), loading = ref(false), error = ref(false), historyLoading = ref(false), submitting = ref(false), submitError = ref('')
 const evidenceOpen = ref(false), evidenceLoading = ref(false), evidenceError = ref(false), evidenceData = ref(null)
 let request = 0, evidenceRequest = 0, timer, requestId = '', disposed = false
-const checkFields = ['registered','approved','revoked','content_matches','authorized']
+const checkFields = computed(() => ['registered','approved','revoked','content_matches', ...(selected.value?.certification?.governance_mode === 'registry' ? [] : ['authorized'])])
 const entryName = computed(() => products.find(p => p.id === (selected.value?.entry || selected.value?.agent))?.name || selected.value?.entry || selected.value?.agent)
 const timeline = computed(() => {
   const value = selected.value

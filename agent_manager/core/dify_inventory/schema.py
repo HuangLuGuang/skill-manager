@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import datetime, timezone
 from typing import Any
 
 
 FIELD_STATUSES = {"verified", "declared", "inferred", "unverified", "unavailable"}
+
+
+def graph_digest(graph: dict[str, Any]) -> str:
+    normalized = {
+        "nodes": sorted(({"id": n["id"], "data": n["data"]} for n in graph.get("nodes", [])), key=lambda n: str(n["id"])),
+        "edges": sorted(({k: e.get(k) for k in ("source", "target", "sourceHandle", "targetHandle")}
+                         for e in graph.get("edges", [])), key=lambda e: json.dumps(e, sort_keys=True)),
+    }
+    return hashlib.sha256(json.dumps(normalized, sort_keys=True, separators=(",", ":"),
+                                    ensure_ascii=False, default=str).encode()).hexdigest()
 
 
 def collected_now() -> str:

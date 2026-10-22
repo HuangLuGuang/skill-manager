@@ -51,14 +51,14 @@ def test_upload_does_not_block_other_api_requests(tmp_path, monkeypatch, path, m
     app.dependency_overrides[scanner_api.get_token_store] = lambda: SimpleNamespace(log_event=lambda *a, **k: None)
     monkeypatch.setattr(api._scan_executor, "submit", lambda *a, **k: None)
     started, release = threading.Event(), threading.Event()
-    extract = module._extract_zip_with_nested_archives
+    extract = module._safe_extract_zip
 
     def slow_extract(*args, **kwargs):
         started.set()
         release.wait(2)
         return extract(*args, **kwargs)
 
-    monkeypatch.setattr(module, "_extract_zip_with_nested_archives", slow_extract)
+    monkeypatch.setattr(module, "_safe_extract_zip", slow_extract)
     async_client = httpx.AsyncClient
 
     def upstream_client(**kwargs):

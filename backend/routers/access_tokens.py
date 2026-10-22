@@ -132,6 +132,11 @@ def _validate_external_token(db, token_type, platform_id, department_ids, expire
     return expires_at
 
 
+def _validate_manual_credential_export(token_type, issuance, export):
+    if export and (token_type != "client" or not issuance):
+        raise ApiError(400, "credential.manual_export_not_allowed", "手动领取权限需要客户端凭证同时允许创建 Agent 运行凭证", "Manual credential export requires a Client credential with Agent credential issuance enabled")
+
+
 def _normalize_allowed_models(
     token_type: str,
     scopes: list[str],
@@ -264,6 +269,7 @@ def _access_token_response(row: models.AccessToken, token: str | None = None) ->
         bound_agent_id=row.bound_agent_id,
         bound_client_id=row.bound_client_id,
         allow_agent_credential_issuance=getattr(row, "allow_agent_credential_issuance", False),
+        allow_manual_credential_export=row.allow_manual_credential_export,
         issued_by_client_token_id=getattr(row, "issued_by_client_token_id", None),
         user_id=row.user_id,
         group_id=row.group_id,
@@ -529,6 +535,7 @@ async def create_access_token(
     if body.token_type == "openapi" and len(body.name.strip()) > 128:
         raise ApiError(400, "external_access.name_too_long", "凭证名称最多128个字符", "Credential names allow up to 128 characters")
     _validate_agent_credential_issuance(body.token_type, body.allow_agent_credential_issuance)
+    _validate_manual_credential_export(body.token_type, body.allow_agent_credential_issuance, body.allow_manual_credential_export)
     scopes = _normalize_scopes(body.token_type, body.scopes)
     allowed_mcp_gateways = _validate_subject_bindings(
         db,
@@ -554,6 +561,7 @@ async def create_access_token(
         bound_agent_id=body.bound_agent_id,
         bound_client_id=body.bound_client_id,
         allow_agent_credential_issuance=body.allow_agent_credential_issuance,
+        allow_manual_credential_export=body.allow_manual_credential_export,
         user_id=body.user_id or current_user.id if body.token_type == "model_gateway" else body.user_id,
         group_id=body.group_id,
         allowed_models_json=_json_dumps(
@@ -595,6 +603,12 @@ async def update_access_token(
     if not row:
         raise ApiError(404, "credential.not_found", "接入凭证不存在", "Access credential not found")
     data = body.model_dump(exclude_unset=True)
+    if row.status == "revoked" and row.token_type != "openapi":
+        raise ApiError(409, "credential.revoked", "凭证已吊销，请创建新凭证", "This credential is revoked; create a new one")
+    if row.token_type != "openapi" and "scopes" in data and not any(scope.strip() for scope in (data["scopes"] or [])):
+        raise ApiError(400, "credential.scopes_required", "请至少保留一项权限；停止使用请吊销凭证", "Keep at least one permission; revoke the credential to stop using it")
+    if "allow_manual_credential_export" in data and data["allow_manual_credential_export"] is None:
+        raise ApiError(400, "credential.manual_export_required", "手动领取权限必须为开启或关闭", "Manual retrieval permission must be enabled or disabled")
     if row.token_type == "openapi":
         for field in ("status", "name", "scopes", "allowed_department_ids"):
             if field in data and data[field] is None:
@@ -648,10 +662,13 @@ async def update_access_token(
     ) if authorization_changed else next_allowed_mcp_gateways
     scopes = next_scopes
     next_agent_issuance = bool(data.get("allow_agent_credential_issuance", row.allow_agent_credential_issuance))
+    if not next_agent_issuance and "allow_manual_credential_export" not in data:
+        data["allow_manual_credential_export"] = False
+    _validate_manual_credential_export(row.token_type, next_agent_issuance, data.get("allow_manual_credential_export", row.allow_manual_credential_export))
     if "scopes" in data and data["scopes"] is not None:
         data.pop("scopes")
         row.scopes_json = _json_dumps(scopes)
-        if "model:chat" not in scopes:
+        if "model:chat" not in scopes and not (row.token_type == "client" and next_agent_issuance):
             row.allowed_models_json = "[]"
     if "allowed_models" in data and data["allowed_models"] is not None:
         row.allowed_models_json = _json_dumps(

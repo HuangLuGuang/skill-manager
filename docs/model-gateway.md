@@ -72,6 +72,28 @@ Other Agents currently expose model and gateway configuration only. Agents contr
 
 Configuration readback alone cannot establish version or upstream capability support. See the [model switching evidence](acceptance/model-switching-2026-09-13/README.md) for verified combinations, limitations and bilingual screenshots.
 
+### 手动配置与凭证领取 / Manual configuration and credential retrieval
+
+模型切换页展示已发现的 Agent。没有自动配置适配器时，可打开三步手动引导：确认 Agent 支持自定义地址、凭证和所选协议，复制接入字段并保存到 Agent，最后重启并核对网关调用记录。未知 Agent 的设置路径与协议能力需要用户按实际版本确认。
+
+The model switcher shows discovered Agents. Agents without an automatic configuration adapter offer a three-step guide: confirm support for a custom endpoint, credential and protocol; copy connection fields into the Agent; then restart and inspect gateway call records. Users must confirm the settings location and protocol support for their installed Agent version.
+
+在“统一凭证中心”为客户端凭证同时开启“允许创建 Agent 运行凭证”和“允许手动领取并复制 Agent 凭证”。手动领取权限默认关闭，与自动配置授权独立；已有客户端凭证可在列表操作中开启或关闭。关闭手动领取权限会阻止后续领取和复制，不自动撤销已保存到 Agent 的凭证。
+
+In Credentials, enable both Agent credential issuance and manual retrieval/copying on the Client credential. Manual retrieval is off by default and is separate from automatic configuration authorization. Existing Client credentials expose an enable/disable action. Disabling retrieval prevents subsequent retrieval and copying; it does not revoke credentials already saved in an Agent.
+
+内置网关在点击“申请凭证”后创建独立的 `agent_runtime` 凭证，只授予 `model:chat`，绑定本机目标 Agent 和所选已授权模型，继承客户端凭证的有效期、IP 与请求限额及当前客户端防护策略。服务端仅保存凭证 hash；同一次申请重试返回领取记录，不重复返回明文。客户端原生内存最多保留明文 5 分钟，关闭引导时清除；点击复制时重新校验授权，明文仅短暂经过前端写入系统剪贴板，不进入页面状态、任务或审计记录。关闭引导不会清空系统剪贴板或 Agent 中已保存的配置。
+
+For the internal gateway, Request creates a separate `agent_runtime` credential with only `model:chat`, bound to the local Agent and selected authorized model. It inherits the Client credential’s expiry, IP/request limits and current Client protection policy. The server stores only its hash. Retrying the same request returns handoff metadata without returning the secret again. Native Client memory retains the secret for at most five minutes and clears it when the guide closes. Copying revalidates authorization; plaintext briefly passes through the renderer to the system clipboard without entering page state, tasks or audit records. Closing the guide does not clear the system clipboard or the Agent’s saved configuration.
+
+临时副本清除后需要明确“重新领取”：内置网关撤销上一次手动申请的凭证并创建替代凭证，自动配置使用的凭证保持原有生命周期。外部网关沿用当前 Agent 的托管 Key，再次领取不轮换该 Key；实际模型范围和有效期由外部网关决定，所选模型只表示配置目标。关闭客户端权限或吊销父客户端凭证不能替代外部网关的 Key 吊销操作。
+
+After the temporary copy clears, explicit retrieval is required. The internal gateway replaces the previous manually issued credential; automatic configuration credentials retain their lifecycle. External gateways reuse the Agent’s escrowed Key without rotating it. The external gateway determines its actual model scope and expiry; the selected model is the configuration target. Disabling Client permission or revoking the parent Client credential does not replace revocation of the external Key at its gateway.
+
+领取成功、复制成功、用户确认保存与真实调用分别表示不同结果。引导完成后调用状态保持“未验证”；内置网关在 Pipeline Trace 核对 Agent、模型和请求结果，外部网关在其自身审计中核对。
+
+Retrieval, copying, user-confirmed saving and an observed model call are distinct outcomes. Completing the guide leaves call verification as Unverified. Check the Agent, model and request result in Pipeline Trace for internal calls, or in the external gateway’s own audit.
+
 ## 1. 管理台入口
 
 Agent 风险扫描和大模型红队扫描在发起时必须选择评估模型。列表读取网关中模型及供应商均已启用的模型，预览、创建和执行时再次校验。
@@ -473,7 +495,9 @@ Client-issued model-switching credentials are managed through **Client policies*
 - 服务端只保存 SHA-256 hash 和 key prefix。
 - 创建时自动绑定当前登录用户；运行时按该用户所属用户组解析隐私策略。
 - 可配置允许模型列表、最大请求体大小 `max_body_kb`、最大并发请求数 `max_concurrent_requests`、Prompt 防护和可选压缩。
-- 管理台当前提供创建、吊销和删除，不提供找回明文或就地编辑；需要调整绑定或限额时应创建替代凭证，再吊销旧凭证。
+- 管理台提供创建、编辑权限、吊销和删除。具有 `credentials:update` 权限的用户可编辑未吊销凭证的能力范围、允许模型、MCP 网关，以及客户端自动签发与手动领取权限；外部接口凭证从编辑入口进入专用页面，调整接口权限和部门范围。
+- 模型、Agent、MCP、Scanner 和客户端凭证的权限编辑沿用原凭证，只提交实际变更的权限字段，后续请求按新范围校验。名称、类型、身份绑定、到期时间、来源 IP、限额及防护设置保持原值；明文无法找回。权限至少保留一项，模型列表留空表示允许全部模型，Agent 的 MCP 网关范围仍受绑定 Agent 的授权限制。
+- 客户端自动签发权限与模型范围作用于后续申请，关闭手动领取会阻止后续领取和复制。已签发凭证的权限需要单独编辑或吊销；吊销父客户端凭证仍会级联吊销其有效子凭证。收紧权限可能使后续调用被拒绝，不会中断已经通过授权的在途请求。
 - Agent 的“只做运行校验”和“完整运行治理”方案默认不能调用模型；只有选择包含模型能力的方案，或在自定义方案中加入 `model:chat` 后，才可以调用模型网关。
 
 运行时会检查：

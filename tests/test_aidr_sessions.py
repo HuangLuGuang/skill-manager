@@ -73,15 +73,24 @@ def test_qoder_native_call_link_requires_same_user_session_and_tool(service):
 def test_qoder_session_skill_list_keeps_both_raw_sources(service):
     from backend.aidr_models import AidrSkillUse
     client, factory = service
+    insert(factory, 1, event={'agent':'qoder-hooks', 'session_id':'s'})
     payload = json.dumps({'skill':{'behavior':'invocation','name':'sample','basis':'tool_input.skill'},
                           'evidence':[], 'turn_id':'', 'stage':'attempted', 'identity_ambiguous':False})
     with factory() as db:
         for entry in ('qoder-hooks','qoder-cli','qoder-work'):
             db.add(AidrSkillUse(client_id='one',call_key=entry,agent=entry,session_id='s',behavior='invocation',payload_json=payload))
+        db.add(AidrSkillUse(client_id='one',call_key='expired',agent='qoder-hooks',session_id='s',behavior='invocation',payload_json=payload,expired_at=datetime.utcnow()))
+        db.add(AidrSkillUse(client_id='two',call_key='other-device',agent='qoder-hooks',session_id='s',behavior='invocation',payload_json=payload))
         db.commit()
     response=client.get(BASE+'/skill-uses',params={'agent':'qoder-hooks','session_id':'s'})
     assert response.status_code==200
     assert {r['agent'] for r in response.json()['items']}=={'qoder-hooks','qoder-cli'}
+    assert response.json()['session_total'] == 2
+    filtered = client.get(BASE+'/skill-uses', params={'agent':'qoder-hooks','session_id':'s', 'keyword':'absent'})
+    assert filtered.json()['items'] == []
+    assert filtered.json()['session_total'] == 2
+    sessions = get(client, '/sessions', agent='qoder-hooks')['items']
+    assert sessions[0]['skill_count'] == 2
 
 
 def test_qoder_product_filter_preserves_entry_identity_and_pagination(service):

@@ -2,6 +2,8 @@ package managedclient
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
 	"skill-manager/scanner/internal/aidr/catalog"
 	"time"
 )
@@ -90,16 +92,35 @@ func (p RuntimeGovernancePolicy) Valid() bool {
 
 // The same lock and context are used by policy reconciliation and individual
 // installer actions, so nested actions don't release the transaction's lock.
+type aidrMutationLockContextKey struct{}
+
 func AIDRMutationLock(ctx context.Context, home string) (context.Context, func(), error) {
 	key := canonicalExistingPath(home)
-	if ctx.Value(mutationLockContextKey{}) == key {
+	if ctx.Value(aidrMutationLockContextKey{}) == key {
 		return ctx, func() {}, nil
 	}
-	release, err := AcquireMutationLockWithTimeout(home, 5*time.Second)
-	if err != nil {
-		return ctx, nil, err
+	wait, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for {
+		if err := ctx.Err(); err != nil {
+			return ctx, nil, err
+		}
+		release, err := acquireClientLock(home, "aidr-mutation.lock")
+		if err == nil {
+			return context.WithValue(ctx, aidrMutationLockContextKey{}, key), release, nil
+		}
+		if !errors.Is(err, ErrAlreadyRunning) {
+			return ctx, nil, err
+		}
+		select {
+		case <-wait.Done():
+			if ctx.Err() != nil {
+				return ctx, nil, ctx.Err()
+			}
+			return ctx, nil, &fileLockConflict{Resource: filepath.Join(home, ".agent-manager", "aidr-mutation.lock"), Mode: "exclusive"}
+		case <-time.After(25 * time.Millisecond):
+		}
 	}
-	return context.WithValue(ctx, mutationLockContextKey{}, key), release, nil
 }
 
 // The product CLI supplies the existing installer; the managed task worker

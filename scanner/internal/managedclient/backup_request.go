@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"time"
 )
 
@@ -17,7 +18,21 @@ func RequestBackupRestore(ctx context.Context, home, name, requestID string, api
 	if requestID == "" {
 		return result, fmt.Errorf("backup_request_id_required")
 	}
-	release, err := AcquireMutationLock(home)
+	_, exists, err := store.State("backup-restore-request:" + requestID)
+	if err != nil {
+		return result, err
+	}
+	paths := []string{filepath.Join(BackupsRoot(home), name)}
+	if !exists {
+		plan, err := PlanBackupRestore(home, name)
+		if err != nil {
+			return result, err
+		}
+		for _, item := range plan {
+			paths = append(paths, item.Source, item.Target)
+		}
+	}
+	_, release, err := withFileLocks(ctx, home, paths...)
 	if err != nil {
 		return result, err
 	}
@@ -56,7 +71,7 @@ func RequestBackupRestore(ctx context.Context, home, name, requestID string, api
 	return result, nil
 }
 
-// The mutation lock must be held while capturing the batch. Retries reuse the
+// Resource locks must be held while capturing the batch. Retries reuse the
 // original target fingerprints even after a previously accepted task completes.
 func prepareBackupRestoreRequests(home, name, requestID string, store *Store) ([]SkillActionRequest, error) {
 	key := "backup-restore-request:" + requestID

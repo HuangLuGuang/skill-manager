@@ -41,7 +41,7 @@ func TestQuarantineRecoveryRechecksPolicyAndContent(t *testing.T) {
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			home, store, inventory, skill := observedFixture(t)
-			item, err := quarantineSkill(home, store, "codex", skill.Name, skill.Path, "unverified", skill.Signature)
+			item, err := quarantineSkill(context.Background(), home, store, "codex", skill.Name, skill.Path, "unverified", skill.Signature)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -165,7 +165,7 @@ func TestQuarantineRecoveryRechecksPolicyAndContent(t *testing.T) {
 
 func TestAuthorizedManualRecoveryCompletesWithoutPlatformRoundTrip(t *testing.T) {
 	home, store, inventory, skill := observedFixture(t)
-	item, err := quarantineSkill(home, store, "codex", skill.Name, skill.Path, "manual", skill.Signature)
+	item, err := quarantineSkill(context.Background(), home, store, "codex", skill.Name, skill.Path, "manual", skill.Signature)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestAuthorizedManualRecoveryCompletesWithoutPlatformRoundTrip(t *testing.T)
 
 func TestRecoveryMetadataFailureRetainsCopiesAndRejectsNewContentOnRetry(t *testing.T) {
 	home, store, inventory, skill := observedFixture(t)
-	item, err := quarantineSkill(home, store, "codex", skill.Name, skill.Path, "unverified", skill.Signature)
+	item, err := quarantineSkill(context.Background(), home, store, "codex", skill.Name, skill.Path, "unverified", skill.Signature)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestAutomaticRecoveryRequiresExactApprovedContent(t *testing.T) {
 			for _, scenario := range []string{"approved", "unapproved", "different_content", "occupied", "offline"} {
 				t.Run(scenario, func(t *testing.T) {
 					home, store, inventory, skill := observedFixture(t)
-					item, err := quarantineSkill(home, store, "codex", skill.Name, skill.Path, "unverified", skill.Signature)
+					item, err := quarantineSkill(context.Background(), home, store, "codex", skill.Name, skill.Path, "unverified", skill.Signature)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -339,7 +339,7 @@ func TestAutomaticRecoveryRequiresExactApprovedContent(t *testing.T) {
 
 func TestManualQuarantineRequiresExplicitRestore(t *testing.T) {
 	home, store, inventory, skill := observedFixture(t)
-	item, err := quarantineSkill(home, store, "codex", skill.Name, skill.Path, "manual", skill.Signature)
+	item, err := quarantineSkill(context.Background(), home, store, "codex", skill.Name, skill.Path, "manual", skill.Signature)
 	if err != nil {
 		t.Fatal(err)
 	}

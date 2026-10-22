@@ -38,8 +38,8 @@ func TestLegacyPatrolAndQuarantineRespectMutationLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	if err := patrol(context.Background(), home, Inventory{}, Policy{Mode: "block"}, API{}, store, true, false); !errors.Is(err, ErrSkillActionBusy) {
-		t.Fatalf("patrol bypassed mutation lock: %v", err)
+	if err := patrol(context.Background(), home, Inventory{}, Policy{Mode: "block"}, API{}, store, true, false); err != nil {
+		t.Fatalf("read-only patrol should not acquire file locks: %v", err)
 	}
 	if _, err := QuarantineSkill(home, store, "codex", skill.Name, skill.Path, "manual"); !errors.Is(err, ErrSkillActionBusy) {
 		t.Fatalf("quarantine bypassed mutation lock: %v", err)

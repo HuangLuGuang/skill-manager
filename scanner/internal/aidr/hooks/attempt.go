@@ -19,7 +19,9 @@ type ApprovalSubmission struct {
 // BeginApproval stores only the exact scope derived from persisted evidence.
 // Waiting happens in the plugin process, never while holding a socket or lock.
 func (s *Store) BeginApproval(ctx context.Context, record Record, now time.Time) (ToolDecision, error) {
-	s.mu.Lock()
+	if err := s.lockContext(ctx); err != nil {
+		return ToolDecision{}, err
+	}
 	defer s.mu.Unlock()
 	deny := ToolDecision{Decision: "deny", Code: "aidr_hook_scope_unverified", Matched: []string{}}
 	if s.controlPolicy == nil || len(s.controlKey) == 0 {
@@ -73,7 +75,9 @@ func (s *Store) BeginApproval(ctx context.Context, record Record, now time.Time)
 // PollApproval atomically consumes a grant and records the local delivery.
 // A lost allow response cannot be replayed into a second execution permission.
 func (s *Store) PollApproval(ctx context.Context, id, user string, cancel bool, now time.Time) (ToolDecision, error) {
-	s.mu.Lock()
+	if err := s.lockContext(ctx); err != nil {
+		return ToolDecision{}, err
+	}
 	defer s.mu.Unlock()
 	d := ToolDecision{Decision: "deny", Code: "aidr_hook_attempt_missing", Matched: []string{}}
 	tx, err := s.db.BeginTx(ctx, nil)

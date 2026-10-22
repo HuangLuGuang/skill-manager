@@ -101,6 +101,7 @@ class Event(Contract):
     tool: Short
     outcome: Literal["unknown", "success", "error"]
     observed_at: str = Field(max_length=40)
+    observed_at_source: Literal['collection'] | None = None
     received_at: str = Field(max_length=40)
     content_digest: Hash
     content_bytes: int = Field(ge=1, le=4 << 20)
@@ -109,6 +110,8 @@ class Event(Contract):
 
     @model_validator(mode="after")
     def consistent(self):
+        if self.observed_at_source and self.agent != 'doubaowork':
+            raise ValueError('observed_at_source_invalid')
         if self.completion and (self.agent != 'codex' or self.schema_version != 2
                 or self.kind != 'tool_result' or not self.tool or not self.session_id
                 or not self.turn_id or self.outcome != 'unknown' or not self.behavior

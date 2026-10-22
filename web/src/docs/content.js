@@ -2201,7 +2201,7 @@ const zh = {
         {
           id: 'before-you-start',
           title: '部署前检查',
-          bullets: ['确认 Linux 服务器架构：x86_64 使用 x86 包，aarch64/arm64 使用 ARM 包。以下版本号仅为示例，请替换为实际交付版本。', '准备 Bash、Python 3（仅标准库）、Docker 和当前用户的 Docker 访问权限。缺少 Docker 时，先使用包内 installers/ 的安装程序完成安装。', '脚本优先使用 docker compose，也支持满足要求的独立 docker-compose；需支持 up --wait --wait-timeout、config --format json 和 env_file.required。旧版 Python Compose v1 不满足要求。', '确认 HTTP 端口可用，首次默认 80；同时为镜像加载、升级临时目录、备份和数据增长预留空间。'],
+          bullets: ['确认 Linux 服务器架构：x86_64 使用 x86 包，aarch64/arm64 使用 ARM 包。以下版本号仅为示例，请替换为实际交付版本。', '准备 Bash、GNU tar/coreutils（含 timeout）、flock、gzip、awk、Docker 和当前用户的 Docker 访问权限。缺少 Docker 时，先使用包内 installers/ 的安装程序完成安装。', '脚本优先使用 docker compose，也支持满足要求的独立 docker-compose；需支持 up --wait --wait-timeout、config --images 和 env_file.required。', '确认 HTTP 端口可用，首次默认 80；同时为镜像加载、升级临时目录、备份和数据增长预留空间。'],
           table: {
             columns: ['资源项', '生产环境推荐基线', '容量规划说明'],
             rows: [
@@ -2210,14 +2210,14 @@ const zh = {
               ['磁盘', '500 GiB可用容量，优先SSD/NVMe', '保存镜像、Skill包、版本内容、报告、审计、客户端发布文件和日志；Skill越多、版本留存越久，容量需求越大。'],
             ],
           },
-          code: 'uname -m\npython3 --version\ndocker --version\ndocker info --format \'{{.Architecture}}\'\ndocker compose version',
-          callout: { type: 'note', title: '容量规划边界', body: '以上是单节点生产部署的推荐初始规格，不是最低门槛。共享8 vCPU隔离测试节点已经完成单节点基准，用于识别SQLite写并发和扫描队列的容量拐点；生产仍建议保留更高资源余量。详见“性能与容量”。' },
+          code: 'uname -m\ndocker --version\ndocker info --format \'{{.Architecture}}\'\ndocker compose version || docker-compose version',
+          callout: { type: 'note', title: '容量规划边界', body: '以上为单节点生产建议，按实际数据量和并发需求调整。' },
           link: { path: '/docs/performance-benchmark', label: '查看性能与容量实测' },
         },
         {
           id: 'offline',
           title: '解压安装包并准备生产配置',
-          paragraphs: ['安装包包含部署文件、目标架构镜像、Docker 安装程序和客户端发布文件。包内 Compose 已固定应用镜像版本，版本与架构可在 release-provenance.json 中核对；现场无需构建镜像。'],
+          paragraphs: ['安装包包含部署文件、目标架构镜像、Docker 安装程序和客户端发布文件。包内 Compose 已固定应用镜像版本，版本与架构可在 release-provenance.json 中核对。'],
           steps: [
             { title: '解压到安装位置', body: '以下以 x86 包为例；ARM 使用 agent-manager_1.0.6_arm.tar.gz。解压后进入 agent-manager 目录，后续在此保留配置与执行升级。', code: 'tar -xzf agent-manager_1.0.6_x86.tar.gz\ncd agent-manager' },
             { title: '首次部署创建配置', body: '复制后编辑 .env，完成下列凭据配置再启动。', code: 'cp .env.example .env' },
@@ -2233,13 +2233,23 @@ const zh = {
             { title: '按需指定端口', body: '需要自定义端口时，用此命令替代上一步。端口范围为 1–65535，写入 .env 的 HTTP_PORT；后续启动和升级沿用该端口。访问 http://服务器地址:8088。', code: './start.sh --port 8088' },
             { title: '按需延长等待', body: '默认健康等待时间为 300 秒，较慢环境可调整；可与 --port 同时使用。', code: './start.sh --wait-timeout 600' },
           ],
-          paragraphs: ['启动过程中使用包内镜像，禁止在线拉取和现场构建。缺少 .env 时脚本会复制模板；生产环境应按上一节提前配置。', 'Backend 启动前自动初始化并校验 AIDR P-256 策略签名密钥。AIDR_POLICY_SIGNING_KEY_FILE 默认指向 backend_data 卷内的 /app/runtime/data/signing/aidr-policy-p256.pem，文件权限为 0600、所有者为服务用户。重建和升级复用已有密钥；已有文件无效时停止启动。备份和恢复应保留此密钥，轮换时同步更新客户端固定的验签公钥。可执行 docker compose exec -T backend python -m backend.aidr_signing --check 只读校验。'],
+          paragraphs: ['启动过程中使用包内镜像，禁止在线拉取和现场构建。缺少 .env 时脚本会复制模板；生产环境应按上一节提前配置。', 'Backend 自动初始化并校验 AIDR 策略签名密钥，保存在 backend_data 卷中。重建、升级和恢复时保留此密钥；轮换时同步更新客户端信任的公钥。'],
         },
         {
           id: 'admin-login',
           title: '管理员登录',
           paragraphs: ['默认用户名为 admin，首次创建账号时使用 INITIAL_ADMIN_PASSWORD。升级保留原数据库时继续使用原密码，修改该变量不会重置已有账号密码。', '只有未启用安全启动校验、数据库中没有该管理员账号且初始密码留空时，系统才会生成随机密码。下列命令可查看当时保存的初始值；后续改密不会更新该文件。'],
           code: 'docker compose exec backend cat /app/runtime/data/initial-admin-password',
+        },
+        {
+          id: 'license-setup',
+          title: '获取并导入授权文件',
+          steps: [
+            { title: '导出申请', body: '以管理员登录，打开“系统管理 → License 授权”，填写厂商提供的客户编号和客户名称，导出 customer-request.json。' },
+            { title: '获取授权文件', body: '将申请文件交给厂商，获取签发的 .license 文件。' },
+            { title: '导入并确认', body: '在同一页面选择授权文件，点击“验证并导入”，确认状态为“有效”，并核对有效期、模块和客户端额度。' },
+          ],
+          link: { path: '/docs/license-authorization', label: '查看授权操作指南' },
         },
         {
           id: 'verify',
@@ -2296,8 +2306,8 @@ const zh = {
         },
         {
           id: 'legacy-upgrade',
-          title: '旧安装目录没有 upgrade.sh',
-          paragraphs: ['将新包解压到另一个目录，从新包运行脚本，并用 --install-dir 指向原安装目录。'],
+          title: '旧安装使用新包升级脚本',
+          paragraphs: ['升级已有安装时，可将新包解压到另一个目录，使用新包中的 upgrade.sh，并用 --install-dir 指向原安装目录。'],
           code: 'mkdir -p /tmp/agent-manager-upgrade\ntar -xzf /path/to/agent-manager_1.0.7_x86.tar.gz -C /tmp/agent-manager-upgrade\n/tmp/agent-manager-upgrade/agent-manager/upgrade.sh /path/to/agent-manager_1.0.7_x86.tar.gz --install-dir /opt/agent-manager',
           callout: { type: 'note', title: '路径与架构', body: '/opt/agent-manager 是原安装目录的示例，请替换为实际路径；ARM 使用对应架构的安装包。' },
         },
@@ -3705,10 +3715,10 @@ const en = {
       eyebrow: 'Deploy and operate', title: 'Deploy with Docker Compose', summary: 'Choose the delivered archive for your server architecture. Use start.sh to load images, initialize signing keys, and start Docker Compose services; use upgrade.sh in the original installation directory for later upgrades.',
       sections: [
         { id: 'architecture', title: 'Service architecture', paragraphs: ['Six services start by default: backend, frontend, nginx, sandbox, agent-security-worker, and aig-scan-service. Nginx exposes the console, management API, model gateway, and MCP on host port 80 by default; change it with start.sh --port.', 'Backend invokes Sandbox for dynamic checks. The scan Worker claims tasks and calls the internal scan service over the private aig-control network. Five named volumes store databases, uploads, runtime data, the Registry, and internal scan jobs.'], diagram: 'docker' },
-        { id: 'before-you-start', title: 'Before deployment', bullets: ['Identify the Linux server architecture: use the x86 archive for x86_64, or ARM for aarch64/arm64. Replace every example version below with the delivered version.', 'Prepare Bash, Python 3 (standard library only), Docker, and Docker access for the current user. If Docker is missing, install it using the installer in the archive’s installers/ directory.', 'Scripts prefer docker compose and also support a compatible standalone docker-compose. It must support up --wait --wait-timeout, config --format json, and env_file.required. Legacy Python Compose v1 does not meet these requirements.', 'Check the HTTP port is available; a new installation defaults to 80. Reserve space for image loading, upgrade staging, backups, and data growth.'], table: { columns: ['Resource', 'Recommended production baseline', 'Capacity-planning guidance'], rows: [['CPU', '16 vCPU', 'Runs Backend, scan analyzers, Sandbox scheduling, and concurrent requests. Scale CPU with scan concurrency.'], ['Memory', '32 GiB', 'Provides headroom for workers, analyzers, Sandbox services, and container page cache. Size for peak concurrent dynamic scans.'], ['Storage', '500 GiB usable, preferably SSD/NVMe', 'Stores images, Skill packages and versions, reports, audits, Client releases, and logs. More Skills and longer retention require a larger data volume.']] }, code: 'uname -m\npython3 --version\ndocker --version\ndocker info --format \'{{.Architecture}}\'\ndocker compose version', callout: { type: 'note', title: 'Capacity-planning boundary', body: 'These values are a production starting point, not a minimum. A separate benchmark on a shared 8-vCPU isolated test node identifies SQLite write-concurrency and scan-queue limits; keep the higher production headroom and read Performance and capacity for the full method and results.' }, link: { path: '/docs/performance-benchmark', label: 'Open performance and capacity results' } },
+        { id: 'before-you-start', title: 'Before deployment', bullets: ['Identify the Linux server architecture: use the x86 archive for x86_64, or ARM for aarch64/arm64. Replace every example version below with the delivered version.', 'Prepare Bash, GNU tar/coreutils (including timeout), flock, gzip, awk, Docker, and Docker access for the current user. If Docker is missing, install it using the installer in the archive’s installers/ directory.', 'Scripts prefer docker compose and also support a compatible standalone docker-compose. It must support up --wait --wait-timeout, config --images, and env_file.required.', 'Check the HTTP port is available; a new installation defaults to 80. Reserve space for image loading, upgrade staging, backups, and data growth.'], table: { columns: ['Resource', 'Recommended production baseline', 'Capacity-planning guidance'], rows: [['CPU', '16 vCPU', 'Runs Backend, scan analyzers, Sandbox scheduling, and concurrent requests. Scale CPU with scan concurrency.'], ['Memory', '32 GiB', 'Provides headroom for workers, analyzers, Sandbox services, and container page cache. Size for peak concurrent dynamic scans.'], ['Storage', '500 GiB usable, preferably SSD/NVMe', 'Stores images, Skill packages and versions, reports, audits, Client releases, and logs. More Skills and longer retention require a larger data volume.']] }, code: 'uname -m\ndocker --version\ndocker info --format \'{{.Architecture}}\'\ndocker compose version || docker-compose version', callout: { type: 'note', title: 'Capacity-planning boundary', body: 'Size the production deployment for actual data volume and concurrency.' }, link: { path: '/docs/performance-benchmark', label: 'Open performance and capacity results' } },
         {
           id: 'offline', title: 'Extract the archive and prepare production configuration',
-          paragraphs: ['The archive includes deployment files, images for the target architecture, a Docker installer, and Client releases. Compose pins application image versions; verify the version and architecture in release-provenance.json. No image build is needed on site.'],
+          paragraphs: ['The archive includes deployment files, images for the target architecture, a Docker installer, and Client releases. Compose pins application image versions; verify the version and architecture in release-provenance.json.'],
           steps: [
             { title: 'Extract into the installation location', body: 'This example uses x86; use agent-manager_1.0.6_arm.tar.gz for ARM. Enter agent-manager after extraction and keep this directory for configuration and future upgrades.', code: 'tar -xzf agent-manager_1.0.6_x86.tar.gz\ncd agent-manager' },
             { title: 'Create configuration for the first installation', body: 'Copy the template, then edit .env and configure the credentials below before startup.', code: 'cp .env.example .env' },
@@ -3723,9 +3733,18 @@ const en = {
             { title: 'Choose a port if needed', body: 'Use this command instead of the previous one for a custom port. Values from 1 to 65535 are saved as HTTP_PORT in .env and reused by later starts and upgrades. Open http://server-address:8088.', code: './start.sh --port 8088' },
             { title: 'Allow more time if needed', body: 'The default health timeout is 300 seconds. Increase it on slower systems; this option can be combined with --port.', code: './start.sh --wait-timeout 600' },
           ],
-          paragraphs: ['Startup uses delivered images with online pulling and local builds disabled. The script copies the template if .env is missing; prepare production configuration in advance as described above.', 'Before starting the API, Backend initializes and validates the AIDR P-256 policy signing key. AIDR_POLICY_SIGNING_KEY_FILE defaults to /app/runtime/data/signing/aidr-policy-p256.pem in the backend_data volume, with mode 0600 and service-user ownership. Container recreation and upgrades reuse the key; an invalid existing file stops startup. Preserve this key in backups and restores, and update pinned client verification keys when rotating it. Run docker compose exec -T backend python -m backend.aidr_signing --check for read-only validation.'],
+          paragraphs: ['Startup uses delivered images with online pulling and local builds disabled. The script copies the template if .env is missing; prepare production configuration in advance as described above.', 'Backend initializes and validates the AIDR policy signing key in the backend_data volume. Preserve it during recreation, upgrades, and restores. Update trusted client public keys when rotating it.'],
         },
         { id: 'admin-login', title: 'Administrator login', paragraphs: ['The default username is admin. INITIAL_ADMIN_PASSWORD is used when the account is first created. Upgrades that retain the database keep the existing password; changing this variable does not reset an existing account.', 'A random password is generated only when secure startup is disabled, the administrator account does not exist, and the initial password is empty. The command below reads the saved initial value; later password changes do not update this file.'], code: 'docker compose exec backend cat /app/runtime/data/initial-admin-password' },
+        {
+          id: 'license-setup', title: 'Obtain and import a license',
+          steps: [
+            { title: 'Export a request', body: 'Sign in as an administrator and open System Management → License. Enter the customer ID and name provided by the vendor, then export customer-request.json.' },
+            { title: 'Obtain the license file', body: 'Send the request file to the vendor and receive the signed .license file.' },
+            { title: 'Import and confirm', body: 'Select the license file on the same page and click Verify and import. Confirm that it is valid and check the validity period, modules, and client quota.' },
+          ],
+          link: { path: '/docs/license-authorization', label: 'Open the license guide' },
+        },
         { id: 'verify', title: 'Post-deployment verification', bullets: ['backend, frontend, nginx, sandbox, agent-security-worker, and aig-scan-service pass health checks.', 'Open the console through the actual HTTP_PORT and log in; the default URL is http://server-address/.', 'System Overview shows no core dependency failures, and a test ZIP completes background scanning.', 'Configure an evaluation model and authorized target, then submit and verify a real scan. Container health does not replace business acceptance.', 'Check Skills, credentials, audits, and downloads under Client Management → Install Client.'], code: 'docker compose ps\ndocker compose logs --tail=100 backend sandbox agent-security-worker aig-scan-service nginx', paragraphs: ['With standalone Compose, replace docker compose in manual commands with docker-compose.'], link: { path: '/docs/docker-operations#upgrade', label: 'Open archive upgrade steps' } },
       ],
     },
@@ -3757,7 +3776,7 @@ const en = {
           ],
           callout: { type: 'warning', title: 'Site configuration replacement', body: 'The upgrade replaces Compose and Nginx configuration. Record any direct site modifications before upgrading and review them afterwards. Original files are retained in the backup directory.' },
         },
-        { id: 'legacy-upgrade', title: 'If the old installation has no upgrade.sh', paragraphs: ['Extract the new archive into a separate directory, run its script, and point --install-dir to the original installation.'], code: 'mkdir -p /tmp/agent-manager-upgrade\ntar -xzf /path/to/agent-manager_1.0.7_x86.tar.gz -C /tmp/agent-manager-upgrade\n/tmp/agent-manager-upgrade/agent-manager/upgrade.sh /path/to/agent-manager_1.0.7_x86.tar.gz --install-dir /opt/agent-manager', callout: { type: 'note', title: 'Paths and architecture', body: '/opt/agent-manager is an example of the original installation directory; replace it with the actual path. Use the matching archive for ARM.' } },
+        { id: 'legacy-upgrade', title: 'Use the new upgrade script for an older installation', paragraphs: ['To upgrade an existing installation, extract the new archive into a separate directory, run its upgrade.sh, and point --install-dir to the original installation.'], code: 'mkdir -p /tmp/agent-manager-upgrade\ntar -xzf /path/to/agent-manager_1.0.7_x86.tar.gz -C /tmp/agent-manager-upgrade\n/tmp/agent-manager-upgrade/agent-manager/upgrade.sh /path/to/agent-manager_1.0.7_x86.tar.gz --install-dir /opt/agent-manager', callout: { type: 'note', title: 'Paths and architecture', body: '/opt/agent-manager is an example of the original installation directory; replace it with the actual path. Use the matching archive for ARM.' } },
         { id: 'recovery', title: 'Upgrade failure and recovery', paragraphs: ['A failed upgrade returns a nonzero exit code. Failures after deployment backup display the backup path; inspect container status, logs, and the failed stage first. The script does not roll back automatically.', 'Startup may already have migrated databases. Recovery must account for migration compatibility and use matching previous deployment files, images, and business data backups. Restoring Compose alone does not guarantee business recovery. Restrict access to backups because they contain site configuration.'] },
         { id: 'troubleshooting', title: 'Troubleshoot by symptom', table: { columns: ['Symptom', 'Check first'], rows: [['HTTP port cannot bind', 'HTTP_PORT in .env, port ownership, and Nginx logs; use start.sh --port to select an available port'], ['Script reports Docker or Compose unavailable', 'Docker installation, daemon status, context, user permissions, and required Compose features'], ['Backend stays unhealthy', '.env placeholders, secure startup, SQLite, and signing keys'], ['Sandbox does not start', 'CPU architecture, container permissions, and Sandbox logs'], ['Console opens but APIs fail', 'Backend health and Nginx proxy logs'], ['Offline images do not start', 'Docker and archive architecture, release-provenance.json, Compose image versions, and image archive integrity'], ['Worker or internal scan service is unhealthy', 'Worker/AIG credential consistency, control-plane connectivity, and service logs'], ['Data disappears after restart', 'Named volumes and any down -v use']] } },
       ],

@@ -209,8 +209,11 @@ def test_cli_unknown_optional_record_reaches_following_tool_pair(tmp_path):
     for event in batch["events"]:
         Event.model_validate(event)
         assert event["turn_id"] == "known-turn"
+    # The diagnostic CLI includes local repair state; the uploader omits it from wire cursors.
+    wire_cursor = {key: value for key, value in batch["cursor"].items()
+                   if key not in {"context_repair", "context_repair_version"}}
     CoverageRecord.model_validate(dict(source_id=batch["source"]["source_id"], revision="1",
-                                       cursor=batch["cursor"], coverage=batch["coverage"]))
+                                       cursor=wire_cursor, coverage=batch["coverage"]))
 
 
 @pytest.mark.parametrize("reason", ["host_result_not_provided", "result_format_unsupported", "result_fields_conflict"])

@@ -35,16 +35,17 @@
             </a-popover>
             <span class="session-meta" :title="timestamp(selected.latest_at)">{{ agentName(selected.agent) }} · {{ shortDate(selected.latest_at) }}</span>
           </header>
+          <p class="session-identity">{{ t('aidr.session') }}: <code>{{ sessionLabel(selected) }}</code></p>
           <div class="timeline-toolbar">
             <div class="source-tabs" role="group" :aria-label="t('aidr.sessions.activity')">
               <button v-for="value in ['tools', 'hooks']" :key="value" type="button" :title="t('aidr.sessions.' + (value === 'tools' ? 'logHelp' : 'hookHelp'))" :aria-pressed="!showSkills && source === value" @click="showSkills = false; source = value">{{ t('aidr.sessions.' + (value === 'tools' ? 'logsTab' : 'hooksTab')) }} <span>{{ sourceCount(countContext(value), value) }}</span></button>
-              <button type="button" :aria-pressed="showSkills" @click="showSkills = true">{{ t('aidr.skillUse.title') }}</button>
+              <button type="button" :aria-pressed="showSkills" @click="showSkills = true">{{ t('aidr.skillUse.title') }} <span>{{ selected.skill_count ?? 0 }}</span></button>
             </div>
             <div v-if="!showSkills" class="content-mode" role="group" :aria-label="t('aidr.sessions.contentDisplay')"><button v-for="mode in ['rendered', 'source']" :key="mode" type="button" :aria-pressed="contentMode === mode" @click="contentMode = mode">{{ t('aidr.sessions.' + mode) }}</button></div>
             <a-input v-if="!showSkills" v-model:value="search" class="timeline-search" :aria-label="t('aidr.sessions.search')" :placeholder="t('aidr.sessions.searchCompact')" :maxlength="256" allow-clear />
           </div>
         </div>
-        <AidrSkillUses v-if="showSkills" ref="skillsPane" :client-id="clientId" :agent="selected.agent" :session-id="selected.session_id" @collection="$emit('collection')" />
+        <AidrSkillUses v-if="showSkills" ref="skillsPane" @count="selected.skill_count = $event" :client-id="clientId" :agent="selected.agent" :session-id="selected.session_id" @collection="$emit('collection')" />
         <div v-else class="turn-reading">
           <AidrTurnNavigator :items="sourceTurns" :all-items="turns.items" :active="turnKey" :can-read="canRead" :loading="turnsLoading" :error="turnsError" :has-more="turns.has_more" @select="turnKey = $event" @more="loadTurns(turnsFailedAppend || !turnsError)" />
           <div ref="timelinePane" class="timeline-records" tabindex="0" role="region" :aria-label="t('aidr.sessions.timeline')">
@@ -279,6 +280,7 @@ h3 { margin: 0; font-size: 16px; }
 .selected-session { flex-wrap: nowrap; gap: 6px; }
 .selected-session h3 { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; font-size: 14px; }
 .session-meta { margin-left: auto; flex-shrink: 0; font-size: 12px; color: #667085; font-variant-numeric: tabular-nums; }
+.session-identity { margin: 6px 0; font-size: 12px; color: #667085; overflow-wrap: anywhere; user-select: text; }
 .timeline-header { flex-shrink: 0; padding: 10px 14px 0; border-bottom: 1px solid #e4e8ef; }
 .timeline-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .session-info-button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; padding: 0; border: 0; background: none; color: #667085; cursor: pointer; border-radius: 4px; }

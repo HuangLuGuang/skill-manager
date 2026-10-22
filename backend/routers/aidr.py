@@ -201,6 +201,7 @@ def skill_uses(client_id: str, agent: str = Query(max_length=32), session_id: st
     from ..aidr_skill_usage import refresh_batch, registry_manager
     entries = ('qoder-hooks', 'qoder-cli') if agent == 'qoder-hooks' else (agent,)
     query = db.query(AidrSkillUse).filter_by(client_id=client_id, session_id=session_id, expired_at=None).filter(AidrSkillUse.agent.in_(entries))
+    session_total = query.count()
     if after:
         query = query.filter(AidrSkillUse.id < after if order == 'newest' else AidrSkillUse.id > after)
     if behavior: query = query.filter_by(behavior=behavior)
@@ -231,7 +232,7 @@ def skill_uses(client_id: str, agent: str = Query(max_length=32), session_id: st
         db.commit()
     more = bool(rows and cursor != rows[-1].id)
     return {'items':items,'has_more':more,'next_cursor':str(cursor) if more else '',
-            'search_complete':not more, 'checked_count':checked,
+            'search_complete':not more, 'checked_count':checked, 'session_total':session_total,
             'checks':'fresh_registry_with_observed_content','mode':'audit'}
 
 
@@ -266,7 +267,9 @@ def skill_use_evidence(client_id: str, usage_id: int = Path(ge=1), source: str =
     event = {**raw.get('event', {}), 'user_scope':raw.get('user_scope')} if source == 'hook' else raw
     if identity(client_id, event, source, record_id) != row.call_key:
         fail(404, 'skill_record_unavailable', '证据不属于此记录', 'Evidence does not belong to this record')
-    return {'source':source, 'record_id':str(record_id), 'event':metadata_view(event)}
+    return {'source':source, 'record_id':str(record_id),
+            'content_record_id':str(record.id) if source == 'hook' else record.logical_id,
+            'event':metadata_view(event)}
 
 
 @router.post('/skill-uses/{usage_id}/observations')
@@ -335,6 +338,7 @@ def device_for_user(db, client_id, user):
 
 class ClientAuditPolicyUpdate(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
+    section: str | None = Field(default=None, pattern=r'^(content|skill)$')
     inherit: bool
     version: str = Field(pattern=r'^[1-9][0-9]{0,18}$')
     global_version: str = Field(pattern=r'^[1-9][0-9]{0,18}$')

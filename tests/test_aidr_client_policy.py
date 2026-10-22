@@ -40,6 +40,59 @@ def delivered(client, target='one', **changes):
     return response.json()
 
 
+def test_section_saves_preserve_other_values_and_inheritance(policies):
+    client, _, _ = policies
+    initial = client.get(LOCAL).json()
+    custom_skill = {**initial['skill_audit'], 'enabled': False}
+    response = client.put(LOCAL, json=draft(initial, section='skill', skill_audit=custom_skill, enabled=False))
+    assert response.status_code == 200, response.text
+    local = response.json()
+    assert local['inherit'] and not local['skill_audit_inherit']
+    assert local['enabled'] == initial['enabled']
+    assert local['skill_audit'] == custom_skill
+    global_policy = client.get(GLOBAL).json()
+    response = client.put(GLOBAL, json={'version': global_policy['version'], 'section': 'content', 'enabled': False,
+                                      'skill_audit': {**custom_skill, 'enabled': True}})
+    assert response.status_code == 200, response.text
+    local = client.get(LOCAL).json()
+    assert local['enabled'] is False and local['skill_audit'] == custom_skill
+    response = client.put(LOCAL, json=draft(local, section='content', enabled=True, skill_audit=initial['skill_audit']))
+    assert response.status_code == 200, response.text
+    local = response.json()
+    assert not local['inherit'] and not local['skill_audit_inherit']
+    assert local['enabled'] is True and local['skill_audit'] == custom_skill
+    response = client.put(LOCAL, json=draft(local, inherit=True, section='skill', skill_audit=custom_skill))
+    assert response.status_code == 200, response.text
+    local = response.json()
+    assert not local['inherit'] and local['skill_audit_inherit']
+    assert local['enabled'] is True and local['skill_audit'] == initial['skill_audit']
+    global_policy = client.get(GLOBAL).json()
+    response = client.put(GLOBAL, json={'version': global_policy['version'], 'section': 'skill', 'enabled': True, 'skill_audit': custom_skill})
+    assert response.status_code == 200, response.text
+    assert response.json()['enabled'] is False
+    local = client.get(LOCAL).json()
+    assert local['skill_audit'] == custom_skill and local['enabled'] is True
+    assert delivered(client)['enabled'] is True
+    response = client.put(LOCAL, json=draft(local, inherit=True, section='content'))
+    assert response.status_code == 200, response.text
+    assert response.json()['inherit'] and response.json()['skill_audit_inherit']
+    assert response.json()['skill_audit'] == custom_skill
+
+
+def test_section_update_conflicts_and_legacy_inheritance(policies):
+    client, _, _ = policies
+    initial = client.get(LOCAL).json()
+    local = client.put(LOCAL, json=draft(initial, enabled=False)).json()
+    assert not local['inherit'] and not local['skill_audit_inherit']
+    body = draft(local, section='skill', skill_audit={**local['skill_audit'], 'enabled': False})
+    assert client.put(LOCAL, json=body).status_code == 200
+    assert client.put(LOCAL, json=body).status_code == 409
+    fresh = client.get(LOCAL).json()
+    assert client.put(LOCAL, json=draft(fresh, section='unknown')).status_code == 422
+    restored = client.put(LOCAL, json=draft(fresh, inherit=True)).json()
+    assert restored['inherit'] and restored['skill_audit_inherit']
+
+
 def test_override_global_changes_restore_and_delivery(policies):
     client, factory, _ = policies
     initial = client.get(LOCAL).json()

@@ -208,7 +208,7 @@ test('uses explicit static bindings and localizes system notifications', () => {
   assert.equal(runtime.includes('localizeDocument'), false)
   assert.match(runtime, /clientStaticI18nBindings/)
   assert.match(app, /const localizedNotification = item =>/)
-  assert.match(app, /show_system_notification'[\s\S]*copy\.title[\s\S]*copy\.message/)
+  assert.match(app, /sync_background_runtime'[\s\S]*localizedNotification\(/)
   assert.match(app, /if \(builtinAgentSettings\.length\) renderBuiltinAgentSettings\(\)/)
 })
 
@@ -275,7 +275,7 @@ test('switches gateway models from live local Agent configuration without exposi
   assert.doesNotMatch(appSource, /缺少可关联的 Agent/)
   assert.doesNotMatch(appSource, /switch-model[^\n]*--token/)
   assert.match(tauriSource, /"switch-model"/)
-  assert.match(tauriSource, /model-catalog\/refresh/)
+  assert.match(tauriSource, /"method": "model-catalog"/)
   assert.doesNotMatch(appSource, /t\('刷新模型失败'\)|t\('模型配置'\)/)
 })
 
@@ -393,7 +393,7 @@ test('pending copies remain actionable in recovery while submitted scans use ind
   assert.match(appSource, /item\.kind === 'quarantine'[\s\S]*run\('discard-quarantine', \['--id', item\.id, '--expected-signature', item\.signature, '--confirm'\]\)/)
   assert.match(appSource, /const recoveryCopyAlreadyInstalled = item =>[\s\S]*skill\.path === target\.original_path && skill\.signature === item\.signature/)
   assert.match(appSource, /!item\.skill_id && !alreadyInstalled[\s\S]*data-submit-quarantine/)
-  assert.match(appSource, /scanHistoryItems = JSON.parse\(await run\('scan-history'\)\)/)
+  assert.match(appSource, /scanHistoryItems = snapshot\?\.scan_history \?\? JSON.parse\(await run\('scan-history'\)\)/)
   assert.match(appSource, /pending_copy_id \? \{ id: copy.pending_copy_id \}/)
 })
 

@@ -583,13 +583,31 @@ window.clientStaticI18nBindings = [
     "source": "已确认恶意"
   },
   {
-    "selector": "#agent-local-panel>div:nth-of-type(2)>span:nth-of-type(2)",
+    "selector": "#skill-batch-clear",
+    "nodeIndex": 0,
+    "key": "ui.skillBatch.clear",
+    "source": "清空选择"
+  },
+  {
+    "selector": "#skill-select-page",
+    "attribute": "title",
+    "key": "ui.skillBatch.selectionHelp",
+    "source": "全选当前页；翻页保留选择，切换 Agent 或筛选时清空。"
+  },
+  {
+    "selector": "#skill-select-page",
+    "attribute": "aria-label",
+    "key": "ui.skillBatch.selectPage",
+    "source": "全选当前页"
+  },
+  {
+    "selector": "#agent-local-panel>div:nth-of-type(3)>span:nth-of-type(2)",
     "nodeIndex": 0,
     "key": "ui.agentTabs.status",
     "source": "认证状态"
   },
   {
-    "selector": "#agent-local-panel>div:nth-of-type(2)>span:nth-of-type(3)",
+    "selector": "#agent-local-panel>div:nth-of-type(3)>span:nth-of-type(3)",
     "nodeIndex": 0,
     "key": "ui.agentTabs.actions",
     "source": "操作"
@@ -601,7 +619,7 @@ window.clientStaticI18nBindings = [
     "source": "没有符合条件的 Skill"
   },
   {
-    "selector": "#agent-local-panel>div:nth-of-type(4)>div:nth-of-type(1)>span:nth-of-type(1)",
+    "selector": "#agent-local-panel>div:nth-of-type(5)>div:nth-of-type(1)>span:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.records.page_size",
     "source": "每页条数"
@@ -1789,30 +1807,6 @@ window.clientStaticI18nBindings = [
     "source": "导出诊断报告"
   },
   {
-    "selector": "#rescan-confirm-title",
-    "nodeIndex": 0,
-    "key": "ui.agentManagement.rescan_title",
-    "source": "重新检测 Skill"
-  },
-  {
-    "selector": "#rescan-confirm-dialog>form:nth-of-type(1)>p:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.agentManagement.rescan_certified_confirm",
-    "source": "该本地 Skill 已认证，是否重新提交平台检测？"
-  },
-  {
-    "selector": "#rescan-confirm-dialog>form:nth-of-type(1)>div:nth-of-type(1)>button:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.agentManagement.cancel",
-    "source": "取消"
-  },
-  {
-    "selector": "#rescan-confirm-dialog>form:nth-of-type(1)>div:nth-of-type(1)>button:nth-of-type(2)",
-    "nodeIndex": 0,
-    "key": "ui.agentManagement.rescan_submit",
-    "source": "重新检测"
-  },
-  {
     "selector": "#message-dialog-title",
     "nodeIndex": 0,
     "key": "ui.n5utnu",
@@ -2285,6 +2279,12 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.1ck5d01",
     "source": "添加并发现"
+  },
+  {
+    "selector": "#skill-batch-retain-wrap>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.retain_copy",
+    "source": "保留恢复副本"
   },
   {
     "selector": "#skill-action-dialog>div:nth-of-type(1)>div:nth-of-type(1)>span:nth-of-type(1)",

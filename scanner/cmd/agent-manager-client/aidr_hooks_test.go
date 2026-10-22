@@ -15,6 +15,28 @@ import (
 	"skill-manager/scanner/internal/managedclient"
 )
 
+func TestHookIPCFailureDiagnosticDoesNotPersistEventPayload(t *testing.T) {
+	home := t.TempDir()
+	connection := filepath.Join(home, ".agent-manager", "aidr", "bridge.json")
+	recordHookIPCFailure(connection, hooks.IPCRequest{Method: "SubmitEvent", EventID: "abc123", Raw: json.RawMessage(`{"token":"DO_NOT_LOG"}`)}, time.Now(), &hooks.IPCError{Code: "aidr_hook_response_timeout", Stage: "response_read", Cause: "timeout"})
+	paths, err := filepath.Glob(filepath.Join(home, ".agent-manager", "logs", "diagnostics", "*.jsonl"))
+	if err != nil || len(paths) != 1 {
+		t.Fatal(paths, err)
+	}
+	body, err := os.ReadFile(paths[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"hook_ipc", "response_read", "timeout", "duration_ms", "abc123"} {
+		if !bytes.Contains(body, []byte(expected)) {
+			t.Fatal("missing diagnostic", expected)
+		}
+	}
+	if bytes.Contains(body, []byte("DO_NOT_LOG")) {
+		t.Fatal("raw hook payload leaked")
+	}
+}
+
 func TestHookPrecheckFailuresReturnNativeDeny(t *testing.T) {
 	for _, input := range []string{`{`, `{"hook_event_name":"PreToolUse"}`} {
 		var out bytes.Buffer

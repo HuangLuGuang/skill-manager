@@ -20,7 +20,7 @@ def requirement(method, path):
         return ("model_gateway", True)
     if path.startswith(("/runtime/", "/access/runtime/", "/hook/")):
         return ("skill_governance", True)
-    if "/aidr/" in path or path.startswith(("/aidr/", "/runtime-governance/")):
+    if "/aidr/" in path or path.startswith(("/aidr/", "/runtime-governance/", "/dify-runtime/")):
         if method in {"POST", "PUT", "PATCH"} or path.endswith(("/policy", "/snapshot", "/bootstrap", "/commands")):
             return ("aidr", True)
         return None

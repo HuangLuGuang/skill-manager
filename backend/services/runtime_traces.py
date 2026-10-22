@@ -384,10 +384,10 @@ def _ingest_batch_locked(
         trace.event_count += 1
         trace.first_event_at = trace.first_event_at or now
         trace.last_event_at = now
-        trace.has_agent_events = trace.has_agent_events or event.source == "agent_sdk"
+        trace.has_agent_events = trace.has_agent_events or event.source in {"agent_sdk", "dify_adapter"}
         trace.has_model_events = trace.has_model_events or event.source == "model_gateway"
         trace.has_mcp_events = trace.has_mcp_events or event.source == "mcp_gateway"
-        trace.has_runtime_events = trace.has_runtime_events or event.source == "runtime_governance"
+        trace.has_runtime_events = trace.has_runtime_events or event.source in {"runtime_governance", "dify_adapter"}
         trace.has_knowledge_events = trace.has_knowledge_events or event.type == "knowledge.retrieval"
         existing_codes = set(json.loads(trace.risk_codes_json or "[]"))
         existing_codes.update(enriched_risk_codes)

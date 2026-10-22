@@ -1,5 +1,15 @@
 export const clientGovernanceMessages = {
   'zh-CN': {
+    desktop: {
+      title: '菜单显示', description: '控制侧边栏和对应页面入口；后台扫描、采集和治理继续按原策略执行。',
+      connect: '客户端概览', discover: 'Agent 管理', models: '模型切换', records: '执行记录', 'runtime-governance': 'Agent 运行治理',
+      fixed: '固定显示', inherit: '跟随全局', show: '显示', hide: '隐藏', reset: '全部跟随全局',
+      saved: '已保存的有效配置', client: '本客户端', global: '全局', unchanged: '有效菜单配置不变',
+      pending: '等待客户端同步菜单配置', synced: '客户端菜单配置已同步', unsupported: '客户端尚未报告菜单配置能力，请升级客户端',
+      syncHint: '同步状态表示客户端已缓存配置；桌面界面读取后应用，不代表后台功能被禁用。',
+      reportedAt: '最近配置回执时间', preview: '{count} 个客户端的有效菜单配置将改变',
+      preserved: '{count} 个客户端的部分菜单保留本机覆盖', overrideKept: '保留本机覆盖',
+    },
     protection: { retryPolicy: '重新应用当前策略', configured: '平台配置模式', effective: '客户端已生效模式', refresh: '刷新实际状态', readFailed: '状态读取失败，请重试；以下不代表当前已生效。', unknown: '尚未确认', pending: '等待客户端应用', applied: '已确认应用', upgrade: '客户端需升级后应用模式', disabled: '通道未启用', stopped: '请在客户端启动采集', failed: '应用失败，请查看原因', savedHint: '保存后，以客户端报告确认实际生效状态。' },
     errorDetail: '错误详情：{error}',
     counts: { discoveredAgents: '发现的 Agent：{count}', manageableAgents: '可治理 Agent：{count}', sharedSkillSources: '共享 Skill 来源：{count}' },
@@ -101,6 +111,16 @@ export const clientGovernanceMessages = {
     client: '客户端', agent: 'Agent', skill: 'Skill', path: '目录', active: '分类策略已启用', cancel: '关闭',
   },
   'en-US': {
+    desktop: {
+      title: 'Menu visibility', description: 'Control sidebar and page entry points. Background scanning, collection, and governance continue under their existing policies.',
+      connect: 'Client overview', discover: 'Agent management', models: 'Model switching', records: 'Execution records', 'runtime-governance': 'Agent runtime governance',
+      fixed: 'Always visible', inherit: 'Follow global', show: 'Show', hide: 'Hide', reset: 'Follow global for all menus',
+      saved: 'Saved effective configuration', client: 'This client', global: 'Global', unchanged: 'Effective menu configuration unchanged',
+      pending: 'Waiting for menu configuration sync', synced: 'Client menu configuration synced', unsupported: 'Menu configuration capability not reported. Upgrade the client.',
+      syncHint: 'Sync confirms that the client cached the configuration. The desktop applies it when read; background features remain governed by their own policies.',
+      reportedAt: 'Latest configuration receipt', preview: 'Effective menu configuration will change for {count} clients',
+      preserved: '{count} clients retain individual overrides for affected menus', overrideKept: 'Individual overrides retained',
+    },
     protection: { retryPolicy: 'Reapply current policy', configured: 'Platform configured mode', effective: 'Client effective mode', refresh: 'Refresh actual status', readFailed: 'Could not read status. Retry; the displayed data does not confirm the current mode.', unknown: 'Unconfirmed', pending: 'Waiting for client application', applied: 'Application confirmed', upgrade: 'Update client to apply modes', disabled: 'Channel disabled', stopped: 'Start collection in the desktop client', failed: 'Application failed; review the reason', savedHint: 'After saving, check the client report to confirm application.' },
     errorDetail: 'Error details: {error}',
     counts: { discoveredAgents: 'Agents discovered: {count}', manageableAgents: 'Governable Agents: {count}', sharedSkillSources: 'Shared Skill sources: {count}' },

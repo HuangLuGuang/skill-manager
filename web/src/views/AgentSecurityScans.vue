@@ -7,6 +7,7 @@
             <h1>{{ t('agentSecurityScans.title') }}</h1>
           </div>
           <a-space wrap>
+            <a-button v-if="hasAccess('runtime:update')" @click="difyRuntimeOpen=true">{{ t('difyRuntime.title') }}</a-button>
             <a-button :loading="refreshing" @click="refreshAll">
               <template #icon><ReloadOutlined /></template>
               {{ t('agentSecurityScans.refresh') }}
@@ -1092,10 +1093,14 @@
         </a-tabs>
       </a-spin>
     </a-modal>
+    <a-drawer v-model:open="difyRuntimeOpen" :title="t('difyRuntime.title')" width="min(1100px, 100vw)" destroy-on-close>
+      <DifyRuntimePanel v-if="difyRuntimeOpen" />
+    </a-drawer>
   </section>
 </template>
 
 <script setup>
+import DifyRuntimePanel from './components/DifyRuntimePanel.vue'
 import SourceAttribution from '../components/SourceAttribution.vue'
 import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
@@ -1156,6 +1161,7 @@ import {
 import { formatBeijingDateTime, formatBeijingDateTime as formatDateTime } from '../utils/format'
 
 const { t, te, locale } = useI18n()
+const difyRuntimeOpen = ref(false)
 const exportingReport = ref(false)
 const exportReport = async () => {
   if (exportingReport.value || taskDetailLoading.value || !taskDetail.value) return

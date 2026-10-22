@@ -263,7 +263,12 @@ func (s *Store) QueueEvent(e QueuedEvent) error {
 	if err = insertEvent(tx, e); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// A missed wake is repaired from the committed queue by the uploader timer.
+	_ = os.WriteFile(filepath.Join(s.root, eventWakeFile), []byte{1}, 0600)
+	return nil
 }
 func scanQueued(rows *sql.Rows) ([]QueuedEvent, error) {
 	defer rows.Close()
@@ -297,6 +302,13 @@ func (s *Store) DeleteQueuedEvent(id int64) error {
 }
 
 func flushEventsLimit(ctx context.Context, api API, s *Store, limit int) (resultErr error) {
+	var pending bool
+	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM client_events_queue WHERE server=? AND sealed>=0)`, api.server).Scan(&pending); err != nil {
+		return err
+	}
+	if !pending {
+		return nil
+	}
 	confirmed := 0
 	defer func() {
 		if resultErr != nil && !errors.Is(resultErr, errEventDeferred) {

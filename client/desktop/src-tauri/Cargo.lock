@@ -15,7 +15,6 @@ dependencies = [
  "libc",
  "notify",
  "notify-rust",
- "reqwest",
  "rfd",
  "serde",
  "serde_json",
@@ -28,6 +27,7 @@ dependencies = [
  "tauri-runtime",
  "tauri-runtime-wry",
  "tauri-utils",
+ "tokio",
  "url",
  "windows-sys 0.59.0",
 ]

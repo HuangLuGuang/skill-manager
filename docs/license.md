@@ -7,6 +7,15 @@
 地址为 `/docs/license-authorization`，Docker 部署和系统管理帮助页也提供入口。
 指南按客户部署人员、客户管理员和厂商签发人员分别说明操作位置、步骤及验收结果。
 
+管理台顶部每 60 秒刷新授权状态，仅根据服务端成功返回的限制状态显示提示。
+请求失败时保留上次已确认状态；首次读取失败时不显示顶部授权提示，后续轮询继续重试。
+后续成功读取到有效授权时清除提示。后端独立执行授权限制。
+
+The console refreshes its License banner every 60 seconds and shows a warning only when
+a successful server response reports a restricted state. Failed requests preserve the last
+confirmed state; an initial failure leaves the banner hidden while polling continues.
+A subsequent valid response clears the warning. The backend enforces licensing independently.
+
 ## 新客户与续期交付
 
 - 新客户先在实际交付服务器部署并登录，再导出该部署的申请。厂商分配客户编号并核对客户身份，
