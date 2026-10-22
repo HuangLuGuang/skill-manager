@@ -1,5 +1,11 @@
 # Agent Manager Project Guide
 
+## 客户端界面配置 / Client interface configuration
+
+默认客户端策略和单客户端策略提供“客户端界面 → 菜单显示”。概览固定保留，其余四个侧边栏菜单支持全局显示开关与单客户端逐项“跟随全局 / 显示 / 隐藏”。复用策略预览、版本校验、审计、任务下发和客户端缓存，隐藏入口不改变后台功能权限。仅菜单修改不触发额外扫描或运行治理重新应用；状态区分未支持、待同步和配置已同步。配置已同步依据客户端缓存回执，不代表桌面已渲染。操作及人工验收清单见 [客户端说明](agent-manager-client.md#客户端菜单显示--client-menu-visibility)。
+
+Default and individual client policies provide **Client interface → Menu visibility**. Overview remains visible; the other four menus support global defaults and independent per-client inheritance or overrides. Existing policy preview, version checks, audit, delivery, and caching are reused. Hiding an entry does not change background permissions. Menu-only changes do not request extra scanning or runtime-governance reapplication. Sync status reflects the client cache receipt, not desktop rendering; see the client guide for manual acceptance.
+
 ## Dify 运行接入 / Dify runtime integration
 
 Agent 资产页的“Dify 运行接入”提供应用绑定、观察/管控模式、策略编辑、进程检查点状态、运行轨迹和调用审批。通过 [Dify 接入包](../integrations/dify-runtime/README.md) 将运行检查点加载到 Dify 1.15.0 的 API/Worker。规则覆盖 HTTP、工具、Code、知识检索、工作流摘要准入及同次运行的动作先后关系；人工审批使用原生持久化暂停。在线状态只说明近期收到心跳，实际控制效果须通过工作流和接收端验证。
@@ -2524,7 +2530,7 @@ UI 验收 Todo / Manual UI checks（中英文）：在客户端详情展开有/�
 1. 在“智能体管理 -> 统一凭证中心”选择“给客户端使用”创建客户端接入凭证；需要自动配置 Agent 模型时，显式开启“允许客户端为本机 Agent 自动创建运行凭证”。
 2. 安装客户端并输入 Agent Manager 地址和凭证。
 3. 默认使用“客户端安全治理”；需要限制每个 Agent 的 Skill 范围时，再切换到“Agent 强授权”。客户端发现的本机 Agent 会自动登记身份，无需人工关联平台智能体。
-4. 在平台“Agent 发现配置”中搜索 Agent，配置适用系统和 Skill 根目录；客户端同步后重新发现。本机目录覆盖优先，保存配置不会创建不存在的目录。
+4. 在平台“客户端管理 → 全局客户端配置 → Agent 发现”中搜索 Agent，配置适用系统和 Skill 根目录；客户端同步后重新发现。本机目录覆盖优先，保存配置不会创建不存在的目录。
 5. 在“Agent 管理”核对本地内容认证状态；需要安装时从平台选择可信版本，需要检测时对具体 Skill 或隔离副本提交检测。文件是否隔离或恢复由当前分类规则与校验结果决定。
 6. 后台服务通过长轮询获取任务、配置同步和 Skill 检测状态事件，按有效分类策略检查内容并处置；断线后自动退避重连，并按事件 revision 补拉遗漏结果。文件监听把连续写入合并为约 300ms 的稳定窗口并保留变化路径。对已有可信安装基线且策略要求隔离或卸载的内容变化，只重新计算受影响的物理 Skill，按已同步策略先完成本地处置、增量清单保存和 UI revision 更新，不等待全量发现、平台 Compare 或事件上传；完整发现与平台确认随后在后台完成，处置自身产生的对应路径事件会被抑制，避免重复巡检。无法建立可信基线、新增或损坏内容及需要平台参与的动作仍进入完整流程。桌面端不再执行 2 秒、3 秒或 10 秒的业务状态轮询；本地事件丢失、重复或跳号时，通过完整快照补偿，切换页面和回到前台也会读取一次快照。这些动作只提示同一轮治理的最终结果。桌面端创建文件处置任务后不弹出中间成功提示，而是在 Skill 行显示任务 ID 和进行中状态，任务完成后主动重新发现并刷新本地 Skill，只提示最终成功或失败；重启后继续跟踪未完成任务。启动自检还会拒绝误指向其他用户目录或旧安装位置的同名后台服务并重新注册。默认心跳最长约 10 秒、常规巡检 5 分钟、完整巡检 30 分钟。
 
@@ -2824,14 +2830,15 @@ AIDR P1 自动日志发现使用持久化目录前沿，近期活动与历史回
 
 策略与审批的 `GET /api/v1/clients/{client_id}/aidr/hook-policy` 返回策略版本、策略内容、编辑权限、规则差异、接收器运行状态和插件状态。历史过期数量由采集诊断接口按需统计，审计保留天数由审计策略配置，后台按保留策略执行到期清理。
 
-客户端详情的“策略与审批”通过“工具规则、审批记录、系统策略”直接切换，切换分类保留本页工具规则草稿。工具规则已有内容时，常用规则预设默认收起；平台配置模式与客户端报告的生效模式并列显示，保存成功不等于客户端已应用。“采集与治理配置”按采集与接入、模型与请求、Skill 处置分组，安装、更新与重试按需展开，各组修改统一预览并保存；“内容与脱敏”直接打开本客户端的审计内容策略。
+客户端详情的“策略与审批”通过“工具规则、审批记录、系统策略”直接切换，切换分类保留本页工具规则草稿。工具规则已有内容时，常用规则预设默认收起；平台配置模式与客户端报告的生效模式并列显示，保存成功不等于客户端已应用。详情头部将在线状态与名称并列显示，名称旁的信息图标提供客户端 ID 复制和注册人信息；系统与最后心跳位于次要信息行。心跳旁的刷新图标读取平台最近收到的设备详情，概览统计保留独立刷新。右侧提供“客户端配置”入口，弹窗按采集与接入、模型与请求、Agent 发现、Skill 治理、客户端界面、内容与脱敏平级分组，切换分组保留草稿。Skill 治理提供“使用审计 / Usage audit”和“分类处置 / Classification actions”两个子标签，默认进入使用审计（无审计查看权限时进入分类处置）；切换保留未保存草稿，每个子标签独立预览和保存。使用审计与内容脱敏分别继承全局；旧配置沿用原继承状态。采集与接入、模型与请求、客户端界面统一预览并保存；Agent 发现独立保存；内容与脱敏独立预览并保存审计内容策略。Agent 发现支持全局配置与单客户端按 Agent 覆盖，未覆盖条目跟随全局；可逐项恢复继承或全部恢复，全部恢复也会移除客户端专属定义。安装、更新与重试按需展开。配置页通过继承来源、报告时间和配置一致性说明同步状态。
 
-In client details, **Policies & approvals** offers direct navigation to **Tool rules**, **Approval requests**, and **System policy**, preserving tool-rule drafts when switching categories. Presets start collapsed when rules exist. Configured and client-reported modes remain distinct; a successful save does not confirm application on the client. **Collection & governance** groups settings into collection/setup, models/requests, and Skill actions, with installation, updates, and retries expandable on demand. Changes across groups are previewed and saved together. **Content & redaction** opens the client's audit-content policy.
+In client details, **Policies & approvals** offers direct navigation to **Tool rules**, **Approval requests**, and **System policy**, preserving tool-rule drafts when switching categories. Presets start collapsed when rules exist. Configured and client-reported modes remain distinct; saving does not confirm application. **Client settings**, below **Refresh device data**, has six peer tabs: collection/setup, models/requests, Agent discovery, Skill governance, client interface, and content/redaction. Agent discovery saves independently and supports global definitions, per-Agent client overrides, client-only definitions, and restoring inheritance. Restoring all also removes client-only definitions. Skill governance contains Usage audit and Classification actions, each with its own review and save flow. Usage audit and content/redaction inherit independently; existing policies retain their inheritance choices. Collection/setup, models/requests and client interface share a preview and save flow. Drafts persist across tabs.
 
 手工验收 / Manual verification:
 - 中英文、桌面与窄屏检查三个策略入口、状态信息、规则表和弹窗底部按钮，确认长文案换行且可键盘操作。 / Check both languages, desktop and narrow layouts, keyboard navigation, long labels, and modal footer visibility.
 - 修改工具规则后切换审批记录、系统策略再返回，确认草稿保留；仅查看页面不发布规则。 / Edit a rule, switch through approvals and system policy, and verify the draft remains without publishing.
 - 检查全局继承、只读权限、空规则及加载失败状态。 / Check inheritance, read-only access, empty rules, and load failures.
+- 分别修改使用审计、分类处置及内容与脱敏，确认各自预览与保存只影响本区域，其他草稿保留；分别恢复使用审计和内容脱敏的全局继承并核对客户端报告。 / Edit usage audit, classification actions, and content/redaction separately. Verify each review and save affects only that section and retains other drafts; restore each audit section's inheritance independently and verify client reports.
 - 分组修改配置，预览全部变更并保存；核对客户端回执、审批处理及实际生效模式。 / Edit across groups, preview and save all changes, then verify client receipts, approval actions, and the effective mode.
 
 客户端管理的设备详情分为概览、Agent 与资产、插件接入、行为审计、策略与审批。Skill治理与模型配置位于Agent 与资产；Claude/Codex安装、启用与信任位于插件接入；工具日志、Hook生命周期、系统事件及采集诊断位于行为审计；工具审批、系统策略和响应回执位于策略与审批。公共页头只展示设备与心跳，不在各标签下重复库存或任务表。按需加载的摘要保留报告时间与未知状态；安装回执、Hook意图、日志结果与OS执行证据分别核对。详细操作见[客户端说明](agent-manager-client.md)。
@@ -2870,7 +2877,7 @@ AIDR 产品入口、日志格式/根目录、Hook 事件及决策能力统一维
 
 ### Skill 使用证据与认证告警
 
-“客户端策略 → 内容与脱敏 → Skill 使用审计”支持全局默认与单机覆盖。默认在首次使用、文件变化或缓存到期时重新计算，摘要最长复用 300 秒；也可选每次使用在后台计算。平台批准、撤销和授权状态独立刷新，默认间隔 30 秒。积压、离线与重试可能推迟结果，该间隔不是告警时延承诺。
+“客户端配置 → Skill 治理 → 使用审计”支持全局默认与单机覆盖。默认在首次使用、文件变化或缓存到期时重新计算，摘要最长复用 300 秒；也可选每次使用在后台计算。平台批准、撤销和授权状态独立刷新，默认间隔 30 秒。积压、离线与重试可能推迟结果，该间隔不是告警时延承诺。
 
 高级资源上限默认为并发 1、256 个文件、单文件 2 MiB、单次 8 MiB。复用前检查文件身份、大小、修改时间等元数据；macOS/Linux 另检查 change time，Windows 的同大小且恢复修改时间的变化可能要到缓存到期重读才发现。复用摘要保留原观察时间，不能证明调用时加载了相同内容。并发是采集器上限，当前顺序采集路径不会因调大该值自动提高并行量。
 

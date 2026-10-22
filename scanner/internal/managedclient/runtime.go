@@ -467,8 +467,15 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 		if err != nil {
 			return err
 		}
+		previousPolicy := cachedPolicy(store)
 		if err := store.SetState("policy", string(body)); err != nil {
 			return err
+		}
+		if fresh.Classification != nil {
+			task.Payload["applied_desktop_menu_visibility"] = fresh.Classification.DesktopMenuVisibility
+		}
+		if stringValue(task.Payload, "reason") == "desktop_menu_visibility_changed" && sameScanningPolicy(previousPolicy, fresh) {
+			return nil
 		}
 		return RequestFullScan(home)
 	case "rescan":

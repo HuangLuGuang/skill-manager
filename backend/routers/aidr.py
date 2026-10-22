@@ -338,6 +338,7 @@ def device_for_user(db, client_id, user):
 
 class ClientAuditPolicyUpdate(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
+    section: str | None = Field(default=None, pattern=r'^(content|skill)$')
     inherit: bool
     version: str = Field(pattern=r'^[1-9][0-9]{0,18}$')
     global_version: str = Field(pattern=r'^[1-9][0-9]{0,18}$')

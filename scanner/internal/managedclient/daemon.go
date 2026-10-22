@@ -64,10 +64,12 @@ func heartbeatOnce(ctx context.Context, home string, api API, store *Store) erro
 		return err
 	}
 	previous, _, _ := store.State("policy")
+	var previousPolicy Policy
+	_ = json.Unmarshal([]byte(previous), &previousPolicy)
 	if err := store.SetState("policy", string(body)); err != nil {
 		return err
 	}
-	if previous != string(body) {
+	if previous != string(body) && !onlyDesktopMenusChanged(previousPolicy, policy) {
 		_ = RequestFullScan(home)
 	}
 	return nil

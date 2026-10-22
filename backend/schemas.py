@@ -1015,9 +1015,12 @@ class ClientRegisterRequest(BaseModel):
 
 
 from .runtime_governance import Report as RuntimeGovernanceReport
+from .client_desktop_menu import MenuVisibility
 
 
 class ClientHeartbeatRequest(BaseModel):
+    desktop_menu_protocol: int = Field(default=0, ge=0, le=1)
+    applied_desktop_menu_visibility: MenuVisibility | None = None
     runtime_governance: RuntimeGovernanceReport | None = None
     governance_protocol: int = Field(default=0, ge=0, le=2)
     client_id: str
@@ -1066,6 +1069,7 @@ class ClientSkillActionRequest(BaseModel):
 
 
 class ClientTaskResult(BaseModel):
+    applied_desktop_menu_visibility: MenuVisibility | None = None
     skill_observation: SkillObservationReceipt | None = None
     aidr_result: RuntimeGovernanceReport | None = None
     verification_request_ids: list[str] = Field(default_factory=list, max_length=20)

@@ -10,12 +10,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"skill-manager/scanner/internal/manifest"
 )
 
 type ClassificationPolicy struct {
+	DesktopMenuVisibility       map[string]bool          `json:"desktop_menu_visibility,omitempty"`
+	DesktopMenuSources          map[string]string        `json:"desktop_menu_sources,omitempty"`
 	RuntimeGovernance           *RuntimeGovernancePolicy `json:"runtime_governance,omitempty"`
 	RuntimeGovernanceConfigured bool                     `json:"runtime_governance_configured"`
 	RuntimeGovernanceVersion    string                   `json:"runtime_governance_version,omitempty"`
@@ -25,8 +28,26 @@ type ClassificationPolicy struct {
 	Protocol                    int                      `json:"protocol"`
 	Enabled                     bool                     `json:"enabled"`
 	Version                     string                   `json:"version"`
+	ScanVersion                 string                   `json:"scan_version,omitempty"`
 	Rules                       map[string]string        `json:"rules"`
 	Sources                     map[string]string        `json:"sources"`
+}
+
+// Menu revisions do not require a Skill scan, but simultaneous policy changes do.
+func sameScanningPolicy(before, after Policy) bool {
+	if before.Classification == nil || after.Classification == nil {
+		return false
+	}
+	left, right := *before.Classification, *after.Classification
+	left.DesktopMenuVisibility, right.DesktopMenuVisibility = nil, nil
+	left.DesktopMenuSources, right.DesktopMenuSources = nil, nil
+	left.Version, right.Version = "", ""
+	before.Classification, after.Classification = &left, &right
+	return reflect.DeepEqual(before, after)
+}
+
+func onlyDesktopMenusChanged(before, after Policy) bool {
+	return sameScanningPolicy(before, after) && after.Classification.ScanVersion != "" && before.Classification.ScanVersion == after.Classification.ScanVersion
 }
 
 type PromptGuardPolicy struct {

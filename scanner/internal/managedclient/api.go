@@ -263,6 +263,7 @@ func (api API) ReportExecutedTask(ctx context.Context, clientID string, task Tas
 
 	if task.TaskType == "sync_policy" && status == "succeeded" {
 		body["applied_policy_version"] = stringValue(task.Payload, "target_version")
+		body["applied_desktop_menu_visibility"] = task.Payload["applied_desktop_menu_visibility"]
 	}
 	return api.post(ctx, fmt.Sprintf("/api/v1/clients/%s/tasks/%d/result", clientID, task.ID), body)
 }
@@ -375,9 +376,13 @@ func (api API) Heartbeat(ctx context.Context, inventory Inventory, homes ...stri
 		Policy Policy `json:"policy"`
 	}
 	body := map[string]any{
-		"governance_protocol": 2,
-		"client_id":           inventory.ClientID,
-		"client_version":      inventory.ClientVersion,
+		"governance_protocol":   2,
+		"desktop_menu_protocol": 1,
+		"client_id":             inventory.ClientID,
+		"client_version":        inventory.ClientVersion,
+	}
+	if len(homes) == 1 {
+		body["applied_desktop_menu_visibility"] = desktopMenuReceipt(ctx, homes[0])
 	}
 	if AIDRRuntimeSnapshot != nil && len(homes) == 1 {
 		body["runtime_governance"] = AIDRRuntimeSnapshot(homes[0])

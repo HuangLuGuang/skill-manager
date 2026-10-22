@@ -160,6 +160,7 @@ def record_enrollment(db, client_id, report):
     row.hosts_json = json.dumps(hosts)
     policy = db.get(models.ClientGovernancePolicy, client_id)
     policy.revision += 1
+    policy.runtime_revision = policy.revision
     db.flush()
 
 

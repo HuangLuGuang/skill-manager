@@ -2,6 +2,7 @@ import { formatMcpFieldError } from './mcpServerForm.js'
 import { scanScheduleMessages } from './scanSchedule.js'
 import { skillAuditReview } from './skill-audit-review.js'
 const errorMessages = {
+  'client.desktop_menu_invalid': { 'zh-CN': '菜单配置必须使用支持的菜单标识和布尔值', 'en-US': 'Menu configuration requires supported menu IDs and boolean values' },
   'credential.scopes_required': { 'zh-CN': '请至少保留一项权限；停止使用请吊销凭证', 'en-US': 'Keep at least one permission; revoke the credential to stop using it' },
   'credential.revoked': { 'zh-CN': '凭证已吊销，请创建新凭证', 'en-US': 'This credential is revoked; create a new one' },
   "license.invalid": {"zh-CN": "授权文件格式或签名无效", "en-US": "Invalid license format or signature"},

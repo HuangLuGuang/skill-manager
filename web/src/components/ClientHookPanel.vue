@@ -46,7 +46,10 @@
       </template>
     </template>
     <template v-if="view === 'control'">
-    <p v-if="!fixedAgent" class="control-mode-note">{{ t(global ? 'aidr.hooks.scope.globalHelp' : `aidr.hooks.${controlReportKey}`) }}</p>
+    <div class="control-note-row">
+      <p v-if="!fixedAgent" class="control-mode-note">{{ t(global ? 'aidr.hooks.scope.globalHelp' : `aidr.hooks.${controlReportKey}`) }}</p>
+      <a-button v-if="controlTab === 'rules'" type="text" size="small" :loading="policyLoading" :disabled="policyLoading || saving" @click="loadPolicy">{{ t(policyError ? 'aidr.hooks.retry' : 'aidr.hooks.refresh') }}</a-button>
+    </div>
     <div v-if="!global && !controlSection" class="control-tabs" role="group" :aria-label="t('aidr.hooks.title')"><button :aria-pressed="controlTab === 'rules'" @click="controlTab = 'rules'">{{ t('aidr.hooks.commands.title') }}</button><button :aria-pressed="controlTab === 'approvals'" @click="controlTab = 'approvals'">{{ t('aidr.hooks.approvals') }} <span>{{ page.items.length }}</span></button></div>
     <div v-if="controlTab === 'approvals'">
     <div class="hook-heading hook-list-heading"><h4>{{ t('aidr.hooks.approvals') }} <span class="hook-count">{{ t('aidr.hooks.visibleRecords', { count: page.items.length }) }}</span></h4><a-button :loading="listLoading" :disabled="listLoading || deciding" @click="loadList()">{{ t(listError ? 'aidr.hooks.retry' : 'aidr.hooks.refresh') }}</a-button></div>
@@ -69,12 +72,10 @@
     <div v-if="cursor || page.has_more" class="hook-heading"><a-button :disabled="listLoading || deciding || !cursor" @click="loadList(null)">{{ t('aidr.hooks.first') }}</a-button><a-button :disabled="listLoading || deciding || !page.has_more" @click="loadList({ before: page.next_before, before_id: page.next_before_id })">{{ t('aidr.hooks.next') }}</a-button></div>
     </div>
     <section v-if="controlTab === 'rules'" class="control-rules">
-      <div class="policy-meta"><span>{{ t('aidr.hooks.revision') }} {{ policy?.revision && String(policy.revision) !== '0' ? policy.revision : t('aidr.hooks.none') }}<template v-if="policy?.analysis?.published_by"> · {{ policy.analysis.published_by }}</template><template v-if="policy?.analysis?.issued_at"> · {{ stamp(policy.analysis.issued_at) }}</template></span><a-button type="text" size="small" :loading="policyLoading" :disabled="policyLoading || saving" @click="loadPolicy">{{ t(policyError ? 'aidr.hooks.retry' : 'aidr.hooks.refresh') }}</a-button></div>
       <a-alert v-if="policyError" type="error" :message="policyError" show-icon />
       <template v-if="policy">
         <div class="scope-choice" v-if="!global">
           <label :title="!policy.global_policy ? t('aidr.hooks.scope.unconfigured') : ''"><a-switch v-model:checked="inherit" :disabled="!canEdit || saving || policyLoading || !!policyError || (!inherit && !policy.global_policy)" @change="changeInheritance" /> {{ t('aidr.hooks.scope.inherit') }}</label>
-          <span>{{ t('aidr.hooks.scope.globalRevision') }} {{ policy.global_revision === '0' ? t('aidr.hooks.none') : policy.global_revision }}</span>
           <span>{{ t('aidr.hooks.scope.' + policy.distribution) }}</span>
           <small>{{ t('aidr.hooks.scope.localHelp') }}</small>
         </div>
@@ -494,7 +495,8 @@ onBeforeUnmount(() => {
 .control-tabs button { border:0; background:transparent; padding:12px 0; font:inherit; cursor:pointer; color:#637189; border-bottom:3px solid transparent; }
 .control-tabs button[aria-pressed=true] { color:#2860ed; border-bottom-color:#2860ed; font-weight:600; }
 .control-tabs span { background:#f0f3f8; border-radius:4px; padding:2px 6px; font-size:12px; }
-.policy-meta { display:flex; justify-content:space-between; align-items:center; gap:12px; margin:12px 0 18px; color:#7a879e; font-size:12px; flex-wrap:wrap; }
+.control-note-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.control-note-row .control-mode-note { margin: 0; flex: 1; min-width: 200px; }
 .control-rules .default-rule { display:flex; flex-wrap:wrap; align-items:center; gap:12px 20px; margin:16px 0; padding:12px 16px; background:#f3f7ff; border-radius:8px; }
 .control-rules .default-rule label { display:flex; flex-direction:row; align-items:center; gap:16px; margin:0; font-weight:600; }
 .default-rule span { font-size:13px; color:#68768b; }.default-rule .default-danger { color:#ba343e; }

@@ -9,6 +9,21 @@ import (
 	"path/filepath"
 )
 
+func desktopMenuReceipt(ctx context.Context, home string) map[string]bool {
+	path := filepath.Join(home, ".agent-manager", "client.db")
+	db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: filepath.ToSlash(path), RawQuery: "mode=ro"}).String())
+	if err != nil {
+		return nil
+	}
+	defer db.Close()
+	var body string
+	var policy Policy
+	if db.QueryRowContext(ctx, "SELECT value FROM client_state WHERE key = 'policy'").Scan(&body) != nil || json.Unmarshal([]byte(body), &policy) != nil || policy.Classification == nil {
+		return nil
+	}
+	return policy.Classification.DesktopMenuVisibility
+}
+
 // DesktopSnapshot reads all visible partitions from one SQLite read transaction.
 // A separate read-only connection leaves the daemon's writer available in WAL mode.
 func DesktopSnapshot(ctx context.Context, home string, includeRecovery ...bool) (map[string]any, error) {

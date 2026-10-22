@@ -436,8 +436,8 @@ export const saveBranding = data => api.put("/system/branding", data)
 export const uploadBrandLogo = data => api.post("/system/logo", data)
 export const resetBrandLogo = () => api.delete("/system/logo")
 
-export const getClientDiscoveryConfig = () => api.get("/v1/clients/discovery-config")
-export const updateClientDiscoveryConfig = data => api.put("/v1/clients/discovery-config", data)
+export const getClientDiscoveryConfig = clientId => api.get("/v1/clients/discovery-config", { params: clientId ? { client_id: clientId } : {} })
+export const updateClientDiscoveryConfig = (data, clientId) => api.put("/v1/clients/discovery-config", data, { params: clientId ? { client_id: clientId } : {} })
 
 export const getAidrRedaction = () => api.get('/system/aidr-redaction')
 export const saveAidrRedaction = data => api.put('/system/aidr-redaction', data)

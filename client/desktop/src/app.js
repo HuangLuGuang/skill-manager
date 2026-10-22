@@ -326,7 +326,27 @@ const renderSkillSharing = (agent, skill) => {
   return `<span class="skill-shared-readers" title="${escapeHtml(label)}">${escapeHtml(label)}</span>`
 }
 
+const menuVisible = panel => panel === 'connect' || connection?.local?.classification?.desktop_menu_visibility?.[panel] !== false
+const renderDesktopMenus = () => {
+  let index = 0
+  document.querySelectorAll('.nav-item[data-panel]').forEach(button => {
+    button.hidden = !menuVisible(button.dataset.panel)
+    if (!button.hidden) button.querySelector('.nav-index').textContent = String(++index).padStart(2, '0')
+  })
+  document.querySelectorAll('[data-target-panel]').forEach(button => {
+    button.hidden = !menuVisible(button.dataset.targetPanel)
+  })
+  $('#backup-task-records').hidden = !menuVisible('records')
+  $('.overview-scope').hidden = !menuVisible('discover')
+  if (!menuVisible('models') && $('#external-gateway-policy-dialog').open) $('#external-gateway-policy-dialog').close()
+  const panel = document.querySelector('.panel.active')?.id
+  if (panel && !menuVisible(panel)) {
+    showPanel('connect')
+    log(t('ui.desktopMenus.updated'))
+  }
+}
 const showPanel = panel => {
+  if (!menuVisible(panel)) panel = 'connect'
   const previousPanel = document.querySelector('.panel.active')?.id
   document.querySelectorAll('.nav-item, .panel').forEach(item => item.classList.remove('active'))
   document.querySelector(`.nav-item[data-panel="${panel}"]`)?.classList.add('active')
@@ -470,6 +490,7 @@ const setProgress = (id, state) => {
   if (state) element.classList.add(state)
 }
 const renderDisconnected = () => {
+  renderDesktopMenus()
   $('.workspace').dataset.connected = 'false'
   $('#connection-intro').hidden = false
   $('#credential-tip').hidden = false
@@ -596,6 +617,7 @@ const loadBuiltinAgentSettings = async (force = false) => {
 }
 
 const renderConnected = data => {
+  renderDesktopMenus()
   $('.workspace').dataset.connected = 'true'
   const platform = data.platform || {}
   const agents = (data.inventory?.agents || []).filter(visibleAgent)
@@ -722,6 +744,7 @@ const renderConnected = data => {
         <button class="${index === 0 ? 'primary' : ''} overview-todo-action" data-todo-index="${index}"><img src="./assets/icons/${todo.view === 'recovery' ? 'archive' : (todo.actionType === 'refresh' ? 'refresh-cw' : 'chevron-right')}.svg" alt="" />${escapeHtml(todo.action)}</button>
       </div>`).join('')
   document.querySelectorAll('[data-todo-index]').forEach(button => {
+    button.hidden = !menuVisible(todos[Number(button.dataset.todoIndex)].panel)
     button.addEventListener('click', async () => {
       const todo = todos[Number(button.dataset.todoIndex)]
       if (todo.panel) {
@@ -851,7 +874,7 @@ const renderExternalGatewayPolicyBanner = data => {
   const banner = $('#external-gateway-policy-banner')
   const context = externalGatewayPolicyContext(data)
   const dismissed = context && storedSignatures(EXTERNAL_GATEWAY_POLICY_DISMISSED_KEY).includes(context.signature)
-  banner.hidden = !context || dismissed
+  banner.hidden = !context || dismissed || !menuVisible('models')
   if (!context) return
   const action = $('#external-gateway-policy-banner-action')
   const dismiss = $('#external-gateway-policy-banner-dismiss')
@@ -892,6 +915,7 @@ const renderExternalGatewayPolicyBanner = data => {
 const externalGatewayPromptSignatures = () => storedSignatures(EXTERNAL_GATEWAY_POLICY_PROMPT_KEY)
 
 const syncExternalGatewayPolicyPrompt = data => {
+  if (!menuVisible('models')) return
   const context = externalGatewayPolicyContext(data)
   if (!context) return
   const seen = externalGatewayPromptSignatures()
@@ -1303,13 +1327,13 @@ const renderNotifications = local => {
         <p>${escapeHtml(copy.message)}</p>
         <small>${escapeHtml(agentLabel(item.agent_type))} · ${escapeHtml(item.skill_name)} · ${escapeHtml(formatTime(item.created_at))}</small>
       </div>
-      <span class="notification-action">${action.label} →</span>
+      <span class="notification-action" ${menuVisible(action.panel) ? '' : 'hidden'}>${action.label} →</span>
     </button>`
   }).join('') : `<div class="empty">${t('ui.bfts9h')}</div>`
   document.querySelectorAll('[data-notification-id]').forEach(button => button.addEventListener('click', async () => {
     const panel = button.dataset.notificationPanel
-    showPanel(panel)
-    if (panel === 'discover') {
+    if (menuVisible(panel)) showPanel(panel)
+    if (menuVisible(panel) && panel === 'discover') {
       const agent = inventory?.agents?.find(item => item.agent_type === button.dataset.notificationAgent && visibleAgent(item))
       if (agent) switchAgent(agentKey(agent))
       switchAgentView('local')

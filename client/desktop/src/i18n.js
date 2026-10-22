@@ -856,6 +856,7 @@
 
   const semanticMessages = {
     "ui.eventRecord.title_manual_model_credential_issued": {"zh-CN":"已领取手动配置凭证","en-US":"Manual configuration credential retrieved"},
+    "ui.desktopMenus.updated": {"zh-CN":"平台已更新菜单显示配置，已返回客户端概览。","en-US":"The platform updated menu visibility. Returned to the client overview."},
     "ui.manualModel.title": {"zh-CN":"手动配置引导","en-US":"Manual configuration guide"},
     "ui.manualModel.capabilityUnknown": {"zh-CN":"接入能力待确认","en-US":"Connection capability unconfirmed"},
     "ui.manualModel.notRead": {"zh-CN":"尚未读取","en-US":"Not read"},

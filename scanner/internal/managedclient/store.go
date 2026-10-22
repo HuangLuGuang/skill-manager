@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -1130,6 +1131,11 @@ func (store *Store) SetState(key, value string) error {
 		var before, after Policy
 		_ = json.Unmarshal([]byte(previous), &before)
 		if json.Unmarshal([]byte(value), &after) == nil {
+			if after.Classification != nil && (before.Classification == nil || !reflect.DeepEqual(before.Classification.DesktopMenuVisibility, after.Classification.DesktopMenuVisibility)) {
+				if signalErr := store.EmitUIStateEvent(filepath.Dir(store.root), "desktop_menu_visibility_changed", nil); signalErr != nil {
+					return signalErr
+				}
+			}
 			fields := map[string]any{"mode": after.Mode, "classification": after.Classification, "full_scan_seconds": after.FullScanSeconds}
 			if before.Classification != nil {
 				fields["previous_version"] = before.Classification.Version

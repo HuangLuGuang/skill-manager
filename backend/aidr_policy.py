@@ -22,6 +22,13 @@ def current(db, client_id=None):
         return policy
     row = db.get(models.SystemConfig, CLIENT_KEY + client_id)
     local = json.loads(row.value) if row else None
+    if local and 'skill_audit_inherit' in local:
+        result = {**(policy if local['inherit'] else local)}
+        result['skill_audit'] = policy['skill_audit'] if local['skill_audit_inherit'] else skill_audit_policy(local.get('skill_audit'))
+        result.update(inherit=local['inherit'], skill_audit_inherit=local['skill_audit_inherit'])
+        source = policy if (local['inherit'] or local['skill_audit_inherit']) and int(policy['version']) > int(local['version']) else local
+        result.update({key: source[key] for key in ('version', 'updated_by', 'updated_at')})
+        return result
     if local and not local['inherit']:
         return {**local, 'skill_audit': skill_audit_policy(local.get('skill_audit'))}
     # Keep the restoration revision so an endpoint never sees its version go backwards.
@@ -72,6 +79,8 @@ def save(db, body, user, request, client_id=None):
     if before['version'] != body.version:
         conflict()
     inherit = client_id is not None and body.inherit
+    section = getattr(body, 'section', None)
+    skill_inherit = inherit
     if inherit:
         target = current(db)
         if body.global_version != target['version']:
@@ -83,7 +92,13 @@ def save(db, body, user, request, client_id=None):
         if body.capture is not None:
             # Stored choices remain explicit; wire receipts retain legacy omission semantics.
             target['capture']['command_body'] = body.capture.command_body
-    if all(before[key] == target[key] for key in ('enabled', 'capture', 'lifecycle', 'skill_audit')) and (client_id is None or before['inherit'] == inherit):
+    if section == 'skill':
+        target = {**before, 'skill_audit': target['skill_audit']}
+        inherit = before.get('inherit', False)
+    elif section == 'content':
+        target['skill_audit'] = before['skill_audit']
+        skill_inherit = before.get('skill_audit_inherit', before.get('inherit', False))
+    if all(before[key] == target[key] for key in ('enabled', 'capture', 'lifecycle', 'skill_audit')) and (client_id is None or (before['inherit'] == inherit and before.get('skill_audit_inherit', before['inherit']) == skill_inherit)):
         return before
     key = CLIENT_KEY + client_id if client_id is not None else KEY
     try:
@@ -91,9 +106,10 @@ def save(db, body, user, request, client_id=None):
                  'version': next_version(db, previous_revision), 'updated_by': user.username, 'updated_at': datetime.utcnow().isoformat() + 'Z'}
         if client_id is not None:
             after['inherit'] = inherit
-        stored = {key: after[key] for key in ('inherit', 'version', 'updated_by', 'updated_at')} if inherit else after
+            after['skill_audit_inherit'] = skill_inherit
+        stored = after
         write_config(db, key, stored)
-        if before['skill_audit'] != target['skill_audit'] or (client_id and before['inherit'] != inherit):
+        if before['skill_audit'] != target['skill_audit'] or (client_id and before.get('skill_audit_inherit', before['inherit']) != skill_inherit):
             from .aidr_models import AidrSkillUse
             due = db.query(AidrSkillUse).filter(AidrSkillUse.expired_at.is_(None))
             if client_id:

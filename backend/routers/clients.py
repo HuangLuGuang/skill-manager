@@ -982,7 +982,7 @@ def _client_policy_response(db: Session, row: models.ManagedClient) -> dict:
         )
     return {
         "mode": row.policy_mode,
-        "agent_discovery": client_discovery.view(db),
+        "agent_discovery": {key: value for key, value in client_discovery.view(db, row).items() if key in {"version", "agents"}},
         "classification": classification,
         "governance_mode": row.governance_mode,
         "light_scan_seconds": 300,
@@ -1220,6 +1220,7 @@ def heartbeat(
     if body.client_version:
         row.client_version = body.client_version
     client_governance.record_protocol(db, client_id, body.governance_protocol)
+    client_governance.record_desktop_menus(db, client_id, body.desktop_menu_protocol, body.applied_desktop_menu_visibility)
     if body.runtime_governance is not None:
         runtime_governance.record_enrollment(db, client_id, body.runtime_governance)
         runtime_governance.record(db, client_id, body.runtime_governance)
@@ -1231,22 +1232,25 @@ def heartbeat(
 
 
 @router.get("/discovery-config")
-def get_discovery_config(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
-    return client_discovery.view(db)
+def get_discovery_config(client_id: str | None = None, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
+    return client_discovery.view(db, _client_or_404(db, client_id) if client_id else None)
 
 
 @router.put("/discovery-config")
-def update_discovery_config(body: client_discovery.CatalogChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
-    previous = client_discovery.view(db)
-    result = client_discovery.save(db, body)
-    if result["version"] != previous["version"]:
-        for (client_id,) in db.query(models.ManagedClient.client_id).all():
+def update_discovery_config(body: client_discovery.CatalogChange, client_id: str | None = None, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
+    client = _client_or_404(db, client_id) if client_id else None
+    clients = [client] if client else db.query(models.ManagedClient).all()
+    previous = {row.client_id: client_discovery.view(db, row)['version'] for row in clients}
+    result = client_discovery.save(db, body, client)
+    for row in clients:
+        effective = client_discovery.view(db, row)
+        if effective['version'] != previous[row.client_id]:
             db.add(models.ClientTask(
-                client_id=client_id,
+                client_id=row.client_id,
                 task_type="sync_policy",
-                payload_json=_dump({"agent_discovery_version": result["version"]}),
+                payload_json=_dump({"agent_discovery_version": effective["version"]}),
             ))
-    _operation(db, current_user, "client_discovery_updated", "clients", json.dumps(result, ensure_ascii=False))
+    _operation(db, current_user, "client_discovery_updated", client_id or "clients", json.dumps(result, ensure_ascii=False))
     db.commit()
     return result
 
@@ -2432,6 +2436,8 @@ def report_task_result(
             models.ClientTask.id == task_id, models.ClientTask.client_id == client_id,
             models.ClientTask.status.in_(("pending", "running")),
         ).update(updates, synchronize_session=False)
+        if changed and row.task_type == "sync_policy" and body.status == "succeeded" and body.applied_desktop_menu_visibility is not None:
+            client_governance.record_desktop_menus(db, client_id, 1, body.applied_desktop_menu_visibility)
         db.commit()
         db.refresh(row)
         return {"ok": True, "ignored": not bool(changed), "status": row.status}

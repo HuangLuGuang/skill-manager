@@ -1,5 +1,24 @@
 # Agent Manager Client 使用说明
 
+## 客户端菜单显示 / Client menu visibility
+
+在“默认客户端策略”或单客户端策略弹窗的“采集与治理配置 → 客户端界面”设置菜单。客户端概览固定保留；Agent 管理、模型切换、执行记录、Agent 运行治理默认显示。全局使用显示开关，单客户端逐项选择“跟随全局 / 显示 / 隐藏”；“全部跟随全局”修改草稿，预览并保存后生效。单项覆盖不影响其他菜单继续继承。全局写入沿用超级管理员权限，单客户端写入沿用客户端管理权限及可见范围。
+
+配置通过现有 `sync_policy` 和心跳链路下发，Go 客户端缓存后通知桌面读取，不要求重启。离线和重启沿用当前连接的缓存，切换平台清除旧绑定策略。当前页面被隐藏时返回概览，对应快捷入口同步隐藏；通知证据保留，隐藏页面的跳转入口不显示。菜单隐藏不改变后台扫描、采集和治理权限。仅菜单变化不请求额外全量扫描，也不改变运行治理目标版本；同时存在尚未同步的治理变更时，仍执行相应治理同步。
+
+“客户端菜单配置已同步”表示客户端报告缓存的菜单值与当前目标相同，不代表桌面窗口已经展示。未报告菜单能力的客户端显示升级提示；可以预先保存配置，升级后同步。最近配置回执时间以设备报告为准。
+
+**English:** Open **Default client policy** or an individual client's policy dialog, then **Collection & governance → Client interface**. Overview is always visible. Agent management, Model switching, Execution records, and Agent runtime governance default to visible. Each client can inherit or explicitly show/hide each menu. Resetting all menus to global changes the draft until previewed and saved. Existing administrator permissions and client scope checks apply.
+
+The existing policy task and heartbeat mechanisms deliver configuration. The Go client caches it and signals the desktop without a restart. Offline startup uses the current connection's cache; switching platforms clears the previous policy. Hidden active pages return to Overview; related shortcuts disappear while notification evidence remains. Menu visibility does not disable background features. Menu-only changes do not request a full scan or change the runtime-governance target version; pending governance changes still synchronize. “Client menu configuration synced” confirms a matching cache receipt, not that an open window rendered it. Older clients require an upgrade.
+
+人工验收 Todo / Manual acceptance:
+
+- [ ] 全局隐藏、单客户端明确显示、另一菜单继续继承；恢复单项和全部继承。 / Global hiding, individual overrides, independent inheritance, and resets.
+- [ ] 当前页被隐藏返回概览、快捷入口联动、通知证据保留、仅概览可见。 / Active-page fallback, shortcuts, retained notifications, and overview-only layout.
+- [ ] 离线重启、重连、平台切换及旧客户端升级提示。 / Offline restart, reconnect, platform switching, and older-client status.
+- [ ] 中英文全局/单机编辑与预览、窄窗口和长文案；菜单变化不增加扫描或重启采集。 / Bilingual editing/preview, narrow layouts and long text; no extra scans or collection restarts for menu-only changes.
+
 ## 后台可靠性与更新 / Background reliability and updates
 
 桌面状态通过主守护进程的本地 IPC 读取：macOS/Linux 使用当前用户私有目录中的 Unix Socket，Windows 使用仅当前进程用户可访问的 Named Pipe。一次读取使用独立 SQLite 只读事务，返回状态、资产和事件修订；Agent 管理页同时读取待处理、扫描历史及隔离副本，其他页面不读取这些分区。旧版或未运行的服务通过单次 `local-snapshot` 命令提供诊断读取，安装和修复入口仍可使用。
@@ -578,7 +597,7 @@ English: The discovery workspace provides Overview, Capabilities, Activity, Poli
 
 ## 平台发现配置与桌面入口
 
-平台“客户端管理 → Agent 发现配置”可按名称或标识搜索 Agent，设置启用状态、适用系统和
+平台“客户端管理 → 全局客户端配置 → Agent 发现”（Client Management → Global client settings → Agent discovery）统一编辑全局发现配置，可按名称或标识搜索 Agent，设置启用状态、适用系统和
 一个或多个 Skill 根目录。相对路径从客户端用户主目录解析，每行一个目录；动态用户目录可使用单独的 `*` 路径段。本机单独设置
 的目录优先；没有配置缓存时使用客户端内置定义。目录不存在时不会因保存配置而自动创建。
 
@@ -586,7 +605,13 @@ Qoder、Qoder CN、QoderWork、ZCode 的预置目录分别为 `.qoder/skills`、
 `.qoderwork/skills`、`.zcode/skills`。TeleAgent 使用 `.config/TeleAgent/users/*/skills`，客户端会把动态用户目录展开为实际 Skill 根目录，不依赖固定用户 ID。Claude Desktop、Kimi Work、Doubao Work 的预置条目
 默认关闭且没有目录，确认实际路径后再配置启用。
 
-保存发现配置会创建同步任务，在线客户端通过长轮询接收任务、读取最新配置并重新发现。
+客户端详情的“客户端配置 → Agent 发现”默认逐项跟随全局；关闭某个 Agent 的“跟随全局”后，可为该客户端单独设置。允许添加客户端专属 Agent 定义；恢复单项继承清除该覆盖，全部恢复同时移除专属定义。本页独立保存，切换标签保留未保存草稿。
+
+服务端按 Agent 标识合并全局与客户端定义，通过原有 `agent_discovery` 策略字段下发有效配置。只有有效发现配置变化的客户端才创建 `sync_policy` 任务；保存时校验全局与本客户端配置是否已变更，冲突时保留草稿并提示重新打开。
+
+**Agent discovery** is a tab in **Client settings**, before **Skill governance**. Global definitions apply unless overridden per Agent for a client. Client-only definitions are supported. Restore individual inheritance to clear an override, or restore all to also remove client-only definitions. This tab saves independently and retains drafts across tab changes. The server merges definitions by Agent identifier and delivers the effective catalog using the existing policy and `sync_policy` mechanism, targeting only clients whose effective catalog changed.
+
+在线客户端通过长轮询接收任务、读取最新配置并重新发现。
 离线客户端继续使用已缓存配置。排查时分别核对“配置已同步”和“目录已发现”，不要只凭
 平台心跳判断目录是否生效。
 
@@ -1663,3 +1688,9 @@ English: ZIP uploads, Scanner submissions, and network ZIP imports unpack only t
 运行治理页的“已知悉，不再提示”只隐藏当前历史采集问题，确认状态保存在当前桌面客户端的本地界面存储中，重启后保留。诊断文件和平台审计记录不删除，也不补齐曾丢失的事件。新发生时间或不同原因、产品、Hook 的问题会重新显示；无法保存确认时保持提示并显示错误。清除客户端界面存储后，仍保留的历史问题可能再次显示。
 
 “Acknowledge and dismiss” hides only the current historical collection issue. The acknowledgement is stored locally by this desktop client and survives restarts. Diagnostic files and platform audit records remain intact; lost events are not reconstructed. A new occurrence, cause, product or Hook appears again. Storage failures keep the notice visible with an error. Clearing the client's UI storage may show the retained historical issue again.
+
+### Skill 治理配置 / Skill governance settings
+
+“客户端配置 → Skill 治理”提供“使用审计 / Usage audit”和“分类处置 / Classification actions”两个子标签。默认进入使用审计，无审计查看权限时进入分类处置。使用审计配置后台异步核对和告警；分类处置配置按 Skill 状态执行的动作。两个子标签分别预览并保存，切换保留未保存草稿。内容与脱敏保留采集范围、脱敏、大小限制和保留期限。使用审计与内容脱敏可分别继承全局，既有配置按原继承状态兼容；复用原有接口和审计策略下发协议。
+
+**Client settings → Skill governance** separates Usage audit from Classification actions. Each section previews and saves independently. Usage audit checks asynchronously and reports or alerts; classification rules define actions for Skill states. Content/redaction manages capture, redaction, size limits and retention. Usage audit and content/redaction inherit independently while preserving existing policy choices and reusing existing delivery protocols.

@@ -1,11 +1,16 @@
 <template>
-  <a-modal :open="open" :title="t('clientGovernance.title')" width="820px" class="client-governance-modal" :style="{ top: '24px', paddingBottom: 0, margin: '0 auto' }" :closable="!modalBusy" :mask-closable="!modalBusy" :keyboard="!modalBusy" :z-index="1010" @cancel="close">
-    <a-tabs v-model:active-key="activeTab">
-      <a-tab-pane v-if="can('clients:view')" key="integration" :tab="t('clientPolicy.configure')" :disabled="modalBusy" />
-      <a-tab-pane v-if="can('settings:view')" key="audit" :tab="t('clientPolicy.content')" :disabled="modalBusy" />
+  <a-modal :open="open" :title="t(clientId ? 'clientPolicy.settings' : 'clientPolicy.globalSettings')" width="820px" class="client-governance-modal" :style="{ top: '24px', paddingBottom: 0, margin: '0 auto' }" :closable="!modalBusy" :mask-closable="!modalBusy" :keyboard="!modalBusy" :z-index="1010" @cancel="close">
+    <nav class="settings-navigation" :aria-label="t('clientPolicy.navigation')">
+      <button v-for="section in settingsSections" :key="section" type="button" :disabled="modalBusy || !!impact" :aria-pressed="settingsSection === section" @click="settingsSection = section">{{ t(`clientPolicy.${section === 'audit' ? 'content' : section}`) }}</button>
+    </nav>
+    <a-tabs v-show="settingsSection === 'skills'" v-model:active-key="skillSection" size="small" :aria-label="t('clientPolicy.skills')">
+      <a-tab-pane v-if="can('settings:view')" key="usage" :tab="t('clientPolicy.usageAudit')" :disabled="modalBusy || !!impact" />
+      <a-tab-pane v-if="can('clients:view')" key="classification" :tab="t('clientPolicy.classification')" :disabled="modalBusy || !!impact" />
     </a-tabs>
-    <AidrRedactionSettings v-if="open && activeTab === 'audit' && can('settings:view')" :key="clientId" ref="auditSettings" :client-id="clientId" external-actions />
-    <a-spin v-show="activeTab === 'integration'" :spinning="loading">
+    <AidrRedactionSettings v-if="open && auditVisited && can('settings:view')" v-show="settingsSection === 'audit'" :key="clientId" ref="auditSettings" :client-id="clientId" external-actions />
+    <AidrRedactionSettings v-if="open && skillsVisited && can('settings:view')" v-show="settingsSection === 'skills' && skillSection === 'usage'" :key="clientId" ref="skillAuditSettings" :client-id="clientId" section="skill" @saved="emit('saved')" />
+    <ClientDiscoveryConfig v-if="open && discoveryVisited && can('clients:view')" v-show="settingsSection === 'discovery'" :key="clientId" ref="discoverySettings" :client-id="clientId" @saved="emit('saved')" />
+    <a-spin v-if="can('clients:view')" v-show="activeTab === 'integration'" :spinning="loading">
       <p v-if="!clientId">{{ t('clientGovernance.defaults') }}</p>
       <a-alert v-if="policyError" type="error" show-icon :message="t('clientGovernance.policyLoadFailed')" :description="policyError"><template #action><a-button :disabled="loading" @click="load">{{ t('clientGovernance.retryLoad') }}</a-button></template></a-alert>
       <a-alert v-if="gatewayError" type="warning" show-icon :message="t('clientGovernance.gatewayLoadFailed')" :description="gatewayError"><template #action><a-button :disabled="loading" @click="load">{{ t('clientGovernance.retryLoad') }}</a-button></template></a-alert>
@@ -13,10 +18,23 @@
         <a-alert v-if="!editable && !gatewayError && !policyError" type="warning" :message="t(policy.supported ? 'clientGovernance.readonly' : 'clientGovernance.upgrade')" />
         <a-alert v-if="!impact && clientId && policy.advanced_supported === false" type="warning" show-icon :message="t('clientGovernance.capabilityAvailable')" />
         <a-form v-if="!impact" layout="vertical" class="policy-form">
-          <nav class="settings-navigation" :aria-label="t('clientPolicy.navigation')">
-            <button v-for="section in ['runtime', 'models', 'skills']" :key="section" type="button" :aria-pressed="settingsSection === section" @click="settingsSection = section">{{ t(`clientPolicy.${section}`) }}</button>
-          </nav>
-          <p class="settings-description">{{ t(`clientPolicy.${settingsSection}Hint`) }} {{ t('clientPolicy.settingsHint') }}</p>
+          <p class="settings-description">{{ t(`clientPolicy.${settingsSection}Hint`) }} {{ t(settingsSection === 'skills' ? 'clientPolicy.classificationHelp' : 'clientPolicy.settingsHint') }}</p>
+          <section v-show="settingsSection === 'desktop'" class="policy-group">
+            <header class="group-heading"><h3>{{ t('clientGovernance.desktop.title') }}</h3><p>{{ t('clientGovernance.desktop.description') }}</p></header>
+            <a-alert v-if="clientId" :type="policy.desktop_menu_sync_status === 'synced' ? 'success' : 'info'" show-icon :message="t(`clientGovernance.desktop.${policy.desktop_menu_sync_status || 'unsupported'}`)" :description="t('clientGovernance.desktop.syncHint')" />
+            <p v-if="clientId && policy.desktop_menu_reported_at">{{ t('clientGovernance.desktop.reportedAt') }}: {{ new Date(policy.desktop_menu_reported_at + (/[Z+]/.test(policy.desktop_menu_reported_at) ? '' : 'Z')).toLocaleString() }}</p>
+            <a-button v-if="clientId" :disabled="!editable || busy" @click="desktopMenus = {}">{{ t('clientGovernance.desktop.reset') }}</a-button>
+            <p>{{ t('clientGovernance.desktop.connect') }}: {{ t('clientGovernance.desktop.fixed') }}</p>
+            <div class="group-rules">
+              <a-form-item v-for="menu in menuKeys" :key="menu" :label="t(`clientGovernance.desktop.${menu}`)">
+                <a-select v-if="clientId" :value="Object.hasOwn(desktopMenus, menu) ? (desktopMenus[menu] ? 'show' : 'hide') : 'inherit'" :disabled="!editable || busy" @change="value => setDesktopMenu(menu, value)">
+                  <a-select-option v-for="option in ['inherit', 'show', 'hide']" :key="option" :value="option">{{ t(`clientGovernance.desktop.${option}`) }}</a-select-option>
+                </a-select>
+                <a-switch v-else v-model:checked="desktopMenus[menu]" :disabled="!editable || busy" />
+                <div class="effective">{{ t('clientGovernance.desktop.saved') }}: {{ t(policy.desktop_menu_visibility?.[menu] === false ? 'clientGovernance.desktop.hide' : 'clientGovernance.desktop.show') }} · {{ t(policy.desktop_menu_sources?.[menu] === 'client' ? 'clientGovernance.desktop.client' : 'clientGovernance.desktop.global') }}</div>
+              </a-form-item>
+            </div>
+          </section>
           <section v-show="settingsSection === 'runtime'" class="policy-group">
             <header class="group-heading"><h3>{{ t('clientGovernance.runtime.title') }}</h3><p>{{ t('clientGovernance.runtime.description') }}</p></header>
             <details v-if="clientId && open && activeTab === 'integration'" class="runtime-status"><summary>{{ t('clientPolicy.statusDetails') }}</summary><ClientProtectionStatus :client-id="clientId" /></details>
@@ -113,6 +131,7 @@
             <div class="effective">{{ t('clientGovernance.effective', { action: promptLabel(policy.prompt_guard) }) }}</div>
             <div v-if="inheritPrompt" class="effective">{{ t('clientGovernance.prompt.defaultValue', { value: promptLabel(policy.prompt_guard_default) }) }}</div>
           </section>
+          <h3 v-if="settingsSection === 'skills'">{{ t('clientPolicy.classification') }}</h3>
           <section v-for="group in groups" v-show="settingsSection === 'skills'" :key="group.key" class="policy-group">
             <header class="group-heading">
               <h3>{{ t(`clientGovernance.groups.${group.key}.title`) }}</h3>
@@ -138,8 +157,18 @@
               </div>
             </div>
           </section>
+          <a-button v-if="settingsSection === 'skills'" type="primary" :loading="busy" :disabled="!editable || busy" @click="preview">{{ t('clientPolicy.saveClassification') }}</a-button>
         </a-form>
         <template v-else>
+          <section v-if="!impact.classificationOnly && impact.desktop_menu_proposed" class="policy-group">
+            <h3>{{ t('clientGovernance.desktop.title') }}</h3>
+            <p v-for="menu in menuKeys" :key="menu">{{ t(`clientGovernance.desktop.${menu}`) }}: {{ t(impact.desktop_menu_current?.[menu] === false ? 'clientGovernance.desktop.hide' : 'clientGovernance.desktop.show') }} → {{ t(impact.desktop_menu_proposed?.[menu] === false ? 'clientGovernance.desktop.hide' : 'clientGovernance.desktop.show') }}</p>
+            <p>{{ t('clientGovernance.desktop.preview', { count: impact.desktop_menu_impacts?.filter(item => menuKeys.some(key => item.current[key] !== item.proposed[key])).length || 0 }) }}</p>
+            <p v-if="!clientId">{{ t('clientGovernance.desktop.preserved', { count: impact.desktop_menu_impacts?.filter(item => item.preserved_overrides?.length).length || 0 }) }}</p>
+            <ul class="prompt-impact"><li v-for="item in impact.desktop_menu_impacts" :key="item.client_id">{{ item.client_name }}: {{ menuImpactText(item) }}<span v-if="item.preserved_overrides?.length"> · {{ t('clientGovernance.desktop.overrideKept') }}: {{ item.preserved_overrides.map(key => t(`clientGovernance.desktop.${key}`)).join(' / ') }}</span><span v-if="!item.supported"> · {{ t('clientGovernance.desktop.unsupported') }}</span></li></ul>
+          </section>
+          <template v-if="!impact.menuOnly">
+          <template v-if="!impact.classificationOnly">
           <p v-for="channel in ['hooks','system']" :key="channel">{{ t(`clientGovernance.runtime.mode_${channel}`) }}: {{ t(`clientGovernance.runtime.mode_${impact.runtime_proposed?.modes?.[channel] || 'legacy'}`) }}</p>
           <a-alert type="info" show-icon :message="t('clientGovernance.runtime.title')"><template #description><p>{{ t('clientGovernance.runtime.enabled') }}: {{ t(impact.runtime_proposed?.enabled ? 'clientGovernance.prompt.enabled' : 'clientGovernance.prompt.disabled') }} · {{ impact.runtime_proposed?.hosts?.join(' / ') }}</p><p v-if="impact.runtime_proposed?.channels">{{ ['logs', 'hooks', 'system'].filter(name => impact.runtime_proposed.channels[name]).map(name => t(`clientGovernance.runtime.channel_${name}`)).join(' · ') || t('clientGovernance.runtime.noChannels') }}</p><p>{{ t(`clientGovernance.runtime.installation_${impact.runtime_proposed?.installation}`) }} · {{ t(`clientGovernance.runtime.access_mode_${impact.runtime_proposed?.access_mode}`) }} · {{ t(`clientGovernance.runtime.updates_${impact.runtime_proposed?.updates}`) }} · {{ t(`clientGovernance.runtime.retry_${impact.runtime_proposed?.retry?.mode}`) }}</p></template></a-alert>
           <a-alert v-if="impact.model_routing_impacts?.length" type="info" show-icon :message="t('clientGovernance.modelRouting.preview', { count: impact.model_routing_impacts.filter(item => JSON.stringify(item.current) !== JSON.stringify(item.proposed)).length })" />
@@ -147,6 +176,7 @@
           <ul class="prompt-impact"><li v-for="item in impact.compression_impacts" :key="item.client_id">{{ item.client_name }}: {{ compressionLabel(item.current) }} → {{ compressionLabel(item.proposed) }}</li></ul>
           <a-alert type="info" show-icon :message="t('clientGovernance.prompt.preview', { count: impact.prompt_impacts?.reduce((sum, item) => sum + item.changed_credentials, 0) || 0 })" />
           <ul class="prompt-impact"><li v-for="item in impact.prompt_impacts" :key="item.client_id">{{ item.client_name }}: {{ promptLabel(item.current) }} → {{ promptLabel(item.proposed) }}</li></ul>
+          </template>
           <p>{{ t('clientGovernance.candidates', { clients: impact.client_count, count: impact.candidate_count }) }}</p>
           <a-alert v-if="impact.excluded_clients?.length" type="warning" show-icon :message="t('clientGovernance.excludedTitle', { count: impact.excluded_clients.length })" class="excluded-clients">
             <template #description>
@@ -195,6 +225,7 @@
               </template>
             </template>
           </a-table>
+          </template>
         </template>
       </template>
     </a-spin>
@@ -202,8 +233,9 @@
       <div class="actions">
         <a-button v-if="activeTab === 'integration' && impact" :disabled="modalBusy" @click="impact = null">{{ t('clientGovernance.back') }}</a-button>
         <a-button :disabled="modalBusy" @click="close">{{ t('clientGovernance.cancel') }}</a-button>
-        <a-button v-if="activeTab === 'integration' && policy" type="primary" :loading="busy" :disabled="!editable || busy || !!impact?.incompatible_clients?.length" @click="impact ? save() : preview()">{{ t(impact ? 'clientGovernance.confirm' : 'clientGovernance.preview') }}</a-button>
+        <a-button v-if="activeTab === 'integration' && policy && (settingsSection !== 'skills' || impact)" type="primary" :loading="busy" :disabled="!editable || busy || !!impact?.incompatible_clients?.length" @click="impact ? save() : preview()">{{ t(impact ? 'clientGovernance.confirm' : 'clientGovernance.preview') }}</a-button>
         <a-button v-if="activeTab === 'audit' && auditSettings?.editable" type="primary" :loading="auditSettings.busy" :disabled="!auditSettings.canReview" @click="auditSettings.review()">{{ t('aidr.redactionSettings.save') }}</a-button>
+        <a-button v-if="activeTab === 'discovery' && can('clients:update')" type="primary" :loading="discoverySettings?.busy" :disabled="!discoverySettings?.canSave" @click="discoverySettings.save()">{{ t('clientDiscovery.save') }}</a-button>
       </div>
     </template>
   </a-modal>
@@ -212,9 +244,10 @@
 <script setup>
 import products from '../aidr-products.json'
 import { expandProductSelection, groupProductEntries, productGroupId, selectedProductGroups } from '../aidr-product-groups'
-import { computed, ref, watch } from 'vue'
+import { computed, ref, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AidrRedactionSettings from './AidrRedactionSettings.vue'
+import ClientDiscoveryConfig from './ClientDiscoveryConfig.vue'
 import ClientProtectionStatus from './ClientProtectionStatus.vue'
 import { message } from 'ant-design-vue'
 import { can } from '../access'
@@ -222,11 +255,30 @@ import { getClientGovernance, listExternalAiGateways, previewClientGovernance, s
 const props = defineProps({ open: Boolean, clientId: { type: String, default: '' }, initialTab: { type: String, default: 'integration' } })
 const emit = defineEmits(['update:open', 'saved'])
 const { t } = useI18n()
-const activeTab = ref('integration')
 const settingsSection = ref('runtime')
+const skillSection = ref('usage')
+const activeTab = computed(() => settingsSection.value === 'skills' && skillSection.value === 'usage' ? 'skillAudit' : ['audit', 'discovery'].includes(settingsSection.value) ? settingsSection.value : 'integration')
+const settingsSections = computed(() => [...(can('clients:view') ? ['runtime', 'models', 'discovery', 'skills', 'desktop'] : can('settings:view') ? ['skills'] : []), ...(can('settings:view') ? ['audit'] : [])])
+const auditVisited = ref(false)
+const skillsVisited = ref(false)
+const skillAuditSettings = ref(null)
+const discoveryVisited = ref(false)
+const discoverySettings = ref(null)
+const menuKeys = ['discover', 'models', 'records', 'runtime-governance']
+const desktopMenus = ref({})
+let loadedPolicyPayload = ''
+function menuImpactText(item) {
+  return menuKeys.filter(key => item.current[key] !== item.proposed[key]).map(key =>
+    `${t(`clientGovernance.desktop.${key}`)} ${t(item.current[key] ? 'clientGovernance.desktop.show' : 'clientGovernance.desktop.hide')} → ${t(item.proposed[key] ? 'clientGovernance.desktop.show' : 'clientGovernance.desktop.hide')}`
+  ).join(' · ') || t('clientGovernance.desktop.unchanged')
+}
+function setDesktopMenu(menu, value) {
+  if (value === 'inherit') delete desktopMenus.value[menu]
+  else desktopMenus.value[menu] = value === 'show'
+}
 const policy = ref(null), rules = ref({}), impact = ref(null), loading = ref(false), busy = ref(false)
 const auditSettings = ref(null)
-const modalBusy = computed(() => busy.value || (activeTab.value === 'audit' && (auditSettings.value?.busy || auditSettings.value?.reviewOpen)))
+const modalBusy = computed(() => loading.value || busy.value || auditSettings.value?.busy || auditSettings.value?.reviewOpen || discoverySettings.value?.busy || skillAuditSettings.value?.busy || skillAuditSettings.value?.reviewOpen)
 function close() { if (!modalBusy.value) emit('update:open', false) }
 const promptGuard = ref({ mode: 'log', llm_review: false }), inheritPrompt = ref(false)
 const compression = ref({ enabled: false, level: 'auto' }), inheritCompression = ref(false)
@@ -259,7 +311,7 @@ function setMode(channel, value) {
 const inheritRuntime = ref(false)
 watch(inheritRuntime, value => {
   if (value && policy.value) {
-    runtimeGovernance.value = structuredClone(policy.value.runtime_governance_default || runtimeDefaults())
+    runtimeGovernance.value = structuredClone(toRaw(policy.value.runtime_governance_default) || runtimeDefaults())
     if (!runtimeGovernance.value.channels) runtimeGovernance.value.channels = { logs: false, hooks: true, system: false }
   }
 })
@@ -299,7 +351,7 @@ const summaryText = record => {
   return Object.entries(counts).map(([key, count]) => `${t(`clientGovernance.${key}`)} ${count}`).join(' · ')
 }
 let loadSequence = 0
-const editable = computed(() => !gatewayError.value && !policyError.value && !loading.value && can('clients:update') && policy.value?.supported && (props.clientId || policy.value?.editable))
+const editable = computed(() => !gatewayError.value && !policyError.value && !loading.value && can('clients:update') && (policy.value?.supported || settingsSection.value === 'desktop') && (props.clientId || policy.value?.editable))
 const choices = {
   unverified: ['record_only', 'record', 'submit_scan', 'quarantine'], malicious: ['record_only', 'record', 'quarantine', 'uninstall'],
   trusted_content_changed: ['record_only', 'record', 'submit_scan', 'quarantine', 'restore_trusted'], unverified_content_changed: ['record_only', 'record', 'submit_scan', 'quarantine'],
@@ -328,7 +380,7 @@ const setRule = (trigger, action) => { impact.value = null; if (action) rules.va
 async function load() {
   const sequence = ++loadSequence
   busy.value = false; impact.value = null; policy.value = null; policyError.value = ''; gatewayError.value = ''; gateways.value = []
-  if (!props.open || activeTab.value !== 'integration') { loading.value = false; return }
+  if (!props.open || !can('clients:view') || activeTab.value !== 'integration') { loading.value = false; return }
   loading.value = true
   const clientId = props.clientId
   try {
@@ -340,6 +392,7 @@ async function load() {
     const result = policyResult.value
     const gatewayRows = gatewayResult.status === 'fulfilled' ? gatewayResult.value : []
     policy.value = result
+    desktopMenus.value = { ...(clientId ? result.desktop_menu_overrides : result.desktop_menu_visibility) }
     runtimeGovernance.value = structuredClone(result.runtime_governance_override || result.runtime_governance_default || runtimeDefaults())
     if (!result.runtime_governance_configured) runtimeGovernance.value.modes = runtimeDefaults().modes
     if (result.runtime_channels_protocol === 3 && !runtimeGovernance.value.channels) runtimeGovernance.value.channels = { logs: false, hooks: true, system: false }
@@ -353,13 +406,23 @@ async function load() {
     modelRoutingDefault.value = { ...modelRoutingDefault.value, ...(result.model_routing_default || result.model_routing || {}) }
     modelRouting.value = { ...modelRoutingDefault.value, ...(result.model_routing || {}) }
     inheritModelRouting.value = Boolean(clientId && !result.model_routing_override)
+    loadedPolicyPayload = JSON.stringify(payload())
   } catch (error) { if (sequence === loadSequence) policyError.value = 'client_governance_policy_load_failed' }
   finally { if (sequence === loadSequence) loading.value = false }
 }
 watch(() => [props.open, props.clientId, props.initialTab], () => {
-  activeTab.value = can('settings:view') && (props.initialTab === 'audit' || !can('clients:view')) ? 'audit' : 'integration'
+  settingsSection.value = can('settings:view') && (props.initialTab === 'audit' || !can('clients:view')) ? 'audit' : props.initialTab === 'discovery' ? 'discovery' : 'runtime'
+  auditVisited.value = settingsSection.value === 'audit'
+  discoveryVisited.value = settingsSection.value === 'discovery'
+  skillsVisited.value = settingsSection.value === 'skills'
+  skillSection.value = can('settings:view') ? 'usage' : 'classification'
   load()
 }, { immediate: true })
+watch(settingsSection, section => {
+  if (section === 'audit') auditVisited.value = true
+  if (section === 'discovery') discoveryVisited.value = true
+  if (section === 'skills') skillsVisited.value = true
+})
 watch(activeTab, tab => { if (props.open && tab === 'integration' && !policy.value && !loading.value) load() })
 const routingPayload = () => {
   if (inheritModelRouting.value) return null
@@ -386,11 +449,15 @@ async function handleError(error) {
 }
 async function preview() {
   if (busy.value || loading.value || !props.open || !editable.value) return
-  const sequence = loadSequence, clientId = props.clientId, request = payload()
+  const sequence = loadSequence, clientId = props.clientId
+  const draft = { ...payload(), rules: { ...(props.clientId ? policy.value.overrides : policy.value.rules) } }
+  const menuOnly = JSON.stringify(draft) === loadedPolicyPayload
+  const classificationOnly = settingsSection.value === 'skills'
+  const request = classificationOnly ? { rules: { ...rules.value }, expected_version: policy.value.version } : { ...(menuOnly ? { rules: draft.rules, expected_version: draft.expected_version } : draft), desktop_menu_visibility: { ...desktopMenus.value } }
   busy.value = true
   try {
     const result = await previewClientGovernance(clientId, request)
-    if (current(sequence, clientId)) { expandedKeys.value = []; impact.value = { ...result, request } }
+    if (current(sequence, clientId)) { expandedKeys.value = []; impact.value = { ...result, request, menuOnly: !classificationOnly && menuOnly, classificationOnly } }
   }
   catch (error) { if (current(sequence, clientId)) await handleError(error) }
   finally { if (current(sequence, clientId)) busy.value = false }
@@ -401,9 +468,13 @@ async function save() {
   const request = { ...impact.value.request, preview_id: impact.value.preview_id }
   busy.value = true
   try {
-    await saveClientGovernance(clientId, request)
+    const saved = await saveClientGovernance(clientId, request)
     if (!current(sequence, clientId)) return
-    message.success(t('clientGovernance.saved')); emit('saved'); emit('update:open', false)
+    const baseline = impact.value.classificationOnly ? JSON.parse(loadedPolicyPayload) : payload()
+    policy.value = saved
+    loadedPolicyPayload = JSON.stringify({ ...baseline, rules: { ...(clientId ? saved.overrides : saved.rules) }, expected_version: saved.version })
+    impact.value = null
+    message.success(t('clientGovernance.saved')); emit('saved')
   } catch (error) { if (current(sequence, clientId)) await handleError(error) }
   finally { if (current(sequence, clientId)) busy.value = false }
 }
@@ -415,10 +486,11 @@ async function save() {
 :global(.client-governance-modal .ant-modal-header),
 :global(.client-governance-modal .ant-modal-footer) { flex-shrink: 0; }
 .policy-form { margin-top: 16px; display: grid; gap: 16px; padding: 2px 6px 2px 2px; }
-.settings-navigation { display: flex; gap: 4px; padding: 4px; background: #f1f4f9; border-radius: 8px; }
+.settings-navigation { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 16px; background: #f1f4f9; border-radius: 8px; }
 .settings-navigation button { flex: 1; min-width: 0; padding: 10px 12px; border: 0; border-radius: 6px; background: transparent; color: #596b83; font: inherit; cursor: pointer; }
 .settings-navigation button[aria-pressed=true] { background: #fff; color: #285bc4; font-weight: 600; box-shadow: 0 1px 4px #223c6114; }
 .settings-navigation button:focus-visible { outline: 2px solid #3265df; outline-offset: 2px; }
+.settings-navigation button:disabled { cursor: default; opacity: .65; }
 .settings-description { margin: 0; color: #66768c; font-size: 13px; line-height: 1.6; }
 .runtime-advanced { grid-column: 1 / -1; border-top: 1px solid #e6eaf0; padding-top: 16px; }
 .runtime-advanced summary { cursor: pointer; color: #445971; font-weight: 500; }
@@ -442,7 +514,7 @@ async function save() {
 .scan-followup { display: block; width: 100%; margin-top: 8px; padding: 8px 10px; border: 0; border-radius: 4px; background: #f5f8ff; color: #4c6075; text-align: start; font: inherit; font-size: 12px; line-height: 1.5; cursor: pointer; overflow-wrap: anywhere; }
 .scan-followup span { color: #1677ff; margin-left: 6px; }
 .scan-followup:focus-visible { outline: 2px solid #1677ff; outline-offset: 2px; }
-@media (max-width: 600px) { .group-rules { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) { .group-rules { grid-template-columns: minmax(0, 1fr); } .settings-navigation button { flex-basis: 45%; overflow-wrap: anywhere; } }
 .recheck-help { margin-top: 12px; padding: 10px 12px; border-radius: 6px; background: #f5f7fa; color: #596975; }
 .recheck-help summary, .skill-reason summary { cursor: pointer; font-size: 12px; line-height: 1.6; }
 .recheck-help summary span, .skill-reason summary span { margin-left: 8px; color: #1677ff; }
