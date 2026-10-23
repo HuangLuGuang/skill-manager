@@ -857,17 +857,22 @@ def _approval_request_response(
 @admin_router.get("/approval-requests/stats", response_model=schemas.McpApprovalRequestStatsResponse)
 async def approval_request_stats(db: Session = Depends(get_db)):
     _expire_approval_requests(db)
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    # 按北京时间自然日统计，将日界线转为数据库存储的 UTC 无时区时间。
+    today = datetime.now(timezone(timedelta(hours=8))).replace(hour=0, minute=0, second=0, microsecond=0)
+    today = today.astimezone(timezone.utc).replace(tzinfo=None)
+    tomorrow = today + timedelta(days=1)
     query = db.query(models.McpToolApproval).filter(models.McpToolApproval.request_id.is_not(None))
     return schemas.McpApprovalRequestStatsResponse(
         pending=query.filter(models.McpToolApproval.status == "pending").count(),
         approved_today=query.filter(
             models.McpToolApproval.status.in_(["approved", "used", "expired"]),
             models.McpToolApproval.reviewed_at >= today,
+            models.McpToolApproval.reviewed_at < tomorrow,
         ).count(),
         rejected_today=query.filter(
             models.McpToolApproval.status == "rejected",
             models.McpToolApproval.reviewed_at >= today,
+            models.McpToolApproval.reviewed_at < tomorrow,
         ).count(),
         expired=query.filter(models.McpToolApproval.status == "expired").count(),
     )
