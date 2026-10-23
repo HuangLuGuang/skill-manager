@@ -261,9 +261,9 @@ const fetchRows = async () => {
       gateway_slug: filters.gateway_slug || undefined,
       tool_name: filters.tool_name.trim() || undefined,
       token_name: filters.token_name.trim() || undefined,
-      // 日期框中的钟面时间与列表一样按北京时间解释，不依赖浏览器时区。
-      created_from: timeRange[0] ? `${timeRange[0].format('YYYY-MM-DDTHH:mm:ss.SSS')}+08:00` : undefined,
-      created_to: timeRange[1] ? `${timeRange[1].format('YYYY-MM-DDTHH:mm:ss.SSS')}+08:00` : undefined,
+      // 按日期框可见的北京时间精确到秒，去掉不可见毫秒，保持筛选边界一致。
+      created_from: timeRange[0] ? `${timeRange[0].format('YYYY-MM-DDTHH:mm:ss')}+08:00` : undefined,
+      created_to: timeRange[1] ? `${timeRange[1].format('YYYY-MM-DDTHH:mm:ss')}+08:00` : undefined,
       page: pagination.current,
       page_size: pagination.pageSize,
     })
