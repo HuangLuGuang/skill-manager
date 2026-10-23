@@ -93,7 +93,8 @@
     <template v-else>
         <section>
 
-          <a-table :data-source="auditRows" :columns="auditColumns" row-key="id" :loading="loading" size="small" :pagination="{ pageSize: 20 }">
+          <!-- 使用默认条数，让表格保留用户选择的每页数量。 -->
+          <a-table :data-source="auditRows" :columns="auditColumns" row-key="id" :loading="loading" size="small" :pagination="{ defaultPageSize: 20 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'target'">
                 <div>{{ record.gateway_slug }} → {{ record.server_slug }}</div>
