@@ -12,6 +12,14 @@ Agent 资产页的“Dify 运行接入”提供应用绑定、观察/管控模�
 
 The Agent asset page provides Dify application bindings, observe/enforce policies, process hook status, runtime traces and call approvals. The [adapter package](../integrations/dify-runtime/README.md) loads into Dify 1.15.0 API/Worker processes. Rules cover HTTP, tools, code, retrieval, graph digests and completed-action ordering; approvals use native persisted pauses. Heartbeats and actual enforcement are verified separately.
 
+## MCP 客户端凭证 / MCP client credentials
+
+在“智能体管理 → 统一凭证中心 → 给 MCP 客户端 → 高级安全设置”中，创建时 scope 留空使用 `mcp:connect, mcp:list-tools, mcp:call-tools`，仍受所选网关限制，清空 scope 保留网关选择，输入框内以灰色占位提示说明默认权限；选择权限后提示隐藏，输入框沿用原有单行尺寸。编辑凭证需至少保留一项权限。
+
+允许来源 IP / CIDR 支持 IPv4、IPv6 和数字前缀网段；CIDR 允许主机位，与运行时匹配规则一致。空列表表示不限制源 IP。输入后即时校验，错误按序号和原值定位，非法草稿保留；尚未确认成标签的输入也在创建前校验。服务端创建与更新共用写入校验，以 `credential.invalid_allowed_ips` 和 `indices` 返回错误位置。历史记录不回写，未提交 IP 字段的更新沿用原数据。列表安全限制使用“源 IP / source IP”；界面文案随当前语言展示，输入值保持原文。无需数据库迁移，Docker 更新前后端镜像即可。
+
+In Credential Center, choose “For an MCP client” and open Advanced security settings. Empty scopes use `mcp:connect, mcp:list-tools, mcp:call-tools` when creating a credential and retain the selected gateway boundary. A gray placeholder inside the empty scopes input explains the defaults and disappears when scopes are selected. The input retains its standard single-line size. Editing requires at least one scope. Source IP restrictions accept IPv4, IPv6 and numeric CIDR prefixes, including host bits under the existing runtime matching rules. An empty list allows any source IP. Inline errors identify each invalid entry by position and original value; pending tag input is also validated before creation. Create and update APIs validate submitted IP fields with the stable `credential.invalid_allowed_ips` error and `indices` positions. Existing records remain stored unchanged; updates omitting IP fields retain their values. No database migration is needed; rebuild the frontend and backend images.
+
 ## 页面数据加载 / Page data loading
 
 用户组页只查询用户组列表；用户和隐私策略选项在打开新建或编辑弹窗时按权限加载，同次访问复用，刷新列表或保存后失效。选项加载失败保留草稿并可重试，详见[模型网关说明](model-gateway.md)。
