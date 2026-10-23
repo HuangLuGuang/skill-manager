@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -692,3 +694,90 @@ def test_agent_runtime_token_enforces_bound_prompt(tmp_path):
     )
     assert verified.status_code == 200
     assert verified.json()["valid"] is True
+
+
+@pytest.mark.parametrize("value", [
+    "test", "ddd", "256.1.1.1", "1.2.3", "01.2.3.4", "10.0.0.1/33",
+    "10.0.0.1/-1", "2001:db8::/129", "2001:::1", "gggg::1",
+    "10.0.0.1/abc", "", "::1%eth0",
+])
+def test_credential_invalid_ip_rejected_before_create_or_update(tmp_path, value):
+    client = _client(tmp_path)
+    endpoint = "/api/v1/access/tokens"
+    payload = {
+        "name": "RENA-1506", "token_type": "mcp_gateway",
+        "allowed_mcp_gateways": ["readonly"],
+    }
+    rejected = client.post(
+        endpoint, json={**payload, "allowed_ips": ["127.0.0.1", value]},
+    )
+    assert rejected.status_code == 400
+    assert rejected.json()["error_code"] == "credential.invalid_allowed_ips"
+    assert rejected.json()["error_params"] == {"indices": [2]}
+    assert client.get(endpoint).json()["items"] == []
+    created = client.post(
+        endpoint, json={**payload, "allowed_ips": ["127.0.0.1"]},
+    ).json()["record"]
+    rejected = client.put(
+        f"{endpoint}/{created['id']}", json={"allowed_ips": [value]},
+    )
+    assert rejected.status_code == 400
+    assert rejected.json()["error_params"] == {"indices": [1]}
+    stored = client.get(endpoint).json()["items"][0]
+    assert stored["allowed_ips"] == ["127.0.0.1"]
+
+
+@pytest.mark.parametrize("values", [
+    [], ["127.0.0.1", "::1"], [" 10.10.71.35 "],
+    ["10.0.0.0/0", "10.0.0.1/32", "10.0.0.1/24", "::/0", "2001:db8::1/128"],
+])
+def test_credential_valid_ip_and_default_mcp_scopes(tmp_path, values):
+    client = _client(tmp_path)
+    endpoint = "/api/v1/access/tokens"
+    created = client.post(endpoint, json={
+        "name": "RENA-1506", "token_type": "mcp_gateway",
+        "allowed_mcp_gateways": ["readonly"], "scopes": [],
+        "allowed_ips": values,
+    })
+    assert created.status_code == 200
+    record = created.json()["record"]
+    assert record["scopes"] == access_tokens.MCP_SCOPES
+    assert record["allowed_ips"] == values
+    updated = client.put(f"{endpoint}/{record['id']}", json={
+        "allowed_ips": values, "scopes": ["mcp:list-tools"],
+    })
+    assert updated.status_code == 200
+    assert updated.json()["allowed_ips"] == values
+    assert updated.json()["scopes"] == ["mcp:list-tools"]
+
+
+def test_credential_multiple_invalid_ips_and_history(tmp_path):
+    client = _client(tmp_path)
+    endpoint = "/api/v1/access/tokens"
+    payload = {
+        "name": "RENA-1506", "token_type": "mcp_gateway",
+        "allowed_mcp_gateways": ["readonly"],
+    }
+    rejected = client.post(
+        endpoint,
+        json={**payload, "allowed_ips": ["test", "127.0.0.1", "ddd"]},
+        headers={"Accept-Language": "en-US"},
+    )
+    assert rejected.status_code == 400
+    assert rejected.json()["error_params"] == {"indices": [1, 3]}
+    assert "IP" in rejected.json()["detail"]
+    record = client.post(endpoint, json=payload).json()["record"]
+    database = client.app.dependency_overrides[get_db]()
+    with next(database) as db:
+        row = db.query(models.AccessToken).filter_by(id=record["id"]).one()
+        row.allowed_ips_json = '["historical-invalid"]'
+        db.commit()
+    database.close()
+    updated = client.put(
+        f"{endpoint}/{record['id']}", json={"scopes": ["mcp:list-tools"]},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["allowed_ips"] == ["historical-invalid"]
+    assert access_tokens._ip_allowed("10.0.0.9", ["10.0.0.1/24"])
+    assert access_tokens._ip_allowed("2001:db8::9", ["2001:db8::/32"])
+    assert not access_tokens._ip_allowed("192.168.0.1", ["10.0.0.1/24"])

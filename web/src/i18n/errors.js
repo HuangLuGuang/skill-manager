@@ -10,6 +10,7 @@ const errorMessages = {
     'zh-CN': '上游 MCP 响应超过限制：{max_response_kb} KB',
     'en-US': 'Upstream MCP response exceeds the limit: {max_response_kb} KB',
   },
+  'credential.invalid_allowed_ips': { 'zh-CN': '请检查允许来源 IP / CIDR 的格式', 'en-US': 'Check the allowed source IP / CIDR format' },
   'aidr.risk.invalid_range': { 'zh-CN': '时间范围必须带时区，且开始时间不能晚于结束时间。', 'en-US': 'Use timezone-aware times with start no later than end.' },
   'aidr.risk.invalid_config': { 'zh-CN': '请使用无通配符的规范绝对路径，每类最多32项、每项最多512字节；请检查类型与重复项。', 'en-US': 'Use normalized absolute paths without wildcards: at most 32 entries per category and 512 bytes per path. Check types and duplicates.' },
   'aidr.risk.config_conflict': { 'zh-CN': '检测配置已更新，请重新读取后保存。', 'en-US': 'Detection settings changed. Reload before saving.' },

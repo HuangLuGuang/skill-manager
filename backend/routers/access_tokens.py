@@ -87,6 +87,31 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def _validate_allowed_ips(values: list[str]) -> None:
+    """在写入前校验来源地址，错误仅返回位置以供界面定位草稿。"""
+    invalid: list[int] = []
+    for index, value in enumerate(values, start=1):
+        raw = value.strip()
+        address, separator, prefix = raw.partition("/")
+        try:
+            numeric_prefix = prefix.isascii() and prefix.isdecimal()
+            if "%" in address or (separator and not numeric_prefix):
+                raise ValueError
+            ipaddress.ip_address(address)
+            if separator:
+                ipaddress.ip_network(raw, strict=False)
+        except ValueError:
+            invalid.append(index)
+    if invalid:
+        raise ApiError(
+            400,
+            "credential.invalid_allowed_ips",
+            "请检查允许来源 IP / CIDR 的格式",
+            "Check the allowed source IP / CIDR format",
+            params={"indices": invalid},
+        )
+
+
 def _normalize_scopes(token_type: str, scopes: list[str] | None) -> list[str]:
     if token_type == "openapi" and not scopes:
         raise ApiError(400, "external_access.scopes_required", "请选择至少一项接口权限", "Select at least one API permission")
@@ -529,6 +554,7 @@ async def create_access_token(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
+    _validate_allowed_ips(body.allowed_ips)
     if not body.name.strip():
         raise ApiError(400, "credential.name_required", "凭证名称不能为空", "Credential name is required")
     expiry = _validate_external_token(db, body.token_type, body.platform_id, body.allowed_department_ids, body.expires_at)
@@ -603,6 +629,8 @@ async def update_access_token(
     if not row:
         raise ApiError(404, "credential.not_found", "接入凭证不存在", "Access credential not found")
     data = body.model_dump(exclude_unset=True)
+    if data.get("allowed_ips") is not None:
+        _validate_allowed_ips(data["allowed_ips"])
     if row.status == "revoked" and row.token_type != "openapi":
         raise ApiError(409, "credential.revoked", "凭证已吊销，请创建新凭证", "This credential is revoked; create a new one")
     if row.token_type != "openapi" and "scopes" in data and not any(scope.strip() for scope in (data["scopes"] or [])):
