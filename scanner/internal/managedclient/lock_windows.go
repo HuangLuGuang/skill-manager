@@ -28,3 +28,11 @@ func clientProcessAlive(pid int) bool {
 	var code uint32
 	return windows.GetExitCodeProcess(handle, &code) != nil || code == 259
 }
+
+func lockClientFileShared(file *os.File) error {
+	err := windows.LockFileEx(windows.Handle(file.Fd()), windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &windows.Overlapped{Offset: 0x7fffffff})
+	if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
+		return ErrAlreadyRunning
+	}
+	return err
+}

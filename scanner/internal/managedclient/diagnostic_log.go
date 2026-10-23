@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -396,26 +395,17 @@ func RecordCommandDiagnostic(home, command string, started time.Time, err error)
 		fields["status"] = "failed"
 		fields["error"] = err.Error()
 		if errors.Is(err, ErrSkillActionBusy) || strings.Contains(err.Error(), ErrSkillActionBusy.Error()) {
-			addMutationLockDiagnostic(filepath.Join(home, ".agent-manager", "mutation.lock"), fields)
+			var conflict *fileLockConflict
+			if errors.As(err, &conflict) {
+				fields["lock_resource"] = conflict.Resource
+				fields["lock_requested_mode"] = conflict.Mode
+			} else {
+				fields["lock_resource"] = "unknown"
+			}
+			fields["lock_owner_status"] = "unknown"
 		}
 	}
 	_ = writeDiagnostic(filepath.Join(home, ".agent-manager"), DiagnosticRecord{Level: level, Module: "command", Event: "completed", Fields: fields})
-}
-
-func addMutationLockDiagnostic(path string, fields map[string]any) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return
-	}
-	fields["lock_modified_at"] = info.ModTime().Format(time.RFC3339Nano)
-	fields["lock_age_ms"] = time.Since(info.ModTime()).Milliseconds()
-	body, err := os.ReadFile(path)
-	if err != nil || len(body) > 64 {
-		return
-	}
-	if pid, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(string(body)), "v2 ")); err == nil && pid > 0 {
-		fields["lock_owner_pid"] = pid
-	}
 }
 
 // RecordDesktopDiagnostic accepts only diagnostic metadata; command arguments,

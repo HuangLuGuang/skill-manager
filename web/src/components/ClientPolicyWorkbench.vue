@@ -2,10 +2,6 @@
   <section class="policy-workbench">
     <header class="workbench-heading">
       <div><h3>{{ t('clientPolicy.title') }}</h3><p>{{ t('clientPolicy.description') }}</p></div>
-      <div class="settings-actions">
-        <a-button v-if="can('clients:view')" @click="emit('configure', 'integration')"><SettingOutlined />{{ t('clientPolicy.configure') }}</a-button>
-        <a-button v-if="can('settings:view')" @click="emit('configure', 'audit')"><FileProtectOutlined />{{ t('clientPolicy.content') }}</a-button>
-      </div>
     </header>
     <nav class="policy-navigation" :aria-label="t('clientPolicy.navigation')">
       <button v-for="item in sections" :key="item.key" type="button" :aria-pressed="modelValue === item.key" @click="emit('update:modelValue', item.key)">
@@ -24,12 +20,11 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { SettingOutlined, FileProtectOutlined, SafetyOutlined, CheckSquareOutlined, DesktopOutlined, RightOutlined } from '@ant-design/icons-vue'
-import { can } from '../access'
+import { SafetyOutlined, CheckSquareOutlined, DesktopOutlined, RightOutlined } from '@ant-design/icons-vue'
 import ClientHookPanel from './ClientHookPanel.vue'
 import ClientEnforcementPanel from './ClientEnforcementPanel.vue'
 const props = defineProps({ clientId: { type: String, required: true }, modelValue: { type: String, default: 'tools' } })
-const emit = defineEmits(['update:modelValue', 'configure'])
+const emit = defineEmits(['update:modelValue'])
 const { t } = useI18n()
 const sections = [{ key: 'tools', icon: SafetyOutlined }, { key: 'approvals', icon: CheckSquareOutlined }, { key: 'system', icon: DesktopOutlined }]
 const systemVisited = ref(false)
@@ -41,7 +36,6 @@ watch(() => props.modelValue, value => { if (value === 'system') systemVisited.v
 .workbench-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 8px 0 20px; }
 .workbench-heading h3 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.3px; }
 .workbench-heading p { margin: 5px 0 0; color: var(--policy-muted); font-size: 13px; }
-.settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .policy-navigation { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
 .policy-navigation button { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--policy-line); border-radius: 10px; background: #fff; text-align: start; color: var(--policy-ink); cursor: pointer; font: inherit; }
 .policy-navigation button:hover { border-color: #9bb6f6; background: #fafcff; }
@@ -63,6 +57,5 @@ watch(() => props.modelValue, value => { if (value === 'system') systemVisited.v
 @media (max-width: 520px) {
   .policy-navigation { grid-template-columns: 1fr; }
   .policy-navigation button[aria-pressed=true] { box-shadow: inset 3px 0 #3265df; }
-  .settings-actions :deep(.ant-btn) { height: auto; min-height: 32px; white-space: normal; }
 }
 </style>

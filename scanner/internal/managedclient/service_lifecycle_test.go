@@ -105,7 +105,13 @@ func TestMacLaunchAgentLifecycle(t *testing.T) {
 		t.Fatalf("bootout: %v %s", err, output)
 	}
 	loaded = false
-	if err := exec.Command("launchctl", "print", service).Run(); err == nil {
-		t.Fatal("test launch agent remained loaded")
+	// bootout may return before launchd finishes removing the service record.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := exec.Command("launchctl", "print", service).Run(); err != nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
+	t.Fatal("test launch agent remained loaded")
 }

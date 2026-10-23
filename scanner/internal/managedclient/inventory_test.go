@@ -32,6 +32,8 @@ func TestDiscoverDeduplicatesAliasedSkillRoots(t *testing.T) {
 }
 
 func TestDiscoverFindsSupportedAgentsAndSkills(t *testing.T) {
+	// This fixture counts configured roots, independently of host-installed executables.
+	t.Setenv("PATH", t.TempDir())
 	home := t.TempDir()
 	roots := map[string]string{
 		"claude-code":   ".claude/skills",

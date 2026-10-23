@@ -3248,20 +3248,23 @@ def test_blocked_llm_task_retains_live_completion_without_final_cases(p1_api):
         assert task['status'] == 'blocked'
 
 
-def test_task_evaluator_uses_selected_gateway_model_and_lease(p1_api, monkeypatch):
+@pytest.mark.parametrize("model_role", ["evaluation_model", "analysis_model", "attack_model"])
+def test_task_evaluator_uses_selected_gateway_model_and_lease(p1_api, monkeypatch, model_role):
     from backend.routers import llm_gateway
     from datetime import datetime, timedelta
 
     client, factory, _, _ = p1_api
     task_id, _, lease = _claim_control_plane_task(client)
     with factory() as db:
-        provider = models.ModelProvider(name="evaluation-provider", base_url="https://example.test/v1", api_key="test-secret")
+        provider_settings = {"auth_type": "raw", "custom_headers": [{"name": "Host", "value": "scan-upstream.test"}]}
+        llm_gateway._prepare_provider_settings(provider_settings)
+        provider = models.ModelProvider(name="evaluation-provider", base_url="https://example.test/v1", api_key="test-secret", **provider_settings)
         db.add(provider)
         db.flush()
         db.add(models.ModelEndpoint(provider_id=provider.id, name="task-judge"))
         task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
         task.scan_kind = "agent_risk_scan"
-        task.scan_options_encrypted = protect_secret(json_dumps({"evaluation_model": "task-judge"}))
+        task.scan_options_encrypted = protect_secret(json_dumps({model_role: "task-judge"}))
         db.commit()
     with factory() as db:
         task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
@@ -3287,23 +3290,25 @@ def test_task_evaluator_uses_selected_gateway_model_and_lease(p1_api, monkeypatc
     body = {"model": "task-judge", "messages": [{"role": "user", "content": "evaluate"}]}
     assert client.post(url, headers=headers, json=body).status_code == 200
     assert len(calls) == 1
-    async def upstream(db, model, payload):
-        assert model.name == "task-judge"
-        return {"id": "chatcmpl-test", "object": "chat.completion", "model": "task-judge", "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}
-    monkeypatch.setattr(llm_gateway, "_call_upstream", upstream)
+    import httpx
+    observed = []
+    def upstream(request):
+        observed.append(request)
+        assert request.headers["authorization"] == "test-secret"
+        assert request.headers["host"] == "scan-upstream.test"
+        if json.loads(request.content).get("stream"):
+            return httpx.Response(200, text='data: {"choices":[{"index":0,"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', headers={"content-type": "text/event-stream"})
+        return httpx.Response(200, json={"id": "chatcmpl-test", "object": "chat.completion", "model": "task-judge", "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(upstream), **kwargs))
     monkeypatch.setattr(llm_gateway, "_chat_completions_with_key", real_gateway)
     response = client.post(url, headers=headers, json=body)
     assert response.status_code == 200, response.text
     assert response.json()["choices"][0]["message"]["content"] == "ok"
-    async def streaming(db, model, payload, **kwargs):
-        async def chunks():
-            yield 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
-            yield 'data: [DONE]\n\n'
-        return chunks()
-    monkeypatch.setattr(llm_gateway, "_stream_upstream", streaming)
     streamed = client.post(url, headers=headers, json={**body, "stream": True})
     assert streamed.status_code == 200, streamed.text
     assert "[DONE]" in streamed.text
+    assert len(observed) == 2
     with factory() as db:
         from sqlalchemy import text
         assert db.execute(text("SELECT COUNT(*) FROM request_leases WHERE subject_type = 'security_scan_task'")).scalar() == 0

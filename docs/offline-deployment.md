@@ -9,8 +9,7 @@
 
 ## 交付物
 
-根据服务器架构，准备对应的安装包。CI 普通版本 tag（如 `1.0.6`）生成 x86 包，
-带 `_arm` 的 tag（如 `1.0.6_arm`）生成 ARM 包，同时兼容 `v` 前缀。以下以 `1.0.6` 为示例，现场命令中的版本号应替换为实际交付版本：
+按服务器架构选择安装包，以下版本号请替换为实际交付版本：
 
 ```text
 agent-manager_1.0.6_arm.tar.gz    # ARM 服务器
@@ -24,9 +23,10 @@ docker-compose.yaml
 .env.example
 start.sh                             # 加载镜像、启动、检查
 upgrade.sh                           # 指定安装包升级
-deploy/offline.py                     # 脚本共用逻辑（Python 标准库）
+deploy/offline.sh                     # 脚本共用逻辑（Bash）
 deploy/nginx/default.conf
 release-provenance.json
+release-info                         # 版本、平台（两行文本）
 docs/offline-deployment.md
 docs/docker-deployment.md
 scanner/releases/                    # 客户端发布文件
@@ -34,13 +34,7 @@ docker_images/<arch>/agent-manager-images-<tag>.tar.xz
 installers/docker-installer-28.5.2-x86-arm.tar.gz
 ```
 
-安装包已包含平台、Worker 和内部扫描服务镜像，现场无需构建镜像。
-包内 `docker-compose.yaml` 的应用镜像直接使用发布版本，例如 `agent-manager-backend:1.0.6`；
-ARM 包使用完整版本 `1.0.6_arm`。配置中的旧 `TAG` 不再决定包内应用镜像版本。
-交付包按部署清单组装，仓库源码树、测试及构建工具不进入包；镜像包含运行所需程序。
-ARM tag 为 `1.0.6_arm` 时，包名为 `agent-manager_1.0.6_arm.tar.gz`，
-内部镜像文件为 `docker_images/arm/agent-manager-images-1.0.6_arm.tar.xz`。
-加载时以实际文件名为准，镜像版本可查看 `release-provenance.json`。
+安装包包含运行镜像和部署文件，应用版本已固定。版本与架构见 `release-provenance.json`。
 
 ## 部署前检查
 
@@ -61,22 +55,26 @@ aarch64  -> 使用 agent-manager_1.0.6_arm.tar.gz
 arm64    -> 使用 agent-manager_1.0.6_arm.tar.gz
 ```
 
-现场需要 Bash、Python 3（仅标准库，无需 pip 安装依赖）、Docker 和支持健康等待、JSON 配置输出及当前编排格式的 Compose。
+现场需要 Bash、GNU tar/coreutils（含 timeout）、util-linux 的 flock、gzip、awk、Docker 和支持健康等待、镜像列表输出及当前编排格式的 Compose。
 确认命令可用，当前用户有 Docker 访问权限：
 
 ```bash
-python3 --version
 docker --version
-docker compose version
-# 使用独立命令的环境：docker-compose version
+docker info
+docker compose version || docker-compose version
 ```
 
 如果现场没有 Docker，先按客户环境使用安装包内的 Docker 安装程序完成安装，再确认上述命令可运行。
 
-启动和升级会自动检查 Docker 服务是否可访问，优先使用 `docker compose`；插件不可用或功能不足时，
-尝试独立命令 `docker-compose`。选中的命令用于后续配置检查、密钥初始化、启动、重建和健康检查。
-两种命令都必须支持 `up --wait --wait-timeout`、`config --format json` 和包内 Compose 配置，
-包括 `env_file.required`；旧版 Python Compose v1 不满足要求，需更新 Compose。
+打包时会将附带 Docker 安装程序的二进制安装权限固定为 `0755`，不受现场 `umask 027/077` 影响。
+旧安装程序使用 `cp`，可能将 `/usr/local/bin/docker-init` 安装为 `0750` 或 `0700`，
+导致非 root 扫描容器启动时报 `exec: "/sbin/docker-init": permission denied`。
+已有现场若确认该文件权限异常，由管理员执行 `chmod 755 /usr/local/bin/docker-init` 后重新运行 `bash start.sh`。
+若权限正常仍失败，继续检查实际 init 路径、挂载限制及主机安全策略。
+
+脚本优先使用 `docker compose`，也支持兼容的 `docker-compose`。Compose 需支持
+`up --wait --wait-timeout`、`config --images` 和 `env_file.required`。
+下文手动命令以 `docker compose` 为例，使用独立程序时替换为 `docker-compose`。
 
 检查失败时会停止操作并明确提示：
 
@@ -89,16 +87,24 @@ docker compose version
 | Compose 版本不兼容或配置无法解析 | 更新 Compose，并检查 `.env` 和 `docker-compose.yaml` 的格式 |
 | 检查超时或其他连接错误 | 运行 `docker info` 排查 context、远端地址、TLS 和认证配置 |
 
-脚本不会自动安装 Docker、启动系统服务或修改用户权限。文档中的手动 `docker compose` 命令，
-在独立命令环境下替换为 `docker-compose`。
-
 ## 解压并启动
+
+### 生产配置
+
+为 `SECRET_KEY`、`AGENT_MANAGER_SANDBOX_API_KEY`、`AGENT_SECURITY_WORKER_TOKEN`、
+`AIG_SCAN_SERVICE_TOKEN` 设置独立随机凭据，设置 `ENFORCE_SECURE_STARTUP=true`，
+并设置至少 12 个字符的 `INITIAL_ADMIN_PASSWORD`。直接使用模板启动采用本地测试配置；
+初始密码留空时的行为见下文。更多配置见 [Docker 部署文档](docker-deployment.md#生产部署)。
+
+### 解压与启动
 
 以下以 x86 包为例，ARM 服务器换用对应的 `_arm.tar.gz`：
 
 ```bash
 tar -xzf agent-manager_1.0.6_x86.tar.gz
 cd agent-manager
+cp .env.example .env
+# 编辑 .env，完成上述生产配置后启动
 ./start.sh
 ```
 
@@ -118,12 +124,8 @@ cd agent-manager
 初始化缺失的签名密钥（已有密钥继续使用），然后启动服务。启动过程中禁止在线拉取和现场构建。
 最后等待服务健康，并通过 Nginx 请求首页；全部通过才返回成功。
 
-Backend 镜像入口同时初始化并校验 AIDR P-256 策略签名密钥。默认
-`AIDR_POLICY_SIGNING_KEY_FILE=/app/runtime/data/signing/aidr-policy-p256.pem`，保存在
-`backend_data` 卷内，权限为 `0600`，归容器服务用户所有。已有密钥保持不变；格式、权限或
-所有者不正确时停止启动，按报错修复原文件。旧 `.env` 不含该变量时也采用此默认路径。
-启动及升级脚本会执行 `python -m backend.aidr_signing --check` 校验运行容器，
-详细预检和恢复说明见 [AIDR 策略签名密钥](docker-deployment.md#aidr-策略签名密钥)。
+签名密钥随数据卷保存，启动和升级沿用已有密钥。详细检查与恢复见
+[AIDR 策略签名密钥](docker-deployment.md#aidr-策略签名密钥)。
 
 默认最多等待 300 秒，可调整：
 
@@ -131,37 +133,15 @@ Backend 镜像入口同时初始化并校验 AIDR P-256 策略签名密钥。默
 ./start.sh --wait-timeout 600
 ```
 
-首次生产部署应先准备配置，再运行脚本：
+## 获取并导入授权文件
 
-```bash
-cp .env.example .env
-# 编辑 .env，完成以下生产配置
-./start.sh
-```
+1. 安装完成后，以管理员登录，打开 **系统管理 → License 授权**。填写厂商提供的客户编号和客户名称，导出 `customer-request.json`。
+2. 将申请文件交给厂商，获取签发的 `.license` 授权文件。
+3. 在同一页面选择授权文件，点击 **验证并导入**，确认状态为“有效”，并核对有效期、模块和客户端额度。
 
-为 `SECRET_KEY`、`AGENT_MANAGER_SANDBOX_API_KEY`、`AGENT_SECURITY_WORKER_TOKEN`、
-`AIG_SCAN_SERVICE_TOKEN` 设置独立随机凭据，设置 `ENFORCE_SECURE_STARTUP=true`，
-并设置至少 12 个字符的 `INITIAL_ADMIN_PASSWORD`。直接使用模板启动采用本地测试配置；
-初始密码留空时的行为见下文。更多配置见 [Docker 部署文档](docker-deployment.md#生产部署)。
+详细操作见 [License 操作指南](license.md)。升级和备份时保留数据卷中的授权状态与签名密钥。
 
-## 首次授权与持久化验收
-
-1. 准备生产配置并核对厂商 License 公钥：默认随镜像交付；受管目录的只读挂载示例见
-   [Docker 新客户部署与授权验收](docker-deployment.md#新客户部署与-license-验收)。自定义信任目录须包含仍需信任的签发公钥。
-   离线脚本只加载主 `docker-compose.yaml`，需将挂载配置合并到主文件；单独添加 override 不会被脚本加载。
-2. 执行 `./start.sh`，由脚本加载镜像并初始化缺失的签名身份；确认六个服务健康、管理台可登录，
-   AIDR 密钥检查成功。客户不需要手工生成 AIDR 私钥，也不需要持有厂商 License 签发私钥。
-3. 在客户实际部署导出 License 申请，由厂商独立签发，客户导入后核对有效状态、部署标识、客户、日期、修订、模块及额度。
-   授权有效后再进行授权范围内的业务验收；申请、签发、导入及续期详见 [License 操作指南](license.md)。
-4. 备份业务数据和完整授权状态，记录 AIDR 公钥指纹、部署标识及授权摘要。保留安装目录、Compose 项目名、`.env`、
-   所有命名卷与自定义挂载，在维护窗口重建后按 [持久化验收步骤](docker-deployment.md#重建后的密钥与授权持久化验收) 比较。
-   确认原签名身份与授权记录保留，容器健康，客户端数量符合预期。
-
-### 本次实测范围与交付检查
-
-2026-10-15 对提交 `eeee22bc` 对应的 amd64 镜像和部署 Compose 完成空卷、安全启动、AIDR 自动生成及签名验签、
-真实 HTTP License 申请/签发/导入，以及保留卷后删除并重建容器的验证；独立签发服务的身份与记录也保留。
-这不等同于完整离线安装包验收：当次未验证安装包下载、解压、`start.sh` / `upgrade.sh` 整链执行、ARM 或 UI 点击流程。
+### 交付检查
 
 实际交付还应逐项确认：
 
@@ -184,7 +164,7 @@ cp .env.example .env
 # ARM 服务器使用 agent-manager_1.0.7_arm.tar.gz
 ```
 
-旧安装目录还没有 `upgrade.sh` 时，先将新包解压到另一个目录，从新包调用并指定原安装目录：
+升级已有安装时，可将新包解压到另一个目录，使用新包中的 `upgrade.sh` 并指定原安装目录：
 
 ```bash
 /path/to/new/agent-manager/upgrade.sh /path/to/agent-manager_1.0.7_x86.tar.gz --install-dir /opt/agent-manager
@@ -260,29 +240,12 @@ docker compose exec backend cat /app/runtime/data/initial-admin-password
 
 ## 常用运维命令
 
-停止服务：
-
-```bash
-docker compose down
-```
-
-重新启动：
-
-```bash
-docker compose up -d
-```
-
-查看后端日志：
-
-```bash
-docker compose logs -f backend
-```
-
-查看 Sandbox 日志：
-
-```bash
-docker compose logs -f sandbox
-```
+| 操作 | 命令 |
+| --- | --- |
+| 停止服务 | `docker compose down` |
+| 启动服务 | `docker compose up -d` |
+| 查看后端日志 | `docker compose logs -f backend` |
+| 查看 Sandbox 日志 | `docker compose logs -f sandbox` |
 
 ## 业务验收
 

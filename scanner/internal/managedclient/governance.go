@@ -10,12 +10,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"skill-manager/scanner/internal/manifest"
 )
 
 type ClassificationPolicy struct {
+	DesktopMenuVisibility       map[string]bool          `json:"desktop_menu_visibility,omitempty"`
+	DesktopMenuSources          map[string]string        `json:"desktop_menu_sources,omitempty"`
 	RuntimeGovernance           *RuntimeGovernancePolicy `json:"runtime_governance,omitempty"`
 	RuntimeGovernanceConfigured bool                     `json:"runtime_governance_configured"`
 	RuntimeGovernanceVersion    string                   `json:"runtime_governance_version,omitempty"`
@@ -25,8 +28,26 @@ type ClassificationPolicy struct {
 	Protocol                    int                      `json:"protocol"`
 	Enabled                     bool                     `json:"enabled"`
 	Version                     string                   `json:"version"`
+	ScanVersion                 string                   `json:"scan_version,omitempty"`
 	Rules                       map[string]string        `json:"rules"`
 	Sources                     map[string]string        `json:"sources"`
+}
+
+// Menu revisions do not require a Skill scan, but simultaneous policy changes do.
+func sameScanningPolicy(before, after Policy) bool {
+	if before.Classification == nil || after.Classification == nil {
+		return false
+	}
+	left, right := *before.Classification, *after.Classification
+	left.DesktopMenuVisibility, right.DesktopMenuVisibility = nil, nil
+	left.DesktopMenuSources, right.DesktopMenuSources = nil, nil
+	left.Version, right.Version = "", ""
+	before.Classification, after.Classification = &left, &right
+	return reflect.DeepEqual(before, after)
+}
+
+func onlyDesktopMenusChanged(before, after Policy) bool {
+	return sameScanningPolicy(before, after) && after.Classification.ScanVersion != "" && before.Classification.ScanVersion == after.Classification.ScanVersion
 }
 
 type PromptGuardPolicy struct {
@@ -335,7 +356,7 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 					value.ActionStatus, value.ErrorCode = "failed", "skill_content_unavailable"
 				} else if !online && value.Action == "submit_scan" {
 					var stageErr error
-					value.PendingID, stageErr = stageObservedSkill(home, agent, skill, store)
+					value.PendingID, stageErr = stageObservedSkillWithContext(ctx, home, agent, skill, store)
 					if stageErr != nil {
 						value.ActionStatus, value.ErrorCode = "failed", "skill_submission_staging_failed"
 						failures = append(failures, stageErr)
@@ -495,7 +516,7 @@ func copyObservedSnapshot(skill Skill, target string) error {
 }
 
 func submitObservedSkill(ctx context.Context, home string, agent Agent, skill Skill, api API, store *Store) (string, error) {
-	id, err := stageObservedSkill(home, agent, skill, store)
+	id, err := stageObservedSkillWithContext(ctx, home, agent, skill, store)
 	if err != nil {
 		return "", err
 	}
@@ -507,8 +528,17 @@ func submitObservedSkill(ctx context.Context, home string, agent Agent, skill Sk
 // pending item. It deliberately performs no platform request so file-change
 // enforcement can finish locally and let the sync worker retry later.
 func stageObservedSkill(home string, agent Agent, skill Skill, store *Store) (string, error) {
+	return stageObservedSkillWithContext(context.Background(), home, agent, skill, store)
+}
+
+func stageObservedSkillWithContext(ctx context.Context, home string, agent Agent, skill Skill, store *Store) (string, error) {
 	id := observationKey(skill.Path + ":" + skill.Signature)[len("observation:"):]
 	target := filepath.Join(PendingRoot(home), "observed-"+id)
+	_, release, err := withFileLocks(ctx, home, skill.Path, target)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	if _, err := os.Stat(target); os.IsNotExist(err) {
 		if err := os.MkdirAll(PendingRoot(home), 0700); err != nil {
 			return "", err
@@ -552,15 +582,39 @@ func SubmitDiscoveredSkill(ctx context.Context, home string, api API, store *Sto
 type ObservedSubmissionResult struct {
 	PendingID        string `json:"pending_id"`
 	AlreadySubmitted bool   `json:"already_submitted"`
+	Skipped          string `json:"skipped,omitempty"`
 }
 
 func SubmitDiscoveredSkillWithResult(ctx context.Context, home string, api API, store *Store, agentType, path, expectedSignature string) (ObservedSubmissionResult, error) {
 	var result ObservedSubmissionResult
-	release, err := AcquireMutationLock(home)
+	snapshotID := observationKey(path + ":" + expectedSignature)[len("observation:"):]
+	previous, _ := store.PendingItem(snapshotID)
+	retryTerminal := pendingStatusTerminal(previous.Status)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	releaseSubmission, err := submissionLock(ctx, home, "pending:"+snapshotID)
 	if err != nil {
 		return result, err
 	}
-	defer release()
+	defer releaseSubmission()
+	if pending, lookupErr := store.PendingItem(snapshotID); lookupErr == nil && pending.SkillID != "" && !retryTerminal {
+		if pending.AgentType != agentType {
+			return result, fmt.Errorf("skill_target_unavailable")
+		}
+		if err := checkObservedContent(Skill{Path: path, Signature: expectedSignature}); err != nil {
+			return result, err
+		}
+		return ObservedSubmissionResult{PendingID: snapshotID, AlreadySubmitted: true}, nil
+	}
+	fileCtx, release, err := withFileLocks(ctx, home, path, filepath.Join(PendingRoot(home), "observed-"+snapshotID))
+	if err != nil {
+		return result, err
+	}
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
 	inventory, err := Discover(home)
 	if err != nil {
 		return result, err
@@ -579,25 +633,17 @@ func SubmitDiscoveredSkillWithResult(ctx context.Context, home string, api API, 
 			if err := checkObservedContent(skill); err != nil {
 				return result, err
 			}
-			id, err := stageObservedSkill(home, agent, skill, store)
+			observation, err := store.Observation(skill.Path)
 			if err != nil {
 				return result, err
 			}
-			pending, err := store.PendingItem(id)
+			if observation.Signature == skill.Signature && observation.Certification == "certified" {
+				return ObservedSubmissionResult{Skipped: "certified"}, nil
+			}
+			id, err := stageObservedSkillWithContext(fileCtx, home, agent, skill, store)
 			if err != nil {
 				return result, err
 			}
-			forceRescan := pendingStatusTerminal(pending.Status)
-			if forceRescan {
-				if err := store.ResetPendingSubmission(id); err != nil {
-					return result, err
-				}
-				if err := store.SetState("pending:force-rescan:"+id, "1"); err != nil {
-					return result, err
-				}
-			}
-			submission, submitErr := SubmitPending(ctx, home, api.server, api.token, store, id)
-			result = ObservedSubmissionResult{PendingID: id, AlreadySubmitted: submission.AlreadySubmitted}
 			if id != "" {
 				value, err := store.Observation(skill.Path)
 				if err != nil {
@@ -610,8 +656,12 @@ func SubmitDiscoveredSkillWithResult(ctx context.Context, home string, api API, 
 				if err := store.SaveObservation(skill.Path, value); err != nil {
 					return result, err
 				}
-				_ = RequestFullScan(home)
 			}
+			release()
+			release = nil
+			submission, submitErr := submitPendingLocked(ctx, home, api.server, api.token, store, id, retryTerminal)
+			result = ObservedSubmissionResult{PendingID: id, AlreadySubmitted: submission.AlreadySubmitted}
+			_ = RequestFullScan(home)
 			if submitErr == nil && !result.AlreadySubmitted {
 				_ = reportEvent(ctx, api, store, inventory.ClientID, "skill_scan_submitted", agent.AgentType, skill.Name, map[string]any{
 					"path": skill.Path, "signature": skill.Signature, "pending_id": id, "source": "manual",
@@ -734,7 +784,16 @@ func ExecuteImmediateSkillAction(ctx context.Context, home string, api API, stor
 }
 
 func applyObservedAction(ctx context.Context, home string, inventory Inventory, agent Agent, skill Skill, policy Policy, api API, store *Store, value *SkillObservation) error {
-	release, err := AcquireMutationLock(home)
+	uploadCtx := ctx
+	paths := []string{skill.Path}
+	if value.Action == "submit_scan" {
+		id := observationKey(skill.Path + ":" + skill.Signature)[len("observation:"):]
+		paths = append(paths, filepath.Join(PendingRoot(home), "observed-"+id))
+	}
+	if value.TrustedSkillID != "" {
+		paths = append(paths, filepath.Join(ManagedSkillsRoot(home), value.TrustedSkillID))
+	}
+	ctx, release, err := withFileLocks(ctx, home, paths...)
 	if err != nil {
 		value.ErrorCode = "skill_action_busy"
 		return err
@@ -746,11 +805,16 @@ func applyObservedAction(ctx context.Context, home string, inventory Inventory, 
 	}
 	switch value.Action {
 	case "submit_scan":
-		id, err := submitObservedSkill(ctx, home, agent, skill, api, store)
+		id, err := stageObservedSkillWithContext(ctx, home, agent, skill, store)
 		value.PendingID = id
+		if err != nil {
+			return err
+		}
+		release()
+		_, err = SubmitPending(uploadCtx, home, api.server, api.token, store, id)
 		return err
 	case "quarantine", "uninstall":
-		item, err := quarantineSkill(home, store, agent.AgentType, skill.Name, skill.Path, value.Trigger, skill.Signature)
+		item, err := quarantineSkill(ctx, home, store, agent.AgentType, skill.Name, skill.Path, value.Trigger, skill.Signature)
 		value.QuarantineID = item.ID
 		if err != nil {
 			return err
@@ -765,7 +829,8 @@ func applyObservedAction(ctx context.Context, home string, inventory Inventory, 
 			if err == nil && !value.RetainCopy {
 				// quarantineSkill returns the row identity but not its computed
 				// signature; use the already verified source signature.
-				_, err = store.DiscardQuarantine(item.ID, skill.Signature)
+				release()
+				_, err = store.discardQuarantine(uploadCtx, item.ID, skill.Signature)
 				value.QuarantineID = ""
 			}
 		}
@@ -809,7 +874,7 @@ func applyObservedAction(ctx context.Context, home string, inventory Inventory, 
 			value.ErrorCode = "trusted_version_mismatch"
 			return fmt.Errorf("trusted_version_mismatch")
 		}
-		item, err := quarantineSkill(home, store, agent.AgentType, skill.Name, skill.Path, "before_restore_trusted", skill.Signature)
+		item, err := quarantineSkill(ctx, home, store, agent.AgentType, skill.Name, skill.Path, "before_restore_trusted", skill.Signature)
 		value.QuarantineID = item.ID
 		if err != nil {
 			return err

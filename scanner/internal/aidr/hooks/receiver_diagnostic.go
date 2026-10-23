@@ -128,7 +128,15 @@ func DiagnoseReceiver(ctx context.Context, socket, queue, server, device, expect
 	d.ProcessStartedAt, d.Executable = processIdentity(ctx, d.PID)
 	c.SetDeadline(time.Now().Add(2 * time.Second))
 	var reply IPCResponse
-	if writeFrame(c, IPCRequest{Version: 1, Method: "GetHealth"}) != nil || readFrame(c, &reply) != nil || reply.Version != 1 {
+	if err = writeFrame(c, IPCRequest{Version: 1, Method: "GetHealth"}); err != nil {
+		d.Code = frameFailure(err, "request_write").Code
+		return d
+	}
+	if err = readFrame(c, &reply); err != nil {
+		d.Code = frameFailure(err, "response_read").Code
+		return d
+	}
+	if reply.Version != 1 {
 		d.Code = "aidr_hook_protocol_invalid"
 		return d
 	}

@@ -556,6 +556,7 @@ func TestDaemonAutomaticallyInstallsApprovedPendingWithClassification(t *testing
 	packageBody := signedPackage(t, privateKey)
 	var packageRequests atomic.Int32
 	var platformApproved atomic.Bool
+	var approvedAt atomic.Int64
 	var taskPolls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch {
@@ -580,6 +581,7 @@ func TestDaemonAutomaticallyInstallsApprovedPendingWithClassification(t *testing
 			json.NewEncoder(response).Encode(Policy{Mode: "audit", ReleasePublicKey: base64.StdEncoding.EncodeToString(publicKey), Classification: DefaultClassificationPolicy()})
 		case strings.HasSuffix(request.URL.Path, "/tasks"):
 			if taskPolls.Add(1) == 2 {
+				approvedAt.Store(time.Now().UnixNano())
 				platformApproved.Store(true)
 				response.Write([]byte(`{"tasks":[],"scan_events":[{"revision":1,"skill_id":"skill-1","version_id":"skill-version-2","status":"APPROVED"}]}`))
 			} else {
@@ -606,7 +608,14 @@ func TestDaemonAutomaticallyInstallsApprovedPendingWithClassification(t *testing
 	}))
 	defer server.Close()
 
-	started := time.Now()
+	// Measure approval wakeup with an available inventory, independently of cold discovery.
+	inventory, err := Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveInventory(inventory); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
@@ -640,7 +649,7 @@ func TestDaemonAutomaticallyInstallsApprovedPendingWithClassification(t *testing
 	if packageRequests.Load() != 1 {
 		t.Fatal("unexpected installation count", packageRequests.Load())
 	}
-	if elapsed := time.Since(started); elapsed >= 2*time.Second {
+	if elapsed := time.Since(time.Unix(0, approvedAt.Load())); elapsed >= 2*time.Second {
 		t.Fatalf("event-driven recovery waited for巡检 interval: %s", elapsed)
 	}
 	if revision, ok, err := store.State("platform:scan-revision"); err != nil || !ok || revision != "1" {

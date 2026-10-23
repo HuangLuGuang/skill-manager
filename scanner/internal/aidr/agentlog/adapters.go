@@ -13,6 +13,7 @@ import (
 // logAdapter owns host formats and identity semantics. The reader owns budgets,
 // checkpoints, projection and delivery. Adapters never call another product.
 type logAdapter struct {
+	ObservedAtSource string
 	Roots            func(string) []string
 	Read             func(context.Context, Source, Cursor, Budget, time.Time, *AuditPolicy, *SkillObserver) (ReadBatch, error)
 	ReadOffset       func(Source, Cursor) int64
@@ -34,12 +35,13 @@ var logAdapters map[string]logAdapter
 
 func init() {
 	logAdapters = map[string]logAdapter{
-		"claude":    claudeLogAdapter(),
-		"codex":     codexLogAdapter(),
-		"workbuddy": workbuddyLogAdapter(),
-		"qoder-cli": qoderLogAdapter(),
-		"opencode":  openCodeLogAdapter(),
-		"teleagent": teleAgentLogAdapter(),
+		"claude":     claudeLogAdapter(),
+		"codex":      codexLogAdapter(),
+		"workbuddy":  workbuddyLogAdapter(),
+		"qoder-cli":  qoderLogAdapter(),
+		"opencode":   openCodeLogAdapter(),
+		"teleagent":  teleAgentLogAdapter(),
+		"doubaowork": doubaoWorkLogAdapter(),
 	}
 }
 

@@ -371,6 +371,7 @@ from ..aidr_content import AuditLifecycle, CaptureScope
 
 
 class AidrRedactionUpdate(BaseModel):
+    section: str | None = Field(default=None, pattern=r'^(content|skill)$')
     model_config = ConfigDict(extra="forbid", strict=True)
     enabled: bool
     version: str = Field(pattern=r"^[1-9][0-9]{0,18}$")

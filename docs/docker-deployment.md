@@ -2,11 +2,13 @@
 
 License 状态默认保存在后端持久化 data 卷的 `license/state.db`，可信公钥由镜像内
 `deploy/license/public-keys/` 提供。后端重建/升级保留该卷；自定义路径的多进程必须共享状态文件。
-安装后的申请、签发和导入流程见 [离线 License](license.md)。
+安装后在 **系统管理 → License 授权** 填写厂商提供的客户编号和客户名称，导出申请文件交给厂商。
+收到 `.license` 文件后，在同一页面点击 **验证并导入**，确认授权有效。详见 [离线 License](license.md)。
 
 现场安装与升级使用交付包：首次在解压后的 `agent-manager` 目录准备生产 `.env`，执行
 `./start.sh`；自定义 HTTP 端口使用 `./start.sh --port 8088`。后续在原安装目录执行
 `./upgrade.sh /path/to/agent-manager_<版本>_<架构>.tar.gz`。脚本加载包内镜像并检查服务，
+启动和升级使用 Bash、Linux 系统工具及 Docker/Compose。
 升级保留 `.env`、`HTTP_PORT` 和数据卷；业务数据需另行备份。
 完整步骤见[离线部署现场实施指南](offline-deployment.md)，管理台中英文帮助页对应
 “Docker 部署”和“Docker 运维”。
@@ -553,9 +555,10 @@ docker-compose.yaml
 .env.example
 start.sh
 upgrade.sh
-deploy/offline.py
+deploy/offline.sh
 deploy/nginx/default.conf
 release-provenance.json
+release-info                         # 版本、平台（两行文本）
 docs/offline-deployment.md
 docs/docker-deployment.md
 docker_images/<x86 或 arm>/agent-manager-images-<tag>.tar.xz
@@ -572,9 +575,10 @@ scanner/releases/agent-manager-client-26.03.15.1-linux-x86_64.AppImage
 默认 HTTP 端口为 80；`./start.sh --port 8088` 将端口写入 `.env` 的 `HTTP_PORT`，
 以后启动和升级都会沿用，访问地址为 `http://<服务器IP>:8088`。
 `./upgrade.sh /path/to/package.tar.gz` 自动解压、备份并更新部署文件、加载镜像、重建并检查服务。
-脚本使用 Bash、Python 3 标准库和 Docker Compose，保留现场 `.env` 和数据卷。
+包内 `release-info` 保存版本和平台，与 `release-provenance.json` 同源生成。旧安装使用新包脚本并通过 `--install-dir` 指向原安装目录，详见 [离线部署](offline-deployment.md)。
+脚本使用 Bash、Linux 系统工具（GNU tar/coreutils、flock、gzip、awk）和 Docker Compose，保留现场 `.env` 和数据卷。
 启动和升级会检查 Docker 命令、服务连接与访问权限，优先选择可用的 `docker compose`，
-否则尝试 `docker-compose`；需支持健康等待、JSON 配置输出及当前编排格式，旧版 Compose v1 需更新。
+否则尝试 `docker-compose`；需支持健康等待、`config --images` 及当前编排格式，旧版 Compose v1 需更新。
 缺少程序、服务不可达、权限不足或版本不兼容时给出明确提示；处理步骤见现场实施指南的“部署前检查”。
 升级备份仅覆盖部署文件，业务数据需另行备份；操作步骤见 [现场实施指南](offline-deployment.md)。
 `--source-dir .` 可用当前工作区构建诊断包，正式 CI 发布使用干净的 Git clone；诊断包不能替代正式发布验证。
@@ -686,3 +690,11 @@ Legacy upgrades also repair indexes for client bindings, Agent creators and cont
 Update both Backend and Agent Security Worker for the Agent APIs. The Worker image includes `connection_probe.py` for live connection checks. Startup creates the three Agent registration, external job and gateway-event tables. Place `openapi-agents.json` in Backend `DATA_DIR`, or set `OPENAPI_AGENT_CONFIG` to a readable mounted file. Verify Worker network access, native policies and the judge model before testing registration, connection verification, evaluation and report queries.
 
 The Backend starts the result dispatcher and migrates receiver-version, delivery and attempt-history tables while preserving existing reports and events. Manage current receivers in Callback Configuration and Gateway Configuration and verify Backend access to callback and gateway URLs. Historical events with missing configurations become failed records and can be retried after configuration. Preserve the data volume and credential-encryption settings. Database leases coordinate processes and recover unacknowledged attempts after interruption.
+
+## Dify 接入容器 / Dify adapter containers
+
+[Dify Runtime Adapter](../integrations/dify-runtime/README.md) 的安装器为 Dify 1.15.0 生成附加 Compose 文件，挂载只读 Python 接入包、配置和凭证，并为 API/Worker 分别挂载可写 SQLite 事件队列。平台启动时创建 Dify 应用绑定、运行关联、调用关联和进程状态表；无需独立数据库服务。
+
+保留原部署的项目名、Compose 文件顺序和环境参数，加入生成的覆盖文件后重建 API/Worker。维护窗口内完成首次接入、升级和卸载。已有 `sitecustomize` 或非默认镜像需要先处理兼容性；非默认容器用户需要匹配文件读取权限与队列写入权限。升级后重新验证检查点、事件上传和实际阻断。
+
+The installer generates a Compose override for Dify 1.15.0, with read-only adapter/configuration/credentials and separate writable API/Worker queues. Preserve the original project, Compose order and environment settings, then recreate both services. Validate existing startup customization and container-user permissions. Platform startup creates the adapter tables. Revalidate hooks, event delivery and real blocking after upgrades; preserve queued events when removing the adapter.

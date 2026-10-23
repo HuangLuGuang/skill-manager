@@ -472,5 +472,40 @@ window.aidrProducts = [
       "host_enablement": false
     },
     "enrollment_log_source": "teleagent"
+  },
+  {
+    "id": "doubaowork",
+    "name": "Doubao Work",
+    "entry": "desktop",
+    "os": [
+      "darwin"
+    ],
+    "logs": "doubaowork-jsonl",
+    "roots": [
+      "Library/Application Support/DoubaoWork/Default/.doubaowork/agent_mode/workspace/.sessions",
+      "Library/Application Support/DoubaoWork/Default/IndexedDB"
+    ],
+    "hooks": "",
+    "block": false,
+    "approval": false,
+    "managed": false,
+    "evidence": "local-log-sample",
+    "docs": [],
+    "hook_events": {},
+    "sample_versions": [
+      "2.33.1",
+      "2.33.3"
+    ],
+    "log_os": [
+      "darwin"
+    ],
+    "hook_os": [],
+    "skill_usage": {
+      "invocation": false,
+      "file_access": false,
+      "result_source": "unverified",
+      "new_call_e2e": "unverified"
+    },
+    "enrollment_log_source": "doubaowork"
   }
 ];

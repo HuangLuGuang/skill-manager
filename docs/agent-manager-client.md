@@ -1,6 +1,45 @@
 # Agent Manager Client 使用说明
 
+## 客户端菜单显示 / Client menu visibility
+
+在“默认客户端策略”或单客户端策略弹窗的“采集与治理配置 → 客户端界面”设置菜单。客户端概览固定保留；Agent 管理、模型切换、执行记录、Agent 运行治理默认显示。全局使用显示开关，单客户端逐项选择“跟随全局 / 显示 / 隐藏”；“全部跟随全局”修改草稿，预览并保存后生效。单项覆盖不影响其他菜单继续继承。全局写入沿用超级管理员权限，单客户端写入沿用客户端管理权限及可见范围。
+
+配置通过现有 `sync_policy` 和心跳链路下发，Go 客户端缓存后通知桌面读取，不要求重启。离线和重启沿用当前连接的缓存，切换平台清除旧绑定策略。当前页面被隐藏时返回概览，对应快捷入口同步隐藏；通知证据保留，隐藏页面的跳转入口不显示。菜单隐藏不改变后台扫描、采集和治理权限。仅菜单变化不请求额外全量扫描，也不改变运行治理目标版本；同时存在尚未同步的治理变更时，仍执行相应治理同步。
+
+“客户端菜单配置已同步”表示客户端报告缓存的菜单值与当前目标相同，不代表桌面窗口已经展示。未报告菜单能力的客户端显示升级提示；可以预先保存配置，升级后同步。最近配置回执时间以设备报告为准。
+
+**English:** Open **Default client policy** or an individual client's policy dialog, then **Collection & governance → Client interface**. Overview is always visible. Agent management, Model switching, Execution records, and Agent runtime governance default to visible. Each client can inherit or explicitly show/hide each menu. Resetting all menus to global changes the draft until previewed and saved. Existing administrator permissions and client scope checks apply.
+
+The existing policy task and heartbeat mechanisms deliver configuration. The Go client caches it and signals the desktop without a restart. Offline startup uses the current connection's cache; switching platforms clears the previous policy. Hidden active pages return to Overview; related shortcuts disappear while notification evidence remains. Menu visibility does not disable background features. Menu-only changes do not request a full scan or change the runtime-governance target version; pending governance changes still synchronize. “Client menu configuration synced” confirms a matching cache receipt, not that an open window rendered it. Older clients require an upgrade.
+
+人工验收 Todo / Manual acceptance:
+
+- [ ] 全局隐藏、单客户端明确显示、另一菜单继续继承；恢复单项和全部继承。 / Global hiding, individual overrides, independent inheritance, and resets.
+- [ ] 当前页被隐藏返回概览、快捷入口联动、通知证据保留、仅概览可见。 / Active-page fallback, shortcuts, retained notifications, and overview-only layout.
+- [ ] 离线重启、重连、平台切换及旧客户端升级提示。 / Offline restart, reconnect, platform switching, and older-client status.
+- [ ] 中英文全局/单机编辑与预览、窄窗口和长文案；菜单变化不增加扫描或重启采集。 / Bilingual editing/preview, narrow layouts and long text; no extra scans or collection restarts for menu-only changes.
+
 ## 后台可靠性与更新 / Background reliability and updates
+
+桌面状态通过主守护进程的本地 IPC 读取：macOS/Linux 使用当前用户私有目录中的 Unix Socket，Windows 使用仅当前进程用户可访问的 Named Pipe。一次读取使用独立 SQLite 只读事务，返回状态、资产和事件修订；Agent 管理页同时读取待处理、扫描历史及隔离副本，其他页面不读取这些分区。旧版或未运行的服务通过单次 `local-snapshot` 命令提供诊断读取，安装和修复入口仍可使用。
+
+关闭空闲窗口会销毁 WebView，托盘及原生通知处理继续运行；无窗口时原生层负责自动更新检查。重新打开会重建窗口并恢复页面及内存中的表单草稿。打开的弹窗、已选文件、进行中的界面操作或实时系统观察会保留隐藏窗口，避免丢失操作上下文；草稿不写入磁盘。完全退出桌面进程后，桌面通知与更新检查随之结束，Go 主守护服务和独立代理仍按各自服务生命周期运行。
+
+普通事件空队列检查只读数据库，不再申请或更新发送租约；已有发送节流、持久化重试及回执规则保持。IPC 性能、关闭窗口内存和扫描/Hook 延迟属于不同指标，需分别测量；Windows/Linux 构建通过不等于系统权限、宿主 Hook 和通知已通过实机验收。
+
+平台状态、历史记录和模型目录刷新统一由 Go 层发送 HTTP 请求，桌面通过固定操作的本地 IPC 调用，不传递目标 URL 或凭据；旧版或停止的服务通过同一个 Go 命令实现读取与刷新。请求已经发出后发生通信中断时，不自动重放模型目录刷新。原生更新器继续负责更新包签名和系统安装。
+
+普通事件入队事务提交后写入跨进程唤醒标记，上传器监听该标记并按数据库中的节流、重试及发送租约时间调度。空闲时每 30 秒补偿检查一次持久化队列；监听不可用或通知丢失时也依靠该检查恢复。队列仍是唯一交付依据，收到持久化回执后才删除事件。
+
+**English:** Desktop reads use daemon-local IPC: a Unix socket in a private user directory on macOS/Linux, and a named pipe restricted to the process user on Windows. Each snapshot uses a separate read-only SQLite transaction for state, inventory and revision. Agent Management also requests pending items, scan history and recovery copies; other pages omit these partitions. A single `local-snapshot` command supports diagnostics when the daemon is older or stopped.
+
+Closing an idle window destroys its WebView while the tray and native notification worker remain active. The native layer checks for updates while no window exists. Reopening reconstructs the window and restores its page and in-memory form draft. Open dialogs, selected files, active UI operations and live system observation retain the hidden window to preserve their context. Drafts are not written to disk. Quitting the desktop stops desktop notifications and update checks; the Go daemon and independent proxy keep their service lifecycles.
+
+Empty ordinary-event queues require only a read, without acquiring or updating sender leases. Existing pacing, durable retries and receipt handling remain. Measure IPC latency, window memory and scan/Hook latency separately; cross-compilation does not establish native permission, host Hook or notification acceptance.
+
+Go owns platform status, history and model-catalog HTTP calls. Desktop IPC accepts fixed operations rather than caller-supplied URLs or credentials; the same Go command supports older or stopped services. An interrupted request is not automatically replayed after transmission. The native updater retains package signature verification and OS installation.
+
+After committing an ordinary event, producers write a cross-process wake marker. The uploader watches it and schedules work using persisted pacing, retry and sender-lease deadlines. A 30-second reconciliation timer checks the durable queue while idle or when filesystem hints are unavailable. Events are removed only after durable receipts.
 
 - Hook 接收器继续运行在主用户守护服务内。Skill 目录监听独立启动，初始化、刷新或运行时错误记录为 `sync:watcher:error`，每 30 秒重试并触发补偿扫描；心跳、任务同步和 Hook 不依赖监听成功。监听降级期间事件驱动检测可能延迟，周期巡检继续运行。
 - `receiver-status.json` 写入失败只影响状态展示，输出 `aidr_desktop_status_failed`，恢复后输出 `aidr_desktop_status_recovered`；监督器通过实际 IPC 核对接收器健康。身份绑定、策略和审计存储失败仍执行既有安全处理。
@@ -71,6 +110,24 @@ Subsequent pacing changes use actual delivery completion and defer unsent record
 **English:** Live application and acceptance on 2026-10-13, 12:44–12:48 CST: the rebuilt development sidecar was applied to the everyday LaunchAgent using `reconcile-service`, with matching registered and built SHA-256 values. One command was rejected with `aidr_hook_receiver_unavailable` during migration and succeeded after readiness recovered, confirming the brief worker-switch window. The development GUI was then terminated with SIGTERM; neither the GUI nor its development launcher remained, while daemon and TeleAgent proxy PIDs stayed unchanged. A real TeleAgent 2.7.0 `NewApi/chat-flash` request returned the test marker. A subsequent native `bash` call wrote and read a dedicated acceptance file and completed with exit code 0. Its before/after Hooks matched platform records 26012 / 26013 and local acknowledged sequences 25947 / 25948 by native call ID, with an allow decision before execution. Tool policy was unchanged. This verifies actual model and tool access after full development-GUI termination; tray-menu quit, signed packaged upgrades and other operating systems require separate acceptance.
 
 ## 在线操作指南 / Online operating guides
+
+### 手动配置模型 / Manual model configuration
+
+在“模型切换”选择没有自动配置适配器的 Agent，打开“手动配置引导”：
+
+1. 在 Agent 自身设置中确认自定义 Base URL、API Key、模型名称和协议选项，选择实际支持的协议。
+2. 选择模型并复制地址、模型调用名称。有手动领取权限时点击“申请凭证”，随后“复制凭证”，粘贴到 Agent 并保存。无权限时按页面说明由管理员为当前客户端凭证开启手动领取权限，再点击“重新检查权限”。本次凭证仅能在 5 分钟的临时复制窗口内复制；关闭后需要重新领取，内置网关会替换上次手动申请的凭证。
+3. 重启 Agent 并创建新会话，发送测试消息，在对应网关的调用记录中核对 Agent、模型及结果。完成引导只结束本次操作指引，不将调用标为已验证，也不自动写入 Agent 配置。
+
+In Model switching, select an Agent without an automatic adapter and open the manual guide:
+
+1. Find the Agent’s custom Base URL, API Key, model and protocol settings; select a protocol supported by the installed version.
+2. Select a model and copy its endpoint and invocation name. With manual retrieval permission, request and copy a credential, paste it into the Agent, and save. Otherwise, ask an administrator to enable manual retrieval on this Client credential and recheck permission. The temporary copy is available for five minutes; closing the guide requires retrieval again, replacing the previous manual credential for the internal gateway.
+3. Restart the Agent, start a new session and send a test message. Check the Agent, model and result in the relevant gateway’s call records. Finishing only confirms the guide actions; it does not mark calls as verified or write Agent configuration automatically.
+
+授权、凭证范围及外部网关边界见[手动配置与凭证领取](model-gateway.md#手动配置与凭证领取--manual-configuration-and-credential-retrieval)。
+
+See [manual configuration and credential retrieval](model-gateway.md#手动配置与凭证领取--manual-configuration-and-credential-retrieval) for authorization, credential scope and external gateway behavior.
 
 平台帮助中心的 `/docs/aidr-client` 提供客户端接入、日志目录、Hook 安装/信任、系统目标与权限、停止退出和补传步骤及中英文截图。三通道比较见 `/docs/aidr-overview`，平台操作见 `/docs/aidr-platform`，审计/拦截与审批见 `/docs/aidr-policies`，Skill 异步认证见 `/docs/aidr-skill-audit`，排障与性能验收见 `/docs/aidr-troubleshooting`。
 
@@ -540,7 +597,7 @@ English: The discovery workspace provides Overview, Capabilities, Activity, Poli
 
 ## 平台发现配置与桌面入口
 
-平台“客户端管理 → Agent 发现配置”可按名称或标识搜索 Agent，设置启用状态、适用系统和
+平台“客户端管理 → 全局客户端配置 → Agent 发现”（Client Management → Global client settings → Agent discovery）统一编辑全局发现配置，可按名称或标识搜索 Agent，设置启用状态、适用系统和
 一个或多个 Skill 根目录。相对路径从客户端用户主目录解析，每行一个目录；动态用户目录可使用单独的 `*` 路径段。本机单独设置
 的目录优先；没有配置缓存时使用客户端内置定义。目录不存在时不会因保存配置而自动创建。
 
@@ -548,7 +605,13 @@ Qoder、Qoder CN、QoderWork、ZCode 的预置目录分别为 `.qoder/skills`、
 `.qoderwork/skills`、`.zcode/skills`。TeleAgent 使用 `.config/TeleAgent/users/*/skills`，客户端会把动态用户目录展开为实际 Skill 根目录，不依赖固定用户 ID。Claude Desktop、Kimi Work、Doubao Work 的预置条目
 默认关闭且没有目录，确认实际路径后再配置启用。
 
-保存发现配置会创建同步任务，在线客户端通过长轮询接收任务、读取最新配置并重新发现。
+客户端详情的“客户端配置 → Agent 发现”默认逐项跟随全局；关闭某个 Agent 的“跟随全局”后，可为该客户端单独设置。允许添加客户端专属 Agent 定义；恢复单项继承清除该覆盖，全部恢复同时移除专属定义。本页独立保存，切换标签保留未保存草稿。
+
+服务端按 Agent 标识合并全局与客户端定义，通过原有 `agent_discovery` 策略字段下发有效配置。只有有效发现配置变化的客户端才创建 `sync_policy` 任务；保存时校验全局与本客户端配置是否已变更，冲突时保留草稿并提示重新打开。
+
+**Agent discovery** is a tab in **Client settings**, before **Skill governance**. Global definitions apply unless overridden per Agent for a client. Client-only definitions are supported. Restore individual inheritance to clear an override, or restore all to also remove client-only definitions. This tab saves independently and retains drafts across tab changes. The server merges definitions by Agent identifier and delivers the effective catalog using the existing policy and `sync_policy` mechanism, targeting only clients whose effective catalog changed.
+
+在线客户端通过长轮询接收任务、读取最新配置并重新发现。
 离线客户端继续使用已缓存配置。排查时分别核对“配置已同步”和“目录已发现”，不要只凭
 平台心跳判断目录是否生效。
 
@@ -569,6 +632,32 @@ Client Overview and Agent Management use the same discovery result; shared Skill
 visible but are excluded from the Agent count.
 
 桌面“客户端概览”包含总览、运行与同步、检测策略、扫描能力和客户端信息。
+本地 Skills 支持多选和当前页全选。翻页保留选择，切换 Agent 或修改搜索、认证筛选时清空选择。批量检测逐项调用真实提交逻辑，跳过当前内容签名匹配的已认证 Skill 和正在检测的项目；已认证行的检测按钮不可点击。Go 提交入口在重新发现及内容校验后再次核对认证状态。提交成功表示已提交快照，不表示检测通过。
+
+批量卸载复用本地处置逻辑，确认框列出目标路径、共用目录影响及保留恢复副本选项。批量操作串行执行，逐项显示成功、跳过或失败及原因；一项失败不阻断后续项。成功和跳过项取消选择，失败项保持选中供重试；内容变化时需要重新选择。列表刷新失败单独提示，不覆盖已完成操作的结果。
+
+English: Local Skills supports multi-selection and select-all on the current page. Selection persists across pages and clears when changing Agent, search or certification filters. Batch scanning skips certified content with a matching signature and skills already being scanned. Certified rows disable submission; Go rechecks certification after discovering and validating current content. Submission does not imply a passing scan. Batch uninstall confirms target paths, shared-directory impact and recovery-copy retention. Operations run sequentially with per-item results. Failures do not stop subsequent items; failed items remain selected for retry, while successful and skipped items are deselected. Changed content must be selected again. Refresh failures are reported separately from operation results.
+
+#### 本地文件并发与上传 / Local file concurrency and uploads
+
+上传打包只锁本次快照；同名副本的指纹补齐逐个尝试，忙碌副本留待自身提交时计算。AIDR 配置检查和安装使用独立配置锁。前台在创建快照之前取得提交记录锁，与后台复用同一提交结果；等待期间后台完成的检测不会被当成重新检测请求。文件冲突诊断记录实际冲突资源 `lock_resource` 和申请模式 `lock_requested_mode`；无法可靠获取持锁进程时记录 `lock_owner_status=unknown`，不把锁文件残留 PID 当成当前持锁者。
+
+English: Packaging locks only the requested snapshot. Peer fingerprint discovery tries each same-name snapshot separately and leaves busy peers to their own submission. AIDR configuration uses a separate lock. Foreground submission takes the pending-record lock before creating a snapshot and reuses background results, including scans completed while waiting. Conflict diagnostics record the actual resource and requested lock mode; owner identity remains unknown rather than inferred from a stale PID in a lock file.
+
+批量提交弹窗随后台状态刷新：若某项曾返回锁忙，但本次操作开始后同一内容快照已取得平台提交记录，则更新为提交成功并提示“该内容已提交”。不使用旧版本记录或仅在本地排队的快照判定成功；内容变化、权限或网络失败仍保留原结果。
+
+English: The batch dialog reconciles lock-busy results when a background refresh confirms a platform submission of the same snapshot after the batch began. Historical submissions and local queues are not treated as new successes; content changes, permission failures and network failures retain their own results.
+
+同一客户端状态目录下，桌面命令和后台巡检共用跨进程资源锁。锁同时识别目录入口和软链接解析后的物理目录；同一资源、父子目录及共享内容互斥，不同 Skill 可以独立执行。安装、接管、隔离、卸载、恢复、快照与副本清理均在修改前取得资源锁。多资源按路径排序申请；普通冲突最多等待 5 秒，嵌套清理遇到冲突立即返回 `skill_action_busy`，避免持有其他锁继续等待。共享隔离需一次登记多个恢复目标，登记期间锁定隔离存储目录。旧客户端和连接配置切换继续通过全局屏障与这些操作互斥。
+
+提交先在文件锁内校验当前内容并创建完整 ZIP，随后释放文件锁再上传。独立的待处理记录锁及内容指纹锁协调前后台重复提交；上传期间不允许删除该待处理副本。进程异常退出后操作系统释放锁，完整快照保留供重试；服务端复用相同内容版本处理响应丢失后的重传。锁文件保留原 inode，不通过删除锁文件解除占用。文件锁约束遵守此协议的客户端进程；用户或外部 Agent 直接修改目录仍由内容签名复核检测。
+
+Scanner 接口先按上传原始文件集重算 manifest 指纹，再在分析目录展开内嵌 ZIP。这样模板 ZIP 不会因为分析展开增加文件而触发传输指纹错误；内嵌内容继续参与分析，并沿用解包路径与容量校验。此修复同时需要新版客户端和服务端；仅替换客户端不能修复旧服务端的内嵌 ZIP 校验顺序。
+
+English: Desktop commands and background patrol share cross-process resource locks within one client state directory. Locks cover both directory entries and resolved symlink targets, including parent/child conflicts. Unrelated Skills can proceed independently. Installation, takeover, quarantine, uninstall, restore, snapshots and copy cleanup acquire resource locks before mutation. Resources are sorted; ordinary contention waits up to five seconds, while nested cleanup fails with `skill_action_busy` instead of waiting with other locks held. Shared quarantine locks its storage directory while registering multiple recovery destinations. A global barrier coordinates legacy clients and connection changes.
+
+Submission validates and packages content under file locks, then releases them before uploading. Separate pending-record and content-fingerprint locks deduplicate foreground/background submissions; an uploading snapshot cannot be discarded. Process exit releases OS locks and leaves completed snapshots retryable. The server reuses the same content version when a response was lost. Lock files retain their inode. External editors do not participate in this protocol; content signatures are checked again. Scanner imports verify the original uploaded manifest before expanding nested ZIPs for analysis, retaining extraction safety limits. The nested-ZIP fix requires the updated server as well as the client.
+
 “Agent 管理”按 Agent 切换本地 Skills、检测记录和隔离副本。“执行记录”分为巡检与处置、
 平台任务。巡检与处置支持按关键词、Agent、事件类别、处理情况和时间筛选及分页；列表展示
 Skill / Agent、事件与原因、处理情况、发生时间。具体标题区分加载、文件读取、巡检发现和
@@ -1340,6 +1429,12 @@ Hook 接收器的固定重试次数针对一轮连续故障：只有连续收到
 
 同一用户的多个桌面窗口均观察主后台服务中的同一个 Hook 接收器；窗口之间不争夺接收器管理权。桌面退出不改变后台 PID、队列或接收器实例。旧版本迁移时，主服务等待旧桌面释放监督锁，随后继续使用原队列；外部身份或绑定不符的 socket 保持冲突，不自动接管。
 
+Hook IPC 将响应超时（`aidr_hook_response_timeout`）、连接中断（`aidr_hook_transport_failed`）、超长帧和无效 JSON/版本分开记录。接收器处理预算为 1 秒，等待存储互斥锁也计入预算；SQLite 单次锁等待为 250 毫秒，避免超过 2 秒的连接时限。存储竞争或并发饱和返回 `aidr_hook_receiver_busy`，保留当前审计/拦截模式；释放占用后可继续服务，无需重启。拦截请求失败不作为放行，也不自动重放结果不明的已发送请求。
+
+桥接失败写入本机诊断日志的 `hook_ipc` 模块，包括稳定错误码、`stage`、`cause`、`duration_ms` 和 `event_id`；不记录原始 Hook 参数、命令正文或响应内容。旧日志只有 `aidr_hook_protocol_invalid` 时不能据此区分超时、断连和格式错误。
+
+English: Hook IPC distinguishes response timeouts, transport interruption, oversized frames and invalid JSON/protocol versions. The one-second work budget includes storage mutex waits; SQLite waits at most 250 ms per lock attempt within the two-second connection deadline. Contention returns receiver-busy while preserving the active control mode, and service resumes after contention clears without restarting. Failed interception is not authorization; ambiguous sent requests are not automatically replayed. Local hook_ipc diagnostics retain only stable codes, stage, cause, elapsed time and event ID, excluding raw payloads and responses. Historical protocol-invalid codes alone cannot identify the underlying failure.
+
 **Multiple windows:** Every desktop observes the same receiver in the main background service. Closing or quitting a window does not change the receiver PID, instance or queue. During migration, the daemon waits for the old desktop supervisor to release its lock, then resumes the existing queue. Unknown or mismatched external endpoints remain conflicts.
 
 平台客户端概览展示最近 5 条任务（包括成功任务），列出具体动作、目标产品、创建时间、策略版本和结果。展开“执行信息”查看通道目标、结束时间和错误码；这些是该次任务的信息，当前采集状态仍以各通道的健康报告为准。“已被新任务替代”表示旧任务已失效；历史失败不因后续成功而被改写。
@@ -1551,3 +1646,51 @@ Codex 的 MCP 错误返回和图片查看可能没有结束 Hook。会话时间�
 **English:** Session timelines and Hook details retain “End Hook missing” while showing execution state, evidence source and record ID separately. Negotiated `completion_schema=1` collects minimal MCP/ImageView metadata from Codex `event_msg.item_completed`, excluding arguments and image bodies. Native completion records remain separate from ordinary tool results and never create Hooks. Completion does not imply business success. Unique client/session/turn/call/tool/user identity is required; ambiguous sources and subagents remain unresolved. Legacy tool results support explicitly inferred associations, with unknown outcomes when no explicit status exists. Real end Hooks restore normal pairing. Sessions retaining only Hooks and native completion metadata are labelled “Native completion evidence available”; this does not prove ordinary log completeness. Older clients remain supported, and new clients emit completion metadata only to supporting servers. First activation schedules bounded, resumable replay of existing Codex files within the original intake and retention boundaries.
 
 Command completion is separately negotiated using `X-AIDR-Command-Completion: 1` and enabled by `completion_schema=2`. `CommandExecution` links to the Hook tool name `Bash`, retaining the native completed/failed status and optional exit code. Zero and nonzero codes are displayed; absent codes stay absent, and codes never overwrite the native status. Command text and aggregated output are excluded from this evidence. Old clients retain their protocol, and new clients keep v1 collection against v1 servers. Upgrades schedule bounded history replay without reusing a v1 checkpoint that would skip command evidence; existing MCP/image identities remain unchanged.
+
+### macOS 独立版豆包工作日志
+
+升级客户端和服务端后，在现有运行治理策略的日志来源中选择 **Doubao Work**（`doubaowork`），启用日志采集。客户端读取 `~/Library/Application Support/DoubaoWork/Default/.doubaowork/agent_mode/workspace/.sessions/<会话>/agents/<代理>/system/trajectory.jsonl`，复用现有本地队列、断点、去重、重试和批量上报。
+
+采集 Read、Write、Edit 等文件工具、Bash 命令和 `execute_defer_tool` 包装的 MCP 调用；MCP 保留实际的 `mcp__...` 工具名。以目录中的会话 ID 归组，以来源文件和原生调用 ID 配对调用与结果，不混合不同子代理。文件路径和命令使用现有元数据规则；文件正文、命令正文和工具返回文本遵循现有内容开关、脱敏和长度限制。MCP 任意参数暂不展开，保留参数摘要和返回内容；不会读取业务文件补齐日志。
+
+用户输入和模型回复沿用现有 `prompt`、`model_response` 开关、脱敏、内容长度限制及审计内容查看权限。升级后，在消息采集协议启用时自动分批重读保留的历史轨迹，补采聊天消息；补采进度可恢复，已采集的工具记录不会重复新增。关闭的内容项只保留消息元数据；系统消息不采集，原日志没有保存的首次提问不能补造。完整会话 ID 直接显示在会话标题下方，可选中复制。
+
+客户端还只读扫描 `Default/IndexedDB` 下聊天页与启动页的 IM 状态缓存（`chrome_doubaowork-chat_0`、`chrome_doubaowork-launcher_0`）。已确认发送的提问使用 `extra.conversation_id` 和原生 `message_id`，回复的 `reply_id` 指向提问轮次；重复缓存按消息 ID 去重，不按文字或时间匹配。回复仅采集明确结束、可见的顶层正文块，以过程回复展示；缓存中仍在生成的最终回复不作为完整回复采集。缓存并非完整历史库：已清理的消息无法补采，原轨迹中没有 ID 的正文继续保留未归属，不以相同文字合并。新来源使用缓存记录时间，原轨迹仍使用采集时间。历史补采遵守既有采集时间范围、保留期、内容开关和脱敏规则。
+
+**English — message cache:** The client reads the chat and launcher IM state caches under `Default/IndexedDB` without modifying them. Acknowledged prompts use native message and conversation IDs; reply IDs identify the originating prompt. Duplicate cache entries are deduplicated by ID. Only finished, visible top-level assistant text blocks are captured as commentary. Streaming final replies are not treated as complete. These caches are not a full history store: removed messages cannot be recovered, and ID-less transcript messages remain unassigned rather than being merged by text. Cache records use their recorded timestamps; trajectories retain collection timestamps. Existing lookback, retention, capture and redaction controls apply.
+
+轮次关联另读取同一安装目录 `sdk_storage/log/saman_frontend_*.log` 和 `saman_*.log` 的原生元数据：通过 `tcid → agent_id → chat_session_id/session_id → send_message_id/开始消息 ID` 关联工具调用和结果，消息 ID 作为轮次标识。兼容旧消息接收事件和新版 local-office 生命周期开始事件；不会以时间、命令文本或相同工具名猜测关联。缺字段、冲突、原日志被清理时保留未归属。轨迹中的聊天正文没有原生消息 ID 时也保留未归属，不能把同会话全部消息归到某一轮。
+
+更新客户端和服务端后，关联索引变化会触发可恢复的历史重读，通过现有 `turn_links` 补充已保留记录；不重传已确认的正文、不重复新增工具，不恢复已过期记录。索引缓存 15 秒，采集器按现有调度重新检查；单次读取上限 128 MiB，超限或文件不可读时停止本次关联，普通轨迹采集继续。新建两轮无敏感命令会话已验证调用和结果各自归属不同消息 ID。MCP 的前端 `tcid`、运行时 `call_id` 与轨迹调用 ID 尚无已验证映射，仍保留未归属。
+
+**English — turns:** Native tool IDs are joined through the runtime agent ID and frontend request metadata to the originating message ID. Both legacy receive events and local-office lifecycle start events are supported. Missing or conflicting identities remain unassigned, including transcript messages without native message IDs. Changes trigger resumable metadata-only history enrichment through existing `turn_links`, without restoring expired content or duplicating tools. Upgrade server and client together. The metadata index caches for 15 seconds and scans at most 128 MiB; unavailable metadata leaves transcript collection running. A fresh two-prompt command conversation verified distinct native turns. MCP's frontend, runtime and transcript IDs still lack a verified join and remain unassigned.
+
+本地 2.33.1/2.33.3 样本没有执行时间戳，`observed_at_source=collection` 表示采集时间。首次启用和历史补采按预算读取保留的轨迹，不能用采集起点筛掉更早执行的记录，补采时间也不代表原始对话发生时间。结果已返回与执行成功分开：保留返回内容，成败保持未知，不从任意输出文字推断退出码。不提供 Hook 阻断；飞书内置伙伴不属于此来源。豆包升级改变日志格式时需重新验证。
+
+**English:** Select **Doubao Work** (`doubaowork`) in the macOS runtime log policy. File operations, Bash and deferred MCP calls reuse checkpoints, deduplication and batch delivery. User input and assistant replies follow the existing prompt/model-response switches, redaction, limits and protected content access. With message capture negotiated, upgrading automatically replays retained trajectories in resumable batches, adding messages without duplicating tool records. Disabled content retains metadata only; system messages and questions absent from the original log are not reconstructed. Full session IDs appear below session titles. Times represent collection, including historical backfill, rather than original execution. Returned content does not establish success. Feishu's embedded companion and Hook enforcement remain outside this adapter.
+
+本地 Skill 列表按内容区域宽度自动切换四列或紧凑两行布局；长名称省略显示，可悬浮查看完整名称。全选旁的帮助提示说明跨页选择与筛选清空规则，窗口缩放不改变选择。
+
+English: The local Skill list switches between four columns and compact two-line rows based on available content width. Long names are truncated with the full name available on hover. Help beside page selection explains cross-page selection and filter resets; resizing preserves selection.
+
+### 内嵌 ZIP 与原始发布内容 / Nested ZIPs and original release contents
+
+ZIP 上传、Scanner 和网络 ZIP 导入仅解开外层传输包，保留 Skill 根目录中的原始文件和内嵌 ZIP。签名、内容指纹、发布包及详情文件树均基于该原始目录；详情直接预览普通文件，不提供内嵌 ZIP 的展开树。
+
+安全扫描独立创建临时副本，展开内嵌 ZIP（包括后续内嵌 ZIP，最多 8 层），各压缩包合计最多 50,000 个展开文件、1 GiB，单文件最多 100 MiB；路径逃逸、软链接及超限均中止扫描。展开目录独立命名，避免覆盖原始同名目录。分析结束或异常退出会清理副本；在 Windows/macOS/Linux 上，下次扫描通过跨平台进程存活检查回收已退出进程留下的专用临时目录，不向进程发送信号；仍存活或无法确认状态的进程目录保留。
+
+旧版本保持历史内容，不原地改写签名包；重新提交原始目录以生成一致的版本。扫描缓存版本已更新，避免沿用旧分析流程的结果。
+
+English: ZIP uploads, Scanner submissions, and network ZIP imports unpack only the transport archive. Original Skill files and embedded ZIPs remain unchanged for fingerprints, signatures, release packages, and the detail file tree. Ordinary files remain previewable; embedded ZIPs are not expanded in that tree. Security analysis uses a disposable copy and recursively expands ZIPs with an eight-level limit, aggregate limits of 50,000 files / 1 GiB, and a 100 MiB per-file limit. Unsafe paths, symlinks, and exceeded limits stop the scan. Copies are cleaned on completion or exceptions; subsequent scans on Windows/macOS/Linux reclaim directories owned by exited processes using a cross-platform liveness probe without sending signals. Directories with live or unknown owners are preserved. Historical signed versions remain unchanged; resubmit originals for a consistent version. The scan-cache schema has been updated.
+
+### 历史采集提示确认 / Acknowledging historical collection issues
+
+运行治理页的“已知悉，不再提示”只隐藏当前历史采集问题，确认状态保存在当前桌面客户端的本地界面存储中，重启后保留。诊断文件和平台审计记录不删除，也不补齐曾丢失的事件。新发生时间或不同原因、产品、Hook 的问题会重新显示；无法保存确认时保持提示并显示错误。清除客户端界面存储后，仍保留的历史问题可能再次显示。
+
+“Acknowledge and dismiss” hides only the current historical collection issue. The acknowledgement is stored locally by this desktop client and survives restarts. Diagnostic files and platform audit records remain intact; lost events are not reconstructed. A new occurrence, cause, product or Hook appears again. Storage failures keep the notice visible with an error. Clearing the client's UI storage may show the retained historical issue again.
+
+### Skill 治理配置 / Skill governance settings
+
+“客户端配置 → Skill 治理”提供“使用审计 / Usage audit”和“分类处置 / Classification actions”两个子标签。默认进入使用审计，无审计查看权限时进入分类处置。使用审计配置后台异步核对和告警；分类处置配置按 Skill 状态执行的动作。两个子标签分别预览并保存，切换保留未保存草稿。内容与脱敏保留采集范围、脱敏、大小限制和保留期限。使用审计与内容脱敏可分别继承全局，既有配置按原继承状态兼容；复用原有接口和审计策略下发协议。
+
+**Client settings → Skill governance** separates Usage audit from Classification actions. Each section previews and saves independently. Usage audit checks asynchronously and reports or alerts; classification rules define actions for Skill states. Content/redaction manages capture, redaction, size limits and retention. Usage audit and content/redaction inherit independently while preserving existing policy choices and reusing existing delivery protocols.

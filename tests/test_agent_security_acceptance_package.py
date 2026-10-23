@@ -257,7 +257,7 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, p
     for relative in (
         "docker-compose.yaml", ".env.example", "deploy/nginx/default.conf",
         "docs/offline-deployment.md", "docs/docker-deployment.md", "docs/license.md",
-        "start.sh", "upgrade.sh", "deploy/offline.py",
+        "start.sh", "upgrade.sh", "deploy/offline.sh",
     ):
         destination = source / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -286,7 +286,19 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, p
     )
 
     installer = tmp_path / "installer.tar.gz"
-    installer.write_bytes(b"test-installer")
+    installer_script = (
+        '#!/bin/bash\ncp -f $bin_dir/* /usr/local/bin/\n'
+        'cp -f "$compose_file" /usr/local/lib/docker/cli-plugins/docker-compose\n'
+        '    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose\n'
+    )
+    with tarfile.open(installer, "w:gz") as archive:
+        entry = tarfile.TarInfo("docker-installer/install.sh")
+        entry.size = len(installer_script.encode())
+        archive.addfile(entry, io.BytesIO(installer_script.encode()))
+        entry = tarfile.TarInfo("docker-installer/aarch64-bin/docker-init")
+        entry.size = 6
+        entry.mode = 0o755
+        archive.addfile(entry, io.BytesIO(b"binary"))
     client_feed = tmp_path / "client-feed"
     client_feed.mkdir()
     (client_feed / "latest.json").write_text('{"version": "test"}')
@@ -328,14 +340,42 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, p
         f"docker_images/{arch}/agent-manager-images-{version}.tar.xz",
         "installers/docker-installer-28.5.2-x86-arm.tar.gz",
         "scanner/releases/latest.json", "scanner/releases/agent-manager-client.exe",
-        "start.sh", "upgrade.sh", "deploy/offline.py",
+        "start.sh", "upgrade.sh", "deploy/offline.sh", "release-info",
     }
     with tarfile.open(output / f"agent-manager_test_{arch}.tar.gz") as archive:
         assert {entry.name for entry in archive if entry.isfile()} == {"agent-manager/" + path for path in files}
+        assert archive.extractfile("agent-manager/release-info").read().decode() == f"{version}\n{platform}\n"
         env = archive.extractfile("agent-manager/.env.example").read().decode()
         assert "TAG=" not in env
         assert archive.getmember("agent-manager/start.sh").mode & 0o111
         assert archive.getmember("agent-manager/upgrade.sh").mode & 0o111
+        bundled = archive.extractfile("agent-manager/installers/docker-installer-28.5.2-x86-arm.tar.gz")
+        with tarfile.open(fileobj=io.BytesIO(bundled.read()), mode="r:gz") as docker_archive:
+            fixed_script = docker_archive.extractfile("docker-installer/install.sh").read().decode()
+            assert docker_archive.extractfile("docker-installer/aarch64-bin/docker-init").read() == b"binary"
+        # Exercise the shipped commands without writing to the host's installation.
+        binaries = tmp_path / "binaries"
+        binaries.mkdir()
+        (binaries / "docker-init").write_text("binary")
+        (binaries / "docker-init").chmod(0o750)
+        destination = tmp_path / "installed"
+        destination.mkdir()
+        compose_binary = tmp_path / "compose"
+        compose_binary.write_text("compose")
+        compose_binary.chmod(0o700)
+        isolated_script = fixed_script.replace(
+            "/usr/local/lib/docker/cli-plugins/docker-compose", str(destination / "docker-compose")
+        ).replace("/usr/local/bin/", str(destination) + "/")
+        for mask in ("027", "077"):
+            for name in ("docker-init", "docker-compose"):
+                (destination / name).write_text("old")
+                (destination / name).chmod(0o700)
+            subprocess.run(
+                ["bash", "-c", f'umask {mask}\n{isolated_script}'], check=True,
+                env=dict(os.environ, bin_dir=str(binaries), compose_file=str(compose_binary)),
+            )
+            for name in ("docker-init", "docker-compose"):
+                assert (destination / name).stat().st_mode & 0o777 == 0o755
         compose = yaml.safe_load(archive.extractfile("agent-manager/docker-compose.yaml"))
         for service in compose["services"].values():
             if service["image"].startswith("agent-manager-"):

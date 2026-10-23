@@ -1,6 +1,7 @@
 package managedclient
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,7 +12,7 @@ func TestConnectionResetPreservesCopiesAndDefaultsToRecord(t *testing.T) {
 	if err := store.SaveObservation(skill.Path, SkillObservation{Signature: skill.Signature, TrustedSignature: skill.Signature, TrustedVersionID: "old-version", Certification: "certified"}); err != nil {
 		t.Fatal(err)
 	}
-	item, err := quarantineSkill(home, store, inventory.Agents[0].AgentType, skill.Name, skill.Path, "old-policy", skill.Signature)
+	item, err := quarantineSkill(context.Background(), home, store, inventory.Agents[0].AgentType, skill.Name, skill.Path, "old-policy", skill.Signature)
 	if err != nil {
 		t.Fatal(err)
 	}

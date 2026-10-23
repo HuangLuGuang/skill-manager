@@ -5,8 +5,7 @@
         <a-page-header :title="$t('legacy.hx2vnc')" :sub-title="$t('legacy.ud53vr')">
           <template #extra>
             <a-button v-if="hasAccess('clients:update')" @click="globalToolPolicyOpen = true">{{ $t('aidr.hooks.scope.title') }}</a-button>
-            <a-button v-if="hasAccess('clients:update')" @click="discoveryOpen = true">{{ $t('clientDiscovery.title') }}</a-button>
-            <a-button v-if="hasAccess('clients:view') || hasAccess('settings:view')" @click="openClassification('')">{{ $t('clientGovernance.title') }}</a-button>
+            <a-button v-if="hasAccess('clients:view') || hasAccess('settings:view')" @click="openClassification('')">{{ $t('clientPolicy.globalSettings') }}</a-button>
             <a-button type="primary" @click="installGuideVisible = true">{{ $t("legacy.18h6c95") }}</a-button>
             <a-button :loading="loading" @click="loadClients">{{ $t("legacy.12qo56a") }}</a-button>
           </template>
@@ -75,23 +74,40 @@
     </section>
 
     </a-card>
-    <ClientDiscoveryConfig v-model:open="discoveryOpen" />
 
     <a-drawer v-model:open="detailVisible" :title="$t('legacy.95lv9i')" width="min(1280px, 100vw)" :destroy-on-close="true" :body-style="fixedDetailActive ? { padding: '12px 16px', overflow: 'hidden', display: 'flex', flexDirection: 'column' } : {}">
       <a-spin :spinning="detailLoading" :wrapper-class-name="fixedDetailActive ? 'session-audit-layout' : ''">
         <template v-if="detail">
           <div class="detail-head">
             <div>
-              <div class="detail-title">{{ detail.name }}</div>
-              <div class="muted"><span v-if="detail.hostname !== detail.name">{{ detail.hostname }} · </span>{{ detail.os }}/{{ detail.arch }}</div>
-              <details class="device-info"><summary>{{ $t('agentRuntimeGovernance.presentation.deviceInfo') }}</summary><div>{{ $t('agentRuntimeGovernance.presentation.deviceId') }}: <code>{{ detail.client_id }}</code></div><div>{{ $t("legacy.4xeakj") }}{{ detail.registered_by || '-' }}</div></details>
+              <div class="device-title-line">
+                <div class="detail-title">{{ detail.name }}</div>
+                <a-tag :color="isOnline(detail) ? 'green' : 'default'">{{ $t(isOnline(detail) ? 'agentRuntimeGovernance.detail.online' : 'agentRuntimeGovernance.detail.offline') }}</a-tag>
+                <a-popover trigger="click" :title="$t('agentRuntimeGovernance.presentation.deviceInfo')">
+                  <template #content>
+                    <div class="device-info-content">
+                      <div>{{ $t('agentRuntimeGovernance.presentation.deviceId') }}</div>
+                      <code>{{ detail.client_id }}</code>
+                      <a-button type="link" size="small" @click="copyClientId">{{ $t('clientDetail.copyId') }}</a-button>
+                      <div>{{ $t('clientDetail.registeredBy') }}: {{ detail.registered_by || '-' }}</div>
+                    </div>
+                  </template>
+                  <a-button type="text" size="small" :aria-label="$t('agentRuntimeGovernance.presentation.deviceInfo')"><InfoCircleOutlined /></a-button>
+                </a-popover>
+              </div>
+              <div class="device-status-line">
+                <span><span v-if="detail.hostname !== detail.name">{{ detail.hostname }} · </span>{{ detail.os }}/{{ detail.arch }}</span>
+                <span>{{ $t('agentRuntimeGovernance.detail.lastHeartbeat') }}: {{ formatTime(detail.last_seen_at) }}</span>
+                <a-tooltip :title="$t('clientDetail.deviceRefreshHelp')">
+                  <a-button type="text" size="small" :loading="deviceRefreshing" :disabled="deviceRefreshing" :aria-label="$t('clientDetail.deviceRefresh')" @click="refreshDeviceStatus"><ReloadOutlined /></a-button>
+                </a-tooltip>
+              </div>
             </div>
-            <div v-if="runtimeTab !== 'plugins' && runtimeTab !== 'audit'" class="policy-controls">
-              <a-button @click="refreshDetail">{{ $t('clientDetail.deviceRefresh') }}</a-button>
+            <div class="detail-config-actions">
+              <a-button v-if="hasAccess('clients:view') || hasAccess('settings:view')" @click="openClassification(detail.client_id)"><SettingOutlined />{{ $t('clientPolicy.settings') }}</a-button>
             </div>
           </div>
 
-          <div class="device-status-line"><a-tag :color="isOnline(detail) ? 'green' : 'default'">{{ $t(isOnline(detail) ? 'agentRuntimeGovernance.detail.online' : 'agentRuntimeGovernance.detail.offline') }}</a-tag><span>{{ $t('agentRuntimeGovernance.detail.lastHeartbeat') }}: {{ formatTime(detail.last_seen_at) }}</span></div>
           <a-tabs v-model:active-key="runtimeTab" :destroy-inactive-tab-pane="true" class="device-runtime-tabs">
             <a-tab-pane key="overview" :tab="$t('agentRuntimeGovernance.detail.overview')"><ClientDeviceOverview ref="overviewPanel" :client="detail" @navigate="navigateDetail" @activity="openAuditActivity" /></a-tab-pane>
             <a-tab-pane key="skills" :tab="$t('agentRuntimeGovernance.detail.skills')">
@@ -219,7 +235,7 @@
             <a-tab-pane key="plugins" :tab="$t('agentRuntimeGovernance.tabs.plugins')"><ClientRuntimeGovernance :client-id="detail.client_id" @collection="navigateDetail('collection')" @policy="navigateDetail('control')" @events="openHookEvents" /></a-tab-pane>
             <a-tab-pane key="audit" :tab="$t('agentRuntimeGovernance.tabs.audit')"><ClientBehaviorAudit v-model:view="auditView" :client-id="detail.client_id" :activity-request="activityRequest" @policy="openClassification(detail.client_id)" @plugins="runtimeTab = 'plugins'" /></a-tab-pane>
             <a-tab-pane key="control" :tab="$t('agentRuntimeGovernance.detail.control')">
-              <ClientPolicyWorkbench :key="detail.client_id" v-model="controlView" :client-id="detail.client_id" @configure="tab => openClassification(detail.client_id, tab)" />
+              <ClientPolicyWorkbench :key="detail.client_id" v-model="controlView" :client-id="detail.client_id" />
             </a-tab-pane>
           </a-tabs>
         </template>
@@ -357,13 +373,12 @@ import {
   translateText as text,
 } from '../i18n'
 
-import ClientDiscoveryConfig from '../components/ClientDiscoveryConfig.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-const discoveryOpen = ref(false)
 const globalToolPolicyOpen = ref(false)
 import { message } from 'ant-design-vue'
-import { InfoCircleOutlined } from '@ant-design/icons-vue'
+import { InfoCircleOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons-vue'
+import { copyText } from '../utils/clipboard'
 
 import {
   cancelClientTask,
@@ -602,7 +617,27 @@ const openDetail = async (record) => {
     if (sequence === detailSequence) detailLoading.value = false
   }
 }
-const refreshDetail = async () => {
+const deviceRefreshing = ref(false)
+const copyClientId = async () => {
+  try {
+    await copyText(detail.value.client_id)
+    message.success(i18n.global.t('clientDetail.idCopied'))
+  } catch {
+    message.error(i18n.global.t('clientDetail.copyFailed'))
+  }
+}
+const refreshDeviceStatus = async () => {
+  if (deviceRefreshing.value) return
+  deviceRefreshing.value = true
+  try {
+    await refreshDetail(false)
+  } catch {
+    message.error(i18n.global.t('clientDetail.refreshFailed'))
+  } finally {
+    deviceRefreshing.value = false
+  }
+}
+const refreshDetail = async (refreshPanels = true) => {
   if (!detail.value?.client_id) return
   const clientId = detail.value.client_id
   const sequence = ++detailSequence
@@ -611,8 +646,10 @@ const refreshDetail = async () => {
   detail.value = result
   currentPolicy.value = detail.value.policy_mode || 'audit'
   currentGovernance.value = detail.value.governance_mode || 'registry'
-  await overviewPanel.value?.refresh()
-  await eventRecordsPanel.value?.refresh()
+  if (refreshPanels) {
+    await overviewPanel.value?.refresh()
+    await eventRecordsPanel.value?.refresh()
+  }
 }
 const watchTask = async (taskId, clientId = detail.value?.client_id) => {
   for (let attempt = 0; attempt < 15 && detailVisible.value && detail.value?.client_id === clientId; attempt += 1) {
@@ -906,6 +943,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.detail-config-actions { flex-shrink: 0; margin-left: auto; }
 .summary-row { margin-top: 8px; }
 .table-card {
   margin-top: 16px;
@@ -955,13 +993,11 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 16px;
 }
-.detail-head > :first-child { min-width: 0; overflow-wrap: anywhere; }
+.detail-head > :first-child { flex: 1 1 280px; min-width: 0; overflow-wrap: anywhere; }
 .session-audit-layout { flex: 1; min-height: 0; }
 .session-audit-layout :deep(.ant-spin-container) { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .session-audit-layout .detail-head { flex-shrink: 0; gap: 8px; }
-.session-audit-layout .detail-head > :first-child { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
 .session-audit-layout .detail-title { font-size: 17px; }
-.session-audit-layout .device-info { margin: 0; font-size: 12px; }
 .session-audit-layout .device-status-line { flex-shrink: 0; margin: 4px 0; font-size: 12px; }
 .session-audit-layout .device-runtime-tabs { flex: 1; min-height: 0; }
 .session-audit-layout .device-runtime-tabs :deep(.ant-tabs-nav) { flex-shrink: 0; margin-bottom: 8px; }
@@ -979,8 +1015,11 @@ onMounted(async () => {
 .inventory-navigation { display: flex; flex-wrap: wrap; }
 .inventory-navigation :deep(.ant-radio-button-wrapper), .skill-policy-controls :deep(.ant-radio-button-wrapper) { height: auto; white-space: normal; }
 .governance-select { width: 270px; max-width: 100%; }
-.device-status-line { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; color: #627480; }
-.device-info { margin-top: 6px; color: #627480; overflow-wrap: anywhere; }
+.device-title-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.device-title-line .ant-tag { margin: 0; }
+.device-status-line { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin: 6px 0 12px; color: #627480; }
+.device-info-content { max-width: min(360px, calc(100vw - 64px)); overflow-wrap: anywhere; }
+.device-info-content code { user-select: text; }
 .detail-panel-heading, .skill-policy-controls { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; margin: 16px 0; }
 .detail-panel-heading p { margin: 0; flex: 1; color: #627480; }
 .detail-view-switch { display: flex; flex-wrap: wrap; margin: 16px 0; }

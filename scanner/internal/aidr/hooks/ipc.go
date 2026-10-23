@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -18,6 +19,38 @@ import (
 )
 
 const maxFrame = MaxRecordBytes + 4096
+
+// IPCError carries bounded diagnostics without echoing frame contents.
+type IPCError struct{ Code, Stage, Cause string }
+
+func (e *IPCError) Error() string { return e.Code }
+
+func frameFailure(err error, stage string) *IPCError {
+	result := &IPCError{Code: "aidr_hook_protocol_invalid", Stage: stage, Cause: "invalid_json"}
+	var network net.Error
+	switch {
+	case errors.Is(err, context.Canceled):
+		result.Code, result.Cause = "aidr_hook_transport_failed", "canceled"
+	case errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &network) && network.Timeout()):
+		result.Code, result.Cause = "aidr_hook_response_timeout", "timeout"
+	case errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF):
+		result.Code, result.Cause = "aidr_hook_transport_failed", "truncated_frame"
+	case err.Error() == "aidr_hook_record_oversized":
+		result.Code, result.Cause = "aidr_hook_record_oversized", "frame_size"
+	case errors.As(err, &network):
+		result.Code, result.Cause = "aidr_hook_transport_failed", "connection_error"
+	}
+	return result
+}
+
+func storageFailure(err error) IPCResponse {
+	var sqliteError interface{ Code() int }
+	busy := errors.As(err, &sqliteError) && (sqliteError.Code()&0xff == 5 || sqliteError.Code()&0xff == 6)
+	if busy || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return IPCResponse{Code: "aidr_hook_receiver_busy"}
+	}
+	return IPCResponse{Code: "aidr_hook_storage_failed"}
+}
 
 // IPCRequest contains host evidence only. Device, user and process ownership
 // are deliberately not accepted from the plugin's payload.
@@ -160,33 +193,46 @@ func (r *Receiver) handle(ctx context.Context, c *net.UnixConn) IPCResponse {
 		return IPCResponse{Code: "aidr_hook_peer_rejected"}
 	}
 	var req IPCRequest
-	if readFrame(c, &req) != nil || req.Version != 1 {
+	if err := readFrame(c, &req); err != nil {
+		return IPCResponse{Code: frameFailure(err, "request_read").Code}
+	}
+	if req.Version != 1 {
 		return IPCResponse{Code: "aidr_hook_protocol_invalid"}
 	}
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
 	if req.Method == "GetHealth" {
 		state, err := r.store.Status(ctx)
 		if err != nil {
-			return IPCResponse{Code: "aidr_hook_storage_failed"}
+			return storageFailure(err)
 		}
 		return IPCResponse{Code: "aidr_hook_healthy", State: &state, Receiver: &ReceiverIdentity{PID: os.Getpid(), StartedAt: r.startedAt, Server: diagnosticServer(r.store.platform), Socket: r.path, Queue: r.store.directory}}
 	}
+	mode, err := r.store.bridgeControlModeContext(ctx)
+	if err != nil {
+		return storageFailure(err)
+	}
 	if req.Method == "PollApproval" || req.Method == "CancelApproval" {
-		if r.store.BridgeControlMode() == "audit" {
+		if mode == "audit" {
 			return IPCResponse{Code: "aidr_hook_decision", Decision: &ToolDecision{Decision: "allow", Code: "aidr_hook_audit_only"}}
 		}
 		d, err := r.store.PollApproval(ctx, req.EventID, strconv.FormatUint(uint64(uid), 10), req.Method == "CancelApproval", time.Now())
 		if err != nil {
-			return IPCResponse{Code: "aidr_hook_storage_failed"}
+			return storageFailure(err)
 		}
 		return IPCResponse{Code: "aidr_hook_decision", Decision: &d}
 	}
 	if req.Method != "SubmitEvent" {
 		return IPCResponse{Code: "aidr_hook_method_unsupported"}
 	}
-	work, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	record, err := r.store.receiveWithBridge(work, req.EventID, strconv.FormatUint(uint64(uid), 10), req.Agent, req.Hook, req.Raw, bridgeProcess(c))
+	record, err := r.store.receiveWithBridge(ctx, req.EventID, strconv.FormatUint(uint64(uid), 10), req.Agent, req.Hook, req.Raw, bridgeProcess(c))
 	if err != nil {
+		if ctx.Err() != nil {
+			return storageFailure(ctx.Err())
+		}
+		if failure := storageFailure(err); failure.Code == "aidr_hook_receiver_busy" {
+			return failure
+		}
 		// SQLite/path errors can contain input data. Return only stable public codes.
 		value := err.Error()
 		if !strings.HasPrefix(value, "aidr_hook_") || len(value) > 80 || strings.ContainsAny(value, " \n\r\t") {
@@ -195,15 +241,23 @@ func (r *Receiver) handle(ctx context.Context, c *net.UnixConn) IPCResponse {
 		return IPCResponse{Code: value}
 	}
 	r.accepted.Add(1)
-	response := IPCResponse{Code: "aidr_hook_recorded", Sequence: record.Sequence, State: &StoreStatus{ControlMode: r.store.BridgeControlMode()}}
+	mode, err = r.store.bridgeControlModeContext(ctx)
+	if err != nil {
+		return storageFailure(err)
+	}
+	response := IPCResponse{Code: "aidr_hook_recorded", Sequence: record.Sequence, State: &StoreStatus{ControlMode: mode}}
 	if record.Sequence == "" {
 		response.Code = "aidr_hook_audit_paused"
 	}
-	if IsPreTool(req.Agent, req.Hook) && r.store.BridgeControlMode() == "plugin_pre_tool" {
+	if IsPreTool(req.Agent, req.Hook) && mode == "plugin_pre_tool" {
 		if record.Event.Schema == 0 {
 			return IPCResponse{Code: "aidr_hook_attempt_already_recorded"}
 		}
-		d := r.store.EvaluateTool(record.Event, time.Now())
+		if err := r.store.lockContext(ctx); err != nil {
+			return storageFailure(err)
+		}
+		d := r.store.evaluateToolLocked(record.Event, time.Now())
+		r.store.mu.Unlock()
 		if record.Event.ControlDecision != nil {
 			d = *record.Event.ControlDecision
 		}
@@ -220,7 +274,7 @@ func (r *Receiver) handle(ctx context.Context, c *net.UnixConn) IPCResponse {
 			}
 			d, err = r.store.BeginApproval(ctx, record, time.Now())
 			if err != nil {
-				return IPCResponse{Code: "aidr_hook_storage_failed"}
+				return storageFailure(err)
 			}
 		}
 		response.Decision = &d
@@ -244,7 +298,7 @@ func readFrame(r io.Reader, value any) error {
 	d := json.NewDecoder(bytes.NewReader(b))
 	d.DisallowUnknownFields()
 	if err := d.Decode(value); err != nil {
-		return err
+		return code("aidr_hook_protocol_invalid")
 	}
 	if d.Decode(new(any)) != io.EOF {
 		return code("aidr_hook_protocol_invalid")
@@ -273,6 +327,8 @@ func Exchange(ctx context.Context, path string, req IPCRequest) (IPCResponse, er
 		return response, code("aidr_hook_receiver_unavailable")
 	}
 	defer c.Close()
+	stop := context.AfterFunc(ctx, func() { _ = c.SetDeadline(time.Now()) })
+	defer stop()
 	uid, err := peerUID(c.(*net.UnixConn))
 	if err != nil || uid != uint32(os.Geteuid()) {
 		return response, code("aidr_hook_peer_rejected")
@@ -283,10 +339,16 @@ func Exchange(ctx context.Context, path string, req IPCRequest) (IPCResponse, er
 	}
 	c.SetDeadline(deadline)
 	if err = writeFrame(c, req); err != nil {
-		return response, code("aidr_hook_transport_failed")
+		return response, frameFailure(err, "request_write")
 	}
-	if err = readFrame(c, &response); err != nil || response.Version != 1 {
-		return IPCResponse{}, code("aidr_hook_protocol_invalid")
+	if err = readFrame(c, &response); err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		return IPCResponse{}, frameFailure(err, "response_read")
+	}
+	if response.Version != 1 {
+		return IPCResponse{}, &IPCError{Code: "aidr_hook_protocol_invalid", Stage: "response_read", Cause: "version_mismatch"}
 	}
 	return response, nil
 }

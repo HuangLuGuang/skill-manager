@@ -41,6 +41,7 @@ func TestUpgradeWaitsForReceiverAndPreservesPolicyDecision(t *testing.T) {
 			defer finish()
 			s := openTestStore(t, filepath.Join(filepath.Dir(path), "state"), 10)
 			s.controlMode = "intercept"
+			s.bridgeIntercept.Store(true)
 			s.controlPolicy = &ToolPolicy{Revision: "7", Default: decision}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()

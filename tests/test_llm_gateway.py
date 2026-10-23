@@ -816,6 +816,35 @@ def test_gateway_alias_routes_to_original_upstream_name(tmp_path, monkeypatch, a
         assert db.query(models.LlmRequestAudit).one().model == "mock-model"
 
 
+def test_provider_custom_headers_crud_and_safe_validation(tmp_path, monkeypatch):
+    from fastapi.exceptions import RequestValidationError
+    from backend.api_errors import validation_error_handler
+    client, _, factory = _client(tmp_path, monkeypatch)
+    client.app.add_exception_handler(RequestValidationError, validation_error_handler)
+    client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(id=1, role="admin")
+    created = client.post("/v1/model-providers", json={"name": "custom", "base_url": "https://example.test/v1", "auth_type": "raw", "custom_headers": [{"name": "X-Key", "value": "private-header"}]})
+    assert created.status_code == 200, created.text
+    assert "private-header" not in created.text
+    assert created.json()["auth_type"] == "raw"
+    assert created.json()["custom_headers"] == [{"name": "x-key", "configured": True, "masked_value": "********"}]
+    provider_id = created.json()["id"]
+    path = f"/v1/model-providers/{provider_id}"
+    assert client.put(path, json={"name": "renamed"}).status_code == 200
+    assert client.put(path, json={"custom_headers": [{"name": "X-Key", "value": ""}]}).status_code == 200
+    with factory() as db:
+        row = db.get(models.ModelProvider, provider_id)
+        assert row.auth_type == "raw"
+        assert "private-header" not in row.custom_headers_encrypted
+        assert llm_gateway._provider_headers(row) == {"x-key": "private-header"}
+    invalid = client.put(path, json={"custom_headers": ["private-header"]})
+    assert invalid.status_code == 422
+    assert "private-header" not in invalid.text
+    invalid = client.put(path, json={"auth_type": "invalid"})
+    assert invalid.status_code == 422
+    assert invalid.json()["error_code"] == "model_provider.invalid_auth_type"
+    assert client.put(path, json={"custom_headers": []}).json()["custom_headers"] == []
+
+
 def test_responses_provider_create_update_and_inference_test(tmp_path, monkeypatch):
     client, _, factory = _client(tmp_path, monkeypatch)
     client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(id=1, role="admin")

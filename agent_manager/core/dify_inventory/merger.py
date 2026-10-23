@@ -52,12 +52,19 @@ def _apply_runtime(items: list[dict[str, Any]], runtime_events: list[dict[str, A
         ]
         if not matches:
             continue
-        item["executed"] = True
+        executed = [event for event in matches if (
+            event.get("type") in {"tool.result", "tool.error", "model.response", "model.error", "knowledge.retrieval"}
+            or (event.get("type") == "tool.call" and event.get("status") in {"started", "running"})
+            or (not event.get("type") and event.get("status") == "succeeded")
+        )]
+        item["executed"] = bool(executed)
         item["sources"].append(source("runtime_trace", metadata={"event_count": len(matches)}))
         item["details"]["runtime"] = {
             "call_count": len(matches),
-            "first_executed_at": min(str(event.get("event_time") or "") for event in matches),
-            "last_executed_at": max(str(event.get("event_time") or "") for event in matches),
+            "execution_event_count": len(executed),
+            "blocked_count": sum(event.get("type") == "runtime.blocked" for event in matches),
+            "first_executed_at": min((str(event.get("event_time") or "") for event in executed), default=None),
+            "last_executed_at": max((str(event.get("event_time") or "") for event in executed), default=None),
             "statuses": dict(Counter(str(event.get("status") or "unknown") for event in matches)),
         }
 
@@ -277,7 +284,9 @@ def build_inventory(
         elif resolution.get("status") == "unavailable":
             item["verification_status"] = "unavailable"
     findings = [*dsl.get("findings", []), *_apply_mcp(items, list(config.get("mcp_bindings") or []), mcp_servers or [])]
-    _apply_runtime(items, runtime_events or [])
+    matching_runtime = [e for e in (runtime_events or []) if not e.get("graph_digest")
+                        or e["graph_digest"] == dsl.get("graph_sha256")]
+    _apply_runtime(items, matching_runtime)
     grouped = {name: [item for item in items if item.get("asset_type") == kind] for name, kind in (
         ("nodes", "node"), ("prompts", "prompt"), ("mcp", "mcp"), ("tools", "tool"), ("knowledge_bases", "knowledge")
     )}

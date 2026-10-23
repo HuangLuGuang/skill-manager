@@ -63,12 +63,8 @@ func restoreQuarantineTask(ctx context.Context, home string, inventory Inventory
 }
 
 func restoreQuarantine(ctx context.Context, home string, inventory Inventory, agent Agent, api API, store *Store, task Task, automatic bool) error {
-	release, err := AcquireMutationLock(home)
-	if err != nil {
-		return err
-	}
-	defer release()
 	var items []QuarantineItem
+	var err error
 	if automatic {
 		items, err = automaticRecoveryItems(store, inventory)
 	} else {
@@ -94,6 +90,11 @@ func restoreQuarantine(ctx context.Context, home string, inventory Inventory, ag
 	if restoringBackup && item.Status != "backed_up" {
 		return fmt.Errorf("recovery_content_changed")
 	}
+	_, release, err := withFileLocks(ctx, home, path, item.QuarantinePath)
+	if err != nil {
+		return err
+	}
+	defer release()
 	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
 	if err != nil {
 		return fmt.Errorf("skill_target_unavailable")
@@ -203,7 +204,7 @@ func restoreQuarantine(ctx context.Context, home string, inventory Inventory, ag
 	}
 	var replaced QuarantineItem
 	if restoringBackup && expectedTarget != "" {
-		replaced, err = quarantineSkill(home, store, agent.AgentType, item.SkillName, path, "before_restore_backup", expectedTarget)
+		replaced, err = quarantineSkill(ctx, home, store, agent.AgentType, item.SkillName, path, "before_restore_backup", expectedTarget)
 		if err != nil {
 			return err
 		}

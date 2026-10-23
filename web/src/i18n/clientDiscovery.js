@@ -1,5 +1,8 @@
 export const clientDiscoveryMessages = {
   'zh-CN': {
+    inherit: '跟随全局', resetAll: '全部恢复全局', clientOnly: '本客户端专属',
+    overrideHelp: '按 Agent 选择跟随全局或单独配置。恢复全局会清除对应覆盖；全部恢复也会移除本客户端专属定义。此页单独保存，发现范围与日志采集、Hook 接入配置相互独立。',
+    globalHelp: '全局配置应用于未覆盖的 Agent；客户端单独配置的条目保持不变。此页单独保存。',
     search: '搜索 Agent 名称或标识', noMatches: '没有匹配的 Agent',
     auditUpdated: '更新 Agent 发现配置',
     remove: '移除',
@@ -9,6 +12,9 @@ export const clientDiscoveryMessages = {
     invalid: '请检查名称、唯一的英文标识、适用系统及已启用 Agent 的目录。', loadFailed: '配置加载失败，请关闭后重试。', saveFailed: '保存失败，请检查目录格式并重试。', conflict: '配置已被更新，请重新打开后修改。', saved: '已保存，客户端将在下次同步后重新发现。',
   },
   'en-US': {
+    inherit: 'Inherit global', resetAll: 'Restore all global settings', clientOnly: 'Client-only',
+    overrideHelp: 'Inherit global settings or override each Agent. Restoring inheritance clears its override; restoring all also removes client-only definitions. Save this tab separately. Discovery scope is independent of log collection and Hook setup.',
+    globalHelp: 'Global settings apply to Agents without overrides. Client overrides are preserved. Save this tab separately.',
     search: 'Search Agent name or identifier', noMatches: 'No matching Agents',
     auditUpdated: 'Update Agent discovery configuration',
     remove: 'Remove',

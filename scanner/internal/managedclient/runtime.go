@@ -467,8 +467,15 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 		if err != nil {
 			return err
 		}
+		previousPolicy := cachedPolicy(store)
 		if err := store.SetState("policy", string(body)); err != nil {
 			return err
+		}
+		if fresh.Classification != nil {
+			task.Payload["applied_desktop_menu_visibility"] = fresh.Classification.DesktopMenuVisibility
+		}
+		if stringValue(task.Payload, "reason") == "desktop_menu_visibility_changed" && sameScanningPolicy(previousPolicy, fresh) {
+			return nil
 		}
 		return RequestFullScan(home)
 	case "rescan":
@@ -769,11 +776,6 @@ func installApprovedSkillVersionWithPackage(ctx context.Context, home string, in
 	if !validInstallComponent(skillID) || (versionID != "" && !validInstallComponent(versionID)) {
 		return fmt.Errorf("invalid install identifier")
 	}
-	ctx, releaseMutation, err := withMutationLock(ctx, home)
-	if err != nil {
-		return err
-	}
-	defer releaseMutation()
 	if agentType == "" || skillID == "" || (policy.GovernanceMode == "strict" && managedAgentID == "") {
 		return fmt.Errorf("install requires agent and skill information")
 	}
@@ -820,6 +822,11 @@ func installApprovedSkillVersionWithPackage(ctx context.Context, home string, in
 	}
 	target := filepath.Join(ManagedSkillsRoot(home), skillID, "versions", resolvedVersionID, "release")
 	link := filepath.Join(agent.SkillsPath, filepath.Base(manifest.Name))
+	ctx, releaseMutation, err := withFileLocks(ctx, home, link, filepath.Join(ManagedSkillsRoot(home), skillID))
+	if err != nil {
+		return err
+	}
+	defer releaseMutation()
 	if err := checkPatrolSnapshot(ctx, link); err != nil {
 		return err
 	}
@@ -991,7 +998,7 @@ func installApprovedSkillVersionWithPackage(ctx context.Context, home string, in
 	if _, err := store.ResolveInstalledRecovery(agentType, manifest.Name, link, manifest.ContentSignature); err != nil {
 		return err
 	}
-	if err := store.ResolvePendingForInstall(agentType, manifest.Name, link); err != nil {
+	if err := store.resolvePendingForInstall(ctx, agentType, manifest.Name, link); err != nil {
 		return err
 	}
 	if classificationEnabled(policy) {
@@ -1081,11 +1088,6 @@ func ReconcileInstalledRecoveryCopies(home string, store *Store) (bool, error) {
 // versions are consolidated; the redundant release directories are retained
 // so the link change does not discard recoverable data.
 func ReconcileSharedManagedInstalls(ctx context.Context, home string, store *Store) (bool, error) {
-	ctx, releaseMutation, err := withMutationLock(ctx, home)
-	if err != nil {
-		return false, err
-	}
-	defer releaseMutation()
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -1109,6 +1111,22 @@ func ReconcileSharedManagedInstalls(ctx context.Context, home string, store *Sto
 		key := install.SkillID + "\x00" + install.Manifest.VersionID + "\x00" + install.Manifest.ContentSignature
 		groups[key] = append(groups[key], verifiedInstall{install: install, target: target})
 	}
+	paths := []string{}
+	for _, group := range groups {
+		if len(group) > 1 {
+			for _, candidate := range group {
+				paths = append(paths, candidate.install.TargetPath, candidate.target)
+			}
+		}
+	}
+	if len(paths) == 0 {
+		return false, nil
+	}
+	_, releaseMutation, err := withFileLocks(ctx, home, paths...)
+	if err != nil {
+		return false, err
+	}
+	defer releaseMutation()
 	changed := false
 	for _, group := range groups {
 		if len(group) < 2 {
@@ -1189,11 +1207,6 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 	if err != nil || !governanceEnabled {
 		return err
 	}
-	ctx, releaseMutation, err := withMutationLock(ctx, home)
-	if err != nil {
-		return err
-	}
-	defer releaseMutation()
 	installs, err := store.Installations()
 	if err != nil {
 		return err
@@ -1381,12 +1394,7 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 }
 
 func patrolLocalChanges(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, installs []Installation, fullScan bool) error {
-	ctx, releaseMutation, err := withMutationLock(ctx, home)
-	if err != nil {
-		return err
-	}
-	defer releaseMutation()
-	ctx, err = withPatrolSnapshot(ctx, installs)
+	ctx, err := withPatrolSnapshot(ctx, installs)
 	if err != nil {
 		return err
 	}
@@ -1583,6 +1591,15 @@ func handleSharedInstallMismatch(
 	installs []Installation,
 	online bool,
 ) error {
+	pathsToLock := []string{releasePath}
+	for _, install := range installs {
+		pathsToLock = append(pathsToLock, install.TargetPath, filepath.Join(ManagedSkillsRoot(home), install.SkillID))
+	}
+	ctx, releaseMutation, err := withFileLocks(ctx, home, pathsToLock...)
+	if err != nil {
+		return err
+	}
+	defer releaseMutation()
 	clientID := inventory.ClientID
 	primary := installs[0]
 	agents := make([]string, 0, len(installs))

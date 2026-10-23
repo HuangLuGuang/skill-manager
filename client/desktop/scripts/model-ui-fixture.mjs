@@ -34,7 +34,29 @@ if(externalGatewayEnabled && params.get('prepared')==='all'){
  localStorage.setItem('agent-manager-client-settings-v1',JSON.stringify({defaultPanel:'models'}));
  localStorage.setItem('agent-manager-external-gateway-policy-prompt-v1',JSON.stringify(['ui-fixture:7:0:7:http://gateway.example.test:8080']));
 }
+if (params.has('manual')) {
+ agents.unshift({agent_type:'custom',local_agent_id:'custom-manual',name:'Manual Agent',install_path:'/opt/manual-agent',skills:[],capabilities:{model_config_auto_apply:false}});
+ modelConfiguration.can_export_manual_credentials=params.get('manual')!=='denied';
+ localStorage.setItem('agent-manager-client-settings-v1',JSON.stringify({defaultPanel:'models'}));
+}
+let manualHandoff=null;
+let manualCopyAvailable=false;
 window.__TAURI__={core:{invoke:async (name, input={}) => {
+ if(name==='aidr_system_targets')return {items:[],selected_ids:[],configured:false,enabled:false,requirements:{selection_mode:'client',products:[]}};
+ if(name==='manual_model_action') {
+  if(input.operation==='clear'){manualCopyAvailable=false;return {}};
+  if(!modelConfiguration.can_export_manual_credentials)throw new Error('manual_model_permission');
+  if(input.operation==='options')return {source:externalGatewayEnabled?'external_gateway':'internal',gateway_url:modelConfiguration.external_gateway?.model_base_url,models:modelConfiguration.models,handoff:manualHandoff};
+  if(input.operation==='copy'){
+   if(!manualCopyAvailable)throw new Error('manual_model_copy_expired');
+   return {token:'UI-FIXTURE-NOT-A-CREDENTIAL'};
+  }
+  if(manualHandoff?.request_id===input.payload.request_id)return {...manualHandoff,copy_available:manualCopyAvailable};
+  await new Promise(resolve=>setTimeout(resolve,500));
+  manualCopyAvailable=true;
+  manualHandoff={...input.payload,copy_available:true,bound_agent_id:'fixture-agent'};
+  return manualHandoff;
+ }
  if(name==='get_build_version') return 'UI fixture';
  if(name==='get_connection_status') return structuredClone(connection);
  if(name==='get_local_snapshot') return structuredClone({local:connection.local,inventory});

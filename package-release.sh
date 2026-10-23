@@ -232,6 +232,7 @@ PACKAGE_DIR="${PACKAGE_PARENT}/agent-manager"
 mkdir -p "$PACKAGE_DIR/$IMAGE_DIR" "$PACKAGE_DIR/installers" \
     "$PACKAGE_DIR/deploy/nginx" "$PACKAGE_DIR/docs" "$PACKAGE_DIR/scanner/releases"
 cp docker-compose.yaml .env.example release-provenance.json "$PACKAGE_DIR/"
+printf '%s\n%s\n' "$VERSION" "$PLATFORM" > "$PACKAGE_DIR/release-info"
 PACKAGE_COMPOSE="$PACKAGE_DIR/docker-compose.yaml" PACKAGE_VERSION="$VERSION" python3 - <<'PY'
 import os
 from pathlib import Path
@@ -241,11 +242,40 @@ compose.write_text(compose.read_text().replace("${TAG:-latest}", os.environ["PAC
 PY
 cp start.sh upgrade.sh "$PACKAGE_DIR/"
 chmod +x "$PACKAGE_DIR/start.sh" "$PACKAGE_DIR/upgrade.sh"
-cp deploy/offline.py "$PACKAGE_DIR/deploy/"
+cp deploy/offline.sh "$PACKAGE_DIR/deploy/"
 cp deploy/nginx/default.conf "$PACKAGE_DIR/deploy/nginx/"
 cp docs/offline-deployment.md docs/docker-deployment.md docs/license.md "$PACKAGE_DIR/docs/"
 mv "$IMAGE_XZ" "$PACKAGE_DIR/$IMAGE_DIR/"
-cp "$DOCKER_INSTALLER" "$PACKAGE_DIR/installers/docker-installer-28.5.2-x86-arm.tar.gz"
+# The bundled installer must support non-root containers even under umask 027/077.
+python3 - "$DOCKER_INSTALLER" "$PACKAGE_DIR/installers/docker-installer-28.5.2-x86-arm.tar.gz" <<'PY'
+import io
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1], "r:gz") as source:
+    entry = source.getmember("docker-installer/install.sh")
+    script = source.extractfile(entry).read().decode()
+    replacements = {
+        'cp -f $bin_dir/* /usr/local/bin/':
+            'install -m 0755 "$bin_dir"/* /usr/local/bin/ || exit 1',
+        'cp -f "$compose_file" /usr/local/lib/docker/cli-plugins/docker-compose\n'
+        '    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose':
+            'install -m 0755 "$compose_file" /usr/local/lib/docker/cli-plugins/docker-compose || exit 1',
+    }
+    for old, new in replacements.items():
+        if script.count(old) != 1:
+            raise SystemExit("Docker installer layout changed; review its installation permissions before packaging")
+        script = script.replace(old, new)
+    with tarfile.open(sys.argv[2], "w:gz") as target:
+        for member in source:
+            data = source.extractfile(member) if member.isfile() else None
+            if member.name == entry.name:
+                payload = script.encode()
+                member.size = len(payload)
+                member.mode = 0o755
+                data = io.BytesIO(payload)
+            target.addfile(member, data)
+PY
 if [ -n "$CLIENT_RELEASES" ]; then
     log "Copying desktop client release feed..."
     cp -R "$CLIENT_RELEASES"/. "$PACKAGE_DIR/scanner/releases/"

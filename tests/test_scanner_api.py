@@ -3,9 +3,10 @@ import io
 import json
 import os
 import zipfile
+import pytest
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import HTTPException, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -127,6 +128,59 @@ def test_scanner_import_requires_token(tmp_path):
     )
 
     assert response.status_code == 401
+
+
+def test_scanner_nested_zip_verifies_transport_before_expanding_analysis(tmp_path, monkeypatch):
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_manager] = lambda: manager
+    _, token = ScannerTokenStore(manager.registry.data_dir).create(name="nested-zip")
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "SKILL.md").write_text("---\nname: api-skill\ndescription: nested archive test\n---\n")
+    with zipfile.ZipFile(source / "templates.zip", "w") as nested:
+        nested.writestr("template.txt", "nested evidence")
+    manifest = _fingerprint_skill_dir(source)
+    manifest["name"] = "api-skill"
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        for file in source.iterdir():
+            archive.writestr(file.name, file.read_bytes())
+    # Exercise the real import route and persistence, without starting analyzers.
+    class IdleExecutor:
+        def submit(self, *args, **kwargs):
+            return None
+    monkeypatch.setattr(api_router, "_scan_executor", IdleExecutor())
+    monkeypatch.setattr(scanner_api, "_scan_executor", IdleExecutor())
+    monkeypatch.setattr(api_router, "_manager", manager)
+    client = TestClient(app)
+    def submit(fingerprint):
+        return client.post(
+            "/api/v1/scanner/imports",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("skill.zip", payload.getvalue(), "application/zip")},
+            data={"manifest": json.dumps({**manifest, "fingerprint": fingerprint}), "use_llm": "false", "use_sandbox": "false"},
+        )
+    rejected = submit("sha256:" + "0" * 64)
+    assert rejected.status_code == 400
+    assert "fingerprint mismatch" in rejected.json()["detail"].lower()
+    accepted = submit(manifest["fingerprint"])
+    assert accepted.status_code == 200, accepted.text
+    entry = manager.get_skill(accepted.json()["version_id"])
+    expanded = list(Path(entry.skill_path).rglob("template.txt"))
+    assert expanded == []
+    assert _fingerprint_skill_dir(Path(entry.skill_path)) == _fingerprint_skill_dir(source)
+    files = api_router.list_skill_files(entry.skill_id, mgr=manager)
+    assert {file.path for file in files.files} == {"SKILL.md", "templates.zip"}
+    preview = api_router.get_skill_file_content(entry.skill_id, path="SKILL.md", mgr=manager)
+    assert preview.content == (source / "SKILL.md").read_text()
+    with pytest.raises(HTTPException) as missing:
+        api_router.get_skill_file_content(entry.skill_id, path="templates/template.txt", mgr=manager)
+    assert missing.value.status_code == 404
+    retried = submit(manifest["fingerprint"])
+    assert retried.status_code == 200
+    assert retried.json()["version_id"] == accepted.json()["version_id"]
 
 
 def test_scanner_release_dir_points_to_project_scanner_releases():

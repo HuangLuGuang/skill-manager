@@ -67,7 +67,7 @@
         :loading="loading"
         size="middle"
         :pagination="{ pageSize: 10 }"
-        :scroll="{ x: 920 }"
+        :scroll="{ x: 990 }"
       >
         <template #emptyText>
           <div class="empty-credentials">
@@ -97,7 +97,11 @@
             <div class="activity-time">{{ lastActivity(record) }}</div>
           </template>
           <template v-else-if="column.key === 'action'">
-            <a-space>
+            <a-space wrap>
+              <a-button v-if="hasAccess('credentials:update') && record.status !== 'revoked' && (record.token_type !== 'openapi' || pageAllowed('/external-access'))" type="link" :disabled="actionId !== null || creating" @click="openEdit(record)">{{ $t('credentials.editPermissions') }}</a-button>
+              <a-popconfirm v-if="record.token_type === 'client' && record.status === 'active' && hasAccess('credentials:update')" :title="$t('credentials.manualExportConfirm')" @confirm="toggleManualExport(record)">
+                <a-button type="link" :loading="actionId === record.id" :disabled="actionId !== null">{{ $t(record.allow_manual_credential_export ? 'credentials.disableManualExport' : 'credentials.enableManualExport') }}</a-button>
+              </a-popconfirm>
               <a-popconfirm v-if="hasAccess('credentials:update') && (record.status === 'active')" :title="$t('legacy.lsaw9d')" @confirm="handleRevoke(record)">
                 <a-button type="link" danger :loading="actionId === record.id">{{ $t('credentials.revoke') }}</a-button>
               </a-popconfirm>
@@ -138,14 +142,17 @@
 
     <a-modal
       v-model:open="createVisible"
-      :title="$t('credentials.createTitle')"
+      :title="$t(editingRecord ? 'credentials.editPermissions' : 'credentials.createTitle')"
       width="900px"
       :style="{ top: '24px' }"
       :body-style="{ maxHeight: 'calc(100dvh - 140px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
       :footer="null"
+      :closable="!creating"
+      :mask-closable="false"
+      :keyboard="!creating"
       :destroy-on-close="true"
     >
-      <div class="create-progress" :class="{ 'create-progress--config': createStage === 'config' }">
+      <div v-if="!editingRecord" class="create-progress" :class="{ 'create-progress--config': createStage === 'config' }">
         <span><b>1</b>{{ $t('credentials.stepCaller') }}</span>
         <i></i>
         <span><b>2</b>{{ $t('credentials.stepBoundary') }}</span>
@@ -183,10 +190,12 @@
             <strong>{{ selectedScenario.title }}</strong>
             <span>{{ selectedScenario.description }}</span>
           </div>
-          <a-button type="link" @click="createStage = 'choose'">{{ $t('credentials.changeCaller') }}</a-button>
+          <a-button v-if="!editingRecord" type="link" @click="createStage = 'choose'">{{ $t('credentials.changeCaller') }}</a-button>
         </div>
 
-        <a-form layout="vertical" :model="form" class="credential-form">
+        <a-form layout="vertical" :model="form" :disabled="creating" class="credential-form">
+          <a-alert v-if="editingRecord" type="info" show-icon :message="$t('credentials.editPermissionsHint')" />
+          <p v-if="editingRecord?.token_type === 'client'" class="field-hint">{{ $t('credentials.editClientPermissionsHint') }}</p>
           <section class="form-section">
             <div class="form-section__head">
               <span>{{ $t('credentials.identitySection') }}</span>
@@ -195,13 +204,14 @@
             <a-row :gutter="16">
               <a-col :xs="24" :md="12">
                 <a-form-item :label="$t('credentials.nameLabel')" required>
-                  <a-input v-model:value="form.name" :placeholder="$t('credentials.namePlaceholder')" />
+                  <a-input v-model:value="form.name" :disabled="!!editingRecord" :placeholder="$t('credentials.namePlaceholder')" />
                 </a-form-item>
               </a-col>
               <a-col v-if="form.token_type === 'agent_runtime'" :xs="24" :md="12">
                 <a-form-item :label="$t('credentials.boundAgent')" required>
                   <a-select :get-popup-container="trigger => trigger.parentElement"
                     v-model:value="form.bound_agent_id"
+                    :disabled="!!editingRecord"
                     @change="handleAgentChange"
                     show-search
                     allow-clear
@@ -226,6 +236,8 @@
               <strong>{{ $t('credentials.allowAgentCredentialIssuance') }}</strong>
             </a-checkbox>
             <p class="field-hint client-issuance-description">{{ $t('credentials.allowAgentCredentialIssuanceDescription') }}</p>
+            <a-checkbox v-model:checked="form.allow_manual_credential_export" :disabled="!form.allow_agent_credential_issuance">{{ $t('credentials.allowManualExport') }}</a-checkbox>
+            <p class="field-hint">{{ $t('credentials.manualExportHelp') }}</p>
             <a-alert
               type="warning"
               show-icon
@@ -286,16 +298,17 @@
           </section>
 
           <a-collapse v-model:activeKey="advancedSections" ghost class="advanced-collapse">
-            <a-collapse-panel key="advanced" :header="$t('credentials.advancedTitle')">
-              <p class="advanced-intro">{{ $t('credentials.advancedDescription') }}</p>
+            <a-collapse-panel key="advanced" :header="$t(editingRecord ? 'credentials.permissionDetails' : 'credentials.advancedTitle')">
+              <p v-if="!editingRecord" class="advanced-intro">{{ $t('credentials.advancedDescription') }}</p>
 
-              <a-form-item v-if="form.agent_preset === 'custom' || form.token_type !== 'agent_runtime'" :label="$t('credentials.rawPermissions')">
+              <a-form-item v-if="editingRecord || form.agent_preset === 'custom' || form.token_type !== 'agent_runtime'" :label="$t('credentials.rawPermissions')" :required="!!editingRecord">
                 <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.scopes" mode="multiple" style="width: 100%" @change="handleScopesChange">
                   <a-select-option v-for="scope in availableScopes" :key="scope" :value="scope">{{ scope }}</a-select-option>
                 </a-select>
                 <div v-if="form.token_type !== 'scanner'" class="field-hint">{{ $t('credentials.rawPermissionsHint') }}</div>
               </a-form-item>
 
+              <template v-if="!editingRecord">
               <template v-if="form.scopes.includes('model:chat')">
                 <div class="advanced-subtitle">{{ $t('credentials.modelProtection') }}</div>
                 <a-row :gutter="16">
@@ -352,17 +365,18 @@
                 <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.allowed_ips" mode="tags" :placeholder="$t('credentials.allowedIpsPlaceholder')" />
                 <div class="field-hint">{{ $t('credentials.allowedIpsHint') }}</div>
               </a-form-item>
+              </template>
             </a-collapse-panel>
           </a-collapse>
         </a-form>
 
         <div class="creation-summary">
-          <span>{{ $t('credentials.willCreate') }}</span>
+          <span>{{ $t(editingRecord ? 'credentials.permissionSummary' : 'credentials.willCreate') }}</span>
           <strong>{{ creationSummary }}</strong>
         </div>
         <div class="modal-actions">
-          <a-button @click="createVisible = false">{{ $t('credentials.cancel') }}</a-button>
-          <a-button type="primary" :loading="creating" :disabled="creating" @click="handleCreate">{{ $t('credentials.createAndShow') }}</a-button>
+          <a-button :disabled="creating" @click="createVisible = false">{{ $t('credentials.cancel') }}</a-button>
+          <a-button type="primary" :loading="creating" :disabled="creating" @click="handleCreate">{{ $t(editingRecord ? 'credentials.savePermissions' : 'credentials.createAndShow') }}</a-button>
         </div>
       </div>
     </a-modal>
@@ -401,6 +415,7 @@ import { integrationCapabilities, integrationScopes, parseIntegrationCapabilitie
 import { formatDateTime } from '../utils/format'
 import {
   createAccessToken,
+  updateAccessToken,
   deleteAccessToken,
   listAccessTokens,
   listAgents,
@@ -414,6 +429,7 @@ const router = useRouter()
 const t = (key, params) => i18n.global.t(key, params)
 const loading = ref(false)
 const creating = ref(false)
+const editingRecord = ref(null)
 const createVisible = ref(false)
 const createStage = ref('choose')
 const selectedScenarioId = ref('agent')
@@ -485,6 +501,7 @@ const form = reactive({
   prompt_guard_mode: 'log',
   prompt_guard_llm_review: false,
   allow_agent_credential_issuance: false,
+  allow_manual_credential_export: false,
 })
 
 const agentScopePresets = {
@@ -513,7 +530,7 @@ const typeDefaults = {
 const scopeOptionsByType = {
   ...typeDefaults,
   client: [...typeDefaults.client, 'aidr:heartbeat', 'aidr:report-events'],
-  agent_runtime: [...agentScopePresets.governance_model_mcp, 'runtime:trace'],
+  agent_runtime: [...agentScopePresets.governance_model_mcp, 'runtime:memory', 'runtime:trace'],
 }
 
 const credentialScenarios = computed(() => [
@@ -568,7 +585,7 @@ const columns = computed(() => [
   { title: t('credentials.callerColumn'), key: 'caller', width: 220 },
   { title: t('credentials.accessColumn'), key: 'access' },
   { title: t('credentials.activityColumn'), key: 'activity', width: 190 },
-  { title: t('credentials.actionColumn'), key: 'action', width: 150, fixed: 'right' },
+  { title: t('credentials.actionColumn'), key: 'action', width: 220, fixed: 'right' },
 ])
 const creationSummary = computed(() => {
   const parts = [selectedScenario.value.title]
@@ -612,6 +629,7 @@ const accessSummary = record => {
   if (record.token_type === 'client' && record.allow_agent_credential_issuance) {
     items.push({ label: t('credentials.agentCredentialIssuanceAccess'), color: 'geekblue' })
   }
+  if (record.allow_manual_credential_export) items.push({ label: t('credentials.allowManualExport'), color: 'gold' })
   return items
 }
 const lastActivity = record => record.last_used_at
@@ -660,7 +678,7 @@ const handleScopesChange = () => {
     const matched = Object.entries(agentScopePresets).find(([, scopes]) => sameScopes(form.scopes, scopes))
     form.agent_preset = matched?.[0] || 'custom'
   }
-  if (!form.scopes.includes('model:chat')) {
+  if (!supportsModels.value) {
     form.allowed_models = []
     form.enable_compression = false
     form.compression_level = 'auto'
@@ -670,7 +688,23 @@ const handleScopesChange = () => {
   else if (form.token_type === 'agent_runtime' && !form.allowed_mcp_gateways.length) handleAgentChange()
 }
 const handleClientIssuanceChange = () => {
-  if (!form.allow_agent_credential_issuance) form.allowed_models = []
+  if (!form.allow_agent_credential_issuance) {
+    form.allowed_models = []
+    form.allow_manual_credential_export = false
+  }
+}
+const toggleManualExport = async record => {
+  if (actionId.value !== null) return
+  actionId.value = record.id
+  try {
+    await updateAccessToken(record.id, {
+      allow_manual_credential_export: !record.allow_manual_credential_export,
+      ...(!record.allow_manual_credential_export ? { allow_agent_credential_issuance: true } : {}),
+    })
+    await fetchTokens()
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('credentials.manualExportFailed'))
+  } finally { actionId.value = null }
 }
 const resetForm = (tokenType, defaults = {}) => {
   Object.assign(form, {
@@ -691,10 +725,12 @@ const resetForm = (tokenType, defaults = {}) => {
     prompt_guard_mode: 'log',
     prompt_guard_llm_review: false,
     allow_agent_credential_issuance: false,
+    allow_manual_credential_export: false,
   })
   advancedSections.value = []
 }
 const openCreate = (defaults = {}) => {
+  editingRecord.value = null
   createVisible.value = true
   if (defaults.token_type) {
     const scenario = scenarioByTokenType(defaults.token_type) || credentialScenarios.value[0]
@@ -706,6 +742,7 @@ const openCreate = (defaults = {}) => {
   createStage.value = 'choose'
 }
 const startScenario = (scenarioId, defaults = {}) => {
+  editingRecord.value = null
   createVisible.value = true
   selectScenario(scenarioId, defaults)
 }
@@ -715,6 +752,42 @@ const selectScenario = (scenarioId, defaults = {}) => {
   selectedScenarioId.value = scenarioId
   resetForm(scenario.tokenType, defaults)
   createStage.value = 'config'
+}
+
+const permissionFields = ['scopes', 'allowed_models', 'allowed_mcp_gateways', 'allow_agent_credential_issuance', 'allow_manual_credential_export']
+const openEdit = record => {
+  if (creating.value || record.status === 'revoked') return
+  if (record.token_type === 'openapi') {
+    router.push({ path: '/external-access', query: { tab: 'tokens', edit_token: String(record.id) } })
+    return
+  }
+  openCreate(record)
+  editingRecord.value = { ...record }
+  for (const field of permissionFields) {
+    form[field] = Array.isArray(record[field]) ? [...record[field]] : record[field]
+  }
+  form.agent_preset = Object.entries(agentScopePresets).find(([, scopes]) => sameScopes(form.scopes, scopes))?.[0] || 'custom'
+  advancedSections.value = ['advanced']
+}
+const savePermissions = async () => {
+  if (!form.scopes.length) return message.warning(t('credentials.scopesRequired'))
+  const payload = Object.fromEntries(permissionFields.filter(field => {
+    const previous = editingRecord.value[field]
+    return Array.isArray(previous) ? !sameScopes(previous, form[field]) : previous !== form[field]
+  }).map(field => [field, form[field]]))
+  if (!Object.keys(payload).length) {
+    createVisible.value = false
+    return
+  }
+  creating.value = true
+  try {
+    await updateAccessToken(editingRecord.value.id, payload)
+    createVisible.value = false
+    message.success(t('credentials.permissionsSaved'))
+    await fetchTokens()
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('credentials.permissionsSaveFailed'))
+  } finally { creating.value = false }
 }
 
 const fetchTokens = async () => {
@@ -784,6 +857,7 @@ const openCreateFromQuery = async () => {
 }
 const handleCreate = async () => {
   if (creating.value) return
+  if (editingRecord.value) return savePermissions()
   if (!form.name.trim()) {
     message.warning(t('credentials.nameRequired'))
     return

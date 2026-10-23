@@ -141,6 +141,7 @@ func (s *Store) ConfigureControl(ctx context.Context, key []byte) error {
 	}
 	s.controlKey = append([]byte{}, key...)
 	s.controlMode = "intercept"
+	s.bridgeIntercept.Store(true)
 	return nil
 }
 
@@ -155,6 +156,7 @@ func (s *Store) SetControlMode(mode string) error {
 		return code("aidr_hook_control_key_invalid")
 	}
 	s.controlMode = mode
+	s.bridgeIntercept.Store(mode == "intercept")
 	return nil
 }
 

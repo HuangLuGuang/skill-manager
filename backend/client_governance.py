@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from . import models
 from .api_errors import ApiError
+from .client_desktop_menu import DEFAULT_MENUS, MenuVisibility
 
 DEFAULT_SCOPE = "@default"
 ACTIONS = {
@@ -180,6 +181,7 @@ class PolicyChange(BaseModel):
     compression: CompressionConfig | None = None
     model_routing: ModelRoutingConfig | None = None
     runtime_governance: RuntimeGovernanceConfig | None = None
+    desktop_menu_visibility: MenuVisibility = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def valid_actions(self):
@@ -201,6 +203,7 @@ def record_protocol(db: Session, client_id: str, protocol: int, *, is_new=False)
             client = db.query(models.ManagedClient).filter_by(client_id=client_id).one()
             row.rules_json = json.dumps(legacy_policy_rules(client.policy_mode), sort_keys=True)
             row.revision += 1
+            row.runtime_revision = row.revision
         row.enabled = True
         row.updated_at = datetime.utcnow()
     db.flush()
@@ -215,6 +218,19 @@ def policy_view(db: Session, client_id: str | None = None):
     return _policy_view(default, custom, enrollment, client_id)
 
 
+def record_desktop_menus(db, client_id, protocol, applied):
+    row = db.get(models.ClientGovernancePolicy, client_id)
+    row.desktop_menu_protocol = protocol
+    if protocol == 1 and applied is not None and set(applied) == set(DEFAULT_MENUS):
+        row.desktop_menu_applied_json = json.dumps(applied, sort_keys=True)
+        row.desktop_menu_reported_at = datetime.utcnow()
+    elif protocol == 0:
+        row.desktop_menu_applied_json = None
+        row.desktop_menu_reported_at = None
+    else:
+        row.desktop_menu_applied_json = None
+
+
 def policy_views(db: Session, client_ids):
     """Request-local policy reads for a bounded group of visible clients."""
     from .runtime_governance import HookEnrollment
@@ -227,6 +243,11 @@ def policy_views(db: Session, client_ids):
 
 
 def _policy_view(default, custom, enrollment, client_id):
+    menu_default = {**DEFAULT_MENUS, **(json.loads(default.desktop_menu_visibility_json) if default else {})}
+    menu_override = json.loads(custom.desktop_menu_visibility_json) if custom else {}
+    menu_effective = {**menu_default, **menu_override}
+    menu_supported = bool(custom and custom.desktop_menu_protocol == 1)
+    menu_applied = json.loads(custom.desktop_menu_applied_json) if custom and custom.desktop_menu_applied_json else None
     defaults = {**DEFAULT_RULES, **(json.loads(default.rules_json) if default else {})}
     overrides = json.loads(custom.rules_json) if custom else {}
     rules = {**defaults, **overrides}
@@ -254,6 +275,8 @@ def _policy_view(default, custom, enrollment, client_id):
                 runtime["log_sources"] = list(dict.fromkeys([*(runtime.get("log_sources") or ["claude", "codex"]), *paired]))
 
     revision = custom.revision if custom else 0
+    runtime_default_revision = default.runtime_revision if default and default.runtime_revision is not None else default_revision
+    runtime_client_revision = custom.runtime_revision if custom and custom.runtime_revision is not None else revision
     guard_default = (json.loads(default.prompt_guard_json) if default else None) or PromptGuardConfig().model_dump()
     guard_override = json.loads(custom.prompt_guard_json) if custom else None
     compression_default = (json.loads(default.compression_json) if default else None) or CompressionConfig().model_dump()
@@ -262,16 +285,24 @@ def _policy_view(default, custom, enrollment, client_id):
     routing_override = json.loads(custom.model_routing_json) if custom else None
     effective_routing = effective_model_routing(routing_default, routing_override)
     return {
+        "desktop_menu_visibility": menu_effective,
+        "desktop_menu_defaults": menu_default,
+        "desktop_menu_overrides": menu_override,
+        "desktop_menu_sources": {key: "client" if key in menu_override else "default" for key in DEFAULT_MENUS},
+        "desktop_menu_supported": client_id is None or menu_supported,
+        "desktop_menu_sync_status": "unsupported" if not menu_supported else "synced" if menu_applied == menu_effective else "pending",
+        "desktop_menu_reported_at": custom.desktop_menu_reported_at if custom else None,
         "protocol": custom.protocol if custom else 2,
         "advanced_supported": client_id is None or bool(custom and custom.protocol == 2),
         "incompatible_rules": incompatible_rules(rules, custom.protocol) if custom else [],
         "supported": client_id is None or bool(custom and custom.protocol in (1, 2)),
         "enabled": client_id is None or bool(custom and custom.enabled and custom.protocol in (1, 2)),
         "version": f"{default_revision}:{revision}",
+        "scan_version": f"{runtime_default_revision}:{runtime_client_revision}",
         "runtime_governance": runtime or RuntimeGovernanceConfig().model_dump(),
         "runtime_channels_protocol": 3,
         "runtime_governance_configured": runtime is not None,
-        "runtime_governance_version": f"{default_revision}:{revision}" if runtime_override is not None or enrollment else str(default_revision),
+        "runtime_governance_version": f"{runtime_default_revision}:{runtime_client_revision}" if runtime_override is not None or enrollment else str(runtime_default_revision),
         "runtime_user_hosts": user_hosts,
         "runtime_governance_default": runtime_default,
         "runtime_governance_override": runtime_override,
@@ -311,9 +342,13 @@ def preview(db: Session, scope: str, change: PolicyChange):
     if default_scope and "runtime_governance" in change.model_fields_set and change.runtime_governance is None:
         raise ApiError(422, "aidr.runtime_policy_required", "请提供明确的运行治理目标", "An explicit runtime governance target is required")
     current = policy_view(db, None if default_scope else scope)
+    menu_impacts = []
     if current["version"] != change.expected_version:
         raise ApiError(409, "client.policy_changed", "策略已变化，请重新加载预览", "Policy changed; reload the preview")
-    if not current["supported"]:
+    menu_only_request = ("desktop_menu_visibility" in change.model_fields_set
+                         and change.model_fields_set <= {"desktop_menu_visibility", "rules", "expected_version", "preview_id"}
+                         and change.rules == current["overrides"])
+    if not current["supported"] and not menu_only_request:
         raise ApiError(409, "client.policy_upgrade_required", "请先升级客户端以支持分类策略", "Upgrade the Client before enabling classification policies")
     clients = db.query(models.ManagedClient)
     if not default_scope:
@@ -330,6 +365,16 @@ def preview(db: Session, scope: str, change: PolicyChange):
             )
     for client in clients.order_by(models.ManagedClient.client_id).all():
         view = policy_view(db, client.client_id)
+        proposed_menus = view["desktop_menu_visibility"]
+        if "desktop_menu_visibility" in change.model_fields_set:
+            proposed_menus = ({**DEFAULT_MENUS, **change.desktop_menu_visibility, **view["desktop_menu_overrides"]}
+                              if default_scope else {**view["desktop_menu_defaults"], **change.desktop_menu_visibility})
+        menu_impacts.append({"client_id": client.client_id, "client_name": client.name,
+                             "current": view["desktop_menu_visibility"], "proposed": proposed_menus,
+                             "supported": view["desktop_menu_supported"],
+                             "preserved_overrides": [key for key in view["desktop_menu_overrides"]
+                                 if default_scope and "desktop_menu_visibility" in change.model_fields_set
+                                 and view["desktop_menu_defaults"][key] != change.desktop_menu_visibility.get(key, True)]})
         proposed_guard = view["prompt_guard"]
         if "prompt_guard" in change.model_fields_set:
             configured = change.prompt_guard.model_dump() if change.prompt_guard else None
@@ -424,6 +469,9 @@ def preview(db: Session, scope: str, change: PolicyChange):
     if "runtime_governance" in change.model_fields_set:
         runtime_proposed = change.runtime_governance.model_dump() if change.runtime_governance else current["runtime_governance_default"] or RuntimeGovernanceConfig().model_dump()
     digest = hashlib.sha256(json.dumps({"scope": scope, "version": current["version"], "rules": change.rules,
+                                        "desktop_menu_visibility": change.desktop_menu_visibility,
+                                        "desktop_menu_set": "desktop_menu_visibility" in change.model_fields_set,
+                                        "desktop_menu_impacts": menu_impacts,
                                         "runtime_governance": change.runtime_governance.model_dump() if change.runtime_governance else None,
                                         "runtime_governance_set": "runtime_governance" in change.model_fields_set,
                                         "prompt_guard": change.prompt_guard.model_dump() if change.prompt_guard else None,
@@ -436,6 +484,10 @@ def preview(db: Session, scope: str, change: PolicyChange):
                                         "clients": scopes, "excluded_clients": excluded_clients, "incompatible_clients": incompatible_clients,
                                         "items": [{key: value for key, value in item.items() if key != "observed_at"} for item in items]}, sort_keys=True).encode()).hexdigest()
     return {"preview_id": digest, "version": current["version"], "items": items, "clients": scopes, "client_count": len(scopes),
+            "desktop_menu_impacts": menu_impacts,
+            "desktop_menu_current": current["desktop_menu_visibility"],
+            "desktop_menu_proposed": (menu_impacts[0]["proposed"] if not default_scope and menu_impacts else
+                                      {**DEFAULT_MENUS, **change.desktop_menu_visibility} if "desktop_menu_visibility" in change.model_fields_set else current["desktop_menu_visibility"]),
             "runtime_current": current["runtime_governance"],
             "runtime_proposed": runtime_proposed,
             "prompt_impacts": prompt_impacts,
@@ -453,11 +505,14 @@ def save_policy(db: Session, scope: str, change: PolicyChange, user):
     if change.preview_id != result["preview_id"]:
         raise ApiError(409, "client.policy_preview_required", "请确认最新影响范围后保存策略", "Confirm the latest impact preview before saving")
     previous = {item["client_id"]: policy_view(db, item["client_id"]) for item in result["clients"]}
+    previous_scope = policy_view(db, None if scope == DEFAULT_SCOPE else scope)
     row = db.get(models.ClientGovernancePolicy, scope)
     if row is None:
         row = models.ClientGovernancePolicy(scope=scope, revision=0)
         db.add(row)
     row.rules_json = json.dumps(change.rules, sort_keys=True)
+    if "desktop_menu_visibility" in change.model_fields_set:
+        row.desktop_menu_visibility_json = json.dumps(change.desktop_menu_visibility, sort_keys=True)
     if "prompt_guard" in change.model_fields_set:
         row.prompt_guard_json = json.dumps(change.prompt_guard.model_dump() if change.prompt_guard else None, sort_keys=True)
     if "compression" in change.model_fields_set:
@@ -466,10 +521,19 @@ def save_policy(db: Session, scope: str, change: PolicyChange, user):
         row.model_routing_json = json.dumps(change.model_routing.model_dump() if change.model_routing else None, sort_keys=True)
     if "runtime_governance" in change.model_fields_set:
         row.runtime_governance_json = json.dumps(change.runtime_governance.model_dump() if change.runtime_governance else None, sort_keys=True)
+    previous_runtime_revision = row.runtime_revision if row.runtime_revision is not None else row.revision
     row.revision += 1
-    row.enabled = True
+    if previous_scope["supported"]:
+        row.enabled = True
     row.updated_by = user.username
     row.updated_at = datetime.utcnow()
+    db.flush()
+    saved_scope = policy_view(db, None if scope == DEFAULT_SCOPE else scope)
+    menu_only = "desktop_menu_visibility" in change.model_fields_set and all(previous_scope[key] == saved_scope[key] for key in (
+        "rules", "overrides", "prompt_guard", "prompt_guard_override", "compression", "compression_override",
+        "model_routing", "model_routing_override", "runtime_governance", "enabled",
+    ))
+    row.runtime_revision = previous_runtime_revision if menu_only else row.revision
     db.flush()
     for item in result["prompt_impacts"]:
         view = policy_view(db, item["client_id"])
@@ -482,15 +546,17 @@ def save_policy(db: Session, scope: str, change: PolicyChange, user):
             automatic_credentials(db, item["client_id"]).update(updates, synchronize_session="fetch")
     for client_id, before in previous.items():
         after = policy_view(db, client_id)
-        outstanding = db.query(models.ClientTask.id).filter(
+        outstanding = db.query(models.ClientTask).filter(
             models.ClientTask.client_id == client_id, models.ClientTask.task_type == "sync_policy",
             models.ClientTask.status.in_(("pending", "running")),
-        ).first()
+        ).all()
         routing_changed = before["model_routing"] != after["model_routing"]
+        menus_changed = (before["desktop_menu_visibility"] != after["desktop_menu_visibility"]
+                         or before["desktop_menu_sources"] != after["desktop_menu_sources"])
         if (before["rules"] == after["rules"] and before["prompt_guard"] == after["prompt_guard"]
                 and before["prompt_guard_source"] == after["prompt_guard_source"]
                 and before["compression"] == after["compression"] and before["compression_source"] == after["compression_source"]
-                and not routing_changed
+                and not routing_changed and not menus_changed
                 and before["enabled"] == after["enabled"] and not outstanding):
             continue
         db.query(models.ClientTask).filter(
@@ -510,6 +576,11 @@ def save_policy(db: Session, scope: str, change: PolicyChange, user):
             "target_version": after["version"],
             "previous_version": before["version"],
         }
+        if (menus_changed or outstanding) and all(json.loads(task.payload_json).get("reason") == "desktop_menu_visibility_changed" for task in outstanding) and all(before[key] == after[key] for key in (
+            "rules", "prompt_guard", "prompt_guard_source", "compression", "compression_source",
+            "model_routing", "runtime_governance", "enabled",
+        )):
+            payload["reason"] = "desktop_menu_visibility_changed"
         db.add(models.ClientTask(client_id=client_id, task_type="sync_policy", payload_json=json.dumps(payload),
                                 request_key=hashlib.sha256(f"policy:{client_id}:{after['version']}".encode()).hexdigest()))
     db.flush()

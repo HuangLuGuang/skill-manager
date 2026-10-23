@@ -25,6 +25,8 @@ def _rebuild_model_providers_without_legacy_compression(conn) -> None:
             base_url VARCHAR(512) NOT NULL,
             api_format VARCHAR(32) NOT NULL DEFAULT 'openai',
             api_key TEXT,
+            auth_type VARCHAR(16) NOT NULL DEFAULT 'bearer',
+            custom_headers_encrypted TEXT,
             enabled BOOLEAN NOT NULL DEFAULT 1,
             timeout_seconds INTEGER NOT NULL DEFAULT 60,
             created_at DATETIME NOT NULL,
@@ -35,8 +37,8 @@ def _rebuild_model_providers_without_legacy_compression(conn) -> None:
     conn.exec_driver_sql(
         """
         INSERT INTO model_providers__pre_compression_repair
-            (id, name, base_url, api_format, api_key, enabled, timeout_seconds, created_at, updated_at)
-        SELECT id, name, base_url, api_format, api_key, enabled, timeout_seconds, created_at, updated_at
+            (id, name, base_url, api_format, api_key, auth_type, custom_headers_encrypted, enabled, timeout_seconds, created_at, updated_at)
+        SELECT id, name, base_url, api_format, api_key, auth_type, custom_headers_encrypted, enabled, timeout_seconds, created_at, updated_at
         FROM model_providers
         """
     )
@@ -90,6 +92,9 @@ def migrate() -> None:
                 "ALTER TABLE model_providers ADD COLUMN api_format VARCHAR(32) NOT NULL DEFAULT 'openai'"
             )
             existing.add("api_format")
+        for name, definition in [("auth_type", "VARCHAR(16) NOT NULL DEFAULT 'bearer'"), ("custom_headers_encrypted", "TEXT")]:
+            if name not in existing:
+                conn.exec_driver_sql(f"ALTER TABLE model_providers ADD COLUMN {name} {definition}")
         if "enable_compression" in existing:
             _rebuild_model_providers_without_legacy_compression(conn)
 

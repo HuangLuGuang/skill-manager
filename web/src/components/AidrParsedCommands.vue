@@ -1,9 +1,9 @@
 <template>
-  <section v-if="analysis" class="parsed-commands">
-    <h4>{{ t('aidr.commandParsing.title', { count: analysis.commands.length }) }}</h4>
-    <p class="note">{{ t('aidr.commandParsing.boundary') }}</p>
+  <section v-if="analysis && (analysis.commands.length > 1 || analysis.status !== 'complete')" class="parsed-commands">
+    <h4 v-if="analysis.commands.length > 1">{{ t('aidr.commandParsing.title', { count: analysis.commands.length }) }}</h4>
+    <p v-if="analysis.commands.length > 1" class="note">{{ t('aidr.commandParsing.boundary') }}</p>
     <p v-if="analysis.status !== 'complete'" class="note">{{ t('aidr.commandParsing.status.' + analysis.status) }}</p>
-    <ol v-if="analysis.commands.length">
+    <ol v-if="analysis.commands.length > 1">
       <li v-for="(command, index) in analysis.commands" :key="index">
         <div><strong>{{ command.program || t('aidr.commandParsing.dynamic') }}</strong><span>{{ t('aidr.commandParsing.line', { line: command.line }) }}</span></div>
         <pre>{{ command.text }}</pre>

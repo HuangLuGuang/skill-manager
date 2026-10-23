@@ -72,6 +72,28 @@ Other Agents currently expose model and gateway configuration only. Agents contr
 
 Configuration readback alone cannot establish version or upstream capability support. See the [model switching evidence](acceptance/model-switching-2026-09-13/README.md) for verified combinations, limitations and bilingual screenshots.
 
+### 手动配置与凭证领取 / Manual configuration and credential retrieval
+
+模型切换页展示已发现的 Agent。没有自动配置适配器时，可打开三步手动引导：确认 Agent 支持自定义地址、凭证和所选协议，复制接入字段并保存到 Agent，最后重启并核对网关调用记录。未知 Agent 的设置路径与协议能力需要用户按实际版本确认。
+
+The model switcher shows discovered Agents. Agents without an automatic configuration adapter offer a three-step guide: confirm support for a custom endpoint, credential and protocol; copy connection fields into the Agent; then restart and inspect gateway call records. Users must confirm the settings location and protocol support for their installed Agent version.
+
+在“统一凭证中心”为客户端凭证同时开启“允许创建 Agent 运行凭证”和“允许手动领取并复制 Agent 凭证”。手动领取权限默认关闭，与自动配置授权独立；已有客户端凭证可在列表操作中开启或关闭。关闭手动领取权限会阻止后续领取和复制，不自动撤销已保存到 Agent 的凭证。
+
+In Credentials, enable both Agent credential issuance and manual retrieval/copying on the Client credential. Manual retrieval is off by default and is separate from automatic configuration authorization. Existing Client credentials expose an enable/disable action. Disabling retrieval prevents subsequent retrieval and copying; it does not revoke credentials already saved in an Agent.
+
+内置网关在点击“申请凭证”后创建独立的 `agent_runtime` 凭证，只授予 `model:chat`，绑定本机目标 Agent 和所选已授权模型，继承客户端凭证的有效期、IP 与请求限额及当前客户端防护策略。服务端仅保存凭证 hash；同一次申请重试返回领取记录，不重复返回明文。客户端原生内存最多保留明文 5 分钟，关闭引导时清除；点击复制时重新校验授权，明文仅短暂经过前端写入系统剪贴板，不进入页面状态、任务或审计记录。关闭引导不会清空系统剪贴板或 Agent 中已保存的配置。
+
+For the internal gateway, Request creates a separate `agent_runtime` credential with only `model:chat`, bound to the local Agent and selected authorized model. It inherits the Client credential’s expiry, IP/request limits and current Client protection policy. The server stores only its hash. Retrying the same request returns handoff metadata without returning the secret again. Native Client memory retains the secret for at most five minutes and clears it when the guide closes. Copying revalidates authorization; plaintext briefly passes through the renderer to the system clipboard without entering page state, tasks or audit records. Closing the guide does not clear the system clipboard or the Agent’s saved configuration.
+
+临时副本清除后需要明确“重新领取”：内置网关撤销上一次手动申请的凭证并创建替代凭证，自动配置使用的凭证保持原有生命周期。外部网关沿用当前 Agent 的托管 Key，再次领取不轮换该 Key；实际模型范围和有效期由外部网关决定，所选模型只表示配置目标。关闭客户端权限或吊销父客户端凭证不能替代外部网关的 Key 吊销操作。
+
+After the temporary copy clears, explicit retrieval is required. The internal gateway replaces the previous manually issued credential; automatic configuration credentials retain their lifecycle. External gateways reuse the Agent’s escrowed Key without rotating it. The external gateway determines its actual model scope and expiry; the selected model is the configuration target. Disabling Client permission or revoking the parent Client credential does not replace revocation of the external Key at its gateway.
+
+领取成功、复制成功、用户确认保存与真实调用分别表示不同结果。引导完成后调用状态保持“未验证”；内置网关在 Pipeline Trace 核对 Agent、模型和请求结果，外部网关在其自身审计中核对。
+
+Retrieval, copying, user-confirmed saving and an observed model call are distinct outcomes. Completing the guide leaves call verification as Unverified. Check the Agent, model and request result in Pipeline Trace for internal calls, or in the external gateway’s own audit.
+
 ## 1. 管理台入口
 
 Agent 风险扫描和大模型红队扫描在发起时必须选择评估模型。列表读取网关中模型及供应商均已启用的模型，预览、创建和执行时再次校验。
@@ -86,6 +108,24 @@ Worker 使用任务租约调用 Backend 的任务专属 OpenAI-compatible 评估
 - `隐私链路追踪`：查看一次请求的 Prompt 防护、脱敏、压缩、响应和还原过程。
 
 “供应商与模型”统一在 `/model-gateway/providers` 管理，原 `/model-gateway/models` 地址重定向到该页面。
+
+### 供应商认证与自定义 Header / Provider authentication and custom headers
+
+供应商认证方式默认 `bearer`，发送 `Authorization: Bearer <API Key>`；选择 `raw`（原始 Authorization）时发送 `Authorization: <API Key>`。API Key 为空时不自动添加认证头。旧库升级默认 Bearer，自定义 Header 为空；旧 API 调用修改供应商时省略新字段会保留已有配置。
+
+自定义 Header 最多 32 项，名称最多 128 字符，值最多 4096 个可打印 ASCII 字符，不允许换行及首尾空白。名称不区分大小写且不得重复。请求先生成协议默认头和认证头，再应用自定义 Header，因此自定义 `Authorization` 优先于认证方式与 API Key。支持覆盖 `Host`；`Content-Length`、`Transfer-Encoding`、`Connection`、`Trailer`、`TE`、`Upgrade`、`Keep-Alive`、`Proxy-Authorization`、`Proxy-Connection` 由客户端管理，不允许配置。
+
+Header 值加密存储，读取接口仅返回名称、配置状态和掩码。编辑时值留空保留同名已保存值，填写新值替换，删除行移除；新建或改名必须填写值。API 的 `custom_headers` 是完整行列表（`name`、`value`），空列表清除全部，省略字段保持原样。请勿把掩码当作新值提交。
+
+例如客户要求不带 Bearer 且指定 Host：选择原始 Authorization，在 API Key 填写客户凭证，添加 `Host: model.internal.example`，Base URL 填写客户提供的版本基础路径（如 `http://model.internal.example:8080/service/v1`）。模型发现、连接测试、非流式与流式调用统一使用这些设置。Agent 扫描的评估、分析、攻击模型以及 Skill 扫描走平台网关的模型调用同样生效；独立直连 LLM 使用自身配置。修改供应商会影响其所有模型后续发起的请求，包括运行中扫描任务的后续调用。
+
+连接测试仍发送非流式请求，模型发现仍需上游提供 `/models`；上游未提供模型列表时可手动添加。Header 兼容不代表客户的请求参数、响应格式或网络已经通过验收。
+
+**English:** Providers default to `bearer` (`Authorization: Bearer <API Key>`). Select `raw` to send the API key directly as Authorization. An empty API key produces no automatic authentication header. Existing databases retain Bearer behavior; omitted fields in updates preserve saved settings.
+
+Configure up to 32 custom headers with unique, case-insensitive HTTP names (128 characters maximum) and printable ASCII values (4096 characters maximum, without line breaks or surrounding whitespace). Custom headers override protocol defaults and generated authentication headers, including Authorization. Host overrides are supported. Framing, connection and proxy authentication headers listed above are managed by the client. Values are encrypted and returned only as configuration status and masks. Blank values preserve saved values under the same name; replacing a value updates it, removing a row deletes it, and new or renamed headers require a value. The API accepts a complete `custom_headers` list of `name`/`value` entries; an empty list clears all entries, omission preserves them. Never submit a mask as a replacement value.
+
+Discovery, connection tests, streaming and non-streaming requests share these settings, including Agent scan evaluator/analysis/attack models and Skill scans using the platform gateway. Independent direct LLM connections use their own settings. Provider edits affect subsequent requests for every associated model, including subsequent calls in running scans. Tests remain non-streaming; discovery requires `/models`, otherwise add models manually. Customer network, request parameters and response compatibility still require integration acceptance.
 
 页面按当前功能加载数据：“供应商与模型”只加载供应商和模型，统计卡片所在页面才请求隐私统计。隐私统计在线程池中执行同步数据库查询，按当前用户的凭证范围统计；映射计数使用数据库子查询，历史用量和审计按批次读取所需字段，保留差分隐私保护。
 
@@ -473,7 +513,9 @@ Client-issued model-switching credentials are managed through **Client policies*
 - 服务端只保存 SHA-256 hash 和 key prefix。
 - 创建时自动绑定当前登录用户；运行时按该用户所属用户组解析隐私策略。
 - 可配置允许模型列表、最大请求体大小 `max_body_kb`、最大并发请求数 `max_concurrent_requests`、Prompt 防护和可选压缩。
-- 管理台当前提供创建、吊销和删除，不提供找回明文或就地编辑；需要调整绑定或限额时应创建替代凭证，再吊销旧凭证。
+- 管理台提供创建、编辑权限、吊销和删除。具有 `credentials:update` 权限的用户可编辑未吊销凭证的能力范围、允许模型、MCP 网关，以及客户端自动签发与手动领取权限；外部接口凭证从编辑入口进入专用页面，调整接口权限和部门范围。
+- 模型、Agent、MCP、Scanner 和客户端凭证的权限编辑沿用原凭证，只提交实际变更的权限字段，后续请求按新范围校验。名称、类型、身份绑定、到期时间、来源 IP、限额及防护设置保持原值；明文无法找回。权限至少保留一项，模型列表留空表示允许全部模型，Agent 的 MCP 网关范围仍受绑定 Agent 的授权限制。
+- 客户端自动签发权限与模型范围作用于后续申请，关闭手动领取会阻止后续领取和复制。已签发凭证的权限需要单独编辑或吊销；吊销父客户端凭证仍会级联吊销其有效子凭证。收紧权限可能使后续调用被拒绝，不会中断已经通过授权的在途请求。
 - Agent 的“只做运行校验”和“完整运行治理”方案默认不能调用模型；只有选择包含模型能力的方案，或在自定义方案中加入 `model:chat` 后，才可以调用模型网关。
 
 运行时会检查：

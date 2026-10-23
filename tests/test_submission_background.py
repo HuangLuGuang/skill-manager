@@ -108,7 +108,7 @@ def test_prepare_zip_requires_confirmation_and_records_skipped_links(tmp_path, m
     }).status_code == 409
     def unexpected_extraction(*args, **kwargs):
         raise AssertionError("Confirmation must reuse extracted files")
-    monkeypatch.setattr(api_router, "_extract_zip_with_nested_archives", unexpected_extraction)
+    monkeypatch.setattr(api_router, "_safe_extract_zip", unexpected_extraction)
     response = client.post("/skills/confirm-upload-zip", json={"session_id": session_id, "confirmed": True})
     assert response.status_code == 200
     result = response.json()
@@ -200,7 +200,7 @@ def test_selected_upload_creates_snapshot_directly_from_session(tmp_path, monkey
         api_router._get_upload_jobs(manager).close()
 
 
-def test_nested_zip_skipped_links_include_archive_path(tmp_path):
+def test_upload_preserves_nested_archive_without_extracting_links(tmp_path):
     nested = io.BytesIO()
     with zipfile.ZipFile(nested, "w") as archive:
         info = zipfile.ZipInfo("资源.svg")
@@ -210,8 +210,9 @@ def test_nested_zip_skipped_links_include_archive_path(tmp_path):
     with zipfile.ZipFile(zip_path, "w") as archive:
         archive.writestr("nested.zip", nested.getvalue())
     skipped = []
-    api_router._extract_zip_with_nested_archives(zip_path, tmp_path / "out", skipped_symlinks=skipped)
-    assert skipped == ["nested.zip!/资源.svg"]
+    api_router._safe_extract_zip(zip_path, tmp_path / "out", skipped_symlinks=skipped)
+    assert skipped == []
+    assert (tmp_path / "out/nested.zip").read_bytes() == nested.getvalue()
     assert not (tmp_path / "out/nested/资源.svg").exists()
 
 

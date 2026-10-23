@@ -1830,10 +1830,19 @@ def _dify_mcp_binding_options(db: Session, target: models.SecurityTarget) -> dic
 
 
 def _dify_runtime_inventory_snapshot(
-    db: Session, *, app_id: str, owner_user_id: int | None, owner_group_id: int | None
+    db: Session, *, app_id: str, owner_user_id: int | None, owner_group_id: int | None,
+    target_id: str | None = None,
 ) -> list[dict[str, Any]]:
+    bound_agents = db.query(models.DifyRuntimeBinding.agent_id).join(
+        models.SecurityTarget, models.SecurityTarget.target_id == models.DifyRuntimeBinding.target_id
+    ).filter(
+        models.DifyRuntimeBinding.app_id == app_id,
+        models.DifyRuntimeBinding.target_id == target_id,
+        models.SecurityTarget.owner_user_id == owner_user_id,
+        models.SecurityTarget.owner_group_id == owner_group_id,
+    ).all()
     traces = db.query(models.RuntimeTraceSession).filter(
-        models.RuntimeTraceSession.agent_id == app_id,
+        models.RuntimeTraceSession.agent_id.in_([x[0] for x in bound_agents] if bound_agents else [app_id]),
         models.RuntimeTraceSession.owner_user_id == owner_user_id,
         models.RuntimeTraceSession.owner_group_id == owner_group_id,
     ).order_by(models.RuntimeTraceSession.id.desc()).limit(100).all()
@@ -1843,10 +1852,14 @@ def _dify_runtime_inventory_snapshot(
     events = db.query(models.RuntimeTraceEvent).filter(
         models.RuntimeTraceEvent.trace_id.in_(trace_ids)
     ).order_by(models.RuntimeTraceEvent.event_time).limit(5000).all()
+    payloads = {p.event_id: json_loads(p.redacted_json, {}) for p in db.query(
+        models.RuntimeTracePayload).filter(models.RuntimeTracePayload.event_id.in_([e.event_id for e in events])).all()}
     return [{
         "trace_id": event.trace_id, "event_id": event.event_id,
         "event_time": event.event_time.isoformat(), "type": event.type,
-        "status": event.status, "tool_name": event.tool_name, "node_id": event.step_id,
+        "status": event.status, "tool_name": event.tool_name,
+        "node_id": payloads.get(event.event_id, {}).get("node_id") or event.step_id,
+        "graph_digest": payloads.get(event.event_id, {}).get("graph_digest"),
     } for event in events]
 
 
@@ -2297,6 +2310,7 @@ def _build_scan_task_plan(
         snapshot["dify_runtime_events"] = _dify_runtime_inventory_snapshot(
             db,
             app_id=dify_config["app_id"],
+            target_id=target.target_id,
             owner_user_id=target.owner_user_id,
             owner_group_id=target.owner_group_id,
         )

@@ -13,7 +13,6 @@ tauri-codegen = "=2.0.2"
 libc = "0.2"
 notify = "7.0.0"
 notify-rust = "4.17"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -25,6 +24,7 @@ tauri-runtime = "=2.1.1"
 tauri-runtime-wry = "=2.1.2"
 tauri-utils = "=2.0.2"
 url = "2"
+tokio = { version = "1", features = ["net", "time", "io-util"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_System_Com", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging"] }

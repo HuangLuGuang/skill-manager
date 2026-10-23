@@ -2,6 +2,13 @@ import { formatMcpFieldError } from './mcpServerForm.js'
 import { scanScheduleMessages } from './scanSchedule.js'
 import { skillAuditReview } from './skill-audit-review.js'
 const errorMessages = {
+  'model_provider.invalid_auth_type': { 'zh-CN': '认证方式无效', 'en-US': 'Invalid authentication type' },
+  'model_provider.invalid_headers': { 'zh-CN': '请提供最多 32 项 Header 的列表', 'en-US': 'Provide a list of up to 32 headers' },
+  'model_provider.invalid_header': { 'zh-CN': '第 {index} 项 Header 无效，请检查名称、重复项、保留头及值', 'en-US': 'Header {index} is invalid; check name, duplicates, reserved headers and value' },
+  'model_provider.headers_unreadable': { 'zh-CN': '供应商 Header 无法解密，请重新配置', 'en-US': 'Provider headers cannot be decrypted; configure them again' },
+  'client.desktop_menu_invalid': { 'zh-CN': '菜单配置必须使用支持的菜单标识和布尔值', 'en-US': 'Menu configuration requires supported menu IDs and boolean values' },
+  'credential.scopes_required': { 'zh-CN': '请至少保留一项权限；停止使用请吊销凭证', 'en-US': 'Keep at least one permission; revoke the credential to stop using it' },
+  'credential.revoked': { 'zh-CN': '凭证已吊销，请创建新凭证', 'en-US': 'This credential is revoked; create a new one' },
   "license.invalid": {"zh-CN": "授权文件格式或签名无效", "en-US": "Invalid license format or signature"},
   "license.untrusted_key": {"zh-CN": "签发公钥不受信任，请联系管理员配置", "en-US": "The issuing key is not trusted; contact your administrator"},
   "license.deployment_mismatch": {"zh-CN": "授权与当前部署不匹配", "en-US": "The license belongs to a different deployment"},

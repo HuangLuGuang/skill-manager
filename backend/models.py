@@ -21,6 +21,7 @@ from .scan_schedule_models import (  # noqa: F401
 )
 from .sqlite_db import Base
 from .external_access_models import ExternalPlatform, ExternalApiRequest  # noqa: F401
+from .dify_runtime_models import DifyRuntimeBinding, DifyRuntimeRun, DifyRuntimeCall, DifyRuntimeProcess  # noqa: F401
 from .aidr_models import AidrPolicyReceipt, AidrDevice, AidrBatch, AidrEvent, AidrSource, AidrCoverageRecord, AidrLegacyDestination, AidrOperation, AidrAuditState  # noqa: F401
 from .aidr_enforcement import AidrEnforcementRevision, AidrRuntimeRecord, AidrResponseCommand  # noqa: F401
 from .iam_models import ManagementAudit, Menu, Permission, Role, RolePermission  # noqa: F401
@@ -99,6 +100,8 @@ class ModelProvider(Base):
     base_url = Column(String(512), nullable=False)
     api_format = Column(String(32), default="openai", nullable=False)
     api_key = Column(Text, nullable=True)
+    auth_type = Column(String(16), default="bearer", server_default="bearer", nullable=False)
+    custom_headers_encrypted = Column(Text, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
     timeout_seconds = Column(Integer, default=60, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -159,6 +162,7 @@ class AccessToken(Base):
     bound_agent_id = Column(String(128), index=True, nullable=True)
     bound_client_id = Column(String(128), index=True, nullable=True)
     allow_agent_credential_issuance = Column(Boolean, default=False, nullable=False)
+    allow_manual_credential_export = Column(Boolean, default=False, nullable=False)
     issued_by_client_token_id = Column(Integer, index=True, nullable=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     group_id = Column(Integer, ForeignKey("user_groups.id"), index=True, nullable=True)
@@ -492,6 +496,7 @@ class ManagedClient(Base):
     arch = Column(String(32), nullable=False)
     client_version = Column(String(64), nullable=False)
     governance_mode = Column(String(32), default="registry", nullable=False)
+    discovery_overrides_json = Column(Text, default="[]", nullable=False)
     policy_mode = Column(String(32), default="audit", nullable=False)
     status = Column(String(32), default="online", nullable=False)
     last_seen_at = Column(DateTime, default=datetime.utcnow, index=True, nullable=False)
@@ -507,6 +512,11 @@ class ClientGovernancePolicy(Base):
     prompt_guard_json = Column(Text, default="null", nullable=False)
     compression_json = Column(Text, default="null", nullable=False)
     model_routing_json = Column(Text, default="null", nullable=False)
+    desktop_menu_visibility_json = Column(Text, default="{}", nullable=False)
+    desktop_menu_protocol = Column(Integer, default=0, nullable=False)
+    desktop_menu_applied_json = Column(Text, nullable=True)
+    desktop_menu_reported_at = Column(DateTime, nullable=True)
+    runtime_revision = Column(Integer, nullable=True)
     runtime_governance_json = Column(Text, default="null", nullable=False)
     revision = Column(Integer, default=0, nullable=False)
     enabled = Column(Boolean, default=False, nullable=False)

@@ -64,10 +64,12 @@ func heartbeatOnce(ctx context.Context, home string, api API, store *Store) erro
 		return err
 	}
 	previous, _, _ := store.State("policy")
+	var previousPolicy Policy
+	_ = json.Unmarshal([]byte(previous), &previousPolicy)
 	if err := store.SetState("policy", string(body)); err != nil {
 		return err
 	}
-	if previous != string(body) {
+	if previous != string(body) && !onlyDesktopMenusChanged(previousPolicy, policy) {
 		_ = RequestFullScan(home)
 	}
 	return nil
@@ -201,6 +203,13 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 	defer cancel()
 	var workers sync.WaitGroup
 	defer func() { cancel(); workers.Wait() }()
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		if err := ServeDesktop(ctx, home); err != nil {
+			store.LogDiagnostic("error", "desktop", "desktop_ipc_failed", map[string]any{"error": err.Error()})
+		}
+	}()
 	if AIDRHookRunner != nil {
 		workers.Add(1)
 		go func() {
@@ -323,7 +332,11 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		taskErr := flushTaskResults(request, clientIDForHome(home), api, store)
 		return taskErr
 	})
-	periodic(time.Second, "events", func(request context.Context) error { return flushEvents(request, api, store) })
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		runEventUploader(ctx, api, store)
+	}()
 	workers.Add(1)
 	go func() {
 		defer workers.Done()

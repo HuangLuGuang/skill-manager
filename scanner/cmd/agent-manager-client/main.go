@@ -94,6 +94,8 @@ func run(args []string) (runErr error) {
 	name := fs.String("name", "", "client display name")
 	skillsPath := fs.String("skills-path", "", "custom Agent Skill directory")
 	confirm := fs.Bool("confirm", false, "apply takeover after showing the plan")
+	recoverySnapshot := fs.Bool("recovery", false, "include recovery partitions in the local snapshot")
+	desktopRequest := fs.String("desktop-request", "", "platform desktop request as JSON")
 	forceServiceRestart := fs.Bool("force-restart", false, "restart an installed background service even when its binary is current")
 	backup := fs.String("backup", "", "backup name to restore")
 	itemID := fs.String("id", "", "pending or quarantine item ID")
@@ -189,6 +191,19 @@ func run(args []string) (runErr error) {
 			return err
 		}
 		return json.NewEncoder(os.Stdout).Encode(map[string]string{"path": path})
+	}
+	if args[0] == "desktop-platform" {
+		var request managedclient.DesktopRequest
+		decoder := json.NewDecoder(strings.NewReader(*desktopRequest))
+		decoder.DisallowUnknownFields()
+		if len(*desktopRequest) > 16384 || decoder.Decode(&request) != nil || request.Version != 1 {
+			return fmt.Errorf("client_ipc_invalid_request")
+		}
+		result, err := managedclient.DesktopPlatform(context.Background(), *home, request)
+		if err != nil {
+			return json.NewEncoder(os.Stdout).Encode(map[string]string{"error": err.Error()})
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"result": result})
 	}
 	config, err := managedclient.LoadConfig(*home)
 	if err != nil {
@@ -469,13 +484,7 @@ func run(args []string) (runErr error) {
 		return json.NewEncoder(os.Stdout).Encode(result)
 	}
 	if args[0] == "scan-history" || args[0] == "refresh-scan-history" || args[0] == "pending" || args[0] == "refresh-pending" || args[0] == "submit-pending" || args[0] == "discard-pending" || args[0] == "discard-quarantine" || args[0] == "quarantine" || args[0] == "queue-quarantine" {
-		if args[0] == "discard-pending" || args[0] == "discard-quarantine" || args[0] == "queue-quarantine" {
-			release, err := managedclient.AcquireMutationLockWithTimeout(*home, interactiveMutationLockTimeout)
-			if err != nil {
-				return err
-			}
-			defer release()
-		}
+
 		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
 		if err != nil {
 			return err
@@ -563,6 +572,13 @@ func run(args []string) (runErr error) {
 			}
 			return json.NewEncoder(os.Stdout).Encode(item)
 		}
+	}
+	if args[0] == "local-snapshot" {
+		snapshot, err := managedclient.DesktopSnapshot(context.Background(), *home, *recoverySnapshot)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(snapshot)
 	}
 	if args[0] == "local-status" {
 		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
@@ -853,11 +869,6 @@ func run(args []string) (runErr error) {
 			if policy.Classification != nil && policy.Classification.Enabled {
 				return managedclient.RunFullScan(ctx, *home, api, store)
 			}
-			release, err := managedclient.AcquireMutationLock(*home)
-			if err != nil {
-				return err
-			}
-			defer release()
 		}
 		if err := api.ReportInventory(ctx, inventory); err != nil {
 			cancel()
@@ -873,12 +884,8 @@ func run(args []string) (runErr error) {
 		if !*confirm {
 			return json.NewEncoder(os.Stdout).Encode(plan)
 		}
-		backup, err := managedclient.ApplyTakeover(*home, &plan)
+		backup, err := managedclient.ConfirmTakeover(context.Background(), *home, &plan, store)
 		if err != nil {
-			return err
-		}
-		if err := managedclient.RecordTakeover(*home, plan, store); err != nil {
-			managedclient.RestoreTakeover(plan, backup)
 			return err
 		}
 		fresh, err := managedclient.Discover(*home)

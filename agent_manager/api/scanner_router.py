@@ -25,7 +25,7 @@ from agent_manager.api.router import (
     ToolCheckResponse,
     VerifySkillSignatureRequest,
     VerifySkillSignatureResponse,
-    _extract_zip_with_nested_archives,
+    _safe_extract_zip,
     _process_pending_submission_task,
     _resolve_skill_root,
     _scan_executor,
@@ -718,7 +718,8 @@ def submit_scanner_import(
         zip_path.write_bytes(content)
 
         extract_dir = tmp_dir / "skill"
-        _extract_zip_with_nested_archives(zip_path, extract_dir)
+        # Verify the transport manifest before analysis expands nested archives.
+        _safe_extract_zip(zip_path, extract_dir)
         skill_root = _resolve_skill_root(extract_dir)
         try:
             skill_name, _, _, _ = _load_manifest(skill_root)

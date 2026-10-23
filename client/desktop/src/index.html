@@ -17,10 +17,10 @@
         <p class="rail-tagline">统一治理智能体配置、能力与运行安全。</p>
         <nav aria-label="客户端流程">
           <button class="nav-item active" data-panel="connect"><span class="nav-index">01</span><span class="nav-label">客户端概览</span></button>
-          <button class="nav-item" data-panel="discover"><span class="nav-index">02</span><span class="nav-label" data-i18n="ui.agentManagement.title">Agent 管理</span></button>
-          <button class="nav-item" data-panel="models"><span class="nav-index">03</span><span class="nav-label">模型切换</span></button>
-          <button class="nav-item" data-panel="records"><span class="nav-index">04</span><span class="nav-label">执行记录</span></button>
-          <button class="nav-item" data-panel="runtime-governance"><span class="nav-index">05</span><span class="nav-label" data-i18n="ui.aidrDesktop.title">Agent 运行治理</span></button>
+          <button class="nav-item" data-panel="discover" hidden><span class="nav-index">02</span><span class="nav-label" data-i18n="ui.agentManagement.title">Agent 管理</span></button>
+          <button class="nav-item" data-panel="models" hidden><span class="nav-index">03</span><span class="nav-label">模型切换</span></button>
+          <button class="nav-item" data-panel="records" hidden><span class="nav-index">04</span><span class="nav-label">执行记录</span></button>
+          <button class="nav-item" data-panel="runtime-governance" hidden><span class="nav-index">05</span><span class="nav-label" data-i18n="ui.aidrDesktop.title">Agent 运行治理</span></button>
         </nav>
         <div class="rail-note"><div><strong data-system-name>智能体生命周期管理系统</strong><small id="client-build-version">版本 dev</small></div></div>
       </aside>
@@ -150,10 +150,14 @@
           </div>
           <section id="agent-local-panel" role="tabpanel" aria-labelledby="agent-local-tab">
           <div class="agent-skill-filters"><div class="agent-search-field" data-ui-icon="search"><input id="agent-skill-search" type="search" placeholder="搜索 Skill 名称" data-i18n-placeholder="ui.agentTabs.search" aria-label="搜索 Skill 名称" data-i18n-aria-label="ui.agentTabs.search" /></div><select id="agent-skill-status" aria-label="认证状态" data-i18n-aria-label="ui.agentTabs.status"><option value="" data-i18n="ui.agentTabs.all">全部认证状态</option><option value="trusted" data-i18n="ui.agentTabs.trusted">已认证</option><option value="unverified" data-i18n="ui.agentTabs.unverified">未认证</option><option value="changed" data-i18n="ui.agentTabs.changed">内容变化</option><option value="malicious" data-i18n="ui.agentTabs.malicious">已确认恶意</option></select></div>
-          <div class="agent-skill-columns"><span>Skill</span><span data-i18n="ui.agentTabs.status">认证状态</span><span data-i18n="ui.agentTabs.actions">操作</span></div>
+          <div id="skill-batch-toolbar" class="skill-batch-toolbar">
+            <div><strong id="skill-batch-count" data-no-i18n></strong><span id="skill-batch-eligible" data-no-i18n></span><button id="skill-batch-clear" class="text-button" data-i18n="ui.skillBatch.clear">清空选择</button></div>
+            <div><button id="skill-batch-uninstall" data-ui-icon="trash-2" data-no-i18n></button><button id="skill-batch-submit" class="action-success" data-ui-icon="shield-check" data-no-i18n></button></div>
+          </div>
+          <div class="agent-skill-columns"><div class="skill-select-heading"><input id="skill-select-page" type="checkbox" data-i18n-aria-label="ui.skillBatch.selectPage" aria-label="全选当前页" data-i18n-title="ui.skillBatch.selectionHelp" title="全选当前页；翻页保留选择，切换 Agent 或筛选时清空。" /></div><span>Skill</span><span data-i18n="ui.agentTabs.status">认证状态</span><span data-i18n="ui.agentTabs.actions">操作</span></div>
           <div id="agent-list" class="agent-list empty" data-no-i18n></div>
           <p id="agent-skill-empty" class="empty" hidden data-i18n="ui.agentTabs.empty">没有符合条件的 Skill</p>
-          <div class="agent-skill-pagination"><span id="agent-skill-total"></span><div><span data-i18n="ui.records.page_size">每页条数</span><select id="agent-skill-page-size" aria-label="每页条数" data-i18n-aria-label="ui.records.page_size"><option selected>10</option><option>20</option><option>50</option></select><button id="agent-skill-prev" data-ui-icon="chevron-left" data-i18n="ui.records.previous">上一页</button><span id="agent-skill-page"></span><button id="agent-skill-next" data-ui-icon="chevron-right" data-i18n="ui.records.next">下一页</button></div></div>
+          <div class="agent-skill-pagination"><span><span id="agent-skill-total"></span></span><div><span data-i18n="ui.records.page_size">每页条数</span><select id="agent-skill-page-size" aria-label="每页条数" data-i18n-aria-label="ui.records.page_size"><option selected>10</option><option>20</option><option>50</option></select><button id="agent-skill-prev" data-ui-icon="chevron-left" data-i18n="ui.records.previous">上一页</button><span id="agent-skill-page"></span><button id="agent-skill-next" data-ui-icon="chevron-right" data-i18n="ui.records.next">下一页</button></div></div>
           <p class="agent-discovery-tip">没有找到需要管理的 Agent？可点击右上角“添加 Agent”，手动指定 Skill 根目录。</p>
           </section>
           <section id="agent-pending-panel" role="tabpanel" aria-labelledby="agent-pending-tab" hidden>
@@ -267,6 +271,8 @@
             <details id="aidr-audit-history" class="governance-audit-history" hidden>
               <summary id="aidr-audit-history-summary"></summary>
               <p id="aidr-audit-history-explanation"></p>
+              <button id="aidr-audit-history-ack" type="button" data-no-i18n></button>
+              <p id="aidr-audit-history-ack-error" role="alert" hidden data-no-i18n></p>
               <dl id="aidr-audit-history-fields" class="detail-list"></dl>
             </details>
             <div class="governance-workbench">
@@ -454,13 +460,6 @@
         </section>
       </section>
     </main>
-    <dialog id="rescan-confirm-dialog" class="message-dialog" aria-labelledby="rescan-confirm-title">
-      <form method="dialog" class="message-dialog-body">
-        <h3 id="rescan-confirm-title" data-i18n="ui.agentManagement.rescan_title">重新检测 Skill</h3>
-        <p data-i18n="ui.agentManagement.rescan_certified_confirm">该本地 Skill 已认证，是否重新提交平台检测？</p>
-        <div class="dialog-actions"><button value="cancel" data-i18n="ui.agentManagement.cancel">取消</button><button value="confirm" class="primary" data-i18n="ui.agentManagement.rescan_submit">重新检测</button></div>
-      </form>
-    </dialog>
     <dialog id="message-dialog" class="message-dialog">
       <div class="message-dialog-body">
         <h3 id="message-dialog-title">操作提示</h3>
@@ -603,6 +602,17 @@
         <div class="dialog-actions"><button id="cancel-custom-agent" class="icon-button icon-close" type="button">取消</button><button class="action-success icon-button icon-add" type="submit" data-busy-text="正在添加...">添加并发现</button></div>
       </form>
     </dialog>
+    <dialog id="skill-batch-dialog" class="message-dialog skill-batch-dialog" aria-labelledby="skill-batch-title">
+      <div class="message-dialog-body">
+        <h3 id="skill-batch-title" data-no-i18n></h3>
+        <p id="skill-batch-description" data-no-i18n></p>
+        <p id="skill-batch-progress" role="status" data-no-i18n></p>
+        <div id="skill-batch-items" class="skill-batch-items" data-no-i18n></div>
+        <label id="skill-batch-retain-wrap" class="skill-action-retain"><input id="skill-batch-retain" type="checkbox" checked /><span data-i18n="ui.agentManagement.retain_copy">保留恢复副本</span></label>
+        <p id="skill-batch-retain-note" data-no-i18n></p>
+        <div class="dialog-actions"><button id="skill-batch-close" data-no-i18n></button><button id="skill-batch-confirm" class="primary" data-no-i18n></button></div>
+      </div>
+    </dialog>
     <dialog id="skill-action-dialog" class="message-dialog skill-action-dialog" aria-labelledby="skill-action-title" aria-describedby="skill-action-description">
       <div class="message-dialog-body">
         <h3 id="skill-action-title" data-no-i18n></h3>
@@ -638,9 +648,12 @@
     <script src="./i18n.js"></script>
     <script src="./diagnostics.js"></script>
     <script src="./event-records.js"></script>
+    <script src="./skill-batch.js"></script>
     <script src="./app.js"></script>
+    <script src="./manual-model.js"></script>
     <script src="./aidr-products.js"></script>
     <script src="./governance-workbench.js"></script>
+    <script src="./aidr-gap-ack.js"></script>
     <script src="./aidr-plugins.js"></script>
     <script src="./aidr-client-update.js"></script>
     <script src="./system-collection.js"></script>

@@ -551,6 +551,9 @@ def _now() -> datetime:
 def _provider_response(row: models.ModelProvider) -> schemas.ModelProviderResponse:
     return schemas.ModelProviderResponse(
         id=row.id,
+        auth_type=row.auth_type or "bearer",
+        custom_headers=[{"name": name, "configured": True, "masked_value": "********"}
+                        for name in _provider_headers(row)],
         name=row.name,
         base_url=row.base_url,
         api_format=getattr(row, "api_format", "openai"),
@@ -1349,6 +1352,43 @@ def _is_valid_provider_test_response(api_format: str, payload: Any) -> bool:
     )
 
 
+def _provider_headers(provider: models.ModelProvider) -> dict[str, str]:
+    encrypted = getattr(provider, "custom_headers_encrypted", None)
+    if not encrypted:
+        return {}
+    plaintext = _unprotect_secret(encrypted)
+    if plaintext is None:
+        raise ApiError(500, "model_provider.headers_unreadable", "供应商 Header 无法解密，请重新配置", "Provider headers cannot be decrypted; configure them again")
+    return json.loads(plaintext)
+
+
+def _prepare_provider_settings(data: dict, row: models.ModelProvider | None = None) -> None:
+    if "auth_type" in data and data["auth_type"] not in {"bearer", "raw"}:
+        raise ApiError(422, "model_provider.invalid_auth_type", "认证方式无效", "Invalid authentication type")
+    if "custom_headers" not in data:
+        return
+    entries = data.pop("custom_headers")
+    result = {}
+    def invalid(index):
+        return ApiError(422, "model_provider.invalid_header", f"第 {index} 项 Header 无效：检查名称、重复项、保留头或值（仅可打印 ASCII，最多 4096 字符）", f"Header {index} is invalid: check name, duplicates, reserved headers or value (printable ASCII, up to 4096 characters)", params={"index": index})
+    if entries is None or len(entries) > 32:
+        raise ApiError(422, "model_provider.invalid_headers", "最多配置 32 项 Header，不能为空值", "Provide a list of up to 32 headers")
+    old = _provider_headers(row) if row and any(entry.get("value") in (None, "") for entry in entries) else {}
+    for index, entry in enumerate(entries, 1):
+        name, value = entry.get("name"), entry.get("value")
+        if not isinstance(name, str) or len(name) > 128 or not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name):
+            raise invalid(index)
+        name = name.lower()
+        if name in result or name in {"content-length", "transfer-encoding", "connection", "trailer", "te", "upgrade", "keep-alive", "proxy-authorization", "proxy-connection"}:
+            raise invalid(index)
+        if value is None or value == "":
+            value = old.get(name)
+        if not isinstance(value, str) or not value.strip() or len(value) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in value) or value != value.strip():
+            raise invalid(index)
+        result[name] = value
+    data["custom_headers_encrypted"] = _protect_secret(json.dumps(result)) if result else None
+
+
 def _upstream_request(provider: models.ModelProvider, payload: dict[str, Any]) -> tuple[str, dict[str, Any], dict[str, str]]:
     api_format = getattr(provider, "api_format", "openai") or "openai"
     payload = dict(payload)
@@ -1356,11 +1396,13 @@ def _upstream_request(provider: models.ModelProvider, payload: dict[str, Any]) -
     headers = {"content-type": "application/json"}
     api_key = _unprotect_secret(provider.api_key)
     if api_key:
-        headers["authorization"] = f"Bearer {api_key}"
+        headers["authorization"] = api_key if provider.auth_type == "raw" else f"Bearer {api_key}"
         if api_format == "anthropic":
             headers["x-api-key"] = api_key
     if api_format == "anthropic":
         headers["anthropic-version"] = "2023-06-01"
+    headers.update(_provider_headers(provider))
+    if api_format == "anthropic":
         upstream_payload = openai_to_anthropic_request(payload)
         upstream_payload.update(anthropic_options)
         return _anthropic_url(provider.base_url), upstream_payload, headers
@@ -2104,6 +2146,7 @@ async def create_model_provider(
     if db.query(models.ModelProvider).filter(models.ModelProvider.name == body.name).first():
         raise HTTPException(status_code=400, detail="模型供应商已存在")
     data = body.model_dump()
+    _prepare_provider_settings(data)
     data["api_key"] = _protect_secret(data.get("api_key"))
     row = models.ModelProvider(**data)
     db.add(row)
@@ -2124,6 +2167,7 @@ async def update_model_provider(
         raise HTTPException(status_code=404, detail="模型供应商不存在")
     data = body.model_dump(exclude_unset=True)
     clear_api_key = data.pop("clear_api_key", False)
+    _prepare_provider_settings(data, row)
     if clear_api_key:
         row.api_key = None
     for field, value in data.items():

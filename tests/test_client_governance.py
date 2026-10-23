@@ -13,6 +13,7 @@ from backend.sqlite_db import Base
 
 @pytest.fixture
 def db(tmp_path):
+    from backend.runtime_governance import HookEnrollment  # Register the table used by policy_view before create_all.
     engine = create_engine(f"sqlite:///{tmp_path / 'governance.db'}")
     Base.metadata.create_all(engine)
     with Session(engine) as session:

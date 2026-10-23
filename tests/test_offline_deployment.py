@@ -14,11 +14,12 @@ import tarfile
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+pytestmark = pytest.mark.skipif(sys.platform != 'linux', reason='Deployment targets Linux system tools')
 
 
 def make_release(root, version='1.0.7', platform='linux/amd64'):
     root.mkdir(parents=True, exist_ok=True)
-    for name in ('start.sh', 'upgrade.sh', 'deploy/offline.py', '.env.example',
+    for name in ('start.sh', 'upgrade.sh', 'deploy/offline.sh', '.env.example',
                  'deploy/nginx/default.conf', 'docs/offline-deployment.md', 'docs/docker-deployment.md', 'docs/license.md'):
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -26,6 +27,7 @@ def make_release(root, version='1.0.7', platform='linux/amd64'):
     (root / 'docker-compose.yaml').write_text(
         (ROOT / 'docker-compose.yaml').read_text().replace('${TAG:-latest}', version))
     (root / 'release-provenance.json').write_text(json.dumps({'version': version, 'platform': platform}))
+    (root / 'release-info').write_text(f'{version}\n{platform}\n')
     arch = 'arm' if platform == 'linux/arm64' else 'x86'
     image = root / f'docker_images/{arch}/agent-manager-images-{version}.tar.xz'
     image.parent.mkdir(parents=True, exist_ok=True)
@@ -48,6 +50,9 @@ def installation(tmp_path):
     (root / '.env').chmod(0o600)
     binaries = tmp_path / 'bin'
     binaries.mkdir()
+    for name in ('bash', 'dirname', 'cat', 'timeout', 'flock', 'tar', 'awk', 'mktemp',
+                 'cp', 'chmod', 'mv', 'mkdir', 'rm', 'date', 'find', 'gzip'):
+        (binaries / name).symlink_to(shutil.which(name))
     log = tmp_path / 'docker.jsonl'
     docker = binaries / 'docker'
     docker.write_text(f'#!{sys.executable}\n' + r'''
@@ -73,9 +78,9 @@ elif args[0] == 'compose':
             sys.exit(1)
         print('Docker Compose version v2.30.0')
     elif '--help' in args:
-        print('--wait --wait-timeout --pull --no-build --format')
+        print('--wait --wait-timeout --pull --no-build --images')
     elif 'config' in args:
-        print(json.dumps(yaml.safe_load(Path(args[args.index('-f') + 1]).read_text())))
+        print('\n'.join(service['image'] for service in yaml.safe_load(Path(args[args.index('-f') + 1]).read_text())['services'].values()))
     elif 'up' in args:
         sys.exit(1 if fail == 'health' else 0)
     elif 'exec' in args:
@@ -85,12 +90,13 @@ elif args[0] == 'compose':
     shutil.copy2(docker, binaries / 'docker-compose')
 
     def run(action='start', archive=None, failure='', runner_root=None, extra_args=()):
-        env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'],
+        env = dict(os.environ, PATH=str(binaries),
                    DOCKER_LOG=str(log), DEPLOY_TEST_FAILURE=failure)
-        # The helper is standalone, so use the environment's Python with PyYAML for the fake Docker only.
-        python_link = binaries / 'python3'
-        if not python_link.exists():
-            python_link.symlink_to(sys.executable)
+        # Any host Python invocation fails; the Docker double uses an absolute test interpreter.
+        for name in ('python', 'python2', 'python3'):
+            blocker = binaries / name
+            blocker.write_text('#!/bin/sh\necho "host Python invoked" >&2\nexit 99\n')
+            blocker.chmod(0o755)
         command = ['bash', str((runner_root or root) / f'{action}.sh')]
         if archive:
             command.append(str(archive))
@@ -158,7 +164,7 @@ def test_custom_port_survives_restart_and_upgrade(tmp_path, installation, monkey
     assert (root / '.env').read_text() == expected
     backup, = (root / 'backups').iterdir()
     assert (backup / '.env').read_text() == expected
-    result, _ = run(extra_args=('--port', '18087'))
+    result, _ = run(extra_args=('--port=18087',))
     assert result.returncode == 0, result.stderr
     assert (root / '.env').read_text() == original + 'HTTP_PORT=18087\n'
 
@@ -265,18 +271,47 @@ def test_upgrade_rejects_wrong_compose_version(tmp_path, installation):
     assert not (root / 'backups').exists()
 
 
-def test_upgrade_does_not_write_through_existing_deployment_symlink(tmp_path, installation):
+@pytest.mark.parametrize('target_type', ['symlink', 'directory'])
+def test_upgrade_rejects_unsafe_deployment_target(tmp_path, installation, target_type):
     root, run = installation
     original = (root / 'docker-compose.yaml').read_bytes()
     external = tmp_path / 'external.conf'
     external.write_text('site-managed config')
     nginx = root / 'deploy/nginx/default.conf'
     nginx.unlink()
-    nginx.symlink_to(external)
+    if target_type == 'symlink':
+        nginx.symlink_to(external)
+    else:
+        nginx.mkdir()
     source = make_release(tmp_path / 'new')
     result, calls = run('upgrade', package(source, tmp_path / 'release.tar.gz'))
     assert result.returncode != 0
-    assert '软链接' in result.stderr
+    assert ('软链接' if target_type == 'symlink' else '不是普通文件') in result.stderr
     assert external.read_text() == 'site-managed config'
     assert (root / 'docker-compose.yaml').read_bytes() == original
     assert not any('--force-recreate' in call for call in calls)
+
+
+def test_upgrade_from_legacy_installation_using_new_script(tmp_path, installation):
+    root, run = installation
+    (root / 'release-info').unlink()
+    (root / 'deploy/offline.sh').unlink()
+    (root / 'upgrade.sh').write_text('#!/bin/bash\nexec python3 deploy/offline.py "$@"\n')
+    original = (root / '.env').read_bytes()
+    source = make_release(tmp_path / 'new')
+    result, _ = run('upgrade', package(source, tmp_path / 'release.tar.gz'), runner_root=source)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (root / '.env').read_bytes() == original
+    assert (root / 'release-info').read_text() == '1.0.7\nlinux/amd64\n'
+    assert 'offline.sh' in (root / 'upgrade.sh').read_text()
+
+
+@pytest.mark.parametrize('metadata', ['invalid version\nlinux/amd64\n', '1.0.7\nlinux/other\n',
+                                       '1.0.7\n', '1.0.7\nlinux/amd64\nextra\n'])
+def test_invalid_release_metadata_stops_before_docker(installation, metadata):
+    root, run = installation
+    (root / 'release-info').write_text(metadata)
+    result, calls = run()
+    assert result.returncode != 0
+    assert '[ERROR]' in result.stderr
+    assert not calls

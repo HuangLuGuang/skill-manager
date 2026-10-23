@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-exec python3 "$ROOT/deploy/offline.py" upgrade --install-dir "$ROOT" "$@"
+exec bash "$ROOT/deploy/offline.sh" upgrade --install-dir "$ROOT" "$@"
