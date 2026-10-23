@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -14,6 +14,59 @@ from backend import auth, iam_models as im, models
 from backend.api_errors import ApiError, api_error_handler, validation_error_handler
 from backend.routers import access_tokens, mcp_gateway
 from backend.sqlite_db import Base, get_db
+
+
+@pytest.mark.parametrize("day", [
+    datetime(2026, 10, 23), datetime(2026, 11, 1), datetime(2027, 1, 1),
+])
+@pytest.mark.parametrize("elapsed", [
+    timedelta(), timedelta(hours=7), timedelta(hours=7, minutes=59, seconds=59),
+    timedelta(hours=8), timedelta(hours=9), timedelta(days=1, microseconds=-1),
+])
+def test_approval_stats_use_beijing_calendar_day(tmp_path, monkeypatch, day, elapsed):
+    client, sessions = _client(tmp_path, monkeypatch)
+    now_utc = day + elapsed - timedelta(hours=8)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def utcnow(cls):
+            return now_utc
+
+        @classmethod
+        def now(cls, tz=None):
+            # 模拟非北京时间的服务器，统计边界必须显式指定时区。
+            if tz is None:
+                return now_utc - timedelta(hours=5)
+            return now_utc.replace(tzinfo=timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr(mcp_gateway, "datetime", FixedDatetime)
+    start = day - timedelta(hours=8)
+    end = start + timedelta(days=1)
+    # UTC 存储覆盖北京时间昨日末尾、今日零点、凌晨及次日零点。
+    times = [start - timedelta(microseconds=1), start, start + timedelta(hours=6, minutes=30),
+             end - timedelta(microseconds=1), end, None]
+    with sessions() as db:
+        for status in ("approved", "used", "expired", "rejected"):
+            for index, reviewed_at in enumerate([*times, start]):
+                key = f"{status}-{index}"
+                db.add(models.McpToolApproval(
+                    approval_hash=key, request_id=key if index < len(times) else None,
+                    token_id=1, gateway_slug="stats-test", tool_name="test_tool",
+                    arguments_hash="hash", status=status, expires_at=datetime(2099, 1, 1),
+                    created_by="test", created_at=start - timedelta(days=2),
+                    reviewed_at=reviewed_at,
+                ))
+        db.add(models.McpToolApproval(
+            approval_hash="pending", request_id="pending", token_id=1,
+            gateway_slug="stats-test", tool_name="test_tool", arguments_hash="hash",
+            status="pending", expires_at=datetime(2099, 1, 1), created_by="test",
+        ))
+        db.commit()
+    response = client.get("/api/v1/mcp/approval-requests/stats")
+    assert response.status_code == 200
+    assert response.json() == {
+        "pending": 1, "approved_today": 9, "rejected_today": 3, "expired": 6,
+    }
 
 
 @pytest.mark.parametrize("status", [None, "pending", "approved,rejected,used,expired,cancelled"])
