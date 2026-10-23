@@ -1703,9 +1703,9 @@ LLM 现在做这些事：
 2. 生成一篇专业的安全分析报告
 3. **生成详细的攻击链分析**，如果是恶意skill, 会生成攻击链并映射到 MITRE ATT&CK（传统网络安全）和 MITRE ATLAS（AI 安全）框架
 
-策略配置的“AI 分析服务 → 超时（秒）”是本次 AI 分析的总预算，包含输入准备、模型调用和结果处理，不包含前序确定性分析器耗时。内部模型网关请求按供应商超时与本次剩余预算的较小值执行；直连及环境变量网关也受剩余预算约束。总时限到期后取消并清理请求，报告记录 `analyzer_timings.llm.reason=llm_analysis_timeout` 与本次秒数，详情 LLM 项展示双语说明；供应商先超时则保留其失败原因。可在高级配置中保存 5–180 秒后重新检测应用；历史报告继续使用当次记录。
+策略配置的“AI 分析服务 → 超时（秒）”是本次 AI 分析的总预算，包含输入准备、模型调用和结果处理，不包含前序确定性分析器耗时。内部模型网关请求按供应商超时与本次剩余预算的较小值执行；直连及环境变量网关也受剩余预算约束。总时限到期后取消并清理请求，报告记录 `analyzer_timings.llm.reason=llm_analysis_timeout` 与本次秒数，详情 LLM 项展示双语说明；供应商先超时则保留其失败原因。可在高级配置中保存 5–600 秒后重新检测应用；历史报告继续使用当次记录。
 
-The **AI analysis service → Timeout (seconds)** setting limits the full AI analysis, including input preparation, the model request and result processing, excluding earlier deterministic analyzers. Internal gateway requests use the smaller of the provider timeout and remaining analysis budget; direct and environment-configured gateway requests also obey the remaining budget. Expiry cancels and closes the request and records `llm_analysis_timeout` with the configured seconds for bilingual detail display. An earlier provider timeout retains its own reason. Save a value between 5 and 180 seconds and rescan to apply it; historical reports retain their recorded outcome.
+The **AI analysis service → Timeout (seconds)** setting limits the full AI analysis, including input preparation, the model request and result processing, excluding earlier deterministic analyzers. Internal gateway requests use the smaller of the provider timeout and remaining analysis budget; direct and environment-configured gateway requests also obey the remaining budget. Expiry cancels and closes the request and records `llm_analysis_timeout` with the configured seconds for bilingual detail display. An earlier provider timeout retains its own reason. Save a value between 5 and 600 seconds and rescan to apply it; historical reports retain their recorded outcome.
 
 深度扫描和 Sandbox 不再各自发起前置 LLM 请求。Sandbox 使用确定性的 probe 计划执行；LLM 只在所有已选分析器结束后调用一次。
 
@@ -2162,7 +2162,7 @@ ZIP 中存在软链接时，页面展示路径清单，可选择“跳过软链�
 
 | 字段 | 写入规则 |
 |---|---|
-| AI 超时 / 最多读取文件数 | 正整数，分别为 5–180 秒 / 1–20 |
+| AI 超时 / 最多读取文件数 | 正整数，分别为 5–600 秒 / 1–20 |
 | Skill 描述 / 单文件字符上限 | 正整数，分别为 2000–50000 / 500–20000 |
 | 分析模型 | 列表选择，AI 启用时必选，关闭时可空 |
 | Sandbox 超时 | 正整数，1–300 秒；远程模式为请求等待超时 |
