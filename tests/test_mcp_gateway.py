@@ -788,14 +788,17 @@ def test_high_risk_tool_requires_single_use_argument_bound_approval(tmp_path, mo
     assert replayed.json()["error"]["code"] == -32002
 
 
-def test_high_risk_call_creates_time_bound_tool_authorization(tmp_path, monkeypatch):
+@pytest.mark.parametrize("risk_level", ["low", "medium", "high"])
+def test_risk_level_call_creates_time_bound_tool_authorization(
+    tmp_path, monkeypatch, risk_level,
+):
     client, testing_session = _client(tmp_path, monkeypatch)
     _configured_gateway(client)
     search_tool = next(tool for tool in client.get("/api/v1/mcp/servers").json()[0]["tools"] if tool["name"] == "search")
     client.put(
         f"/api/v1/mcp/tools/{search_tool['id']}/policy",
         json={
-            "risk_level": "high",
+            "risk_level": risk_level,
             "rate_limit_per_minute": 10,
             "max_concurrent": 1,
             "requires_approval": True,
@@ -830,12 +833,15 @@ def test_high_risk_call_creates_time_bound_tool_authorization(tmp_path, monkeypa
 
     listed = client.get("/api/v1/mcp/approval-requests", params={"status": "pending"}).json()
     assert listed["total"] == 1
+    # 启用审批不改变工具风险等级，列表与详情返回同一等级。
+    assert listed["items"][0]["risk_level"] == risk_level
     assert listed["items"][0]["token_name"] == "workflow-client"
     assert listed["items"][0]["arguments"]["api_token"] == "******"
     revealed = client.get(
         f"/api/v1/mcp/approval-requests/{request_id}",
         params={"reveal_arguments": True},
     ).json()
+    assert revealed["risk_level"] == risk_level
     assert revealed["arguments"]["api_token"] == "sensitive-value"
 
     approved = client.post(
