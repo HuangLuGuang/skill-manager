@@ -750,6 +750,15 @@ def test_credential_valid_ip_and_default_mcp_scopes(tmp_path, values):
     assert updated.json()["allowed_ips"] == values
     assert updated.json()["scopes"] == ["mcp:list-tools"]
 
+    # 编辑页将空权限转换为默认权限，更新后保留原网关范围。
+    restored = client.put(f"{endpoint}/{record['id']}", json={
+        "scopes": access_tokens.MCP_SCOPES,
+    })
+    assert restored.status_code == 200
+    assert restored.json()["scopes"] == access_tokens.MCP_SCOPES
+    assert restored.json()["allowed_mcp_gateways"] == ["readonly"]
+    assert restored.json()["allowed_ips"] == values
+
 
 def test_credential_multiple_invalid_ips_and_history(tmp_path):
     client = _client(tmp_path)

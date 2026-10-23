@@ -112,7 +112,7 @@ make sandbox-runtime-build
 
 ## 前端注意事项
 
-- MCP 客户端凭证创建时 scope 留空采用默认三项 MCP 权限，清空后在输入框内显示灰色默认权限占位提示，沿用原单行尺寸且保留已选网关；IP/CIDR 的前端错误同时展示序号和原值，未确认标签的草稿也校验，服务端创建与更新只校验本次提交的 IP 字段并返回 `credential.invalid_allowed_ips` 及位置。
+- MCP 客户端凭证创建和编辑时 scope 留空采用默认三项 MCP 权限，编辑保存前转换为默认权限提交，清空后在输入框内显示灰色默认权限占位提示，沿用原单行尺寸且保留已选网关；IP/CIDR 的前端错误同时展示序号和原值，未确认标签的草稿也校验，服务端创建与更新只校验本次提交的 IP 字段并返回 `credential.invalid_allowed_ips` 及位置。
 
 - MCP 调用审计分页使用 `defaultPageSize: 20` 初始化，由表格管理每页条数选择与页码；验证10、20、50、100条、末页及刷新行为。
 - MCP 审批详情风险标签按详情接口 `risk_level` 展示低、中、高风险及绿、橙、红颜色；双语文案使用 `mcpApproval.lowRisk`、`mediumRisk`、`highRisk`。

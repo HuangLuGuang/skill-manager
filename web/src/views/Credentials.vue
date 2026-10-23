@@ -301,8 +301,8 @@
             <a-collapse-panel key="advanced" :header="$t(editingRecord ? 'credentials.permissionDetails' : 'credentials.advancedTitle')">
               <p v-if="!editingRecord" class="advanced-intro">{{ $t('credentials.advancedDescription') }}</p>
 
-              <a-form-item v-if="editingRecord || form.agent_preset === 'custom' || form.token_type !== 'agent_runtime'" :label="$t('credentials.rawPermissions')" :required="!!editingRecord">
-                <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.scopes" mode="multiple" style="width: 100%" :placeholder="!editingRecord && form.token_type === 'mcp_gateway' ? $t('credentials.mcpDefaultScopesHint', { scopes: typeDefaults.mcp_gateway.join(', ') }) : undefined" @change="handleScopesChange">
+              <a-form-item v-if="editingRecord || form.agent_preset === 'custom' || form.token_type !== 'agent_runtime'" :label="$t('credentials.rawPermissions')" :required="!!editingRecord && form.token_type !== 'mcp_gateway'">
+                <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.scopes" mode="multiple" style="width: 100%" :placeholder="form.token_type === 'mcp_gateway' ? $t('credentials.mcpDefaultScopesHint', { scopes: typeDefaults.mcp_gateway.join(', ') }) : undefined" @change="handleScopesChange">
                   <a-select-option v-for="scope in availableScopes" :key="scope" :value="scope">{{ scope }}</a-select-option>
                 </a-select>
                 <div v-if="form.token_type !== 'scanner'" class="field-hint">{{ $t('credentials.rawPermissionsHint') }}</div>
@@ -781,11 +781,16 @@ const openEdit = record => {
   advancedSections.value = ['advanced']
 }
 const savePermissions = async () => {
-  if (!form.scopes.length) return message.warning(t('credentials.scopesRequired'))
+  // 编辑 MCP 凭证时，空权限按创建时的默认值提交。
+  const permissions = {
+    ...form,
+    scopes: form.token_type === 'mcp_gateway' && !form.scopes.length ? [...typeDefaults.mcp_gateway] : form.scopes,
+  }
+  if (!permissions.scopes.length) return message.warning(t('credentials.scopesRequired'))
   const payload = Object.fromEntries(permissionFields.filter(field => {
     const previous = editingRecord.value[field]
-    return Array.isArray(previous) ? !sameScopes(previous, form[field]) : previous !== form[field]
-  }).map(field => [field, form[field]]))
+    return Array.isArray(previous) ? !sameScopes(previous, permissions[field]) : previous !== permissions[field]
+  }).map(field => [field, permissions[field]]))
   if (!Object.keys(payload).length) {
     createVisible.value = false
     return
