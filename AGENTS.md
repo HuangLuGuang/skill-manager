@@ -112,6 +112,8 @@ make sandbox-runtime-build
 
 ## 前端注意事项
 
+- MCP 调用审计分页使用 `defaultPageSize: 20` 初始化，由表格管理每页条数选择与页码；验证10、20、50、100条、末页及刷新行为。
+
 - MCP 服务连接发现成功或失败后均刷新列表；Endpoint、鉴权 Header 或鉴权值实际变化时，后端将健康状态重置为 unknown 并清空 last_checked_at。相同连接配置及留空保留鉴权的编辑保持旧检测结果，凭据按解密后有效值比较。
 
 - Skill 详情完整性校验的内容指纹存在性与预览读取当前版本 `content_fingerprint`，预览前 24 字符加省略号，空值或缺失显示否及 `-`；数字签名校验操作依据 `signature`。双语标签使用 `skillDetail.fingerprintExists` 与 `skillDetail.fingerprintPreview`。

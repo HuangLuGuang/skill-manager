@@ -415,6 +415,7 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 - 上游连接默认强制 HTTPS，并在每次调用前校验 DNS 解析结果和出站白名单；Tool 还可以配置速率、并发、响应大小和限时审批。
 - 高风险调用首次被网关阻断时会返回 `approval_request_id`；批准后，网关自动按 MCP 凭证、Gateway、Tool 和 Schema 匹配有效授权，不要求调用方回传申请 ID。有效期内允许使用不同参数重复调用，参数仅保留为审批和审计上下文。
 - Tool 对外名称为 `{server_slug}__{tool_name}`；Schema 变化后暂停暴露，重新保存网关配置才会批准新 Hash。
+- `能力治理 / 调用审计` 默认每页20条，可在表格右下角选择10、20、50或100条并翻页；表格使用 `defaultPageSize` 初始化，组件维护用户选择，页面刷新按钮保留所选条数。数据范围沿用最近200条；无需数据库迁移，Docker 部署更新前端镜像即可。
 - 当前数据面实现 `initialize`、`ping`、`tools/list` 和 `tools/call`，不托管 stdio MCP。
 
 ### 3.8 可验证安全审计
