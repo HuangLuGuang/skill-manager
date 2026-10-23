@@ -45,7 +45,7 @@ uv run python demo/agent-security-full-integration/full_agent.py
 
 ## 验收边界
 
-- 本 Demo 验证关联协议和接入路径，不代表目标 Agent 已通过安全扫描。
+- 本 Demo 验证关联协议和接入路径。目标风险评估需另行创建安全扫描任务。
 - 本地 Tool 结果和知识正文使用固定脱敏摘要，不把敏感原文写入普通日志。
 - Gateway-only 部分轨迹属于 P7-02，不在本示例中冒充完整 SDK 轨迹。
 - Worker 扫描 Finding 到 Runtime Trace 证据的端到端联调属于 P7-03；本 Demo 不提前勾选 A6-04。

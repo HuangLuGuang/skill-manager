@@ -119,6 +119,8 @@ async def application_lifespan(_: FastAPI):
     skill_audit_task = asyncio.create_task(audit_loop())
     from .aidr_overview import projection_loop
     overview_task = asyncio.create_task(projection_loop())
+    from .aidr_risk import detection_loop
+    risk_task = asyncio.create_task(detection_loop())
     from .services.asset_sync import lifecycle_loop
     asset_task = asyncio.create_task(lifecycle_loop())
     from .services.openapi_skills import report_loop
@@ -134,9 +136,12 @@ async def application_lifespan(_: FastAPI):
         aidr_retention_task.cancel()
         skill_audit_task.cancel()
         overview_task.cancel()
+        risk_task.cancel()
         asset_task.cancel()
         skill_report_task.cancel()
         delivery_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await risk_task
         with suppress(asyncio.CancelledError):
             await delivery_task
         with suppress(asyncio.CancelledError):

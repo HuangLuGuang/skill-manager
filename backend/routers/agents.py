@@ -12,6 +12,7 @@ from ..external_ai_gateway import binding_models, delete_binding_remote, ensure_
 from .clients import _client_managed_agent_id
 from ..agent_mcp import MCP_SCOPES, gateway_names, validate_agent_gateways
 from ..client_assets import asset_inventory
+from .. import aidr_risk, iam
 
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -66,8 +67,9 @@ def _agent_responses(db: Session, rows):
             models.UserGroup.id.in_({row.department_group_id for row in part if row.department_group_id is not None})).all())
         gateways = dict(db.query(models.ExternalAIGateway.id, models.ExternalAIGateway.name).filter(
             models.ExternalAIGateway.id.in_({row.external_gateway_id for row in part if row.external_gateway_id is not None})).all())
+        platform_ids = {row.source_platform_id for row in part if row.source_platform_id}
         platforms = dict(db.query(models.ExternalPlatform.platform_id, models.ExternalPlatform.name).filter(
-            models.ExternalPlatform.platform_id.in_({row.source_platform_id for row in part if row.source_platform_id})).all())
+            models.ExternalPlatform.platform_id.in_(platform_ids)).all()) if platform_ids else {}
         results.extend(_present_agent(row, tokens.get(row.agent_id), departments.get(row.department_group_id),
                                       gateways.get(row.external_gateway_id), platforms.get(row.source_platform_id)) for row in part)
     return results
@@ -481,6 +483,8 @@ def list_agent_assets(
     if q and q.strip():
         rows = [row for row in rows if _matches_asset_query(row, q.strip())]
     rows.sort(key=lambda row: row.updated_at or datetime.min, reverse=True)
+    if 'clients:view' in iam.permission_codes(db, current_user):
+        aidr_risk.asset_summaries(db, rows)
     return schemas.AgentAssetListResponse(items=rows, stats=stats)
 
 

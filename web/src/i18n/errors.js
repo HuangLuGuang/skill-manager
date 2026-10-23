@@ -2,6 +2,13 @@ import { formatMcpFieldError } from './mcpServerForm.js'
 import { scanScheduleMessages } from './scanSchedule.js'
 import { skillAuditReview } from './skill-audit-review.js'
 const errorMessages = {
+  'aidr.risk.invalid_range': { 'zh-CN': '时间范围必须带时区，且开始时间不能晚于结束时间。', 'en-US': 'Use timezone-aware times with start no later than end.' },
+  'aidr.risk.invalid_config': { 'zh-CN': '请使用无通配符的规范绝对路径，每类最多32项、每项最多512字节；请检查类型与重复项。', 'en-US': 'Use normalized absolute paths without wildcards: at most 32 entries per category and 512 bytes per path. Check types and duplicates.' },
+  'aidr.risk.config_conflict': { 'zh-CN': '检测配置已更新，请重新读取后保存。', 'en-US': 'Detection settings changed. Reload before saving.' },
+  'aidr.risk.admin_required': { 'zh-CN': '需要管理员权限。', 'en-US': 'Administrator role required.' },
+  'aidr.risk.not_found': { 'zh-CN': '风险记录不存在或不可访问。', 'en-US': 'Risk record is unavailable.' },
+  'aidr.risk.invalid_disposition': { 'zh-CN': '请选择有效状态并填写 1 至 1000 个字符的非空原因。', 'en-US': 'Select a valid status and provide a nonblank reason of 1 to 1000 characters.' },
+  'aidr.risk.disposition_conflict': { 'zh-CN': '处置状态已变化或与目标相同，请重新读取后选择。草稿已保留。', 'en-US': 'Disposition changed or already matches the target. Reload before selecting; your draft is preserved.' },
   'model_provider.invalid_auth_type': { 'zh-CN': '认证方式无效', 'en-US': 'Invalid authentication type' },
   'model_provider.invalid_headers': { 'zh-CN': '请提供最多 32 项 Header 的列表', 'en-US': 'Provide a list of up to 32 headers' },
   'model_provider.invalid_header': { 'zh-CN': '第 {index} 项 Header 无效，请检查名称、重复项、保留头及值', 'en-US': 'Header {index} is invalid; check name, duplicates, reserved headers and value' },

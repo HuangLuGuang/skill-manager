@@ -44,16 +44,17 @@ def page(db, client_id, *, after=None, before=None, snapshot_id=None, limit=100,
             'snapshot_id': str(ceiling), 'order': 'newest'}
 
 
-def related(db, client_id, row):
+def related_records(db, client_id, row):
+    """Bounded same-source candidates, without content/context enrichment."""
     record = json.loads(row.payload_json)
     event = record['event']
     result = {'relation': 'unknown', 'code': 'identity_missing', 'items': [], 'truncated': False, 'process_relation': 'unknown'}
     if event.get('kind') not in ('tool.pre', 'tool.post', 'tool.failure'):
         result['code'] = 'not_tool_event'
-        return result
+        return result, []
     required = ('agent', 'session_id', 'native_call_id', 'tool')
     if any(not event.get(field) for field in required) or not record.get('user_scope') or (aidr_adapters.get(event['agent']).turn_required and not event.get('turn_id')):
-        return result
+        return result, []
     query = db.query(AidrHookEvent).filter(AidrHookEvent.client_id == client_id,
         AidrHookEvent.stream_id == row.stream_id, AidrHookEvent.expired_at.is_(None),
         # The required native call ID is nonempty. Match the indexed JSON
@@ -66,7 +67,15 @@ def related(db, client_id, row):
     rows = query.order_by(AidrHookEvent.id).limit(33).all()
     if len(rows) > 32:
         result.update(code='evidence_budget', truncated=True)
+        return result, []
+    return result, rows
+
+
+def related(db, client_id, row):
+    result, rows = related_records(db, client_id, row)
+    if not rows:
         return result
+    event = json.loads(row.payload_json)['event']
     items = [present(item, db) for item in rows]
     if len(json.dumps(items, ensure_ascii=False).encode()) > 131072:
         result.update(code='evidence_budget', truncated=True)

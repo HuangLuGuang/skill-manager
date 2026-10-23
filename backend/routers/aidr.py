@@ -21,6 +21,7 @@ from .. import aidr_hook_queries
 from .. import aidr_sessions
 from ..aidr_turns import present as present_log
 from .. import aidr_overview
+from .. import aidr_risk
 from .. import aidr_hooks
 from .. import aidr_hook_runtime
 from .. import aidr_plugin_status
@@ -44,6 +45,163 @@ _BATCH_INSERT = lambda_stmt(lambda: insert(models.AidrBatch.__table__).on_confli
 _EVENT_INSERT = lambda_stmt(lambda: insert(models.AidrEvent.__table__).on_conflict_do_nothing(
     index_elements=['client_id', 'logical_id']))
 global_tool_router = APIRouter(prefix='/v1/aidr/tool-policy', tags=['aidr'])
+
+
+@router.get('/risks/configuration')
+def risk_configuration(client_id: str, response: Response, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, 'clients:view')
+    device_for_user(db, client_id, user)
+    iam.check(db, user, 'settings:view')
+    response.headers['Cache-Control'] = 'no-store'
+    revision, config = aidr_risk.configuration(db, client_id)
+    permissions = iam.permission_codes(db, user)
+    return {'revision': revision, **config, 'can_edit': user.role in ('admin', 'super_admin') and {'clients:update', 'settings:update'} <= permissions}
+
+
+@router.put('/risks/configuration')
+def save_risk_configuration(client_id: str, body: dict, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    from pydantic import ValidationError
+    device_for_user(db, client_id, user)
+    iam.check(db, user, 'clients:update')
+    iam.check(db, user, 'settings:update')
+    if user.role not in ('admin', 'super_admin'):
+        raise ApiError(403, 'aidr.risk.admin_required', '需要管理员权限', 'Administrator role required')
+    try:
+        config = aidr_risk.DetectionConfig.model_validate(body)
+    except ValidationError:
+        raise ApiError(422, 'aidr.risk.invalid_config', '请检查路径格式、数量和长度：仅支持无通配符的规范绝对路径，每类最多32项，每项最多512字节', 'Use normalized absolute paths without wildcards: at most 32 per category and 512 bytes per path') from None
+    db.connection().exec_driver_sql('UPDATE aidr_risk_configs SET revision=revision WHERE 0')
+    revision, _ = aidr_risk.configuration(db, client_id)
+    if revision != config.expected_revision:
+        raise ApiError(409, 'aidr.risk.config_conflict', '检测配置已更新，请重新读取后保存', 'Detection configuration changed; reload before saving')
+    payload = config.model_dump(exclude={'expected_revision'})
+    db.add(aidr_risk.RiskConfig(client_id=client_id, revision=revision + 1, payload=dump(payload)))
+    _operation(db, user, 'aidr.risk.configure', client_id, dump({'revision': revision + 1}))
+    db.commit()
+    return {'revision': revision + 1, **payload}
+
+
+@router.get('/risks/summary')
+def risk_summary(client_id: str, response: Response, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, 'clients:view')
+    device_for_user(db, client_id, user)
+    response.headers['Cache-Control'] = 'no-store'
+    return aidr_risk.summary(db, client_id)
+
+
+@router.get('/risks')
+def risk_list(client_id: str, response: Response, page: int = Query(1, ge=1, le=100000),
+              page_size: int = Query(20, ge=1, le=100), severity: str = Query('', pattern='^(|medium|high)$'),
+              risk_code: str = Query('', pattern='^(|' + '|'.join(aidr_risk.RISK_CODES) + ')$'),
+              agent: str = Query('', max_length=32), source: str = Query('', pattern='^(|hooks|logs|system)$'),
+              disposition: str = Query('', pattern='^(|open|accepted|false_positive|resolved)$'),
+              since: datetime | None = None, until: datetime | None = None,
+              db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, 'clients:view')
+    device_for_user(db, client_id, user)
+    response.headers['Cache-Control'] = 'no-store'
+    query = db.query(aidr_risk.RiskFinding).filter_by(client_id=client_id)
+    if any(value is not None and value.tzinfo is None for value in (since, until)) or (since and until and since > until):
+        raise ApiError(422, 'aidr.risk.invalid_range', '时间范围必须带时区，且开始时间不能晚于结束时间', 'Use timezone-aware times with start no later than end')
+    if since:
+        query = query.filter(aidr_risk.RiskFinding.occurred_at >= stamp(since.isoformat()))
+    if until:
+        query = query.filter(aidr_risk.RiskFinding.occurred_at <= stamp(until.isoformat()))
+    for name, value in (('severity', severity), ('risk_code', risk_code), ('agent', agent), ('source', source), ('disposition', disposition)):
+        if value:
+            query = query.filter(getattr(aidr_risk.RiskFinding, name) == value)
+    total = query.count()
+    rows = query.order_by(aidr_risk.RiskFinding.occurred_at.desc(), aidr_risk.RiskFinding.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return {'items': [aidr_risk.present(row) for row in rows], 'total': total, 'page': page, 'page_size': page_size}
+
+
+@router.get('/risks/{finding_id}')
+def risk_detail(client_id: str, finding_id: str, response: Response, include_evidence: bool = False,
+                db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, 'clients:view')
+    device_for_user(db, client_id, user)
+    response.headers['Cache-Control'] = 'no-store'
+    finding = db.query(aidr_risk.RiskFinding).filter_by(id=finding_id, client_id=client_id).first()
+    if not finding:
+        raise ApiError(404, 'aidr.risk.not_found', '风险记录不存在或不可访问', 'Risk record is unavailable')
+    if include_evidence:
+        iam.check(db, user, 'clients:read-audit-content')
+    evidence = []
+    refs = db.query(aidr_risk.RiskEvidence).filter_by(finding_id=finding.id).order_by(aidr_risk.RiskEvidence.record_id).all()
+    for ref in refs:
+        row = db.query(aidr_risk.SOURCES[ref.source]).filter_by(id=ref.record_id, client_id=client_id).first()
+        item = {'source': ref.source, 'record_id': str(ref.record_id), 'digest': ref.digest,
+                'expired': row is None or row.expired_at is not None}
+        item['changed'] = not item['expired'] and (row.content_hash or hashlib.sha256(row.payload_json.encode()).hexdigest()) != ref.digest
+        if include_evidence and not item['expired'] and not item['changed']:
+            raw = json.loads(row.payload_json)
+            event = raw.get('event', raw) if ref.source == 'hooks' else raw
+            behavior = event.get('behavior') or {}
+            item['event'] = {name: event[name] for name in ('kind', 'tool', 'session_id', 'native_call_id',
+                'path', 'destination_path', 'operation', 'relation', 'root_path', 'executable', 'argv',
+                'decision', 'result', 'reason_code') if name in event}
+            item['event']['actions'] = behavior.get('actions') or []
+            item['event']['status'] = behavior.get('status', event.get('result', {'success': 'reported_complete', 'error': 'reported_error'}.get(event.get('outcome'), 'unknown')))
+            item['event']['exit_code'] = behavior.get('exit_code', event.get('exit_code'))
+            item['event']['control_decision'] = event.get('control_decision')
+        evidence.append(item)
+    if include_evidence:
+        _operation(db, user, 'aidr.risk.evidence_view', client_id, dump({'finding_id': finding.id, 'count': len(evidence)}))
+        db.commit()
+    return {**aidr_risk.present(finding), 'evidence': evidence}
+
+
+@router.get('/risks/{finding_id}/dispositions')
+def risk_dispositions(client_id: str, finding_id: str, response: Response,
+                      page: int = Query(1, ge=1, le=100000), page_size: int = Query(20, ge=1, le=100),
+                      db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, 'clients:view')
+    device_for_user(db, client_id, user)
+    if not db.query(aidr_risk.RiskFinding.id).filter_by(id=finding_id, client_id=client_id).first():
+        raise ApiError(404, 'aidr.risk.not_found', '风险记录不存在或不可访问', 'Risk record is unavailable')
+    response.headers['Cache-Control'] = 'no-store'
+    query = db.query(aidr_risk.RiskDisposition).filter_by(finding_id=finding_id)
+    total = query.count()
+    rows = query.order_by(aidr_risk.RiskDisposition.revision.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return {'items': [{name: getattr(row, name) for name in ('revision', 'previous', 'status', 'reason', 'actor')} |
+                      {'created_at': row.created_at.isoformat() + 'Z'} for row in rows],
+            'total': total, 'page': page, 'page_size': page_size}
+
+
+@router.put('/risks/{finding_id}/disposition')
+def risk_dispose(client_id: str, finding_id: str, body: dict, db: Session = Depends(get_db),
+                 user=Depends(auth.get_current_admin_user)):
+    from pydantic import ValidationError
+    iam.check(db, user, 'clients:view')
+    iam.check(db, user, 'clients:update')
+    device_for_user(db, client_id, user)
+    try:
+        value = aidr_risk.DispositionInput.model_validate(body)
+    except ValidationError:
+        raise ApiError(422, 'aidr.risk.invalid_disposition', '请选择有效状态并填写1至1000个字符的非空原因',
+                       'Select a valid status and provide a nonblank reason of 1 to 1000 characters') from None
+    finding = db.query(aidr_risk.RiskFinding).filter_by(id=finding_id, client_id=client_id).first()
+    if finding is None:
+        raise ApiError(404, 'aidr.risk.not_found', '风险记录不存在或不可访问', 'Risk record is unavailable')
+    previous = finding.disposition
+    if finding.disposition_revision != value.expected_revision or previous == value.status:
+        raise ApiError(409, 'aidr.risk.disposition_conflict', '处置状态已变化或与目标相同，请重新读取后选择',
+                       'Disposition changed or already matches the target; reload before selecting')
+    changed = db.query(aidr_risk.RiskFinding).filter_by(id=finding_id, client_id=client_id,
+        disposition_revision=value.expected_revision).update({
+            'disposition': value.status, 'disposition_revision': value.expected_revision + 1,
+        }, synchronize_session=False)
+    if changed != 1:
+        db.rollback()
+        raise ApiError(409, 'aidr.risk.disposition_conflict', '处置状态已变化，请重新读取后选择',
+                       'Disposition changed; reload before selecting')
+    db.add(aidr_risk.RiskDisposition(finding_id=finding_id, revision=value.expected_revision + 1,
+                                   previous=previous, status=value.status, reason=value.reason, actor=user.username))
+    _operation(db, user, 'aidr.risk.dispose', client_id, dump({'finding_id': finding_id,
+        'revision': value.expected_revision + 1, 'previous': previous, 'status': value.status}))
+    db.commit()
+    db.refresh(finding)
+    return aidr_risk.present(finding)
 
 
 def tool_policy_admin(user=Depends(auth.get_current_admin_user)):

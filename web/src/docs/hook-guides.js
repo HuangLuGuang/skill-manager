@@ -37,7 +37,7 @@ export const hookGuides = {
         {
           id: 'verify-troubleshoot', title: '4. 用真实工具事件验收',
           table: { columns: ['验收项', '操作与确认'], rows: [
-            ['接入与投递', '在新宿主会话触发受支持的工具操作，核对客户端接收状态、平台同一设备和产品的 Hook 事件及事件批次 ACK。状态心跳成功不能替代事件送达证明。'],
+            ['接入与投递', '在新宿主会话触发受支持的工具操作，核对客户端接收状态、平台同一设备和产品的 Hook 事件及事件批次 ACK。'],
             ['仅审计', '确认事件到达，会话和工具证据可查看；仅审计模式不执行策略阻断。'],
             ['工具拦截', '对提供相应执行前控制点的产品，在拦截模式发布测试规则，分别核对允许、拒绝，以及需要时的人工审批结果与实际工具行为。'],
             ['状态缺失', '检查产品兼容性、原生信任、新会话、有效策略版本与报告时间；从“插件接入”发起重新检查。'],
@@ -49,7 +49,7 @@ export const hookGuides = {
         {
           id: 'skill-verification', title: '5. 需要 Skill 加载前验签时',
           paragraphs: ['AIDR Hook 根据工具策略做运行决策；Skill 使用审计由后台内容观察和平台状态核对形成异步结论。要求在加载前验证 Skill 内容与授权时，在真实 Loader 或受支持的宿主事件接入同步校验。'],
-          bullets: ['手工脚本、环境变量、Agent 运行凭证和宿主配置示例集中在“开发者：加载前验签”。', '模型网关与 MCP 网关分别配置和验收；插件 Hook 接入不代表这些请求已经经过网关。'],
+          bullets: ['手工脚本、环境变量、Agent 运行凭证和宿主配置示例集中在“开发者：加载前验签”。', '需要治理模型或 MCP 请求时，分别配置对应网关并验证调用。'],
           link: { path: '/docs/developer-skill-verification', label: '开发者：加载前验签与手工脚本' },
         },
       ],
@@ -93,7 +93,7 @@ export const hookGuides = {
         {
           id: 'verify-troubleshoot', title: '4. Verify with real tool events',
           table: { columns: ['Check', 'Action and evidence'], rows: [
-            ['Integration and delivery', 'Trigger a supported tool in a new host session. Correlate local receiver state, the same device/product Hook event on the platform and the event-batch ACK. A status heartbeat alone does not prove event delivery.'],
+            ['Integration and delivery', 'Trigger a supported tool in a new host session. Correlate local receiver state, the same device/product Hook event on the platform and the event-batch ACK.'],
             ['Audit only', 'Confirm delivered events and accessible session/tool evidence. Audit-only mode does not enforce policy blocking.'],
             ['Tool interception', 'For products with the required pre-execution control point, publish a test rule in interception mode. Verify allow, deny and any human approval outcome against actual tool behavior.'],
             ['Missing state', 'Check compatibility, native trust, the new session, effective policy version and report age. Request reinspection from Plugin integration.'],
@@ -105,7 +105,7 @@ export const hookGuides = {
         {
           id: 'skill-verification', title: '5. When you need pre-load Skill verification',
           paragraphs: ['AIDR Hooks make tool-policy decisions. Skill usage audit combines background content observations with platform state checks asynchronously. For content and authorization checks before loading, integrate synchronous verification at the real Loader or a supported host event.'],
-          bullets: ['Manual scripts, environment variables, Agent runtime credentials and host configuration examples are in Developer: pre-load verification.', 'Configure and verify model and MCP gateways separately. Plugin Hook integration does not establish that requests pass through a gateway.'],
+          bullets: ['Manual scripts, environment variables, Agent runtime credentials and host configuration examples are in Developer: pre-load verification.', 'To govern model or MCP requests, configure the corresponding gateway and verify calls.'],
           link: { path: '/docs/developer-skill-verification', label: 'Developer: pre-load verification and manual scripts' },
         },
       ],

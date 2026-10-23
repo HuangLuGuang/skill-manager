@@ -233,7 +233,7 @@
           <ClientEventRecords v-if="inventoryView === 'history'" ref="eventRecordsPanel" :client-id="detail.client_id" :client-name="detail.name || detail.hostname" :agent-label="agentLabel" @collection="navigateDetail('collection')" />
             </a-tab-pane>
             <a-tab-pane key="plugins" :tab="$t('agentRuntimeGovernance.tabs.plugins')"><ClientRuntimeGovernance :client-id="detail.client_id" @collection="navigateDetail('collection')" @policy="navigateDetail('control')" @events="openHookEvents" /></a-tab-pane>
-            <a-tab-pane key="audit" :tab="$t('agentRuntimeGovernance.tabs.audit')"><ClientBehaviorAudit v-model:view="auditView" :client-id="detail.client_id" :activity-request="activityRequest" @policy="openClassification(detail.client_id)" @plugins="runtimeTab = 'plugins'" /></a-tab-pane>
+            <a-tab-pane key="audit" :tab="$t('agentRuntimeGovernance.tabs.audit')"><ClientBehaviorAudit v-model:view="auditView" :client-id="detail.client_id" :activity-request="activityRequest" :risk-agent="riskAgent" @policy="openClassification(detail.client_id)" @plugins="runtimeTab = 'plugins'" /></a-tab-pane>
             <a-tab-pane key="control" :tab="$t('agentRuntimeGovernance.detail.control')">
               <ClientPolicyWorkbench :key="detail.client_id" v-model="controlView" :client-id="detail.client_id" />
             </a-tab-pane>
@@ -414,6 +414,7 @@ const detailVisible = ref(false)
 const runtimeTab = ref('overview')
 const inventoryView = ref('inventory'), inventoryType = ref('agents')
 const auditView = ref('tools'), controlView = ref('tools')
+const riskAgent = ref('')
 const activityRequest = ref(null)
 const openAuditActivity = request => {
   activityRequest.value = { clientId: detail.value.client_id, ...request }
@@ -601,6 +602,7 @@ const loadClients = async () => {
   }
 }
 const openDetail = async (record) => {
+  riskAgent.value = ''
   inventoryView.value = 'inventory'; inventoryType.value = 'agents'
   runtimeTab.value = 'overview'; auditView.value = 'tools'; controlView.value = 'tools'
   const sequence = ++detailSequence
@@ -919,11 +921,15 @@ const taskStatusLabel = (value, task) => task?.task_type === 'sync_policy' && ta
     ? i18n.global.t('clientGovernance.policyApplied') : translateDomain('taskStatus', value, value)
 const taskColor = value => ({ pending: 'default', running: 'blue', succeeded: 'green', failed: 'red', cancelled: 'default' }[value] || 'default')
 
-watch(() => [route.query.client, route.query.section], async ([clientId, section]) => {
+watch(() => [route.query.client, route.query.section, route.query.view, route.query.risk_agent], async ([clientId, section, view, agent]) => {
   if (typeof clientId !== 'string' || !hasAccess('clients:view') || !['overview', 'control', 'audit', 'plugins', 'skills'].includes(section)) return
   try {
     await openDetail({ client_id: clientId })
-    if (route.query.client === clientId && detail.value?.client_id === clientId) runtimeTab.value = section
+    if (route.query.client === clientId && route.query.view === view && route.query.risk_agent === agent && detail.value?.client_id === clientId) {
+      riskAgent.value = typeof agent === 'string' && agent.length <= 32 ? agent : ''
+      if (section === 'audit' && view === 'risks') auditView.value = 'risks'
+      runtimeTab.value = section
+    }
   } catch { message.error(i18n.global.t('agentWorkspace.readFailed')) }
 }, { immediate: true })
 

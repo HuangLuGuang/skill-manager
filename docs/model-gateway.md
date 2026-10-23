@@ -119,7 +119,7 @@ Header 值加密存储，读取接口仅返回名称、配置状态和掩码。�
 
 例如客户要求不带 Bearer 且指定 Host：选择原始 Authorization，在 API Key 填写客户凭证，添加 `Host: model.internal.example`，Base URL 填写客户提供的版本基础路径（如 `http://model.internal.example:8080/service/v1`）。模型发现、连接测试、非流式与流式调用统一使用这些设置。Agent 扫描的评估、分析、攻击模型以及 Skill 扫描走平台网关的模型调用同样生效；独立直连 LLM 使用自身配置。修改供应商会影响其所有模型后续发起的请求，包括运行中扫描任务的后续调用。
 
-连接测试仍发送非流式请求，模型发现仍需上游提供 `/models`；上游未提供模型列表时可手动添加。Header 兼容不代表客户的请求参数、响应格式或网络已经通过验收。
+连接测试仍发送非流式请求，模型发现仍需上游提供 `/models`；上游未提供模型列表时可手动添加。接入时需验证客户的请求参数、响应格式和网络连接。
 
 **English:** Providers default to `bearer` (`Authorization: Bearer <API Key>`). Select `raw` to send the API key directly as Authorization. An empty API key produces no automatic authentication header. Existing databases retain Bearer behavior; omitted fields in updates preserve saved settings.
 
@@ -313,7 +313,7 @@ OpenAI-compatible 请求使用 `metadata`，MCP 请求使用 `params._meta`。`X
 
 开启 `RUNTIME_TRACE_ENABLED` 后，新模型请求会在通过凭证、请求大小、并发和模型范围校验后建立调用记录。
 调用轨迹页显示聚合方式、请求数量、每次调用的状态、开始时间、消息数量和匹配依据。
-每次 HTTP 请求保留独立的 `request_id`；请求序号不代表用户对话轮次。进行中的调用先显示在请求列表，
+每次 HTTP 请求保留独立的 `request_id`；请求序号按 HTTP 请求编号。进行中的调用先显示在请求列表，
 模型事件在结果可用后追加。页面每三秒刷新选中聚合会话，事件按 `after_seq` 增量读取。
 
 轨迹主区域按请求、用户输入、助手输出和工具调用显示连续记录，右侧详情可查看内容、结果、计时及关联证据。
@@ -550,9 +550,9 @@ Claude Code 使用 Responses 上游时，`output_config.effort` 转换为 `reaso
 | OpenAI Responses API | `POST {base_url}/responses` | `GET {base_url}/models` |
 | Anthropic Messages | `POST {base_url}/messages` | `GET {base_url}/models`，支持 `after_id` 分页 |
 
-模型列表是独立接口，不是 `/responses/models`。兼容服务可能只实现推理接口；能列出模型也不代表当前凭据有调用权限，需要逐个测试。Responses 的响应存取、删除、后台任务、服务端内置工具和会话持久化不在此上游适配范围。
+模型列表是独立接口，不是 `/responses/models`。兼容服务可能只实现推理接口；各模型的调用权限需逐个测试。Responses 的响应存取、删除、后台任务、服务端内置工具和会话持久化不在此上游适配范围。
 
-**English:** Select `openai`, `responses_api`, or `anthropic` in the provider settings. Include the API version path in the Base URL; the gateway appends `/chat/completions`, `/responses`, or `/messages`. A full inference endpoint is also accepted. All three formats discover models through the sibling `/models` endpoint; Anthropic pagination uses `after_id`. Model listing and inference are tested independently because listing does not prove permission to invoke a model.
+**English:** Select `openai`, `responses_api`, or `anthropic` in the provider settings. Include the API version path in the Base URL; the gateway appends `/chat/completions`, `/responses`, or `/messages`. A full inference endpoint is also accepted. All three formats discover models through the sibling `/models` endpoint; Anthropic pagination uses `after_id`. Test model listing and inference independently to verify access.
 
 Responses providers support text and image input, function calls and results, structured output, reasoning effort, verbosity, non-streaming responses, SSE, and token usage. Requests pass through the same gateway authorization, privacy and audit pipeline with `store: false`. Unsupported Chat Completions options return a stable error code. Stateful response retrieval/deletion, background jobs, built-in server tools and persistent conversations are outside this adapter's scope.
 
@@ -780,7 +780,7 @@ The recent requests table shows time, user, agent, model, total duration, Prompt
 
 - 详情顶部显示本次是否压缩、节省 Token 和耗时；具体数值取决于请求内容
 - 展开第 3 阶段「智能压缩后」可对比压缩前后的 messages 差异
-- 各阶段文本高亮可定位的 PII，并显示当前位置和总命中数。点击“上一处 / 下一处”可循环跳转，自动滚动到对应文本；查看原始阶段时先点击显示原文。定位依据为脱敏占位符及当前链路同租户、同会话内仍有效的原值映射。映射缺失或过期时只能定位占位符，零命中不代表没有 PII。
+- 各阶段文本高亮可定位的 PII，并显示当前位置和总命中数。点击“上一处 / 下一处”可循环跳转，自动滚动到对应文本；查看原始阶段时先点击显示原文。定位依据为脱敏占位符及当前链路同租户、同会话内仍有效的原值映射。映射缺失或过期时只能定位占位符，计数为当前可定位的匹配数量。
 
 Stage text highlights available PII matches and provides **Previous match / Next match** controls with a position counter. Navigation wraps and scrolls to the match. Reveal the original stage before navigating its text. Highlights use masking placeholders and active mappings from the trace's tenant and conversation. Missing or expired mappings allow placeholder-only navigation; zero matches does not establish that text is PII-free.
 

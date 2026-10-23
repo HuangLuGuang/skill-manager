@@ -121,7 +121,7 @@ python3 <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_ve
 
 ## 阻断策略
 
-首次验证时，`--path` 指向包含 `SKILL.md` 的单个 Skill 绝对路径。确认退出码为 0，再到平台运行审计按 Agent ID、时间与 Skill 核对验签和加载许可记录。随后在真实 Agent 会话中确认每次使用前确实执行脚本；下载成功或一次终端验证成功均不证明后续调用已被强制拦截。
+首次验证时，`--path` 指向包含 `SKILL.md` 的单个 Skill 绝对路径。确认退出码为 0，再到平台运行审计按 Agent ID、时间与 Skill 核对验签和加载许可记录。随后在真实 Agent 会话中确认每次使用前执行校验脚本；需要强制拦截时接入 Loader、Hook 或 SDK。
 
 下面情况都应阻断使用第三方 skill：
 
@@ -158,7 +158,7 @@ uv run pytest tests/test_skill_verifier_e2e.py -q -s
 
 测试使用临时数据库、签名密钥、管理员身份和本机 HTTP 端口，调用实际 Agent / 凭证 / 下载 / Scanner / Runtime / 审计路由，解压服务端 ZIP 后以独立 Python 进程执行。覆盖中英文与 Codex / Claude Code 安装目录、上传与状态查询、审批与授权、成功校验、内容篡改、身份或凭证异常、网络不可达和重新检测。每轮输出 `acceptance-evidence.json` 路径，包含退出码、加载标记和审计记录，不包含完整凭证。
 
-测试加载器使用 `verify && 后续动作`，成功时生成加载标记，任何失败均不得生成。该结果验证实际脚本与平台的行为，不证明第三方桌面宿主会自动调用 Verifier。测试只使用本地基础扫描与人工审批样例，不验证外部扫描器、LLM、Sandbox 的检测能力；管理台表单需单独人工验收。
+测试加载器使用 `verify && 后续动作`，成功时生成加载标记，任何失败均不得生成。该结果验证脚本与平台的行为，第三方桌面宿主调用 Verifier 需另行接入和验证。测试只使用本地基础扫描与人工审批样例，不验证外部扫描器、LLM、Sandbox 的检测能力；管理台表单需单独人工验收。
 
 **English:** Run the command above from the repository root. The test starts real project routers on a loopback HTTP port with temporary databases, signing keys and an administrator identity. It downloads and extracts the actual ZIP, then executes its Python CLI in separate processes. It covers both languages and Codex / Claude Code directory layouts, submission/status, approval/authorization, successful verification, tampering, identity/credential failures, connectivity failure and forced rescanning. Each run prints the path to `acceptance-evidence.json`, containing exit codes, load markers and audit records without full credentials. A conditional test Loader creates a marker only after successful verification. This proves CLI/API behavior, not automatic invocation by third-party desktop hosts. The fixture uses local basic checks and manual approval; external scanner, LLM and Sandbox detection capabilities and management UI acceptance are separate checks.
 

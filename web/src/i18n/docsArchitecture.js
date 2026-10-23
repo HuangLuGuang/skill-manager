@@ -42,7 +42,7 @@ export const docsArchitectureMessages = {
     decisionLocal: '本地规则 / 有效审批授权',
     decisionResult: '允许或拒绝 → 宿主执行',
     decisionNote: '需要人工审批时向平台提交请求并同步决定；是否等待、重试及超时行为取决于宿主适配和生效策略。系统拦截由原生组件在其支持的授权点执行。',
-    boundary: '日志上报和平台 ACK 不代表已阻断；Skill 使用认证是审计核对。无法可靠关联的记录保留未知 / 未归属。',
+    boundary: '平台 ACK 确认记录已接收，Skill 使用认证提供审计核对；阻断结果见对应执行点。无法可靠关联的记录显示未知 / 未归属。',
   },
   'en-US': {
     runtimeTitle: 'Runtime governance and protection',
@@ -87,6 +87,6 @@ export const docsArchitectureMessages = {
     decisionLocal: 'Local rules / valid approval grant',
     decisionResult: 'Allow or deny → host enforcement',
     decisionNote: 'When approval is required, submit a request to the platform and synchronize the decision. Waiting, retries and timeouts depend on the adapter and effective policy. Native system enforcement uses its supported authorization points.',
-    boundary: 'Log upload and platform ACK do not establish blocking. Skill-use certification is an audit check. Uncertain correlations remain unknown / unassigned.',
+    boundary: 'Platform ACK confirms receipt and Skill-use certification provides audit checks. Review blocking at the enforcement point. Uncertain correlations remain unknown / unassigned.',
   },
 }

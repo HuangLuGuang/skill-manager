@@ -301,7 +301,7 @@
                 <button type="button" class="subtle-danger" data-aidr-action="remove-managed" data-aidr-agent="codex" data-i18n="ui.aidrDesktop.remove_managed_codex" hidden>移除 Codex 自有受管配置</button>
               </div></section>
             </div>
-            <details class="governance-diagnostics"><summary data-i18n="ui.governanceDesign.guide">接入说明</summary><p data-i18n="ui.aidrDesktop.description"></p><p class="governance-evidence-note" data-i18n="ui.aidrDesktop.trust_hint">安装不会自动授予 Hook 信任。请在 Codex 原生 /hooks 中审阅；新会话才应用配置，不会重启已有会话。安装、自检和接收器运行均不证明真实事件已到达。</p></details>
+            <details class="governance-diagnostics"><summary data-i18n="ui.governanceDesign.guide">接入说明</summary><p data-i18n="ui.aidrDesktop.description"></p><p class="governance-evidence-note" data-i18n="ui.aidrDesktop.trust_hint">普通插件请在 Codex 原生 /hooks 中审阅；受管方式由宿主管理配置提供信任，仍需核对实际加载。新会话应用配置，不会重启已有会话。接入后在新会话触发事件并核对平台记录。</p></details>
             <details class="governance-diagnostics"><summary data-i18n="ui.governanceDesign.sharedDiagnostics">通道与策略诊断</summary>
             <div id="aidr-collection-channels" class="governance-hosts"></div>
             <div id="aidr-receiver-controls" class="governance-receiver-controls">
@@ -642,7 +642,7 @@
     <dialog id="event-record-dialog" class="event-record-dialog" aria-labelledby="event-record-title">
       <header><strong id="event-record-title" data-i18n="ui.eventRecord.detail">记录详情</strong><button id="event-record-close" class="icon-button icon-close" type="button" data-i18n="ui.eventRecord.close">关闭详情</button></header>
       <div id="event-record-body" class="event-record-body"></div>
-      <footer><small id="event-record-boundary" data-i18n="ui.eventRecord.boundary">内容核对基于采集时的观察，不证明调用瞬间内容。</small><button id="event-record-skill" type="button" class="primary" data-i18n="ui.eventRecord.viewSkill">查看 Skill</button></footer>
+      <footer><small id="event-record-boundary" data-i18n="ui.eventRecord.boundary">内容核对使用采集时观察到的文件内容，观察时间见记录。</small><button id="event-record-skill" type="button" class="primary" data-i18n="ui.eventRecord.viewSkill">查看 Skill</button></footer>
     </dialog>
     <script src="./static-i18n-bindings.js"></script>
     <script src="./i18n.js"></script>
