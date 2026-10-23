@@ -439,7 +439,7 @@ const submitModeMetaMap = computed(() => ({
   scanner: {
     subtitle: phrase('legacy.k7sk7w'),
     message: phrase('legacy.g1i2b6'),
-    description: phrase('legacy.17fev6g'),
+    description: t('scannerGuide.credentials.intro', { caller: t('credentials.scenarios.scanner.title') }),
   },
 }))
 const submitModeMeta = computed(() => submitModeMetaMap.value[submitMode.value] || submitModeMetaMap.value.zip)

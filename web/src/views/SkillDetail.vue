@@ -830,11 +830,9 @@
                   <span class="version-risk-arrow" aria-hidden="true">→</span>
                   <div class="version-risk-stage">
                     <small>{{ $t('skillVersions.llmReview') }}</small>
-                    <a-tooltip :title="versionRiskChain(record).llm_note || versionRiskChain(record).downgrade_reason || ''">
-                      <a-tag :color="llmStageColor(versionRiskChain(record))">
-                        {{ llmStageLabel(versionRiskChain(record)) }}
-                      </a-tag>
-                    </a-tooltip>
+                    <a-tag :color="llmStageColor(versionRiskChain(record))">
+                      {{ llmStageLabel(versionRiskChain(record)) }}
+                    </a-tag>
                   </div>
                   <span class="version-risk-arrow" aria-hidden="true">→</span>
                   <div class="version-risk-stage">

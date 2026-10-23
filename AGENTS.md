@@ -112,6 +112,11 @@ make sandbox-runtime-build
 
 ## 前端注意事项
 
+- MCP 客户端凭证创建和编辑时 scope 留空采用默认三项 MCP 权限，编辑保存前转换为默认权限提交，清空后在输入框内显示灰色默认权限占位提示，沿用原单行尺寸且保留已选网关；IP/CIDR 的前端错误同时展示序号和原值，未确认标签的草稿也校验，服务端创建与更新只校验本次提交的 IP 字段并返回 `credential.invalid_allowed_ips` 及位置。
+
+- MCP 调用审计分页使用 `defaultPageSize: 20` 初始化，由表格管理每页条数选择与页码；验证10、20、50、100条、末页及刷新行为。
+- MCP 审批详情风险标签按详情接口 `risk_level` 展示低、中、高风险及绿、橙、红颜色；双语文案使用 `mcpApproval.lowRisk`、`mediumRisk`、`highRisk`。
+
 - MCP 服务连接发现成功或失败后均刷新列表；Endpoint、鉴权 Header 或鉴权值实际变化时，后端将健康状态重置为 unknown 并清空 last_checked_at。相同连接配置及留空保留鉴权的编辑保持旧检测结果，凭据按解密后有效值比较。
 
 - Skill 详情完整性校验的内容指纹存在性与预览读取当前版本 `content_fingerprint`，预览前 24 字符加省略号，空值或缺失显示否及 `-`；数字签名校验操作依据 `signature`。双语标签使用 `skillDetail.fingerprintExists` 与 `skillDetail.fingerprintPreview`。
@@ -243,13 +248,16 @@ make sandbox-runtime-build
 - MCP 审批日期范围筛选需完整显示开始和结束日期时间（含秒）；宽屏预留足够宽度，筛选栏不足时整项换行，窄屏允许输入分行。
 - MCP 审批关键词、Tool 和调用凭证输入使用300毫秒防抖自动筛选；网关选择和日期范围确认或清空立即筛选，回到第一页。列表查询由首次加载、筛选、分页、手动刷新及审批操作触发；手动刷新及回车清理待执行筛选；防抖期间翻页或调整每页数量时先应用筛选并回第一页，保留所选每页数量；旧请求不得覆盖最新列表、统计或加载状态，离开页面清理定时器。
 
-- MCP审批页所有时间展示及日期框钟面输入统一为北京时间（UTC+8），筛选申请时间created_at并包含起止边界；后端将带时区查询转换为数据库UTC时间，既有无时区查询按UTC兼容。刷新按钮加载状态只由手动刷新驱动。
+- MCP审批今日批准和拒绝按reviewed_at的北京时间自然日统计，使用当日零点（含）至次日零点（不含）的UTC无时区边界查询，保留UTC存储及既有状态计数语义。
+
+- MCP审批页所有时间展示及日期框钟面输入统一为北京时间（UTC+8），筛选申请时间created_at并包含起止边界，查询参数按日期框可见的秒级时间发送，不携带隐藏毫秒；后端将带时区查询转换为数据库UTC时间，既有无时区查询按UTC兼容。刷新按钮加载状态只由手动刷新驱动。
 
 - MCP网关环境和执行模式帮助复用标签旁QuestionCircleOutlined与mcpSecurity语义双语资源，按选项分行解释实际限制；保持文案与服务端调用边界一致。
 
 - MCP调试平台网关凭证使用mcpDebug语义双语说明及字段错误；首次输入和连接前检查必填、无空白可打印ASCII字符，保留非法草稿并阻止请求，错误不包含凭证值。服务端负责凭证有效性及授权校验。
 
 - ScannerAccess参数说明按配置项合并CLI/环境变量，展示必填条件、默认值与关系；双语资源使用scannerGuide。独立本地示例显式--server=""，分析示例包含地址/凭证配置；示例凭证明确要求替换为实际凭证，Sandbox说明包含服务端策略仍可能要求执行的关系；说明需与scanner/internal/config及runner实际行为一致。
+- Scanner 使用说明维护于 `docs/skill-scanner-current.md`；凭证入口名称与实际调用者卡片保持一致，示例按本地、基础上传、按需分析、全部分析分类；示例地址为 `http://10.10.71.35`；ignore、output、timeout 的默认值栏不附示例，ignore 作用只说明名称格式；报告 ID 路径为 `skills[].submission.skill_id`。
 
 - 深度扫描已过滤噪声明细复用后端过滤原因规则，使用 `suppressed_findings` 与稳定 `suppression_reason` 编码；界面统一展示严重度、规则、标题、文件名、独立行号和过滤原因，双语资源使用 `skillDetail.suppressed`。历史报告仅在读取响应中补齐明细，保留原存储和风险判定。
 
@@ -289,3 +297,5 @@ make sandbox-runtime-build
 - 深度扫描 PDF 发现项复用噪声过滤及 `pdf_file` 原因编码，详情复用 `skillDetail.suppressed.reasons.pdf_file` 双语资源，PDF 明细隐藏行号但保留报告原值，其他文件行号展示保持现有行为；全部发现项为 PDF 或位图噪声时有效严重度为 SAFE，剩余有效发现项继续参与判定，原始报告保留；历史明细补齐按规则编码、文件和行号排除已记录的有效发现，保留原计数、风险和存储。
 
 - MCP Server 编辑时鉴权留空，保存前测试按 server_id 复用已保存凭证，Endpoint 的查询参数、路径或地址变化均与保存后发现一致；地址变化且复用非空已存凭证时通过 `iam.check` 校验 `mcp:update`，在调用上游前拒绝无编辑权限的请求；显式测试凭证仅用于本次请求，测试不写回配置。独立临时测试使用请求自身凭证。
+
+- MCP 上游超时及响应超限通过 `_upstream_limit_error` 分类，使用 `mcp.upstream_timeout` / `mcp.upstream_response_too_large` 和配置参数；超限使用 `McpResponseTooLargeError` 携带上限。网关保持 JSON-RPC `-32000`，稳定编码与参数放 `error.data`，按请求语言返回原因；MCP 调试发送当前语言并复用 `web/src/i18n/errors.js`，原始响应保留。直连调试、连接发现与调用审计复用分类，失败后释放并发租约。

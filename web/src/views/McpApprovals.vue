@@ -104,7 +104,8 @@
             <a-descriptions-item :label="t('mcpApproval.gateway')">{{ detail.gateway_name || detail.gateway_slug }}</a-descriptions-item>
             <a-descriptions-item label="MCP Server">{{ detail.server_slug }}</a-descriptions-item>
             <a-descriptions-item :label="t('mcpApproval.tool')">{{ detail.tool_name }}</a-descriptions-item>
-            <a-descriptions-item :label="t('mcpApproval.riskLevel')"><a-tag color="red">{{ t('mcpApproval.highRisk') }}</a-tag></a-descriptions-item>
+            <!-- 风险标签使用详情接口返回的等级。 -->
+            <a-descriptions-item :label="t('mcpApproval.riskLevel')"><a-tag :color="riskColor(detail.risk_level)">{{ t(`mcpApproval.${detail.risk_level}Risk`) }}</a-tag></a-descriptions-item>
             <a-descriptions-item :label="t('mcpApproval.schemaHash')" :span="2"><code>{{ detail.schema_hash }}</code></a-descriptions-item>
             <a-descriptions-item :label="t('mcpApproval.currentSchemaHash')" :span="2"><code>{{ detail.current_schema_hash || '-' }}</code></a-descriptions-item>
             <a-descriptions-item :label="t('mcpApproval.authorizationScope')" :span="2">{{ t('mcpApproval.authorizationScopeDescription') }}</a-descriptions-item>
@@ -232,6 +233,7 @@ const columns = computed(() => [
 ])
 
 const prettyArguments = computed(() => JSON.stringify(detail.value?.arguments || {}, null, 2))
+const riskColor = risk => ({ low: 'green', medium: 'orange', high: 'red' }[risk])
 const statusColor = status => ({ pending: 'orange', approved: 'blue', rejected: 'red', used: 'green', expired: 'default', cancelled: 'default', active: 'blue' }[status] || 'default')
 const statusLabel = status => t(`mcpApproval.${status}`)
 const statusFilter = () => ({ pending: 'pending', processed: 'approved,rejected,used,expired,cancelled', all: undefined }[activeTab.value])
@@ -261,9 +263,9 @@ const fetchRows = async () => {
       gateway_slug: filters.gateway_slug || undefined,
       tool_name: filters.tool_name.trim() || undefined,
       token_name: filters.token_name.trim() || undefined,
-      // 日期框中的钟面时间与列表一样按北京时间解释，不依赖浏览器时区。
-      created_from: timeRange[0] ? `${timeRange[0].format('YYYY-MM-DDTHH:mm:ss.SSS')}+08:00` : undefined,
-      created_to: timeRange[1] ? `${timeRange[1].format('YYYY-MM-DDTHH:mm:ss.SSS')}+08:00` : undefined,
+      // 按日期框可见的北京时间精确到秒，去掉不可见毫秒，保持筛选边界一致。
+      created_from: timeRange[0] ? `${timeRange[0].format('YYYY-MM-DDTHH:mm:ss')}+08:00` : undefined,
+      created_to: timeRange[1] ? `${timeRange[1].format('YYYY-MM-DDTHH:mm:ss')}+08:00` : undefined,
       page: pagination.current,
       page_size: pagination.pageSize,
     })

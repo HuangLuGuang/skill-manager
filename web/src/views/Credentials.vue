@@ -301,11 +301,11 @@
             <a-collapse-panel key="advanced" :header="$t(editingRecord ? 'credentials.permissionDetails' : 'credentials.advancedTitle')">
               <p v-if="!editingRecord" class="advanced-intro">{{ $t('credentials.advancedDescription') }}</p>
 
-              <a-form-item v-if="editingRecord || form.agent_preset === 'custom' || form.token_type !== 'agent_runtime'" :label="$t('credentials.rawPermissions')" :required="!!editingRecord">
-                <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.scopes" mode="multiple" style="width: 100%" @change="handleScopesChange">
+              <a-form-item v-if="editingRecord || form.agent_preset === 'custom' || form.token_type !== 'agent_runtime'" :label="$t('credentials.rawPermissions')" :required="!!editingRecord && form.token_type !== 'mcp_gateway'">
+                <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.scopes" mode="multiple" style="width: 100%" :placeholder="form.token_type === 'mcp_gateway' ? $t('credentials.mcpDefaultScopesHint', { scopes: typeDefaults.mcp_gateway.join(', ') }) : undefined" @change="handleScopesChange">
                   <a-select-option v-for="scope in availableScopes" :key="scope" :value="scope">{{ scope }}</a-select-option>
                 </a-select>
-                <div class="field-hint">{{ $t('credentials.rawPermissionsHint') }}</div>
+                <div v-if="form.token_type !== 'scanner'" class="field-hint">{{ $t('credentials.rawPermissionsHint') }}</div>
               </a-form-item>
 
               <template v-if="!editingRecord">
@@ -361,8 +361,8 @@
                   </a-col>
                 </template>
               </a-row>
-              <a-form-item :label="$t('credentials.allowedIps')">
-                <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.allowed_ips" mode="tags" :placeholder="$t('credentials.allowedIpsPlaceholder')" />
+              <a-form-item :label="$t('credentials.allowedIps')" :validate-status="ipErrors.length ? 'error' : undefined" :help="ipErrorText || undefined">
+                <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.allowed_ips" mode="tags" :placeholder="$t('credentials.allowedIpsPlaceholder')" @search="ipSearch = $event" @change="ipSearch = ''" />
                 <div class="field-hint">{{ $t('credentials.allowedIpsHint') }}</div>
               </a-form-item>
               </template>
@@ -413,6 +413,7 @@ import { i18n } from '../i18n'
 import { copyText, promptManualCopy } from '../utils/clipboard'
 import { integrationCapabilities, integrationScopes, parseIntegrationCapabilities } from '../utils/agentIntegration'
 import { formatDateTime } from '../utils/format'
+import { invalidIpEntries } from '../utils/credentialIps'
 import {
   createAccessToken,
   updateAccessToken,
@@ -503,6 +504,14 @@ const form = reactive({
   allow_agent_credential_issuance: false,
   allow_manual_credential_export: false,
 })
+
+// 尚未确认为标签的输入也参与校验，避免点击创建时遗漏草稿。
+const ipSearch = ref('')
+const ipEntries = computed(() => [...form.allowed_ips, ...(ipSearch.value ? [ipSearch.value] : [])])
+const ipErrors = computed(() => invalidIpEntries(ipEntries.value))
+const ipErrorText = computed(() => ipErrors.value.length ? t('credentials.invalidIps', {
+  entries: ipErrors.value.map(entry => t('credentials.invalidIpEntry', entry)).join(t('credentials.ipEntrySeparator')),
+}) : '')
 
 const agentScopePresets = {
   verification: ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool'],
@@ -684,7 +693,8 @@ const handleScopesChange = () => {
     form.compression_level = 'auto'
     if (form.token_type !== 'agent_runtime') form.prompt_guard_mode = 'off'
   }
-  if (!form.scopes.some(scope => scope.startsWith('mcp:'))) form.allowed_mcp_gateways = []
+  // MCP 客户端清空 scope 时仍使用默认权限，保留已选网关。
+  if (form.token_type !== 'mcp_gateway' && !form.scopes.some(scope => scope.startsWith('mcp:'))) form.allowed_mcp_gateways = []
   else if (form.token_type === 'agent_runtime' && !form.allowed_mcp_gateways.length) handleAgentChange()
 }
 const handleClientIssuanceChange = () => {
@@ -707,6 +717,7 @@ const toggleManualExport = async record => {
   } finally { actionId.value = null }
 }
 const resetForm = (tokenType, defaults = {}) => {
+  ipSearch.value = ''
   Object.assign(form, {
     name: defaults.name || '',
     token_type: tokenType,
@@ -770,11 +781,16 @@ const openEdit = record => {
   advancedSections.value = ['advanced']
 }
 const savePermissions = async () => {
-  if (!form.scopes.length) return message.warning(t('credentials.scopesRequired'))
+  // 编辑 MCP 凭证时，空权限按创建时的默认值提交。
+  const permissions = {
+    ...form,
+    scopes: form.token_type === 'mcp_gateway' && !form.scopes.length ? [...typeDefaults.mcp_gateway] : form.scopes,
+  }
+  if (!permissions.scopes.length) return message.warning(t('credentials.scopesRequired'))
   const payload = Object.fromEntries(permissionFields.filter(field => {
     const previous = editingRecord.value[field]
-    return Array.isArray(previous) ? !sameScopes(previous, form[field]) : previous !== form[field]
-  }).map(field => [field, form[field]]))
+    return Array.isArray(previous) ? !sameScopes(previous, permissions[field]) : previous !== permissions[field]
+  }).map(field => [field, permissions[field]]))
   if (!Object.keys(payload).length) {
     createVisible.value = false
     return
@@ -874,6 +890,9 @@ const handleCreate = async () => {
     message.warning(t('agentMcp.outOfScope'))
     return
   }
+  if (ipErrors.value.length) return
+  form.allowed_ips = [...ipEntries.value]
+  ipSearch.value = ''
   form.prompt_guard_llm_review = false
   creating.value = true
   try {

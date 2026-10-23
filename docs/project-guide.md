@@ -12,6 +12,14 @@ Agent 资产页的“Dify 运行接入”提供应用绑定、观察/管控模�
 
 The Agent asset page provides Dify application bindings, observe/enforce policies, process hook status, runtime traces and call approvals. The [adapter package](../integrations/dify-runtime/README.md) loads into Dify 1.15.0 API/Worker processes. Rules cover HTTP, tools, code, retrieval, graph digests and completed-action ordering; approvals use native persisted pauses. Heartbeats and actual enforcement are verified separately.
 
+## MCP 客户端凭证 / MCP client credentials
+
+在“智能体管理 → 统一凭证中心 → 给 MCP 客户端 → 高级安全设置”中，创建或编辑时 scope 留空使用 `mcp:connect, mcp:list-tools, mcp:call-tools`，仍受所选网关限制，清空 scope 保留网关选择，输入框内以灰色占位提示说明默认权限；选择权限后提示隐藏，输入框沿用原有单行尺寸。编辑保存时将空 scope 转换为默认三项权限后提交。
+
+允许来源 IP / CIDR 支持 IPv4、IPv6 和数字前缀网段；CIDR 允许主机位，与运行时匹配规则一致。空列表表示不限制源 IP。输入后即时校验，错误按序号和原值定位，非法草稿保留；尚未确认成标签的输入也在创建前校验。服务端创建与更新共用写入校验，以 `credential.invalid_allowed_ips` 和 `indices` 返回错误位置。历史记录不回写，未提交 IP 字段的更新沿用原数据。列表安全限制使用“源 IP / source IP”；界面文案随当前语言展示，输入值保持原文。无需数据库迁移，Docker 更新前后端镜像即可。
+
+In Credential Center, choose “For an MCP client” and open Advanced security settings. Empty scopes use `mcp:connect, mcp:list-tools, mcp:call-tools` when creating or editing a credential and retain the selected gateway boundary. A gray placeholder inside the empty scopes input explains the defaults and disappears when scopes are selected. The input retains its standard single-line size. Saving an edit submits the three default scopes when the input is empty. Source IP restrictions accept IPv4, IPv6 and numeric CIDR prefixes, including host bits under the existing runtime matching rules. An empty list allows any source IP. Inline errors identify each invalid entry by position and original value; pending tag input is also validated before creation. Create and update APIs validate submitted IP fields with the stable `credential.invalid_allowed_ips` error and `indices` positions. Existing records remain stored unchanged; updates omitting IP fields retain their values. No database migration is needed; rebuild the frontend and backend images.
+
 ## 页面数据加载 / Page data loading
 
 用户组页只查询用户组列表；用户和隐私策略选项在打开新建或编辑弹窗时按权限加载，同次访问复用，刷新列表或保存后失效。选项加载失败保留草稿并可重试，详见[模型网关说明](model-gateway.md)。
@@ -408,13 +416,19 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 - 连接发现与保存前测试的 HTTP 错误使用稳定 `mcp.connection_failed.http_status` / `mcp.debug_failed.http_status` 编码，后端提供双语消息，前端通过 `web/src/i18n/errors.js` 按界面语言展示固定说明（中文为“更多信息请参阅”）；状态码、URL 和上游原始原因保持原文，无需数据库迁移。遇到 405 时检查 Endpoint 是否为支持 POST 的 MCP 地址。
 - `能力治理 / MCP 网关` 把多个 Server 的部分 Tool 组合为 `/mcp/{gateway_slug}`。网关环境与执行模式标签旁提供中英文悬浮说明，逐项解释用途、调用限制和生产边界；环境不自动准备隔离资源或切换上游凭据，需事先准备并绑定对应服务。
 - `能力治理 / MCP 调用审批` 接收真实高风险调用产生的待办；管理员查看脱敏参数后批准或拒绝该 Token 对指定网关、Tool 和 Schema 的限时调用权限，查看原始参数会写入安全审计。
-- 审批列表的日期范围筛选完整显示开始和结束日期时间（含秒）；筛选栏空间不足时换行，窄屏分行展示时间输入，日期范围按申请时间（created_at）筛选，包含起止边界；本页列表及详情时间、日期框钟面输入统一为北京时间（UTC+8）。后端把带偏移的查询边界转换为UTC后比较，历史无时区查询仍按UTC处理；不修改历史数据，无需数据库迁移。
+- 审批详情的风险标签读取详情接口 `risk_level`，低、中、高风险分别显示绿色、橙色、红色，并随界面语言切换。使用时在 MCP 服务设置 Tool 风险等级并启用执行前审批，经网关调用后进入 MCP 审批查看详情。此展示调整复用现有接口及审批规则，无需数据库迁移；Docker 部署更新前端镜像即可。
+- **English:** Approval details render the risk level returned by the detail API: Low Risk in green, Medium Risk in orange, and High Risk in red. Set a Tool risk level and enable pre-execution approval in MCP Servers, call it through a gateway, then open its request in MCP Approvals. This display change reuses the existing API and approval rules, requires no database migration, and only needs the frontend image updated for Docker deployments.
+- 审批页“今日已批准 / 今日已拒绝”按审核时间（reviewed_at）的北京时间自然日统计：当日00:00（含）至次日00:00（不含），转换为UTC边界查询。今日批准包含已批准、已使用及已过期的批准记录；待审批与已过期总量沿用现有口径。数据库继续保存UTC，无历史数据迁移；Docker部署更新后端镜像后生效。核对方式：进入MCP审批页，凌晨的批准与拒绝在当天08:00前后应持续计入今日统计，到北京时间次日零点切日。
+- 审批列表的日期范围筛选完整显示开始和结束日期时间（含秒）；筛选栏空间不足时换行，窄屏分行展示时间输入，日期范围按申请时间（created_at）筛选，包含起止边界；请求按日期框可见的秒级北京时间发送，去掉不可见毫秒，零点记录可正确计入。本页列表及详情时间、日期框钟面输入统一为北京时间（UTC+8）。后端把带偏移的查询边界转换为UTC后比较，历史无时区查询仍按UTC处理；不修改历史数据，无需数据库迁移。
 - 审批列表的搜索关键词、MCP Tool、调用凭证在停止输入300毫秒后自动过滤；网关选择及日期范围确认或清空立即过滤，筛选后回到第一页。列表在首次打开、筛选或分页变化、手动刷新及审批操作后查询；刷新按钮仅在手动点击时显示加载状态，其他查询使用列表加载状态。回车、搜索及刷新按钮可立即查询；防抖等待期间翻页或调整每页数量会立即应用新筛选并回到第一页，保留所选每页数量；连续筛选仅采用最新请求结果，离开页面清理待执行查询。
 - `能力治理 / MCP 调试` 可以在保存前使用临时 Endpoint 直连服务，也可以使用真实网关凭证执行 Tool 发现和调用，并展示原始 JSON 请求历史。平台网关凭证旁提供格式悬浮说明；输入后及连接前校验必填和无空白可打印ASCII字符，错误按界面语言显示在字段下，保留草稿，不发送非法请求或回显凭证。凭证是否有效及权限范围仍由服务端校验。
+- MCP 上游调用超时及响应超限分别返回 `mcp.upstream_timeout`（`timeout_seconds`）和 `mcp.upstream_response_too_large`（`max_response_kb`）。MCP 调试的提示与本次原始响应按请求语言显示具体原因及配置值；网关沿用 JSON-RPC `-32000`，在 `error.data` 中提供 `error_code`、`error_params`。直连调试和连接发现复用相同错误分类；调用审计保留可识别原因，失败后释放并发占用。使用时在 MCP 服务配置超时及最大响应，再从 MCP 调试调用对应 Tool；超时可检查上游响应速度或超时配置，响应超限可缩小返回结果或调整最大响应。无需数据库迁移；Docker 部署更新前后端镜像。
+- **English:** Upstream timeouts return `mcp.upstream_timeout` with `timeout_seconds`; oversized responses return `mcp.upstream_response_too_large` with `max_response_kb`. MCP Debug shows the specific reason and configured limit in the requested language. Gateway errors keep JSON-RPC code `-32000` and add `error_code` and `error_params` in `error.data`. Direct debugging and discovery share the classification; call audits record a recognizable reason and failed calls release concurrency slots. Configure the service limits, then call the Tool from MCP Debug. For timeouts, check upstream latency or the timeout setting; for oversized responses, reduce the result size or adjust the response limit. No database migration is required; update both Docker images.
 - 调用方使用 `MCP 网关凭证`，凭证限制可访问网关、IP、请求大小和并发数，不要求绑定 `ManagedAgent`。
 - 上游连接默认强制 HTTPS，并在每次调用前校验 DNS 解析结果和出站白名单；Tool 还可以配置速率、并发、响应大小和限时审批。
 - 高风险调用首次被网关阻断时会返回 `approval_request_id`；批准后，网关自动按 MCP 凭证、Gateway、Tool 和 Schema 匹配有效授权，不要求调用方回传申请 ID。有效期内允许使用不同参数重复调用，参数仅保留为审批和审计上下文。
 - Tool 对外名称为 `{server_slug}__{tool_name}`；Schema 变化后暂停暴露，重新保存网关配置才会批准新 Hash。
+- `能力治理 / 调用审计` 默认每页20条，可在表格右下角选择10、20、50或100条并翻页；表格使用 `defaultPageSize` 初始化，组件维护用户选择，页面刷新按钮保留所选条数。数据范围沿用最近200条；无需数据库迁移，Docker 部署更新前端镜像即可。
 - 当前数据面实现 `initialize`、`ping`、`tools/list` 和 `tools/call`，不托管 stdio MCP。
 
 ### 3.8 可验证安全审计

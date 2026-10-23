@@ -198,7 +198,8 @@
 </template>
 
 <script setup>
-import { translateLegacy as phrase, translateText as text } from '../i18n'
+import { getCurrentLocale, translateLegacy as phrase, translateText as text } from '../i18n'
+import { localizeApiError } from '../i18n/errors'
 
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -363,13 +364,20 @@ const gatewayRequest = async (method, params = {}, notification = false) => {
         Accept: 'application/json, text/event-stream',
         'Content-Type': 'application/json',
         'MCP-Protocol-Version': protocolVersion.value || '2025-11-25',
+        'Accept-Language': getCurrentLocale(),
       },
       body: JSON.stringify(payload),
     })
     const text = await response.text()
     responseData = text ? JSON.parse(text) : null
     if (!response.ok) throw new Error(responseData?.detail || `HTTP ${response.status}`)
-    if (responseData?.error) throw new Error(responseData.error.message)
+    if (responseData?.error) {
+      const { message, data } = responseData.error
+      // 按稳定编码显示当前语言，历史中的原始响应保持不变。
+      throw new Error(localizeApiError({
+        code: data?.error_code, params: data?.error_params, message,
+      }, getCurrentLocale()))
+    }
     ok = true
     return responseData
   } catch (error) {
