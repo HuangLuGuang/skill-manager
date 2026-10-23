@@ -408,6 +408,8 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 - 连接发现与保存前测试的 HTTP 错误使用稳定 `mcp.connection_failed.http_status` / `mcp.debug_failed.http_status` 编码，后端提供双语消息，前端通过 `web/src/i18n/errors.js` 按界面语言展示固定说明（中文为“更多信息请参阅”）；状态码、URL 和上游原始原因保持原文，无需数据库迁移。遇到 405 时检查 Endpoint 是否为支持 POST 的 MCP 地址。
 - `能力治理 / MCP 网关` 把多个 Server 的部分 Tool 组合为 `/mcp/{gateway_slug}`。网关环境与执行模式标签旁提供中英文悬浮说明，逐项解释用途、调用限制和生产边界；环境不自动准备隔离资源或切换上游凭据，需事先准备并绑定对应服务。
 - `能力治理 / MCP 调用审批` 接收真实高风险调用产生的待办；管理员查看脱敏参数后批准或拒绝该 Token 对指定网关、Tool 和 Schema 的限时调用权限，查看原始参数会写入安全审计。
+- 审批详情的风险标签读取详情接口 `risk_level`，低、中、高风险分别显示绿色、橙色、红色，并随界面语言切换。使用时在 MCP 服务设置 Tool 风险等级并启用执行前审批，经网关调用后进入 MCP 审批查看详情。此展示调整复用现有接口及审批规则，无需数据库迁移；Docker 部署更新前端镜像即可。
+- **English:** Approval details render the risk level returned by the detail API: Low Risk in green, Medium Risk in orange, and High Risk in red. Set a Tool risk level and enable pre-execution approval in MCP Servers, call it through a gateway, then open its request in MCP Approvals. This display change reuses the existing API and approval rules, requires no database migration, and only needs the frontend image updated for Docker deployments.
 - 审批列表的日期范围筛选完整显示开始和结束日期时间（含秒）；筛选栏空间不足时换行，窄屏分行展示时间输入，日期范围按申请时间（created_at）筛选，包含起止边界；本页列表及详情时间、日期框钟面输入统一为北京时间（UTC+8）。后端把带偏移的查询边界转换为UTC后比较，历史无时区查询仍按UTC处理；不修改历史数据，无需数据库迁移。
 - 审批列表的搜索关键词、MCP Tool、调用凭证在停止输入300毫秒后自动过滤；网关选择及日期范围确认或清空立即过滤，筛选后回到第一页。列表在首次打开、筛选或分页变化、手动刷新及审批操作后查询；刷新按钮仅在手动点击时显示加载状态，其他查询使用列表加载状态。回车、搜索及刷新按钮可立即查询；防抖等待期间翻页或调整每页数量会立即应用新筛选并回到第一页，保留所选每页数量；连续筛选仅采用最新请求结果，离开页面清理待执行查询。
 - `能力治理 / MCP 调试` 可以在保存前使用临时 Endpoint 直连服务，也可以使用真实网关凭证执行 Tool 发现和调用，并展示原始 JSON 请求历史。平台网关凭证旁提供格式悬浮说明；输入后及连接前校验必填和无空白可打印ASCII字符，错误按界面语言显示在字段下，保留草稿，不发送非法请求或回显凭证。凭证是否有效及权限范围仍由服务端校验。

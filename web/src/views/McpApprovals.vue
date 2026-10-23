@@ -104,7 +104,8 @@
             <a-descriptions-item :label="t('mcpApproval.gateway')">{{ detail.gateway_name || detail.gateway_slug }}</a-descriptions-item>
             <a-descriptions-item label="MCP Server">{{ detail.server_slug }}</a-descriptions-item>
             <a-descriptions-item :label="t('mcpApproval.tool')">{{ detail.tool_name }}</a-descriptions-item>
-            <a-descriptions-item :label="t('mcpApproval.riskLevel')"><a-tag color="red">{{ t('mcpApproval.highRisk') }}</a-tag></a-descriptions-item>
+            <!-- 风险标签使用详情接口返回的等级。 -->
+            <a-descriptions-item :label="t('mcpApproval.riskLevel')"><a-tag :color="riskColor(detail.risk_level)">{{ t(`mcpApproval.${detail.risk_level}Risk`) }}</a-tag></a-descriptions-item>
             <a-descriptions-item :label="t('mcpApproval.schemaHash')" :span="2"><code>{{ detail.schema_hash }}</code></a-descriptions-item>
             <a-descriptions-item :label="t('mcpApproval.currentSchemaHash')" :span="2"><code>{{ detail.current_schema_hash || '-' }}</code></a-descriptions-item>
             <a-descriptions-item :label="t('mcpApproval.authorizationScope')" :span="2">{{ t('mcpApproval.authorizationScopeDescription') }}</a-descriptions-item>
@@ -232,6 +233,7 @@ const columns = computed(() => [
 ])
 
 const prettyArguments = computed(() => JSON.stringify(detail.value?.arguments || {}, null, 2))
+const riskColor = risk => ({ low: 'green', medium: 'orange', high: 'red' }[risk])
 const statusColor = status => ({ pending: 'orange', approved: 'blue', rejected: 'red', used: 'green', expired: 'default', cancelled: 'default', active: 'blue' }[status] || 'default')
 const statusLabel = status => t(`mcpApproval.${status}`)
 const statusFilter = () => ({ pending: 'pending', processed: 'approved,rejected,used,expired,cancelled', all: undefined }[activeTab.value])
