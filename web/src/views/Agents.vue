@@ -52,9 +52,10 @@
           <a-button @click="resetFilters" :disabled="loading">{{ $t("legacy.1wq9feq") }}</a-button>
         </div>
 
-        <a-table class="agent-asset-table" :data-source="agents" :columns="columns" :show-sorter-tooltip="false" :scroll="{ x: 1680 }" rowKey="asset_key" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }">
+        <a-table class="agent-asset-table" :data-source="agents" :columns="columns" :show-sorter-tooltip="false" :scroll="{ x: 1940 }" rowKey="asset_key" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }">
           <template #headerCell="{ column }">
-            <span v-if="column.sortHelp" class="asset-sort-heading">
+            <span v-if="column.key === 'risk'">{{ column.title }} <a-tooltip :title="$t('aidrRisk.assets.scopeHelp')"><InfoCircleOutlined tabindex="0" :aria-label="$t('aidrRisk.assets.scopeHelp')" /></a-tooltip></span>
+            <span v-else-if="column.sortHelp" class="asset-sort-heading">
               {{ column.title }}
               <a-popover :trigger="['hover', 'focus', 'click']" placement="topRight" :overlay-style="{ maxWidth: 'calc(100vw - 32px)' }">
                 <template #content><div class="asset-sort-help"><strong>{{ $t('agentAssets.sorting.basis') }}</strong><p>{{ $t(column.sortHelp) }}</p><p>{{ $t('agentAssets.sorting.cycle') }}</p></div></template>
@@ -104,6 +105,18 @@
               <div v-if="record.instances?.some(instance => instance.asset_inventory)" class="muted">{{ $t('localAssets.summary', { mcp: record.discovered_mcp_count, plugins: record.discovered_plugin_count }) }}</div>
               <div v-if="record.plugin_skill_count" class="muted">{{ $t('localAssets.pluginSkills', { count: record.plugin_skill_count }) }}</div>
             </template>
+            <template v-else-if="column.key === 'risk'">
+              <template v-if="record.risk_summary?.status === 'product_only'">
+                <a-tag v-if="record.risk_summary.highest_severity" :color="record.risk_summary.highest_severity === 'high' ? 'red' : 'orange'">{{ $t(`aidrRisk.severity.${record.risk_summary.highest_severity}`) }}</a-tag>
+                <div>{{ $t('aidrRisk.assets.counts', record.risk_summary) }}</div>
+                <div>{{ $t('aidrRisk.disposition.pendingCount', { count: record.risk_summary.open_count }) }}</div>
+                <div v-if="record.risk_summary.latest_at" class="muted">{{ $t('aidrRisk.assets.latest') }}: {{ formatDateTime(record.risk_summary.latest_at) }}</div>
+                <div class="muted">{{ $t('aidrRisk.assets.productScope') }}</div>
+                <div v-if="record.risk_summary.unmapped_instances" class="muted">{{ $t('aidrRisk.assets.partial', { count: record.risk_summary.unmapped_instances }) }}</div>
+                <a-button v-if="pageAllowed('/clients')" type="link" @click="openRisks(record)">{{ $t('aidrRisk.assets.view') }}</a-button>
+              </template>
+              <span v-else>{{ $t(`aidrRisk.assets.${record.risk_summary?.status || 'forbidden'}`) }}</span>
+            </template>
             <template v-else-if="column.key === 'status'">
               <a-space direction="vertical" size="small">
                 <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
@@ -126,6 +139,17 @@
         </a-table>
       </a-card>
     </a-card>
+
+    <a-modal v-model:open="riskScopesOpen" :title="$t('aidrRisk.assets.chooseScope')" :footer="null">
+      <p>{{ $t('aidrRisk.assets.scopeHelp') }}</p>
+      <div v-for="scope in riskScopes" :key="`${scope.client_id}:${scope.agent}`" class="risk-scope-choice">
+        <strong>{{ scope.client_name }} · {{ scope.agent }}</strong>
+        <small>{{ scope.client_id }}</small>
+        <span>{{ $t('aidrRisk.assets.counts', scope) }}</span>
+        <span>{{ $t('aidrRisk.disposition.pendingCount', { count: scope.open_count }) }}</span>
+        <a-button @click="goToRisks(scope)">{{ $t('aidrRisk.assets.view') }}</a-button>
+      </div>
+    </a-modal>
 
     <a-drawer v-model:open="assetVisible" :width="760" :title="selectedAsset?.name || $t('agentAssets.detail')">
       <template #extra>
@@ -364,6 +388,16 @@ const assetsLoadFailed = ref(false)
 const submitting = ref(false)
 const agentVisible = ref(false)
 const assetVisible = ref(false)
+const riskScopesOpen = ref(false), riskScopes = ref([])
+function goToRisks(scope) {
+  riskScopesOpen.value = false
+  router.push({ path: '/clients', query: { client: scope.client_id, section: 'audit', view: 'risks', risk_agent: scope.agent } })
+}
+function openRisks(record) {
+  riskScopes.value = record.risk_summary.scopes
+  if (riskScopes.value.length === 1) goToRisks(riskScopes.value[0])
+  else riskScopesOpen.value = true
+}
 const selectedAsset = ref(null)
 const assetDetailTab = ref('overview')
 const editingAgentId = ref(null)
@@ -426,6 +460,7 @@ const columns = computed(() => [
   { title: t('agentAssets.columns.location'), key: 'location', width: 220, sorter: (a, b) => compareAssetText(a.instances?.[0]?.client_name, b.instances?.[0]?.client_name) },
   { title: t('agentAssets.columns.assets'), key: 'assets', width: 220, sorter: (a, b) => assetSkillCount(a) - assetSkillCount(b), sortHelp: 'agentAssets.sorting.assets' },
   { title: t('agentAssets.columns.status'), key: 'status', width: 180, sorter: (a, b) => assetStatusRank(a) - assetStatusRank(b), sortHelp: 'agentAssets.sorting.status' },
+  { title: t('aidrRisk.assets.title'), key: 'risk', width: 260 },
   { title: t('agentAssets.columns.lastSeen'), key: 'lastSeen', width: 190, sorter: (a, b) => assetTimestamp(a) - assetTimestamp(b) },
   { title: t('agentAssets.columns.actions'), key: 'actions', width: 110, fixed: 'right' },
 ])
@@ -753,6 +788,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.risk-scope-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px 0; border-bottom: 1px solid #eee; overflow-wrap: anywhere; }
 .agent-asset-table :deep(th) { white-space: normal; word-break: normal; }
 .asset-sort-heading { display: inline-flex; align-items: center; gap: 6px; }
 .asset-sort-info { display: inline-flex; align-items: center; justify-content: center; padding: 3px; border: 0; border-radius: 4px; background: transparent; color: #626b78; cursor: help; }

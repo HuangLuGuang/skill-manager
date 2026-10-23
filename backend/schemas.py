@@ -457,7 +457,29 @@ class AgentAssetInstance(BaseModel):
     skills: list[AgentAssetSkill] = Field(default_factory=list)
 
 
+class AgentRiskScope(BaseModel):
+    open_count: int = 0
+    client_id: str
+    client_name: str
+    agent: str
+    high: int = 0
+    medium: int = 0
+    latest_at: str | None = None
+
+
+class AgentRiskSummary(BaseModel):
+    open_count: int = 0
+    status: str
+    high: int = 0
+    medium: int = 0
+    highest_severity: str | None = None
+    latest_at: str | None = None
+    unmapped_instances: int = 0
+    scopes: list[AgentRiskScope] = Field(default_factory=list)
+
+
 class AgentAssetResponse(RegistrationSource):
+    risk_summary: AgentRiskSummary | None = None
     source_platform_name: Optional[str] = None
     asset_key: str
     managed_agent_pk: Optional[int] = None

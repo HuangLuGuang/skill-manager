@@ -17,7 +17,7 @@ const zh = {
             ['Codex、Claude Code、Gemini CLI、OpenCode、Hermes 等本地工具', { path: '/docs/client-management', label: 'Agent Manager Client' }, '发现本地 Agent 和 Skill、模型配置、安装、隔离、恢复与巡检', '启用客户端 AIDR 插件 Hook 并完成宿主信任；同步加载前验签走开发者指南'],
             ['自研 Agent Runtime、服务端 Agent', { path: '/docs/runtime-integration', label: 'Agent 运行凭证 + Runtime API/SDK' }, '在真实 Skill Loader、Tool 调用和 Turn/Step 中执行校验与上报', '在代码中接入验签、can-load、check-tool 和 Runtime Trace'],
             ['Dify Chatflow / Workflow', { path: '/docs/dify-security-access', label: 'Dify API 资产纳管' }, '采集应用、DSL、节点、Prompt、Tool、MCP 与知识库引用并执行安全扫描', '按用途配置 Console、App 和 Knowledge API 权限'],
-            ['客户主机、共享目录或 CI 中只有 Skill 文件', { path: '/docs/scanner-access', label: '二进制 Scanner' }, '批量发现、预检并提交 Skill 扫描', 'Scanner 只负责提交和读取自己的结果，不代表 Agent 运行身份'],
+            ['客户主机、共享目录或 CI 中只有 Skill 文件', { path: '/docs/scanner-access', label: '二进制 Scanner' }, '批量发现、预检并提交 Skill 扫描', 'Scanner 用于提交扫描并读取自己的结果；运行校验使用 Agent 运行凭证'],
             ['只能修改模型或 MCP 地址的第三方应用', { path: '/docs/credential-management', label: '模型/MCP 数据面接入' }, '通过受限凭证调用允许的模型或 MCP Gateway', '只能形成网关侧证据，不能伪造成完整 Agent 运行轨迹'],
           ],
         },
@@ -50,10 +50,10 @@ const zh = {
         id: 'dify',
         title: '场景三：Dify 通过 API 做资产和风险纳管',
         paragraphs: ['平台分别使用 Dify Console、App 和 Knowledge API 获取配置证据、执行测试和按授权检查知识资产。'],
-        table: { columns: ['接入点', '平台得到什么', '不能据此推断什么'], rows: [
-          ['Console API / 无密钥 DSL', '应用档案、工作流、节点、Prompt 摘要、Tool、MCP 和知识库引用', '配置存在不等于节点实际执行'],
+        table: { columns: ['接入点', '平台得到什么', '后续验证'], rows: [
+          ['Console API / 无密钥 DSL', '应用档案、工作流、节点、Prompt 摘要、Tool、MCP 和知识库引用', '节点执行情况见运行轨迹'],
           ['App API', '对已发布应用执行授权范围内的动态测试', '单次测试不能证明全部业务路径安全'],
-          ['Knowledge API', '经明确授权后的知识库元数据和有界内容风险检查', '保存 Key 本身不等于获得内容读取授权'],
+          ['Knowledge API', '经明确授权后的知识库元数据和有界内容风险检查', '读取内容需单独授权'],
           ['Runtime Trace', '真实节点、模型和 Tool 执行证据', '没有 Trace 时不能把 DSL 配置标记为 executed'],
         ] },
         image: { name: 'dify-target-config', alt: 'Dify 扫描目标连接配置', caption: 'Dify 目标分别填写运行 API、Console 地址、Workspace ID 和 App ID；凭据在目标保存后按用途单独配置。' },
@@ -104,7 +104,7 @@ const zh = {
         title: '第一步：配置并验证外部网关连接',
         steps: [
           { title: '打开“模型接入 → 外部 AI 网关”', body: '新增连接，分别填写管理面 Base URL、模型面 Base URL、Token ID、Token Value 和启用状态。两个 Base URL 可能使用不同端口。' },
-          { title: '测试连接', body: '测试会使用保存的管理凭据完成签名请求，并确认模型面 /v1/models 端点可达。成功不代表某个 Agent Key 已获得模型权限；模型目录仍需用已注册 Agent 的 API Key 刷新。' },
+          { title: '测试连接', body: '测试会使用保存的管理凭据完成签名请求，并确认模型面 /v1/models 端点可达。使用已注册 Agent 的 API Key 刷新其可用模型目录。' },
           { title: '保护管理 Token', body: 'Token Value 加密保存，页面只返回掩码；编辑时留空表示保留原值。' },
         ],
         image: { name: 'external-gateways', alt: '外部 AI 网关连接列表', caption: '外部 AI 网关页面区分管理面与模型面地址，并展示连接测试状态。' },
@@ -169,7 +169,7 @@ const zh = {
         table: { columns: ['运行场景', '交付方式', '生效判断'], rows: [
           ['Dify', '将平台为该 Dify 应用创建的外部 Agent API Key 配置到 Dify 模型供应商', '在 Dify 发布应用中执行真实调用；当前不会自动修改 Dify 供应商配置'],
         ] },
-        callout: { type: 'note', title: '写入配置不等于调用成功', body: '客户端或管理员看到模型名称，只能证明配置或目录已获取。验收必须由实际 Codex、Claude Code、Hermes、Dify 或自研 Agent 完成一次真实调用。' },
+        callout: { type: 'note', title: '写入后验证调用', body: '客户端或管理员看到模型名称，只能证明配置或目录已获取。验收必须由实际 Codex、Claude Code、Hermes、Dify 或自研 Agent 完成一次真实调用。' },
       },
       {
         id: 'limits',
@@ -200,7 +200,7 @@ const en = {
           ['Local Codex, Claude Code, Gemini CLI, OpenCode, or Hermes', { path: '/docs/client-management', label: 'Agent Manager Client' }, 'Discover local Agents and Skills; configure models; install, quarantine, restore, and inspect', 'Enable Client AIDR plugin Hooks and complete native trust; use the developer guide for synchronous pre-load verification'],
           ['Custom Agent Runtime or server-side Agent', { path: '/docs/runtime-integration', label: 'Agent runtime credential + Runtime API/SDK' }, 'Check the real Skill loader and Tool path and report Turn/Step events', 'Integrate signature, can-load, check-tool, and Runtime Trace calls in code'],
           ['Dify Chatflow / Workflow', { path: '/docs/dify-security-access', label: 'Dify API asset governance' }, 'Collect apps, DSL, nodes, prompts, tools, MCP, and knowledge references and run security scans', 'Configure Console, App, and Knowledge API access by purpose'],
-          ['Skill files on a customer host, shared directory, or CI', { path: '/docs/scanner-access', label: 'Binary Scanner' }, 'Discover, precheck, and submit Skills in batches', 'Scanner identity only submits and reads its own results; it is not an Agent runtime identity'],
+          ['Skill files on a customer host, shared directory, or CI', { path: '/docs/scanner-access', label: 'Binary Scanner' }, 'Discover, precheck, and submit Skills in batches', 'Scanner submits scans and reads its own results; runtime checks use an Agent runtime credential'],
           ['Third-party app where only a model or MCP URL can change', { path: '/docs/credential-management', label: 'Model/MCP data-plane integration' }, 'Call authorized models or MCP gateways with scoped credentials', 'Gateway evidence is partial and cannot be presented as a full Agent trace'],
         ] },
         callout: { type: 'note', title: 'Use Client AIDR for Hook integration by default', body: 'The Client manages supported plugins, Hook configuration and the background receiver according to policy. Complete native trust and verify actual events and tool decisions. For synchronous Skill verification, follow the developer guide at the real Loader or a supported event.' },
@@ -229,10 +229,10 @@ const en = {
       {
         id: 'dify', title: 'Scenario 3: govern Dify assets and risks through APIs',
         paragraphs: ['Dify Console, App, and Knowledge APIs provide configuration evidence, authorized tests, and bounded knowledge inspection.'],
-        table: { columns: ['Integration point', 'Evidence obtained', 'What it does not prove'], rows: [
-          ['Console API / secret-free DSL', 'App profile, workflow, nodes, prompt metadata, tools, MCP, and knowledge references', 'Configured does not mean executed'],
+        table: { columns: ['Integration point', 'Evidence obtained', 'Further verification'], rows: [
+          ['Console API / secret-free DSL', 'App profile, workflow, nodes, prompt metadata, tools, MCP, and knowledge references', 'Review runtime traces for node execution'],
           ['App API', 'Authorized dynamic tests against the published app', 'One test does not cover every business path'],
-          ['Knowledge API', 'Authorized knowledge metadata and bounded content-risk checks', 'Saving a key does not grant content authorization'],
+          ['Knowledge API', 'Authorized knowledge metadata and bounded content-risk checks', 'Content reads require separate authorization'],
           ['Runtime Trace', 'Actual node, model, and Tool execution evidence', 'Without Trace, DSL configuration cannot be marked executed'],
         ] },
         image: { name: 'dify-target-config', alt: 'Dify scan-target connection settings', caption: 'Configure runtime API, Console URL, Workspace ID, and App ID separately; add credentials by purpose after saving the target.' },
@@ -278,7 +278,7 @@ const en = {
         id: 'configure', title: 'Step 1: configure and test the external gateway',
         steps: [
           { title: 'Open Model access → External AI gateways', body: 'Create a connection with separate management and model Base URLs, Token ID, Token Value, and enabled state. The two URLs may use different ports.' },
-          { title: 'Test the connection', body: 'The test signs a management request with the saved credential and confirms that the model-plane /v1/models endpoint is reachable. Success does not establish model access for a specific Agent key; refresh the catalog with a registered Agent API key.' },
+          { title: 'Test the connection', body: 'The test signs a management request with the saved credential and confirms that the model-plane /v1/models endpoint is reachable. Refresh the available model catalog with a registered Agent API key.' },
           { title: 'Protect the management token', body: 'Token Value is encrypted and only a mask is returned. Leaving it empty while editing preserves the existing value.' },
         ],
         image: { name: 'external-gateways', alt: 'External AI gateway connection list', caption: 'The page separates management and model endpoints and reports connection-test state.' },
@@ -337,7 +337,7 @@ const en = {
         table: { columns: ['Runtime', 'Delivery path', 'Proof of success'], rows: [
           ['Dify', 'Configure the external Agent API key created for the Dify app in its model provider', 'A published Dify app completes a real call; current integration does not edit Dify provider settings automatically'],
         ] },
-        callout: { type: 'note', title: 'A configuration write is not a successful model call', body: 'A visible model name proves only that configuration or discovery succeeded. Acceptance requires a real call from Codex, Claude Code, Hermes, Dify, or the custom Agent.' },
+        callout: { type: 'note', title: 'Verify a call after writing configuration', body: 'A visible model name proves only that configuration or discovery succeeded. Acceptance requires a real call from Codex, Claude Code, Hermes, Dify, or the custom Agent.' },
       },
       {
         id: 'limits', title: 'Current boundaries and common questions',

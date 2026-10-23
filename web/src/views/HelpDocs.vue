@@ -731,7 +731,7 @@ const architectureLabels = computed(() => ({
   mcpOutput: text('受控 Tool 调用 · 调用审计', 'Controlled Tool calls · call audit'),
   evidenceWrite: text('所有准入、运行和管理结果写入可信证据层', 'Admission, runtime, and management outcomes enter the trust layer'),
   foundation: text('信任与证据基础', 'Trust and evidence foundation'),
-  foundationSummary: text('可信状态不是页面标签，而是可追踪、可校验的持久化记录', 'Trust is a traceable and verifiable record, not a UI label'),
+  foundationSummary: text('通过可追踪、可校验的持久化记录确认可信状态', 'Establish trust through traceable, verifiable persistent records'),
   registry: text('Registry 与版本', 'Registry and versions'),
   registryDetail: text('内容指纹、状态、签名、报告与策略上下文', 'Digests, states, signatures, reports, and policy context'),
   traces: text('任务、事件与 Trace', 'Tasks, events, and traces'),

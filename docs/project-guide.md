@@ -2,7 +2,7 @@
 
 ## 客户端界面配置 / Client interface configuration
 
-默认客户端策略和单客户端策略提供“客户端界面 → 菜单显示”。概览固定保留，其余四个侧边栏菜单支持全局显示开关与单客户端逐项“跟随全局 / 显示 / 隐藏”。复用策略预览、版本校验、审计、任务下发和客户端缓存，隐藏入口不改变后台功能权限。仅菜单修改不触发额外扫描或运行治理重新应用；状态区分未支持、待同步和配置已同步。配置已同步依据客户端缓存回执，不代表桌面已渲染。操作及人工验收清单见 [客户端说明](agent-manager-client.md#客户端菜单显示--client-menu-visibility)。
+默认客户端策略和单客户端策略提供“客户端界面 → 菜单显示”。概览固定保留，其余四个侧边栏菜单支持全局显示开关与单客户端逐项“跟随全局 / 显示 / 隐藏”。复用策略预览、版本校验、审计、任务下发和客户端缓存，隐藏入口不改变后台功能权限。仅菜单修改不触发额外扫描或运行治理重新应用；状态区分未支持、待同步和配置已同步。配置同步状态依据客户端缓存回执；桌面在读取配置后更新界面。操作及人工验收清单见 [客户端说明](agent-manager-client.md#客户端菜单显示--client-menu-visibility)。
 
 Default and individual client policies provide **Client interface → Menu visibility**. Overview remains visible; the other four menus support global defaults and independent per-client inheritance or overrides. Existing policy preview, version checks, audit, delivery, and caching are reused. Hiding an entry does not change background permissions. Menu-only changes do not request extra scanning or runtime-governance reapplication. Sync status reflects the client cache receipt, not desktop rendering; see the client guide for manual acceptance.
 
@@ -98,7 +98,7 @@ module entitlements and registered-client limits. Expiry preserves viewing, expo
 
 macOS TeleAgent 代理支持后台自动安全升级：候选程序先自检，等待在途模型/工具审核请求完成，再保留监听端口并原 PID 切换；持续忙碌时延后升级。主守护服务内的 Hook 接收器和独立代理均不随桌面退出。设置页按实际进程显示版本、摘要、健康与待升级状态；本地健康不等同于供应商连通。普通事件在发送完成后间隔至少 300 毫秒，单轮预算在等待期间耗尽则保留记录到下一轮。实现边界和实机证据见[客户端后台可靠性说明](agent-manager-client.md#后台可靠性与更新--background-reliability-and-updates)。
 
-**English:** The macOS TeleAgent proxy preflights staged upgrades, waits for in-flight model/review requests, and switches with its listener and PID preserved. Persistent traffic postpones activation. Both the daemon's Hook receiver and the independent proxy survive desktop exit. Settings displays observed process identity, readiness and pending upgrades; local readiness does not prove vendor connectivity. Ordinary events wait at least 300 ms after delivery completion; records waiting past the round budget remain queued. See the linked client reliability guide for limits and live evidence.
+**English:** The macOS TeleAgent proxy preflights staged upgrades, waits for in-flight model/review requests, and switches with its listener and PID preserved. Persistent traffic postpones activation. Both the daemon's Hook receiver and the independent proxy survive desktop exit. Settings displays observed process identity, readiness and pending upgrades; verify vendor connectivity through a real model request. Ordinary events wait at least 300 ms after delivery completion; records waiting past the round budget remain queued. See the linked client reliability guide for limits and live evidence.
 
 ## 客户端后台可靠性 / Client background reliability
 
@@ -136,7 +136,7 @@ Host-side fail-open behavior and deployment acceptance remain separate from loca
 ### 客户端启用反馈 / Desktop enrollment feedback
 
 普通模式下一键启用先保存本机申请，再立即通过设备认证心跳提交；单次提交最多等待 3 秒，失败后保留申请并随正常心跳重试。有效采集范围仍由平台任务下发后应用。页面在等待期间自动刷新策略状态，TeleAgent 启用后还会在 30 秒内复查本地审核桥是否启动。
-共享接收器的历史采集问题在产品列表上方折叠展示，标明来源产品、时间、原因和影响；技术编码收在详情中，当前操作错误单独显示。历史缺失记录不会因接收器恢复而自动补齐，也不能据此判断当前所选产品故障。
+共享接收器的历史采集问题在产品列表上方折叠展示，标明来源产品、时间、原因和影响；技术编码收在详情中，当前操作错误单独显示。历史缺失记录保留为诊断证据；当前产品状态按最近报告和事件判断。
 
 Ordinary-mode enrollment persists the local request and immediately submits an authenticated device heartbeat with a three-second timeout. Failed submissions retry through regular heartbeats; platform tasks still apply the effective collection scope. The UI refreshes pending policy state and rechecks the TeleAgent bridge during its first 30 seconds after enrollment. Shared historical collection issues appear separately above the product list, with their source, time, cause and impact; current action errors remain separate.
 
@@ -206,7 +206,7 @@ Client model switching provides Agent-specific configuration, parameter previews
 点击数据集名称打开详情，按每页 20 条查看带序号的完整 Prompt 原文。详情接口要求登录，支持服务端分页。
 免鉴权的 Ollama 等目标可以留空目标凭据，扫描客户端不发送 Authorization；评估模型继续使用独立的网关凭据。
 “每个数据集抽样条数”支持快捷选择 10 条、20 条或全部，也可手动输入 1–100 条。
-“抽样随机种子”用于复现抽样，不代表测试次数。“全部”使用引擎的 `num_prompts=-1`，
+“抽样随机种子”用于复现抽样。“全部”使用引擎的 `num_prompts=-1`，
 预览按数据集汇总预计用例上限；实际用例数受有效样本数量和执行结果影响。评估模型可从模型网关的
 已启用模型中选择，连接与凭证配置见 [模型网关](model-gateway.md)。
 
@@ -219,7 +219,7 @@ Agent Manager 不是一个“帮你写 Skill 的平台”，也不再只是 Skil
 - `统一调用轨迹、证据和运行时控制`
 - `客户侧 Agent/Skill 接管和持续完整性巡检`
 
-Skill 治理服务的对象不是普通软件包，而是 AI Agent 的技能目录，也就是一组本地文件：
+Skill 治理服务管理 AI Agent 的技能目录，其中包含以下本地文件：
 
 - `SKILL.md`
 - `scripts/`
@@ -270,7 +270,7 @@ Agent Manager 用一套“提交、扫描、审批、签名、运行时校验、
 | 证据与审计 | 安全审计、扫描报告、调用轨迹 | 哈希链、Ed25519 签名、版本化规则和脱敏证据 | 评估结论以实际执行的用例及证据为依据 |
 
 页面功能默认开启，不需要在 `.env` 增加启用开关。运行 Worker、访问模型或调用目标所需的 Token、
-API Key 和授权仍必须单独配置；“页面可见”不等于“外部目标已经验收”。
+配置 API Key 和授权后，对外部目标执行接入验证。
 
 ### 2.2 三条核心业务流程
 
@@ -377,19 +377,9 @@ LLM 分析生成详细的安全报告，如果是恶意skill，还会生成攻�
 - Skill 详情“基础信息”标题右侧只读展示当前版本最近一次提交的深度扫描、Sandbox、LLM 分析勾选状态，任务排队时即可查看。历史记录未保存提交选项时按检测报告展示并标明来源；没有选项或报告的记录显示未知状态。
 - 升级旧数据库时，Registry 会在首次启动时把旧 Skill 按名称归入版本族；同名同内容只保留提交时间最新的一条，同名不同内容按提交时间生成版本号。迁移记录写入 `registry_migrations`，后续启动不会重复迁移，也不会重新扫描。
 
-### 3.5 Sandbox 是补充验证，不是唯一裁判
+### 3.5 Sandbox 提供运行时观察
 
-sandbox 的作用是看：
-
-- “这段脚本在受限环境里跑起来会发生什么”
-
-但它不一定能触发所有恶意分支，所以：
-
-- `sandbox benign`
-
-不等于：
-
-- `skill 安全`
+Sandbox 在受限环境中执行 Probe，记录本次触发的脚本行为。`sandbox benign` 表示本次 Probe 未观察到风险；Skill 最终风险由策略结合规则、深度扫描、Sandbox 和 LLM 结果汇总。
 
 ### 3.6 模型网关保护 LLM 数据面
 
@@ -621,7 +611,7 @@ Hook 接收器与日志采集、策略同步合并运行在主后台服务中；
 
 TeleAgent 模型转发使用独立 macOS 用户级代理服务，关闭、退出、重启或更新客户端时持续运行。模型代理和 Hook 审核接收器分别检查健康：接收器停止时模型转发继续，工具审核仍须有效决策。安装、迁移及程序更新方式见 [TeleAgent 接入](external-agent-integration.md#aidr-产品适配器与-teleagent--product-adapters-and-teleagent)。
 
-客户端默认策略和单机覆盖分别配置 Hook、系统防护的“仅审计 / 拦截”模式，支持恢复继承。新配置默认仅审计；存量未选择模式的策略保留原行为，旧客户端需升级后才能确认新模式。Agent 日志保持采集设置。平台目标与客户端实际模式分别显示，保存成功不代表已应用。
+客户端默认策略和单机覆盖分别配置 Hook、系统防护的“仅审计 / 拦截”模式，支持恢复继承。新配置默认仅审计；存量未选择模式的策略保留原行为，旧客户端需升级后才能确认新模式。Agent 日志保持采集设置。平台目标与客户端实际模式分别显示，应用进度以客户端回执为准。
 
 “工具使用审批”配置 Agent 工具调用前的允许、拒绝和人工审批，Hook 拦截模式执行签名规则；规则持续有效直到发布新版本，仅具体调用的单次审批保留超时。“系统采集策略”配置 Agent 可执行文件及有效期，高级区域的文件访问规则在系统拦截模式执行。系统策略有效期作为设备认证租约：已认证设备由平台自动续签内容不变的新版本，管理员发布采集范围和规则，允许客户端选择时由设备在该范围内提交安装入口并由平台签发；自动续签进入操作审计，不混入管理员配置历史。运行中的系统采集器关闭旧订阅、补传后切换，实际 ES 心跳确认模式。仅审计保留采集、脱敏和上传，不执行阻断；采集故障不阻止正常工具操作。详见[客户端模式说明](agent-manager-client.md#仅审计与拦截模式)。系统事件默认展示命令与文件变化：有界原文 argv（8 KiB / 256 项）、执行目录、程序及 Agent 根路径、退出码/信号、进程存活时间、文件创建/修改/重命名/删除。详情按精确进程身份展示活动和可展开的归属链，原始 JSON 收在技术诊断。客户端自检单独标记筛选；历史缺失字段不补造。采集持续到停止或进程退出，续签独立于管理员配置版本，不影响正常编辑。已有根在下一次系统事件验证身份；页面明确显示策略覆盖范围。
 
@@ -629,7 +619,7 @@ TeleAgent 模型转发使用独立 macOS 用户级代理服务，关闭、退出
 
 **English:** New installations enable command body capture by default. Existing policy choices are preserved. Capable clients capture available scripts and HereDocs under the configured redaction and byte limits; previously omitted bodies cannot be recovered.
 
-`aidr_enforcement_collection_only` 是系统采集器报告“仅采集、不执行控制”的诊断码，不代表故障。日常界面显示采集状态，原始代码收在“查看技术诊断”。工具审批列表只显示 Hook 拦截模式下需要人工决定的调用；一般工具操作记录在“行为审计”，不进入审批列表。
+`aidr_enforcement_collection_only` 是系统采集器报告“仅采集、不执行控制”的诊断码。日常界面显示采集状态，原始代码收在“查看技术诊断”。工具审批列表只显示 Hook 拦截模式下需要人工决定的调用；一般工具操作记录在“行为审计”，不进入审批列表。
 
 人工检查：中英文页签切换；工具审批空列表与规则展开；系统采集策略发布入口、文件控制高级区和历史区；系统事件筛选和技术诊断；桌面事件归属与诊断展开后轮询保持。此轮不更改真实设备策略。
 
@@ -649,7 +639,7 @@ UI 验收 Todo（简体中文 / English）：在“采集状态”核对“已�
 
 **English:** Use **Clients → Global tool rules** for shared presets, custom rules and fallback handling. Clients without existing tool rules inherit by default; legacy device policies remain overrides. In a client's rule editor, review and publish the inheritance switch to follow global updates, or disable it to publish a complete local override. Global publication stores one revision; each device receives an individually signed, monotonic policy on its next control snapshot. Repeated synchronization is idempotent. Command rules wait for a recent capable receiver report; offline or incompatible receivers retain their verified local policy. Hook mode remains independent. Saved targets, issued device revisions and client-reported application are distinct. Pending calls under outdated global rules cannot receive new platform approval; offline cached authority is not instantly revoked.
 
-UI 验收 Todo（简体中文 / English）：从客户端列表打开全局规则；编辑预设、自定义命令和未命中处理；核对发布预览的继承/覆盖数量；取消预览不保存；已有客户端保持单独规则；开启继承、关闭继承和恢复继承后核对来源及签名版本；等待实际客户端回执；两窗口并发修改提示刷新；390px 窄屏检查抽屉、继承开关、规则编辑弹窗及底栏。后端隔离测试覆盖签名、幂等、恢复继承、权限、冲突与能力门槛，不代表真实宿主拦截验收。
+UI 验收 Todo（简体中文 / English）：从客户端列表打开全局规则；编辑预设、自定义命令和未命中处理；核对发布预览的继承/覆盖数量；取消预览不保存；已有客户端保持单独规则；开启继承、关闭继承和恢复继承后核对来源及签名版本；等待实际客户端回执；两窗口并发修改提示刷新；390px 窄屏检查抽屉、继承开关、规则编辑弹窗及底栏。后端隔离测试覆盖签名、幂等、恢复继承、权限、冲突与能力门槛，真实宿主拦截需单独验收。
 
 “测试规则命中”默认折叠，Hook 测试分为“命令”和“宿主工具名称”：命令框填写 `rm -rf ./example` 等内容，执行工具选择 Hook 实际报告的 `Bash`、`exec` 等名称；原生工具测试填写 `Read` 等工具名。模拟结果只显示本次最终处理，逐条命中原因在详情展开查看。系统测试填写进程归属和文件绝对路径。测试使用未保存的草稿，不发布策略、不创建审批、不执行工具；修改草稿或输入会清除旧结果。Hook 复用服务端真实匹配逻辑，拒绝优先于审批和允许。系统测试只做路径预匹配；实际设备还按文件身份匹配，因此硬链接等不同路径仍可能命中。预览假设策略有效且处于拦截模式，客户端实际模式及版本仍以回执为准。
 
@@ -659,7 +649,7 @@ UI 验收 Todo（中英文）：检查预设/自定义编辑、行内修改、�
 
 “工具与命令规则”提供递归删除、Git reset --hard、curl 管道运行脚本三个可编辑预设，也可添加自定义规则：命令名或可执行文件路径、必须包含/至少包含一个参数、目标绝对路径前缀、管道目标、Agent 和允许/审批/拒绝。参数每行一个，按完整参数匹配，短选项组 `-fr` 可匹配 `-r`。宿主工具名称规则继续精确匹配 `Bash`、`exec` 等；已有工具名 `rm` 的规则保留原语义，需要编辑为“命令及参数”才能匹配 Bash 内的 rm。“未命中规则时”选择拒绝仍拒绝所有未匹配工具；明确选择默认决定，先测试草稿，再发布签名策略。测试不执行命令、不创建审批、不改变真实设备策略。
 
-命令匹配支持有界的 Shell 字面量语法：引号、转义、多条命令和管道。`echo rm` 不匹配 rm；非允许规则匹配任一子命令，允许规则要求所有子命令及指定路径均匹配。目标路径按文本和 Hook 工作目录规范化，不证明文件身份或软链接目标。变量、替换、重定向、包装执行、缺失命令等无法可靠解析时，该条件不计为命中，继续判断其他规则；没有规则明确命中时，采用“未命中规则时”的允许、审批或拒绝设置，并保留解析不确定标记。因此默认允许也会放行无法解析的命令。仅审计继续执行。此功能不解释 Python/JavaScript 等任意脚本正文，也不等于完整 Shell 或 OS 行为控制。
+命令匹配支持有界的 Shell 字面量语法：引号、转义、多条命令和管道。`echo rm` 不匹配 rm；非允许规则匹配任一子命令，允许规则要求所有子命令及指定路径均匹配。目标路径按文本和 Hook 工作目录规范化，不证明文件身份或软链接目标。变量、替换、重定向、包装执行、缺失命令等无法可靠解析时，该条件不计为命中，继续判断其他规则；没有规则明确命中时，采用“未命中规则时”的允许、审批或拒绝设置，并保留解析不确定标记。因此默认允许也会放行无法解析的命令。仅审计继续执行。匹配范围为上述命令条件；Python/JavaScript 等脚本正文不在解析范围内。
 
 新版本接收器在调用前事件中保存控制决定，Hook 时间线对拒绝决定显示红色“已拦截 · 客户端控制决定”、拒绝原因和命中规则。这是客户端返回给宿主的控制决定，不是操作系统执行结果；宿主自身权限拒绝和缺失执行后事件保持各自证据含义。历史事件未记录控制决定时不补推断为已拦截。人工验收 Todo（中英文、窄屏）：检查拒绝卡片及长规则名换行、未命中默认允许的预览、普通缺失执行后事件不误标、仅审计不误标。
 
@@ -707,7 +697,7 @@ Codex 只有 Hook 的会话通过原生完成记录的专用索引，按设备�
 
 人工验收 / Manual checks：少量及 50+ 轮次、选择首尾轮次、上下翻动与键盘导航、切换会话后定位、中英文及窄屏；检查新策略默认命令正文开启、显式关闭后保持关闭、新记录遵循脱敏与长度上限。
 
-选择会话时清除上一会话的时间线搜索；若当前来源没有记录而另一来源有记录，自动展示有记录的来源。轮次已完整加载时，优先定位当前来源最近有记录且具有轮次 ID 的轮次；轮次尚有下一页或只有未归属记录时，显示全部轮次。手动切换来源保持当前轮次与搜索，刷新保留当前选择。本轮为空但会话其他轮次有记录时，明确提示并提供“全部轮次”入口。只有 Hook 的会话显示来源覆盖说明；采集器在线不代表每个会话都有本地日志。
+选择会话时清除上一会话的时间线搜索；若当前来源没有记录而另一来源有记录，自动展示有记录的来源。轮次已完整加载时，优先定位当前来源最近有记录且具有轮次 ID 的轮次；轮次尚有下一页或只有未归属记录时，显示全部轮次。手动切换来源保持当前轮次与搜索，刷新保留当前选择。本轮为空但会话其他轮次有记录时，明确提示并提供“全部轮次”入口。只有 Hook 的会话显示来源覆盖说明，并提示核对对应宿主日志。
 
 在 **会话日志（输入 / 回复 / 工具）** 与 **宿主事件（Hook）** 之间切换查看各自记录。会话日志直接展示已采集的用户输入和模型回复，工具操作合并日志调用及结果；Hook 仅在同一接收流、用户、Agent、会话、轮次、调用、工具和子 Agent 身份下，恰好各有一条执行前/执行后记录时合并显示。配对在服务端分页前完成，展开后仍显示两条原始事件。生命周期事件使用简洁节点，失败突出结果和退出码。不同来源不合并计数，也不据此认定系统执行成功。
 
@@ -781,7 +771,7 @@ macOS 事件的 Agent 名称优先取归属路径中的 `.app` 应用名，例�
 
 **English:** Agent names for macOS events use the application name from the attributed `.app` path, so `WorkBuddy.app/Contents/MacOS/Electron` appears as WorkBuddy. Original process names and executable paths remain available. Indexed historical roots populate the Agent selector. Details retrieve the latest 200 retained events by client, collector, boot and full process identity, ordered by numeric sequence. Session turns use session-scoped indexes with existing snapshot cursors, attribution and content permissions. Upgrade builds the indexes for existing data; initial build time depends on history size.
 
-搜索只筛选本页已加载记录；页脚分别显示可见项目数和本页原始记录数。网络项目继续按同一进程实例和套接字观察标识汇总，本页多次观察可在详情追溯；显示的是采样时状态，不能据此判断 HTTP 请求成功。退出码使用单独的结果标签，网络或文件详情中的关联退出结果明确标为所属进程的结果。
+搜索只筛选本页已加载记录；页脚分别显示可见项目数和本页原始记录数。网络项目继续按同一进程实例和套接字观察标识汇总，本页多次观察可在详情追溯；展示采样时的套接字状态。退出码使用单独的结果标签，网络或文件详情中的关联退出结果明确标为所属进程的结果。
 
 **English:** System events uses a compact activity list with immediate type filters. Authorization, policy, response and health records are available under More types. Open a row for full arguments, working directory, process attribution, related activity and collapsible diagnostics. Collection details contains status, report time, revisions, configured coverage, network sampling limits and setup instructions. Navigation and filters stay fixed while the list scrolls. Search applies only to the loaded page; the footer distinguishes visible items from raw records. Network observations retain their exact process/socket grouping and traceability. Sampled TCP state does not confirm an HTTP outcome; related exit results are labelled as process results.
 
@@ -807,11 +797,11 @@ The Agent selector includes configured and historically observed root executable
 
 客户端详情的 **概览** 默认统计 Hook，可切换 Agent 日志、Agent 产品和最近 24 小时 / 7 天 / 30 天。Qoder 在筛选中统一为一个产品。终端工具调用次数、工具调用次数、命令出现次数、活跃会话、宿主报告失败支持下钻；趋势按小时聚合显示，长时间范围合并时间柱，命令 / 工具 Top 5 和 Agent 分布可点击查看对应操作。对应操作弹框使用标准分页，显示当前筛选范围内的总条数；默认每页 30 条，可选择 10、20、30、50、100 条并跳转页码。切换每页条数回到第一页，保留当前来源、Agent 与时间范围。点击“查看记录”直接展开详情，沿用审计正文权限；会话项跳转行为审计并带入来源、产品及会话 ID。
 
-统计按所选来源独立计算，不跨 Hook / 日志相加。工具前后事件只按可靠原生调用身份合并；调用前事件表示尝试，未知结果不算成功。终端工具调用是包含已识别终端动作的宿主调用，一个包装调用包含多条命令仍只计一次。命令出现次数及排行按 Bash / POSIX 语法拆分后的确定程序名累计：一次调用含 sed、rg、rg 三行，调用为 1 次，命令出现为 3 次，排行为 rg 2 次、sed 1 次。详情保留原始命令，并按顺序展示子命令和行号；完整正文及其解析结果受审计正文权限保护。旧版动作中的命令摘要及包装工具提取的终端动作同样属于审计正文，列表与下钻只返回内容描述；需要 `clients:read-audit-content` 权限才能按记录读取命令与子命令文本。程序名和出现次数仍作为统计元数据展示。支持换行、复合连接、管道、重定向和命令替换，普通引号或 heredoc 正文不算命令，解释器参数内代码不递归解析。循环、分支、函数体只统计文本出现次数，不代表实际执行次数；动态程序名不计入排行，截断、不完整语法和超限文本显示原因并保留调用计数。宿主结果属于整个调用，不能分摊为各子命令的执行结果。缺少可靠身份、缺少调用起点或存在歧义的工具事件单列未计入数量。活跃会话按设备、来源、用户、原生产品及会话标识去重，无会话 ID 的记录不计入。Hook 使用本地接收时间，日志使用来源时间；当前小时未结束且存在后台处理延迟，界面展示更新时间。首次回填显示 loading，统计超过一分钟未更新时明确提示延迟。
+统计按所选来源独立计算，不跨 Hook / 日志相加。工具前后事件只按可靠原生调用身份合并；调用前事件表示尝试，未知结果不算成功。终端工具调用是包含已识别终端动作的宿主调用，一个包装调用包含多条命令仍只计一次。命令出现次数及排行按 Bash / POSIX 语法拆分后的确定程序名累计：一次调用含 sed、rg、rg 三行，调用为 1 次，命令出现为 3 次，排行为 rg 2 次、sed 1 次。详情保留原始命令，并按顺序展示子命令和行号；完整正文及其解析结果受审计正文权限保护。旧版动作中的命令摘要及包装工具提取的终端动作同样属于审计正文，列表与下钻只返回内容描述；需要 `clients:read-audit-content` 权限才能按记录读取命令与子命令文本。程序名和出现次数仍作为统计元数据展示。支持换行、复合连接、管道、重定向和命令替换，普通引号或 heredoc 正文不算命令，解释器参数内代码不递归解析。循环、分支、函数体按文本出现次数统计；动态程序名不计入排行，截断、不完整语法和超限文本显示原因并保留调用计数。宿主结果属于整个调用，不能分摊为各子命令的执行结果。缺少可靠身份、缺少调用起点或存在歧义的工具事件单列未计入数量。活跃会话按设备、来源、用户、原生产品及会话标识去重，无会话 ID 的记录不计入。Hook 使用本地接收时间，日志使用来源时间；当前小时未结束且存在后台处理延迟，界面展示更新时间。首次回填显示 loading，统计超过一分钟未更新时明确提示延迟。
 
 资产和接入情况用紧凑入口展示，采集健康独立保留 Hook、日志、系统三通道的报告时间，不受统计筛选影响。“需要处理”展示当前来源问题、进行中任务和近 7 天尚未解决的失败；相同目标后续成功、明确被替代的任务移入“任务记录”。旧策略失败只有在新策略成功任务与新鲜的当前有效策略回执一致时才归为历史；模型检查等不同目标不据此恢复。任务记录按需分页，保留原始结果与错误码。审批数量仍仅指近期读取的申请。
 
-新版日志采集器区分历史文件缺失、未读或进度未知文件缺失、目录缺失。已读至最后观察位置的历史缺失文件放在“日志来源详情”，不作为当前采集故障；不能据此保证文件消失前没有追加未观察内容。旧客户端未上报分类时保留“缺失范围未确认”，不擅自判定已恢复。
+新版日志采集器区分历史文件缺失、未读或进度未知文件缺失、目录缺失。已读至最后观察位置的历史缺失文件放在“日志来源详情”，不作为当前采集故障；文件消失前是否追加内容保持未知。旧客户端未上报分类时保留“缺失范围未确认”，不擅自判定已恢复。
 
 **统计实现与性能：** `backend/aidr_overview.py` 在后台每批最多处理两种来源各 250 条，持久化水位、轻量事件投影、调用投影与小时桶；积压时分批继续，无积压时每 5 秒检查。首次部署自动建表并回填，GET 请求不启动回填、不解析历史正文。结果迟到与多条调用起点会重新核对原调用，保留期清理同步移除对应投影并修正统计。多 worker 通过 SQLite 写事务串行推进水位；原始事件、ACK、客户端游标和队列保持现有机制。查询按设备 / 来源 / 时间索引读取小时摘要；会话去重读取轻量投影。设备权限先于缓存检查，进程内 128 项、5 秒缓存包含完整筛选范围。缓存命中不表示采集链路健康；状态接口与统计独立加载，任务详情、正文及更多记录按需读取。
 
@@ -858,7 +848,7 @@ Current issues are separated from task history. Exact-target later successes and
 
 客户端详情的 **行为审计 → 采集状态** 分为 Agent 日志、Hook 事件、系统事件三个通道。顶部导航固定，下面的来源列表与详情区域滚动；窄屏改为上下布局，选择来源后定位详情，并提供返回来源列表的入口。页面可见时每 5 秒读取当前报告，也可点击“刷新状态”重新查询；报告超过有效期后显示“状态待更新”。
 
-左侧只列出策略范围内的来源，未启用产品与技术诊断默认折叠。右侧展示所选来源的发现、安装、授权、平台到达记录及下一步操作；“查看采集策略”直接打开当前客户端配置，“查看插件接入”和活动入口保持在同一客户端。配置保存、共享接收器运行、设备在线均不等于某产品已采集数据。
+左侧只列出策略范围内的来源，未启用产品与技术诊断默认折叠。右侧展示所选来源的发现、安装、授权、平台到达记录及下一步操作；“查看采集策略”直接打开当前客户端配置，“查看插件接入”和活动入口保持在同一客户端。各产品的采集情况通过来源报告和到达记录核对。
 
 日志到达统计仅包含当前设备近 15 分钟已入库且未过期的原始记录，不读取正文；按产品和记录类型汇总。到达时间包含离线补传，数量不是去重后的工具操作次数。旧平台未返回该统计时显示未报告。队列与 ACK 属于整个通道；系统进程/文件与网络快照分别显示自身报告，网络快照不能解释为完整连接事件。
 
@@ -1039,7 +1029,7 @@ agent 接入时一般用：
   标记不进入攻击 Prompt 或目标请求，Worker 独立执行区分大小写的完整字符串匹配，产生
   `agent_output_marker` 用例和 `protected_marker_disclosure` Finding，证据与模型判定分别保留。
   本次输入已含标记时排除回显，多轮模式同时排除本次任务此前输入包含的标记；无可判断响应或证据截断
-  保持未验证。该规则只检测配置的完整标记，不代表其他秘密、变体或编码泄露均已覆盖。当前通过 API 配置。
+  保持未验证。该规则检测配置的完整标记。当前通过 API 配置。
 - Finding 只通过 Worker 上下文生成的 opaque source reference 关联 detection skill；Reviewer 返回的引用必须能在
   Worker 持有的映射中解析，否则关联到独立的 `unmapped` 证据不足用例，不按标题或描述猜测来源。
 - 本行为只适用于新扫描。历史数据库记录和缺少 `detection_executions` 的旧报告不会自动重算，也不会展开成虚假
@@ -1457,7 +1447,7 @@ Prompt、模型回复和评估理由。完成数量包含执行错误和未评�
 显式入口，读取动作仍由后端记录安全审计。所有页面文案使用语义化 i18n Key，支持简体中文和英文。
 
 失败原因在任务详情顶部展示，任务表格只显示状态。大模型红队报告按实际用例统计未发现风险、风险信号、
-执行错误、阻断和证据不足；任务执行成功不等于测试未发现风险。用例按序号展示测试背景和评估理由，
+执行错误、阻断和证据不足；任务执行状态与风险发现分别展示。用例按序号展示测试背景和评估理由，
 安全发现的固定标题及说明按界面语言显示，模型生成内容与证据保留原文。授权用户打开扫描产物时默认查看
 结构化测试结果，可展开测试输入、模型响应；原始 JSON 保留在独立页签中。
 
@@ -1472,8 +1462,8 @@ Prompt、模型回复和评估理由。完成数量包含执行错误和未评�
 
 扫描任务详情提供“导出 PDF 报告”，按当前界面语言导出中文或英文报告，复用 Skill 详情报告的公司
 Logo、字体和页眉页脚。首页直接呈现扫描时的目标地址、时间、关键指标与结论。
-红队报告按测试集汇总已评估、风险及未评估用例，并将每个用例与评估理由合并展示；样本风险率不代表模型总体安全性。
-基础设施报告按资产与规则组织，版本公告匹配明确标记为适用性待复核，不代表已完成漏洞利用验证。
+红队报告按测试集汇总已评估、风险及未评估用例，并将每个用例与评估理由合并展示；风险率按本次测试样本计算。
+基础设施报告按资产与规则组织，版本公告匹配标记为适用性待复核。
 原始对话不在导出快照中时明确说明，内部 ID 和文件校验信息集中于追溯附录；
 执行中的任务导出的是当前快照。下载接口校验任务访问权限并记录导出审计，原始加密报告仍通过独立权限入口查看。
 调用上下文通过 Finding 精确跳转到“调用轨迹”。
@@ -1675,7 +1665,7 @@ P5-12 在 1440×900 桌面和 390×844 移动视口完成真实中英文页面�
 ### 7.1 Scanner
 
 Cisco skill-scanner 负责做更系统的静态规则扫描。  
-它不是只看 `SKILL.md`，而是扫整个 skill 目录。
+它扫描整个 skill 目录。
 
 ### 7.2 Behavioral
 
@@ -1824,7 +1814,7 @@ flowchart LR
 
 ## 9. 验签原理
 
-这个项目的验签不是签 `SKILL.md` 单文件，而是签整个目录树。
+内容签名覆盖整个 Skill 目录树。
 
 算法大意：
 
@@ -1946,7 +1936,7 @@ uv run --with cisco-ai-skill-scanner==2.0.6 python -m pytest tests/test_client_r
 DEEPEVAL_TELEMETRY_OPT_OUT=YES uv run --with deepeval==3.7.5 pytest tests/test_aig_model_auth.py
 ```
 
-第一组中因缺少扫描镜像依赖而跳过的两个组件用例由后两组补跑；检查三组输出，跳过不等于通过。测试环境应使用临时 `SQLITE_PATH`、`DATA_DIR` 与 `UPLOADS_DIR`。Go 客户端在 `scanner/` 执行 `go test ./...`，前端在 `web/` 执行 `npm run test:i18n`、`npm run test:docs-search`、`npm run test:docs-export` 和 `npm run build`。
+第一组中因缺少扫描镜像依赖而跳过的两个组件用例由后两组补跑；验收结果需结合三组输出核对。测试环境应使用临时 `SQLITE_PATH`、`DATA_DIR` 与 `UPLOADS_DIR`。Go 客户端在 `scanner/` 执行 `go test ./...`，前端在 `web/` 执行 `npm run test:i18n`、`npm run test:docs-search`、`npm run test:docs-export` 和 `npm run build`。
 
 Run the commands above from the repository root for the full source regression and the two optional component checks. The pinned AIG and Cisco Scanner dependencies require separate environments because their Click constraints differ. Review every result: a skipped component is covered only after its separate check passes. Use temporary database, data, and upload paths. Run the Go suite from `scanner/` and the frontend checks from `web/`. Deployed runtimes and external providers require separate acceptance testing.
 
@@ -1966,7 +1956,7 @@ make sandbox-runtime-build
 - [docker-deployment.md](../docs/docker-deployment.md)
 - [performance-benchmark.md](../docs/performance-benchmark.md)：单节点并发、Skill 数量和客户端 Inventory 实测
 
-配置允许的最大并发不等于稳定处理能力。容量评估应同时检查 P95、错误率、SQLite 写等待、上游延迟和审计增长。
+最大并发控制同时在途的请求数。容量评估应同时检查 P95、错误率、SQLite 写等待、上游延迟和审计增长。
 
 ### 11.4 Skill 检测期间的 API 响应 / API responsiveness during Skill scans
 
@@ -2013,7 +2003,7 @@ task polling and fresh verification decisions after approval/revocation in both 
 
 ### 12.2 Skill 列表
 
-检测期间，状态列以紧凑图标步骤条展示排队、准备、规则扫描、深度扫描、Sandbox、LLM 和汇总；下方显示当前运行项目，悬停、键盘聚焦或点击可查看完整步骤名称与状态。每个检测项独立显示等待、运行、完成、失败、未启用或跳过；并行运行的项目同时高亮，已完成步骤显示勾选，等待项目灰显。阶段由后端检测流程实时写入当前扫描任务，列表每 3 秒自动刷新；分析器可并行执行，阶段表示当前流程位置，不代表耗时百分比。重新检测使用本次任务的进度，任务完成或取消后恢复显示准入状态。
+检测期间，状态列以紧凑图标步骤条展示排队、准备、规则扫描、深度扫描、Sandbox、LLM 和汇总；下方显示当前运行项目，悬停、键盘聚焦或点击可查看完整步骤名称与状态。每个检测项独立显示等待、运行、完成、失败、未启用或跳过；并行运行的项目同时高亮，已完成步骤显示勾选，等待项目灰显。阶段由后端检测流程实时写入当前扫描任务，列表每 3 秒自动刷新；分析器可并行执行，阶段表示当前流程位置。重新检测使用本次任务的进度，任务完成或取消后恢复显示准入状态。
 
 列表的 `SCANNING（检测中）` 筛选包含尚未完成的初次检测和重新检测，状态单元格通过步骤条展示进度。后台状态编码为 `PENDING`：首次检测时 Skill 为 `PENDING`；重新检测时保留此前准入状态，并通过 `PENDING` 检测任务标记进度。
 
@@ -2053,7 +2043,7 @@ task polling and fresh verification decisions after approval/revocation in both 
 
 能看到：
 
-- 基础信息，以及深度扫描、Sandbox、LLM 的勾选状态及配置来源；勾选不等于执行成功
+- 基础信息，以及深度扫描、Sandbox、LLM 的勾选状态及配置来源；执行状态见对应分析结果
 - 检测报告：“实际判定过程”和“扫描结果”分别展示决策逻辑与分析器证据
 - **攻击链可视化**（展示 LLM 分析出的完整攻击路径）
 - **MITRE ATT&CK / ATLAS 框架映射**（帮助理解风险对应的安全框架分类）
@@ -2089,7 +2079,7 @@ When LLM analysis starts, the execution information retains `llm:{provider}` eve
 3. 展开“查看发现项与原始证据”，按规则分析、深度扫描、Sandbox 切换来源。标签显示各类发现项数量，每页展示 5 项，用底部分页浏览其余证据；切换来源后回到第一页。每项左侧显示严重度、文件位置和原始证据，右侧显示本次策略分类及其对风险的影响；窄屏改为上下排列。存在匹配的策略快照时显示对应配置项，否则展示报告已记录的分类；缺失分类时明确标注。点击文件位置或顶部分析器卡片进入对应扫描结果。无发现项记录时需结合分析器执行状态判断。
 4. 查看图上方的风险配置快照说明。配置链接打开当前策略，修改后可先测算，再保存并重新检测目标版本。
 
-截图中 LLM 给出无明显风险，但数据外传发现项根据本次配置被归为判为恶意，最终仍为恶意风险。Sandbox 在此例中跳过，不能据此认为它已观察到恶意执行；应结合原始代码上下文复核。
+截图中 LLM 给出无明显风险，但数据外传发现项根据本次配置被归为判为恶意，最终仍为恶意风险。Sandbox 在此例中跳过；复核依据为原始代码和本次已完成的分析结果。
 
 规则扫描的“规则分析器”按本次报告的 `analyzers_used` 展示基础扫描和本地规则分析器，零发现项也保留已记录的分析器。规则发现项合并顶层与本地结果，并去除同一发现项的重复副本，保留不同文件、行号和原始证据（包括 `snippet`、`code_snippet`、`evidence`）；命中数按去重后的结果计算。“最高严重级别”汇总本次规则发现项与本地规则分析结果；规则无命中且本地结果均为 SAFE 时显示 SAFE。历史报告仅有顶层规则结果时仍可查看；缺少分析器记录时，根据已保存的本地分析结果展示对应来源。切换 Skill 版本后，名称和发现项均来自该版本报告。
 
@@ -2195,14 +2185,14 @@ ZIP 中存在软链接时，页面展示路径清单，可选择“跳过软链�
 
 1. 在“准入策略”修改风险处置动作；需要改变发现项的风险分类时，展开“自定义风险识别规则”。
 2. 点击准入策略摘要右上角的“测算当前策略”。弹窗按本页当前配置测算，包含未保存修改。可点击“动态执行 + LLM 无明显风险”或“数据外传 + LLM 无明显风险”填入示例。
-3. 为规则分析、深度扫描、Sandbox 选择执行状态，按需添加发现类型和严重度，再选择 LLM 风险结论。执行完成且无发现项与未启用、跳过、不可用、失败含义不同；缺少结论不代表安全。配置了禁止权限时，还可模拟命中的权限声明。
+3. 为规则分析、深度扫描、Sandbox 选择执行状态，按需添加发现类型和严重度，再选择 LLM 风险结论。执行完成且无发现项与未启用、跳过、不可用、失败含义不同；缺少结论时单独提示。配置了禁止权限时，还可模拟命中的权限声明。
 4. 输入变化后自动重新测算。先看最终风险与准入动作，再沿“发现项分类 → 工具风险汇总 → LLM 结论合并 → 准入规则匹配”理解原因。命中禁止权限声明时，即使风险处置允许批准，也会拒绝。
 5. 如需比较不同配置，可切换弹窗内的判定模式，这会更新本页策略草稿；也可点击“返回策略配置”修改分类和处置动作，再次打开时保留本页模拟输入。
 6. 确认预期结果后返回策略配置，核对摘要和“当前修改未保存”提示，点击“保存修改”。在 Skill 列表对目标版本重新检测，并在详情的“实际判定过程”核对实际检测结果。
 
 ![当前策略判定测算弹窗：模拟输入与四步判定路径（示例配置）](../web/public/docs/screenshots/zh-CN/skill-policy-simulator.png)
 
-模拟器使用当前页面配置（包括未保存修改），复用后端发现项分类、风险计算、LLM 合并与准入决策逻辑，分别展示最终风险和准入动作，并逐步解释判定依据。切换模拟器内的判定模式会更新本页策略草稿；修改风险分类、风险处置或禁止权限也会重新计算。中间风险用于解释 Sandbox 必检触发条件，缺少检测结论会单独提示。模拟输入用于演示策略计算，不代表真实检测覆盖或 Skill 安全结论；模拟不会执行扫描、调用模型、保存策略、创建 Skill 或生成签名。
+模拟器使用当前页面配置（包括未保存修改），复用后端发现项分类、风险计算、LLM 合并与准入决策逻辑，分别展示最终风险和准入动作，并逐步解释判定依据。切换模拟器内的判定模式会更新本页策略草稿；修改风险分类、风险处置或禁止权限也会重新计算。中间风险用于解释 Sandbox 必检触发条件，缺少检测结论会单独提示。模拟输入用于演示策略计算；模拟不会执行扫描、调用模型、保存策略、创建 Skill 或生成签名。
 
 保存只提交有变更的配置域；部分保存失败时保留未成功的修改供重试。旧策略中同一风险同时要求拒绝和审核时，页面按后端优先级展示为自动拒绝，保存后每个风险只对应一个动作。保存后的策略用于后续检测，已有 Skill 需重新检测才能应用。
 
@@ -2344,7 +2334,7 @@ Agent 提示词注入、越权和工具滥用检测以应用权限契约及实�
 调用尝试、工具拒绝和成功越界。仅阅读或拒绝文档中的恶意指令，以及未产生越界效果的拒绝调用，
 不属于确认漏洞；未授权读取或写入需结合对象归属、审批要求、工具返回及状态变化核对。
 无审批的实际写入即使没有泄露文本仍可形成风险；回答中的拒绝措辞不抵消已发生的泄露或越权。
-缺少执行结果不代表安全，也不能据此确认攻击成功。
+执行结果缺失时，风险结论保持未验证。
 
 Agent injection, authorization and tool-misuse checks assess the application contract against observed effects.
 Malicious input, attempted calls, denied operations and successful boundary violations are distinct outcomes.
@@ -2382,7 +2372,7 @@ Dify 定时采集使用在线 Console 配置。扫描目标、规则和策略与
 风险；详情提供覆盖状态、评分历史、风险处置、来源及最近同步时间。两个分数分别服务本次报告和长期治理。
 
 
-风险评分使用固定版本 `agent-risk-score@1`，分数用于处置排序，不代表漏洞利用概率或合规通过率。
+风险评分使用固定版本 `agent-risk-score@1`，分数用于风险处置排序。
 计算方式为最高风险基础分，加其他去重风险的附加分；附加最多 20 分，总分最多 100 分：
 
 | 等级 | 基础分 | 其他风险附加分 |
@@ -2579,9 +2569,9 @@ Backend 仅接受可信代理网段提供的转发信息，避免把 Nginx 容�
 
 客户端详情的资产列表按所属 Agent 展开，在 Skill、插件、MCP 三个并列标签页中分别展示，默认打开 Skill。“智能体管理”的客户端发现实例在“能力与配置”中使用相同的三类资产标签页；已绑定客户端实例的平台 Agent 可在详情的“客户端资产”中按实例查看。Skill 页保留原有认证与处置入口，插件页展开后显示插件内 Skill 和 MCP。资产、发现证据和任务详情使用可读字段展示；采集状态、插件状态、Skill 使用和系统事件展示对应状态、时间、原因与操作。关联键为 `client_id + local_agent_id`，不同安装实例分别上报。
 
-MCP 列表包含独立配置和插件内的 MCP，并标注所属插件、配置来源、作用域、连接方式和配置启用状态。插件列表显示名称、版本、格式、路径与发现依据，展开后显示内含 Skill 和 MCP。Codex `.app.json` 中的依赖展示为“已注册服务引用”，只记录引用 ID。启用状态未知时显示“未知”；缓存文件、安装记录、配置记录和本地文件分别标注，文件存在不代表已加载或调用。
+MCP 列表包含独立配置和插件内的 MCP，并标注所属插件、配置来源、作用域、连接方式和配置启用状态。插件列表显示名称、版本、格式、路径与发现依据，展开后显示内含 Skill 和 MCP。Codex `.app.json` 中的依赖展示为“已注册服务引用”，只记录引用 ID。启用状态未知时显示“未知”；缓存文件、安装记录、配置记录和本地文件分别标注。
 
-当前解析范围：Codex、Claude Code、Cursor、Gemini CLI、Qoder/Qoder CN、CodeBuddy/WorkBuddy 的用户级配置与插件包；OpenCode 的配置插件引用、本地 JS/TS 文件；OpenClaw 的插件安装记录、本地扩展；Claude Desktop 的标准 MCP 配置。支持通用 `plugin.json` 及相应产品清单，发现插件中的 `skills/`、显式 Skill 路径、内联 MCP 和 MCP 配置文件。项目级范围来自 Claude/Codex 已知项目、插件安装记录中的项目路径，以及已配置的产品 Skill 目录；不会搜索整块磁盘。其他产品显示“尚未支持”，旧客户端显示“尚未上报”。此支持范围表示解析适配，不代表所有产品版本均完成实机验收。
+当前解析范围：Codex、Claude Code、Cursor、Gemini CLI、Qoder/Qoder CN、CodeBuddy/WorkBuddy 的用户级配置与插件包；OpenCode 的配置插件引用、本地 JS/TS 文件；OpenClaw 的插件安装记录、本地扩展；Claude Desktop 的标准 MCP 配置。支持通用 `plugin.json` 及相应产品清单，发现插件中的 `skills/`、显式 Skill 路径、内联 MCP 和 MCP 配置文件。项目级范围来自 Claude/Codex 已知项目、插件安装记录中的项目路径，以及已配置的产品 Skill 目录；不会搜索整块磁盘。其他产品显示“尚未支持”，旧客户端显示“尚未上报”。以上为当前解析适配范围，实机验证范围见下文验收记录。
 
 采集仅读取本地配置和包元数据，不启动 MCP、执行插件或调用工具。MCP 仅上报 URL 的协议和主机、程序名、参数数量及环境变量/鉴权字段名；URL 路径、查询参数、命令参数和凭据值不进入资产快照。每个 Agent 最多 128 条独立 MCP 和 128 条插件，每个插件最多 128 条 Skill 和 MCP；单配置文件 2 MiB，总配置读取预算 16 MiB，目录遍历有深度和条目限制。读取失败、格式异常、超限和越界组件会显示为不完整来源，其他可读资产继续上报。
 
@@ -2595,7 +2585,7 @@ Only URL origins, executable names, argument counts and environment/authenticati
 
 UI 验收 Todo / Manual UI checks（中英文）：在客户端详情展开有/无 Skill 的 Agent；核对 MCP 与插件数量、插件内组件、长路径和未知启用状态；切换智能体实例确认资产归属；验证旧客户端、无资产、不支持和部分读取失败；在窄屏检查横向滚动与插件展开。Check both languages, Agent ownership and instance switching, bundled components, long paths, unknown state, legacy/empty/unsupported/partial inventory, and narrow-screen tables.
 
-本机验收（2026-10-13）：重建并重启 macOS ARM64 开发客户端后，本地与服务端的 13 份安装来源快照逐项一致；客户端详情和智能体详情实际展示 MCP、插件及插件内组件，中英文 390px 页面没有整页横向溢出。Codex 用户主目录同时登记为项目时，同一份用户配置仅计一次，独立项目配置仍保留。平台 Agent 绑定多个实例、旧客户端缺少快照、空快照刷新和敏感字段过滤通过隔离 API 回归；Go 客户端两包完整测试与后端 46 项测试通过。这些结果覆盖本机发现与展示，不代表其他操作系统、全部产品版本或 MCP 实际调用已验收。
+本机验收（2026-10-13）：重建并重启 macOS ARM64 开发客户端后，本地与服务端的 13 份安装来源快照逐项一致；客户端详情和智能体详情实际展示 MCP、插件及插件内组件，中英文 390px 页面没有整页横向溢出。Codex 用户主目录同时登记为项目时，同一份用户配置仅计一次，独立项目配置仍保留。平台 Agent 绑定多个实例、旧客户端缺少快照、空快照刷新和敏感字段过滤通过隔离 API 回归；Go 客户端两包完整测试与后端 46 项测试通过。这些验收结果覆盖上述本机发现与展示场景。
 
 **Local acceptance (2026-10-13):** After rebuilding and restarting the macOS ARM64 development client, all 13 local source snapshots matched the server. Client and Agent details displayed MCP, plugins and bundled components; Chinese and English pages had no document-wide horizontal overflow at 390px. A home directory registered as a Codex project does not duplicate its user configuration; distinct project configuration remains. Isolated API regression covered multiple installations bound to a platform Agent, legacy missing snapshots, empty refreshes and sensitive-field filtering. Both Go client packages and 46 backend tests passed. This establishes local discovery/display behavior, not other OS hosts, every product version or actual MCP execution.
 
@@ -2605,7 +2595,7 @@ UI 验收 Todo / Manual UI checks（中英文）：在客户端详情展开有/�
 
 隔离副本复检批准后，客户端优先计算本地副本内容签名，并通过平台 Compare 核对提交的确切版本、认证状态和 Agent 使用权限。一致且获准时，使用本地副本完成恢复；副本缺失或内容与批准版本不一致时，下载该确切版本的签名包。平台不可达、认证或权限检查失败时保留待处理状态，不把失败当作允许恢复。复制后再次校验内容，避免校验期间的修改被带入安装。
 
-单目标安装、批量安装和上述本地副本恢复的准备文件位于 `~/.river-security/agent-manager/staging/install-*`，不放入受监控的 `skills` 目录。校验完成后才移入正式版本目录；安装成功或失败均清理本次临时目录。正式版本仍按现有规则监听和校验，临时文件不受实时监听不代表跳过验签。
+单目标安装、批量安装和上述本地副本恢复的准备文件位于 `~/.river-security/agent-manager/staging/install-*`，不放入受监控的 `skills` 目录。校验完成后才移入正式版本目录；安装成功或失败均清理本次临时目录。正式版本按现有规则监听和校验；临时文件在移入前完成验签。
 
 当客户同时使用 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes、TeleAgent 或其他支持 Skill 目录的 Agent 时，推荐安装 Agent Manager Client。TeleAgent 的动态用户目录按 `.config/TeleAgent/users/*/skills` 展开，不依赖固定用户 ID：
 
@@ -2780,7 +2770,7 @@ The clickable flowchart at `/docs/scenario-selection#integration-flow` branches 
 
 ### 16.4 为什么重复提交没有复用？
 
-扫描复用不是按 skill name 判断，而是按：
+扫描复用依据：
 
 - skill 内容指纹
 - 扫描上下文指纹
@@ -2912,7 +2902,7 @@ AIDR P1 自动日志发现使用持久化目录前沿，近期活动与历史回
 
 策略与审批的 `GET /api/v1/clients/{client_id}/aidr/hook-policy` 返回策略版本、策略内容、编辑权限、规则差异、接收器运行状态和插件状态。历史过期数量由采集诊断接口按需统计，审计保留天数由审计策略配置，后台按保留策略执行到期清理。
 
-客户端详情的“策略与审批”通过“工具规则、审批记录、系统策略”直接切换，切换分类保留本页工具规则草稿。工具规则已有内容时，常用规则预设默认收起；平台配置模式与客户端报告的生效模式并列显示，保存成功不等于客户端已应用。详情头部将在线状态与名称并列显示，名称旁的信息图标提供客户端 ID 复制和注册人信息；系统与最后心跳位于次要信息行。心跳旁的刷新图标读取平台最近收到的设备详情，概览统计保留独立刷新。右侧提供“客户端配置”入口，弹窗按采集与接入、模型与请求、Agent 发现、Skill 治理、客户端界面、内容与脱敏平级分组，切换分组保留草稿。Skill 治理提供“使用审计 / Usage audit”和“分类处置 / Classification actions”两个子标签，默认进入使用审计（无审计查看权限时进入分类处置）；切换保留未保存草稿，每个子标签独立预览和保存。使用审计与内容脱敏分别继承全局；旧配置沿用原继承状态。采集与接入、模型与请求、客户端界面统一预览并保存；Agent 发现独立保存；内容与脱敏独立预览并保存审计内容策略。Agent 发现支持全局配置与单客户端按 Agent 覆盖，未覆盖条目跟随全局；可逐项恢复继承或全部恢复，全部恢复也会移除客户端专属定义。安装、更新与重试按需展开。配置页通过继承来源、报告时间和配置一致性说明同步状态。
+客户端详情的“策略与审批”通过“工具规则、审批记录、系统策略”直接切换，切换分类保留本页工具规则草稿。工具规则已有内容时，常用规则预设默认收起；平台配置模式与客户端报告的生效模式并列显示。详情头部将在线状态与名称并列显示，名称旁的信息图标提供客户端 ID 复制和注册人信息；系统与最后心跳位于次要信息行。心跳旁的刷新图标读取平台最近收到的设备详情，概览统计保留独立刷新。右侧提供“客户端配置”入口，弹窗按采集与接入、模型与请求、Agent 发现、Skill 治理、客户端界面、内容与脱敏平级分组，切换分组保留草稿。Skill 治理提供“使用审计 / Usage audit”和“分类处置 / Classification actions”两个子标签，默认进入使用审计（无审计查看权限时进入分类处置）；切换保留未保存草稿，每个子标签独立预览和保存。使用审计与内容脱敏分别继承全局；旧配置沿用原继承状态。采集与接入、模型与请求、客户端界面统一预览并保存；Agent 发现独立保存；内容与脱敏独立预览并保存审计内容策略。Agent 发现支持全局配置与单客户端按 Agent 覆盖，未覆盖条目跟随全局；可逐项恢复继承或全部恢复，全部恢复也会移除客户端专属定义。安装、更新与重试按需展开。配置页通过继承来源、报告时间和配置一致性说明同步状态。
 
 In client details, **Policies & approvals** offers direct navigation to **Tool rules**, **Approval requests**, and **System policy**, preserving tool-rule drafts when switching categories. Presets start collapsed when rules exist. Configured and client-reported modes remain distinct; saving does not confirm application. **Client settings**, below **Refresh device data**, has six peer tabs: collection/setup, models/requests, Agent discovery, Skill governance, client interface, and content/redaction. Agent discovery saves independently and supports global definitions, per-Agent client overrides, client-only definitions, and restoring inheritance. Restoring all also removes client-only definitions. Skill governance contains Usage audit and Classification actions, each with its own review and save flow. Usage audit and content/redaction inherit independently; existing policies retain their inheritance choices. Collection/setup, models/requests and client interface share a preview and save flow. Drafts persist across tabs.
 
@@ -2927,7 +2917,7 @@ In client details, **Policies & approvals** offers direct navigation to **Tool r
 
 从 **智能体列表 → 客户端发现 → 详情** 可进入单个 Agent 的工作区，按“概览、能力与配置、行为审计、策略与审批、执行记录”组织信息。先选择安装入口，再查看该入口报告的 Skill、模型配置和任务；会话、插件及工具审批按客户端与 Agent 类型查询。系统事件按程序路径或 macOS 应用包筛选，未知归属与其他路径仍可在客户端详情查看。共享接收器、设备信息及跨 Agent 策略由客户端详情管理，两处提供互相跳转入口。
 
-Agent 工作区展示真实采集报告、原始证据和任务回执；创建任务不等于执行成功，发布策略不等于客户端已应用。插件操作、Skill 治理及受支持的模型切换复用现有权限和任务校验。日志重试在桌面客户端“Agent 运行治理 → 接入与采集”执行。English: Agents → Client discovery → Details opens the installation workspace. Skills, model configuration and tasks follow the selected installation; sessions, plugins and tool approvals follow the client and agent type. Shared services and cross-agent policy remain in client details. Runtime reports and execution receipts establish actual outcomes.
+Agent 工作区通过采集报告、原始证据和任务回执展示执行结果与策略应用状态。插件操作、Skill 治理及受支持的模型切换复用现有权限和任务校验。日志重试在桌面客户端“Agent 运行治理 → 接入与采集”执行。English: Agents → Client discovery → Details opens the installation workspace. Skills, model configuration and tasks follow the selected installation; sessions, plugins and tool approvals follow the client and agent type. Shared services and cross-agent policy remain in client details. Runtime reports and execution receipts establish actual outcomes.
 
 详情页优先展示状态与操作：设备 ID 和凭据创建人可展开“设备信息”查看；概览每项功能保留一个摘要入口，页头刷新同时更新当前概览。插件页直接展示宿主安装、信任与操作，协议能力和逐项验收集中在“接入诊断与验收”。行为审计保留当前采集异常与历史覆盖缺口数量，采集边界和查询说明按需展开。审批列表仅显示一个同步时间，存在更多记录或已翻页时显示底部分页；Agent 与资产页仅在有恢复副本时展示该列表。
 
@@ -2943,6 +2933,57 @@ Agent 工作区展示真实采集报告、原始证据和任务回执；创建�
 macOS 系统采集复用 ES 精确进程归属与 libproc 套接字快照，新增 `kind=network` 的可选结构化记录及独立 `network_health`，共用持久化严格 ACK 队列。平台在系统事件中展示端点、协议和采样状态并按观察实例汇总；不会从 PID/时间邻近推断归属。当前不提供完整网络流事件、域名和流量总计。快照预算、发行要求、Apple 资料及人工验收见 [客户端说明](agent-manager-client.md#系统网络连接快照) 和 [采集器架构](../client/macos-enforcer/README.md#网络连接快照--network-socket-snapshots)。
 
 **English:** System network records use libproc snapshots of ES-attributed processes, with independent network health and the existing durable strict-ACK queue. Endpoints, protocol and sampled states are presented as observations. Complete flow events, domain attribution and byte totals are not implemented.
+
+### AIDR 运行风险检测
+
+验收时使用独立临时目录和假数据，把其中两个子目录分别配置为敏感路径和保护路径，再通过实际 Agent 的 Read、Write、Shell 工具触发读取、写入、递归删除请求及下载后执行。下载样例仅从本机回环服务获取只输出测试标记的脚本；删除目标仅包含一次性样例。保留现有拒绝策略，核对工具反馈、测试文件和平台入库证据，按会话及产品筛选风险，再验证处置、重新打开、历史及智能体待处理数量。完成后恢复检测路径并停止临时服务，保留标明验收用途的证据。Hook 与会话日志分别计数；工具重试也可能产生独立记录。系统拒绝需要实际系统采集器上报，Hook 拒绝不能替代系统拒绝验收。
+
+**English acceptance:** Use isolated temporary directories and fake data, configure sensitive/protected paths, and exercise Read, Write and Shell tools through the actual agent. Use only a loopback-hosted marker-printing script and disposable deletion targets. Preserve existing deny policies. Correlate tool feedback, fixture files and persisted evidence, then verify disposition, reopening, history and agent open counts. Restore detection paths and stop the temporary service afterward, retaining clearly identified QA evidence. Hooks and session logs count separately; retries may create independent findings. System denial acceptance requires actual system collector evidence, not a Hook denial.
+
+风险详情支持“待处理（open）／接受风险（accepted）／误报（false_positive）／已解决（resolved）”，任意已处置记录可重新选择待处理。处置需要 `clients:view`、`clients:update` 和设备可见权限；原因必填，按 Unicode 字符计数，包含空格、换行，最多 1000 字符。已解决表示人工声明完成处理，实际动作结果仍依据证据单独显示。
+
+状态、递增处置版本、处理人、原因和时间在同一事务中写入，系统审计同步记录 `aidr.risk.dispose`；失败全部回滚。每次提交带 `expected_revision`，重复提交、状态未改变或版本冲突返回稳定错误码，页面保留草稿，可重新读取状态后再次选择。处置历史分页查看，原始原因不翻译。旧表升级为待处理、版本 0；处置不删除证据、不改写检测更新时间，迟到结果不覆盖人工处置，新调用产生的独立风险仍为待处理。
+
+风险列表按处置状态筛选，顶部同时显示历史严重度数量及四类处置数量；智能体列表与范围选择弹窗增加待处理数，原有历史数量保留。处置后重新加载列表和汇总；智能体页刷新查询后显示最新值。风险证据正文继续独立校验读取权限。
+
+风险列表以紧凑统计、筛选和记录为主，检测进度以单行展示，检查时间在悬浮提示中查看。详情先展示风险事实，再提供处置表单、原始证据和历史；重新读取状态按钮在处置失败时显示并保留草稿。
+
+**English layout:** The list prioritizes compact counts, filters and findings. Detection progress is shown inline, with the check time in a tooltip. Details show risk facts before disposition, original evidence and history. Reload status appears after a disposition error and preserves the draft.
+
+**English:** Risk details support Open, Accepted risk, False positive and Resolved, with reopening to Open. Updates require client view/update permissions and device visibility. Reasons are required, preserve their original text, and allow up to 1000 Unicode characters including whitespace and newlines. Resolved records a human completion declaration; execution results remain evidence-based. Each update atomically writes a revision, actor, reason, timestamp and operation audit. Stale/repeated updates return a stable conflict code; the UI retains the draft for reload and review. History is paginated. Existing findings migrate to Open at revision zero. Disposition preserves evidence and detection timestamps; late outcomes retain the disposition, while independent new findings start Open. Lists filter by disposition and show historical counts alongside open counts; refresh the agent list to see updated summaries.
+
+入口为 **客户端详情 → 行为审计 → 风险事件**。服务端后台按 Hook、会话日志、系统事件三个来源增量检测已持久化证据；上传 ACK 仍只代表证据持久化，不等待风险分析。首次启动会从当前保留记录开始有界扫描，页面显示处理进度与检查时间；全部游标追上只表示已处理上报证据，不表示终端采集完整或没有风险。
+
+风险类型及当前边界：
+
+智能体列表的“关联产品风险”列按当前账号可见的关联客户端实例，汇总设备与产品范围内全部已记录风险，展示高/中等数量、最高严重度和最近风险时间。同一智能体关联多个相同设备/产品实例时只计一次；多个智能体共享该范围时各自展示同一组产品风险，不宜跨行求和。数量为零仅表示没有已记录风险，检测进度与路径配置需进入风险页查看。无关联实例、产品尚未映射和缺少 `clients:view` 权限分别显示；有部分实例无法映射时提示数量。
+
+点击“查看相关风险”进入客户端详情的风险事件页并预填产品筛选；有多个设备/产品范围时先选择。产品筛选可清除或修改，顶部统计仍为设备全部已记录风险。产品映射复用 AIDR 适配器登记（例如 `claude-code` → `claude`）；Qoder 的 `qoder-cli` 与共享 `qoder-hooks` 分别提供入口。系统设备级风险或无法映射的产品需在客户端风险页查看；这些记录不推断到具体安装入口。汇总由服务端按可见客户端一次分组查询，不逐行发起风险请求，不返回证据正文。
+
+| 类型 | 检测依据 | 结果含义 |
+| --- | --- | --- |
+| 保护目录删除命令 | 可完整解析的 POSIX 命令，或系统 exec 的完整 argv，包含递归删除参数并命中保护路径 | 发起调用或观察到进程执行，不证明具体文件已删除 |
+| 下载内容直接交给 Shell | 可解析的 curl 标准输出或 wget `-O -` / `--output-document=-`，使用 HTTP(S) 字面地址并直接管道连接无参数 sh/bash | 识别操作形式，不判断下载内容是否恶意；复杂选项、包装和不支持语法不作确定命中 |
+| 敏感路径读取 | 文件读取工具的目标命中敏感路径 | 工具请求；后置结果单独展示，系统默认采集不提供完整读取审计 |
+| 保护路径变更 | 文件写入、编辑、重命名、Patch 请求，或有确定进程归属的系统文件变化 | 区分工具报告结果和系统观察；重命名检查源与目标 |
+| 工具策略拒绝 | Hook 的 deny 决策及策略版本 | Hook 报告拒绝，不等同于宿主已确认阻断；可能由策略缺失或过期导致 |
+| 系统访问拒绝 | 系统授权 deny 记录 | 分别展示系统拒绝响应成功、失败或未知 |
+
+“检测配置”提供启停、敏感读取路径和保护路径。默认启用检测，路径列表为空；路径列表为空时相应路径风险不检测。每行一个规范绝对路径，无通配符，每类最多 32 项，每项最多 512 UTF-8 字节，同时匹配该路径及其下级路径。Windows 文件目标按 Windows 路径规则处理；命令检测限 POSIX 字面命令。相对目标需要工作目录，匹配不解析软链接。修改配置需要管理员身份及 `clients:update`、`settings:update` 权限，使用版本冲突校验并保留非法草稿。检测配置独立于执行策略，只用于尚未检测的证据；已有风险保留原检测配置版本，迟到结果可以更新其结果状态。
+
+列表可按风险类型、严重度、来源、产品标识及时间筛选。时间输入按浏览器时区转换为带时区参数，起止边界均包含；顶部数量是设备全部已记录风险，不随筛选变化。详情包含原因、产品/设备归属、时间依据、动作结果、控制反馈、检测及执行策略版本、证据引用与不确定性。批次 A 的归属为产品或设备范围，不推断安装入口。Hook、日志和系统来源分别计数，不将推测关联当作确定去重。
+
+查看要求客户端可见性及 `clients:view`。命令、路径和原始动作内容须点击“读取证据内容”，额外校验 `clients:read-audit-content`，并记录不含正文的访问审计。证据引用不复制原始正文，原记录按保留策略过期后，详情显示“原始证据已过期或不可用”。未收到结果、身份冲突、截断和脱敏按事实展示；风险发现不赋予客户端执行或阻断权限。
+
+实现：`backend/aidr_risk.py` 保存风险、配置版本、证据引用及后台游标；`backend/routers/aidr.py` 提供 `/risks`、`/risks/summary`、`/risks/configuration` 和 `/risks/{id}`；`ClientAidrRisks.vue` 提供列表、详情和配置入口。后台每轮每来源最多处理 50 条记录，游标与检测结果在同一事务提交，使用现有 AIDR 入场限制；重放和多进程执行不会重复插入同一来源调用的同类型风险。
+
+人工 UI 验收：中英文和窄屏检查列表、筛选、详情及配置；验证长命令滚动、路径换行、空列表/未启动/已关闭/请求失败状态；检查迟到结果刷新、不同设备隔离、无正文权限、证据过期、非法路径草稿保留和配置冲突；快速切换筛选、分页与设备，确认旧请求不覆盖新结果。后端规则、结果关联、事务重试和权限由 `tests/test_aidr_risk.py` 覆盖；不新增 UI 单元测试。
+
+**English:** Open **Client details → Behavior audit → Risk events**. The background worker evaluates retained Hook, session-log and system evidence in bounded transactions, independently of upload ACKs. Detection covers literal recursive deletion of protected paths, supported HTTP(S) downloader-to-Shell pipelines, sensitive file-read requests, protected-path changes, Hook deny decisions and system authorization denials. Initial detection processes retained evidence; caught-up cursors do not establish complete endpoint coverage or safety. Current system telemetry is macOS-specific; file changes are not full read auditing and socket snapshots are not exfiltration proof.
+
+Detection is enabled by default with empty sensitive/protected path lists. Paths must be normalized absolute paths without wildcards (32 per category, 512 UTF-8 bytes each), matching themselves and descendants. Relative activity paths require a working directory; symlinks are not resolved. Windows file paths use Windows semantics; command detection is limited to supported POSIX forms. Versioned settings apply to evidence not yet evaluated and never alter execution policies. Recorded findings retain their original detection version while later same-source results can update outcomes. Product/device attribution remains explicit; sources are counted separately.
+
+Filters support severity, type, source, product and inclusive time bounds entered in the browser timezone. Header counts cover all device findings. Detail shows reasons, timing basis, results, control feedback, versions and evidence references. Content access requires `clients:read-audit-content`, device visibility and an access audit record. Original evidence expires under existing retention policy; findings do not retain copies of raw content. Validate both languages, narrow layouts, long commands/paths, loading/error/disabled states, late results, permissions, expired evidence, preserved invalid drafts, configuration conflicts and stale-response protection manually.
 
 ### AIDR 多产品适配目录
 
@@ -3028,7 +3069,7 @@ Skill 证据回查在 SQLite 内按设备、产品入口、会话和原生调用
 
 待处理事项汇总 Skill 人工审核与未过期的 MCP 调用审批。标签展示完整待办数量，列表每类展示最近 20 条并分页；高风险提示只统计当前标签下已加载的待办。点击 MCP 待办直接打开对应审批详情。最近活动展示近 7 天最新 8 条 Skill / MCP 审计及安全扫描任务状态，仅包含事件、对象和时间等摘要；扫描任务沿用所属用户、用户组及安全审计角色的可见范围，入口打开对应任务。
 
-运行观察的今日模型阻断与 MCP 拒绝分别按审计中的 `blocked`、`denied` 状态统计，使用 UTC 自然日。AIDR 展示最近 24 小时收到且仍保留的日志 / Hook 记录数和去重上报客户端数，采集能力标记为“正在测试中”。记录数不是独立操作数，也不代表执行前阻断覆盖率。
+运行观察的今日模型阻断与 MCP 拒绝分别按审计中的 `blocked`、`denied` 状态统计，使用 UTC 自然日。AIDR 展示最近 24 小时收到且仍保留的日志 / Hook 记录数和去重上报客户端数，采集能力标记为“正在测试中”。计数单位为各通道收到的原始记录。
 
 底部提供近 7 天 / 30 天模型调用趋势及 Skill 风险分布。趋势统计已写入 `LlmUsageMetric` 的请求，按 UTC 自然日补齐无记录日期；风险分布按每个 Skill 的最新版本统计，未判定或未知风险单列。页面标注更新时间，支持刷新；刷新失败保留上次数据并明确提示，首次读取失败提供重试。
 
@@ -3046,11 +3087,11 @@ Codex 异步工具的结束 Hook 可能属于取回结果的轮次。客户端�
 
 **English:** Codex asynchronous outcomes can report the turn that retrieves the final result. Client audit links unique native call evidence across turns, places the timeline under the initiating turn, and preserves original turn IDs. Ambiguous identities remain unresolved. Hook-only sessions show an unknown cause; authorized prompt content may support a background-suggestion inference. SessionEnd or missing logs alone does not establish deletion or collection loss. Read-time handling supports existing clients and historical records without re-upload.
 
-结束 Hook 缺失时，时间线和 Hook 详情可单独显示来自 Codex 原生完成记录或旧工具结果的执行状态、来源和记录 ID，仍保留缺失标记，不伪造结束 Hook。新采集能力通过协议协商启用并有界重读本地保留历史；身份不唯一时不补充。完成不等于业务成功。
+结束 Hook 缺失时，时间线和 Hook 详情可单独显示来自 Codex 原生完成记录或旧工具结果的执行状态、来源和记录 ID，仍保留缺失标记，不伪造结束 Hook。新采集能力通过协议协商启用并有界重读本地保留历史；身份不唯一时不补充。业务结果通过原生结果字段展示。
 
 命令原生完成采集使用第二版协商，补充 `CommandExecution` 的宿主状态和可选退出码，包括 0；缺失退出码保持未知。第一版 MCP/图片采集、旧客户端及历史证据保持兼容。
 
-**English:** Missing end Hooks remain visible. Timelines and Hook details can separately show execution status and provenance from native Codex completion records or legacy tool results. Negotiated collection supports bounded replay of retained local history. Ambiguous identities remain unresolved; completion does not imply business success.
+**English:** Missing end Hooks remain visible. Timelines and Hook details can separately show execution status and provenance from native Codex completion records or legacy tool results. Negotiated collection supports bounded replay of retained local history. Ambiguous identities remain unresolved; business outcomes are shown through native result fields.
 
 Negotiated v2 completion collection adds the native `CommandExecution` status and optional exit code, including zero. Missing codes remain unknown. V1 MCP/image collection, older clients and retained evidence remain compatible.
 

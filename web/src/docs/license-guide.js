@@ -38,7 +38,7 @@ export const licenseGuides = {
         steps: [
           { title: '导入客户申请', body: '登录厂商维护的 license-issuer，在新建授权页选择客户提供的 JSON，核对客户编号、客户名称和部署标识。' },
           { title: '设置完整授权范围', body: '填写生效日期、到期日期，选择 Skill 治理、安全扫描、AIDR 防护、MCP 网关、模型网关中的所需模块，并设置注册客户端上限。Skill 提交和扫描需要同时包含 Skill 治理与安全扫描模块。' },
-          { title: '核对、签发和下载', body: '点击“核对并签发”，确认身份、日期、全部模块、客户端额度和修订号后签发。下载 .license 文件交给客户，保留签发记录。', expected: '获得绑定客户实际部署的签名授权文件。签发记录本身不代表客户已导入。' },
+          { title: '核对、签发和下载', body: '点击“核对并签发”，确认身份、日期、全部模块、客户端额度和修订号后签发。下载 .license 文件交给客户，保留签发记录。', expected: '获得绑定客户实际部署的签名授权文件。客户导入后可在授权页面核对生效状态。' },
         ],
         callout: { type: 'note', title: '日期按北京时间理解', body: '签发页面选择的开始、结束日期均为北京时间 00:00，结束时刻不包含在有效期内。例如需要覆盖 10 月 31 日全天，应将结束日期设为 11 月 1 日。客户页也按北京时间显示。' },
       },
@@ -131,7 +131,7 @@ export const licenseGuides = {
         steps: [
           { title: 'Import the customer request', body: 'Sign in to the vendor-operated license-issuer. On the new license page, select the customer JSON file and check the customer ID, name and deployment ID.' },
           { title: 'Set the complete entitlement', body: 'Set the start and end dates, select the required Skill governance, Security scanning, AIDR protection, MCP gateway and Model gateway modules, and set the registered-client limit. Skill submission and scanning require both Skill governance and Security scanning.' },
-          { title: 'Review, issue and download', body: 'Review identity, dates, all modules, client limit and revision, then confirm issuance. Download the .license file, deliver it to the customer and retain the issuance record.', expected: 'A signed license is bound to the actual customer deployment. An issuance record alone does not prove customer import.' },
+          { title: 'Review, issue and download', body: 'Review identity, dates, all modules, client limit and revision, then confirm issuance. Download the .license file, deliver it to the customer and retain the issuance record.', expected: 'A signed license is bound to the actual customer deployment. After import, check the effective status on the customer License page.' },
         ],
         callout: { type: 'note', title: 'Dates use Beijing time', body: 'Start and end dates selected in the issuer mean 00:00 Beijing time (UTC+8); the end instant is excluded. To cover all of October 31, select November 1 as the end date. The customer page also displays Beijing time.' },
       },

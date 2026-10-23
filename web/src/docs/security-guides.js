@@ -60,7 +60,7 @@ guide('security-scan-guide', ['安全扫描操作指南', 'Security scanning gui
         { title: '进入扫描目标 → 新建目标', body: '使用便于识别业务和环境的名称，例如“客服助手-测试”。资产类型决定后续可选连接器和扫描类型；已有目标的类型不能直接修改。' },
         { title: '选择连接器和环境', body: 'Agent 选择实际使用的 Dify、Coze、HTTP 等连接器；MCP 选择已登记 Gateway；大模型填写对应模型连接配置。环境必须与执行策略一致。' },
         { title: '填写运行地址并测试连通性', body: '运行地址是 Worker 实际访问的 API 入口，不是应用分享链接或编排页面。Dify 通常填写服务 API 基址（包含 /v1）；通用 HTTP 按接口填写完整路径。连通性测试只能说明检查结果，正式扫描仍需凭据、协议和模型配置正确。' },
-        { title: '限制能力与内网范围', body: '只选择业务授权的能力。目标为内网时，在目标和策略两侧填写实际网段的 CIDR 白名单，并确认 Worker 的 DNS、路由和证书信任；浏览器能打开不代表 Worker 可达。' },
+        { title: '限制能力与内网范围', body: '只选择业务授权的能力。目标为内网时，在目标和策略两侧填写实际网段的 CIDR 白名单，并确认 Worker 的 DNS、路由和证书信任。' },
         { title: '保存目标后单独配置凭据', body: '在目标行打开“凭据”，选择用途、凭据类型，输入密钥并保存。凭据不写入高级 JSON；列表显示掩码和状态。Dify 的三个用途见专门指南。' },
       ], link: { path: '/docs/dify-security-access', label: '查看 Dify 地址、ID 与三种凭据' },
     }, {
@@ -69,7 +69,7 @@ guide('security-scan-guide', ['安全扫描操作指南', 'Security scanning gui
         { title: 'Open Targets → Create target', body: 'Choose a business/environment name such as Support Assistant — Test. Asset type determines available connectors and scans; an existing target cannot change its type directly.' },
         { title: 'Select connector and environment', body: 'Choose the actual Dify, Coze, HTTP, or other Agent connector; select a registered Gateway for MCP; configure the relevant model connection for LLM targets. Match the policy environment.' },
         { title: 'Enter the runtime endpoint and test connectivity', body: 'This is the API reached by the Worker, not a share link or workflow editor. Dify normally uses its service API base including /v1; generic HTTP uses the required endpoint path. Connectivity alone does not validate scan credentials, protocol, or model settings.' },
-        { title: 'Constrain capabilities and private networks', body: 'Select authorized capabilities only. Private targets require the actual CIDR ranges in both target and policy allowlists. Check Worker DNS, routing, and certificate trust; browser access does not prove Worker connectivity.' },
+        { title: 'Constrain capabilities and private networks', body: 'Select authorized capabilities only. Private targets require the actual CIDR ranges in both target and policy allowlists. Check Worker DNS, routing, and certificate trust.' },
         { title: 'Save the target, then configure credentials', body: 'Open Credentials on the target row, choose purpose and credential type, enter the key, and save. Keep secrets out of advanced JSON. Lists show masks and status. The Dify guide explains its three purposes.' },
       ], link: { path: '/docs/dify-security-access', label: 'Read Dify endpoints, IDs, and credentials' },
     }],
@@ -98,7 +98,7 @@ guide('security-scan-guide', ['安全扫描操作指南', 'Security scanning gui
     ['scan-kinds', {
       title: '六种扫描的输入、操作与产出',
       table: { columns: ['类型', '如何配置', '如何理解结果'], rows: [
-        ['扫描链路自检', '选择目标与策略，执行前预览连接配置、许可与预算边界。', '检查任务调度、Worker 租约、心跳与结果回传，不代表目标安全。'],
+        ['扫描链路自检', '选择目标与策略，执行前预览连接配置、许可与预算边界。', '检查任务调度、Worker 租约、心跳与结果回传。'],
         ['Agent 风险扫描', '选择测试规则，填写测试 Prompt；选择单轮或多轮。即时扫描可选择可继续的历史任务；定时扫描使用独立会话。', '查看真实测试对话、轮次和评估理由。规则名称是测试能力，不是向目标部署业务 Skill。'],
         ['Dify 资产清单', '选择在线 Console 采集或手动 DSL；按授权决定是否采集 Prompt 原文、推断意图、检查知识库内容。', '输出档案、模型、节点、Prompt、Tool、MCP、知识库及其来源和验证状态。配置存在和实际执行分别取证。'],
         ['MCP 风险扫描', '选择已登记网关或源码目标，选择元数据、源码、动态或多轮红队模式。', '源码/动态/红队选择网关模型。动态模式还需指定工具范围、调用路径和预算；真实调用证据与模型判断分别保存。'],
@@ -108,7 +108,7 @@ guide('security-scan-guide', ['安全扫描操作指南', 'Security scanning gui
     }, {
       title: 'Inputs, operation, and output for six scan types',
       table: { columns: ['Type', 'Configuration', 'Interpretation'], rows: [
-        ['Scan pipeline self-check', 'Choose target and policy; preview connection settings, permissions, and budgets.', 'Checks task dispatch, Worker leases, heartbeats, and result delivery; does not establish target safety.'],
+        ['Scan pipeline self-check', 'Choose target and policy; preview connection settings, permissions, and budgets.', 'Checks task dispatch, Worker leases, heartbeats, and result delivery.'],
         ['Agent risk scan', 'Choose test rules and a prompt; select single or multiple turns. Immediate scans can continue eligible prior tasks; scheduled scans use independent sessions.', 'Inspect real conversations, rounds, and evaluator reasons. Test-rule names identify scanning capabilities, not business Skills installed into the target.'],
         ['Dify asset inventory', 'Choose Console collection or manual DSL, then explicitly authorize prompt text, intent inference, or knowledge content as needed.', 'Produces profiles, models, nodes, prompts, tools, MCP, and knowledge references with source and verification status. Configuration and execution require separate evidence.'],
         ['MCP risk scan', 'Choose a registered gateway or source target, then metadata, source, dynamic or multi-round red-team mode.', 'Source, dynamic and red-team scans use gateway models. Dynamic scans require a tool scope, route and budget. Actual tool evidence and model assessments are retained separately.'],
@@ -165,7 +165,7 @@ guide('dify-security-access', ['Dify 应用纳管、三种凭据与资产清单'
     ['app-key', {
       title: 'Dify App API：从应用页面取得',
       steps: [
-        { title: '进入正确工作空间和应用', body: '登录 Dify，在顶部工作空间选择器确认归属，进入“工作室 / Studio”，打开要扫描的应用。先确认应用已经发布且可正常运行；草稿调试成功不等于发布 API 可用。' },
+        { title: '进入正确工作空间和应用', body: '登录 Dify，在顶部工作空间选择器确认归属，进入“工作室 / Studio”，打开要扫描的应用。先确认应用已经发布且可正常运行，并验证发布 API。' },
         { title: '打开“访问 API / API Access”', body: '在应用左侧找到访问 API。记录页面给出的 API 服务器地址，例如 https://dify.example.com/v1。不要复制浏览器中的 /app/<id>/workflow 地址或公开分享链接。' },
         { title: '打开“API 密钥 / API Keys”并创建', body: '由有管理权限的人员创建专用于扫描的密钥，复制到受控密码库。密钥仅交给扫描管理员；截图中必须遮盖密钥。没有按钮时先核对角色和所在应用，不要用模型供应商密钥代替。' },
         { title: '保存到扫描目标', body: '在智能体生命周期管理系统 → 安全扫描 → 扫描目标创建 Agent / Dify，运行地址填写刚才的 /v1 基址。保存后打开目标行的凭据，选择 Dify App API 和 Bearer 令牌类型，粘贴原始 Key（不加 Bearer 前缀）并保存。' },
@@ -175,7 +175,7 @@ guide('dify-security-access', ['Dify 应用纳管、三种凭据与资产清单'
     }, {
       title: 'Dify App API: obtain it from the application',
       steps: [
-        { title: 'Choose the correct workspace and app', body: 'Sign in to Dify, confirm the workspace selector, open Studio, and select the target application. Verify it is published and works; successful draft debugging does not establish service API readiness.' },
+        { title: 'Choose the correct workspace and app', body: 'Sign in to Dify, confirm the workspace selector, open Studio, and select the target application. Verify it is published and works and verify its published API.' },
         { title: 'Open API Access', body: 'Use the application sidebar. Record the API server URL, for example https://dify.example.com/v1. Do not copy the browser editor URL /app/<id>/workflow or the public share link.' },
         { title: 'Open API Keys and create a key', body: 'An authorized app administrator creates a scanning-specific key and stores it securely. Share it only with the scanning administrator and mask it in screenshots. If the button is missing, verify role and application; a model provider key is not a substitute.' },
         { title: 'Save it on the scan target', body: 'In Agent Manager → Security Scanning → Targets, create an Agent / Dify target using the /v1 API base. Save, open Credentials on its row, select Dify App API and Bearer token, and paste the raw key without a Bearer prefix.' },
@@ -186,7 +186,7 @@ guide('dify-security-access', ['Dify 应用纳管、三种凭据与资产清单'
       title: 'Dify Console Admin API：由部署管理员配置',
       paragraphs: ['这是部署端管理凭据，不是应用“API 密钥”弹窗里的另一种 Key。已核对 Dify 1.6.0 官方源码：ADMIN_API_KEY_ENABLE 默认关闭，ADMIN_API_KEY 默认未设置；启用后使用 Bearer Key 和 X-WORKSPACE-ID，以指定工作空间 owner 身份访问。这里的获取流程适用于支持该机制的自托管版本；Dify Cloud、其他版本和定制版本须由管理员核对，不能假定都支持。'],
       steps: [
-        { title: '确认部署版本和支持机制', body: '请部署管理员查看正在运行的 Dify 镜像 tag，并对照相同版本的配置与 ext_login.py。只有确认支持 Admin API Key 才继续；应用管理员身份并不等于拥有部署配置权限。' },
+        { title: '确认部署版本和支持机制', body: '请部署管理员查看正在运行的 Dify 镜像 tag，并对照相同版本的配置与 ext_login.py。只有确认支持 Admin API Key 才继续。' },
         { title: '编辑 API 服务的环境配置文件', body: '使用分服务环境文件的部署，在 dify/docker/envs/core-services/api.env 中添加或更新以下两项。ADMIN_API_KEY 填写由安全随机源生成并妥善保管的密钥；文档中的占位值不能直接使用。确认 Compose 的 api 服务通过 env_file 引用了此文件；不同版本的配置位置以实际部署为准。', code: '# dify/docker/envs/core-services/api.env\nADMIN_API_KEY_ENABLE=true\nADMIN_API_KEY=<ADMIN_KEY_FROM_SECRET_STORE>' },
         { title: '重新创建 API 容器并验证配置生效', body: '在 dify/docker 目录使用该部署原有的 Compose 文件、项目名和 profile 执行更新。标准命令如下；若原部署使用 -f、-p 或 --profile，保留相同参数。env_file 在创建容器时注入，docker restart 或 docker compose restart api 不会重新读取修改后的值。更新后继续执行下方 Console 只读验证，不能仅凭容器启动成功判断密钥生效。', code: 'cd dify/docker\ndocker compose up -d --no-deps --force-recreate api' },
         { title: '取得 Workspace ID 和 App ID', body: 'App ID 是应用编排 URL /app/<APP_ID>/workflow（或其他应用子页面）中的 UUID。Workspace ID 是工作空间/tenant UUID，不是名称或 App ID。可让部署管理员确认；有权限的用户也可在浏览器开发者工具 Network 中查看切换工作空间请求或当前工作空间响应的 id，再核对 name。不要复制 Cookie、Authorization 或整份网络日志。' },
@@ -200,7 +200,7 @@ guide('dify-security-access', ['Dify 应用纳管、三种凭据与资产清单'
       title: 'Dify Console Admin API: configured by the deployment administrator',
       paragraphs: ['This is a deployment credential, not another key in the application API Keys dialog. Verified against official Dify 1.6.0 source: ADMIN_API_KEY_ENABLE defaults to false and ADMIN_API_KEY is unset. When enabled, Bearer Key plus X-WORKSPACE-ID authenticates as the selected workspace owner. This procedure applies to self-hosted versions supporting that mechanism; administrators must verify Cloud, other versions, and custom builds separately.'],
       steps: [
-        { title: 'Verify version and authentication support', body: 'Ask the deployment administrator to identify the running image tag and inspect configuration and ext_login.py for that version. Proceed only if Admin API Key is supported. App administration does not imply deployment access.' },
+        { title: 'Verify version and authentication support', body: 'Ask the deployment administrator to identify the running image tag and inspect configuration and ext_login.py for that version. Proceed only if Admin API Key is supported.' },
         { title: 'Edit the API service environment file', body: 'For deployments with per-service environment files, add or update these settings in dify/docker/envs/core-services/api.env. Generate ADMIN_API_KEY from a secure random source and store it securely; the placeholder is not a usable key. Verify that the Compose api service references this file through env_file. Configuration locations vary by deployed version.', code: '# dify/docker/envs/core-services/api.env\nADMIN_API_KEY_ENABLE=true\nADMIN_API_KEY=<ADMIN_KEY_FROM_SECRET_STORE>' },
         { title: 'Recreate the API container and verify the configuration', body: 'Run the update from dify/docker using the deployment’s original Compose files, project name, and profiles. The standard command is below; retain any original -f, -p, or --profile options. env_file is injected at container creation; docker restart or docker compose restart api does not reload edited values. Then perform the Console read-only validation below; container startup alone does not establish key validity.', code: 'cd dify/docker\ndocker compose up -d --no-deps --force-recreate api' },
         { title: 'Obtain Workspace ID and App ID', body: 'App ID is the UUID in /app/<APP_ID>/workflow or another app subpage URL. Workspace ID is the workspace/tenant UUID, not its name or App ID. Ask the deployment administrator, or inspect the workspace-switch/current-workspace response in browser Developer Tools → Network and match id to name. Do not copy cookies, Authorization, or entire network logs.' },
@@ -278,7 +278,7 @@ guide('dify-security-access', ['Dify 应用纳管、三种凭据与资产清单'
       table: { columns: ['现象 / 错误码', '排查顺序'], rows: [
         ['console_credential_required / knowledge_credential_required', '目标 → 凭据 → 对应用途是否存在且已启用；检查是否误存为 App API。'],
         ['console_auth_failed · 401', '核对 Admin Key、ADMIN_API_KEY_ENABLE、API 进程是否收到变量、Workspace UUID 是否正确；不要换成应用 Key。'],
-        ['console_forbidden · 403 / app_not_found · 404', '核对工作空间归属、App ID 和 Console API 路由；Key 正确不代表能看到该工作空间或应用。'],
+        ['console_forbidden · 403 / app_not_found · 404', '核对工作空间归属、App ID 和 Console API 路由。'],
         ['export_not_supported / draft_workflow_unavailable', '核对 Dify 版本、应用类型和导出/草稿接口支持；即时采集可使用不含密钥的手动 DSL，草稿知识库映射缺失保持未验证。'],
         ['dataset_forbidden / dataset_not_found', '用 Knowledge Key 验证数据集分页可见性，核对实际 Dataset UUID 和工作空间。'],
         ['dataset_reference_unmapped / dataset_reference_ambiguous', '核对节点 ID 与草稿映射；必要时配置已验证的知识库绑定，不按名称或相似度猜测。'],
@@ -290,7 +290,7 @@ guide('dify-security-access', ['Dify 应用纳管、三种凭据与资产清单'
       table: { columns: ['Symptom / error code', 'Checks in order'], rows: [
         ['console_credential_required / knowledge_credential_required', 'Verify the matching enabled purpose in target Credentials; check it was not saved as App API.'],
         ['console_auth_failed · 401', 'Verify Admin Key, ADMIN_API_KEY_ENABLE, API process environment, and Workspace UUID; do not substitute an App Key.'],
-        ['console_forbidden · 403 / app_not_found · 404', 'Check workspace ownership, App ID, and Console routing. A valid key does not establish app visibility.'],
+        ['console_forbidden · 403 / app_not_found · 404', 'Check workspace ownership, App ID, and Console routing.'],
         ['export_not_supported / draft_workflow_unavailable', 'Verify version, app type, and export/draft endpoint support. Immediate tasks can use secret-free manual DSL; missing draft mappings remain unverified.'],
         ['dataset_forbidden / dataset_not_found', 'Verify paginated visibility using the Knowledge Key, actual Dataset UUID, and workspace.'],
         ['dataset_reference_unmapped / dataset_reference_ambiguous', 'Check node IDs and draft mappings. Use verified explicit knowledge bindings if needed, not name similarity.'],
@@ -335,7 +335,7 @@ guide('security-operations', ['定时扫描与风险处置', 'Schedules and risk
         ['空值 —', '尚无评估，或只完成部分检查且没有计分风险；不能当作 0。'],
         ['0', '配置范围内检查完成且没有计分风险；必须同时阅读范围和有效期。'],
         ['待复扫', '资产配置已变或评估过期；未关闭旧风险仍保留分数，失败和取消不能清除旧风险。'],
-      ] }, paragraphs: ['agent-risk-score@1 使用最高风险基础分，加其他去重风险的附加分（附加上限 20，总分上限 100）。低/中/高/严重基础分分别为 10/35/65/90，其他风险分别加 1/3/5/8；提示为 0。1–34 为低、35–64 为中、65–89 为高、90–100 为严重。分数用于处置排序，不代表漏洞利用概率或合规通过率。'],
+      ] }, paragraphs: ['agent-risk-score@1 使用最高风险基础分，加其他去重风险的附加分（附加上限 20，总分上限 100）。低/中/高/严重基础分分别为 10/35/65/90，其他风险分别加 1/3/5/8；提示为 0。1–34 为低、35–64 为中、65–89 为高、90–100 为严重。分数用于风险处置排序。'],
     }, {
       title: 'This-scan score versus current aggregate risk',
       table: { columns: ['Metric', 'Meaning'], rows: [
@@ -344,7 +344,7 @@ guide('security-operations', ['定时扫描与风险处置', 'Schedules and risk
         ['Missing —', 'No assessment, or partial checks without scoring issues; not zero.'],
         ['0', 'Configured checks completed without scoring issues; read scope and validity alongside it.'],
         ['Rescan needed', 'Configuration changed or assessment expired. Unclosed risks retain their score; failure and cancellation cannot clear them.'],
-      ] }, paragraphs: ['agent-risk-score@1 takes the highest severity base plus contributions from other deduplicated risks, capped at 20 additional points and 100 total. Low/medium/high/critical bases are 10/35/65/90, with additional contributions of 1/3/5/8; informational is zero. Levels are 1–34 low, 35–64 medium, 65–89 high, 90–100 critical. Scores prioritize disposition, not exploitation probability or compliance.'],
+      ] }, paragraphs: ['agent-risk-score@1 takes the highest severity base plus contributions from other deduplicated risks, capped at 20 additional points and 100 total. Low/medium/high/critical bases are 10/35/65/90, with additional contributions of 1/3/5/8; informational is zero. Levels are 1–34 low, 35–64 medium, 65–89 high, 90–100 critical. Scores prioritize risk disposition.'],
     }],
     ['risk-disposition', {
       title: '从发现到修复验证的操作闭环',
@@ -376,7 +376,7 @@ guide('security-operations', ['定时扫描与风险处置', 'Schedules and risk
         ['下载诊断日志', '报告页点击“下载诊断日志”，将 JSON 提供给支持人员。包括状态、预算和 MCP 执行事件、HTTP/RPC 状态、异常类型与源码位置；不包含密钥、原始对话或工具参数。历史任务可能只有摘要。'],
         ['重试扫描', '失败或超时任务沿用原配置重新校验权限和策略。已有重试仍在排队或运行时打开该任务；结束后再次点击创建新任务，原报告保留。'],
         ['MCP 网关等待审批', '到 MCP 网关检查待审批请求及工具授权。已结束扫描不会因审批完成自动恢复；后续任务仍按网关授权配置校验。'],
-        ['MCP 报告与阶段', '执行中展示阶段进度，不代表最终用例通过。完成后 MCP 和 SARIF 报告展示发现、分析和修复建议，并可查看原始内容。模型判断标为待验证；工具参数没有认证字段不能证明服务缺失鉴权。'],
+        ['MCP 报告与阶段', '执行中展示阶段进度，完成后查看用例结果。完成后 MCP 和 SARIF 报告展示发现、分析和修复建议，并可查看原始内容。模型判断标为待验证；工具参数没有认证字段不能证明服务缺失鉴权。'],
       ] }, link: { path: '/docs/docker-operations', label: '查看容器状态与日志排查' },
     }, {
       title: 'Workers: queues, heartbeat, leases, and upstream errors',
@@ -391,7 +391,7 @@ guide('security-operations', ['定时扫描与风险处置', 'Schedules and risk
         ['Download diagnostic logs', 'Download JSON from the report page for support. It includes status, budgets, MCP execution events, HTTP/RPC status, exception types, and source locations, without secrets, raw conversations, or tool arguments. Older tasks may contain only a summary.'],
         ['Retry scan', 'Failed or timed-out tasks reuse their settings and recheck permissions and policies. Open an existing queued/running retry; create a new task after it ends. Original reports are retained.'],
         ['MCP gateway approval pending', 'Review pending approvals and tool authorization in the MCP gateway. Approval does not automatically resume an ended scan; subsequent tasks still enforce gateway authorization.'],
-        ['MCP reports and stages', 'Live stages show execution progress, not final test success. MCP and SARIF reports display findings, analysis, remediation, and raw content. Model assessments remain unverified; missing authentication fields in tool arguments do not prove missing server authentication.'],
+        ['MCP reports and stages', 'Live stages show execution progress. Review case results after completion. MCP and SARIF reports display findings, analysis, remediation, and raw content. Model assessments remain unverified; missing authentication fields in tool arguments do not prove missing server authentication.'],
       ] }, link: { path: '/docs/docker-operations', label: 'Read container and log diagnostics' },
     }],
   ])
@@ -445,7 +445,7 @@ guide('runtime-trace-guide', ['调用轨迹查询、事件详情与导出', 'Run
         ['结果', '查看调用输出、错误或返回摘要；没有输出时结合状态与结束事件排查。'],
         ['Schema', '核对工具/事件结构与参数要求，识别输入与声明结构不一致。'],
         ['时间', '核对开始、结束与耗时。节点类型和是否仅为观察事件决定此页签是否可见。'],
-        ['安全', '查看风险码、治理裁决、关联 Finding 与证据。允许只代表本次已执行的治理检查，阻断不代表上游操作已完成。'],
+        ['安全', '查看风险码、治理裁决、关联 Finding 与证据。治理裁决记录本次检查决定，上游执行结果见对应调用事件。'],
       ] },
     }, {
       title: 'What each event detail section answers',
@@ -456,7 +456,7 @@ guide('runtime-trace-guide', ['调用轨迹查询、事件详情与导出', 'Run
         ['Result', 'Inspect output, errors, or summaries; check status and completion events if no output exists.'],
         ['Schema', 'Compare declared Tool/event structure with inputs.'],
         ['Timing', 'Inspect start, end, and duration; availability depends on node type and whether it is only an observation.'],
-        ['Security', 'Inspect risk codes, governance decisions, Findings, and evidence. Allow covers performed checks; blocking does not establish upstream execution.'],
+        ['Security', 'Inspect risk codes, governance decisions, Findings, and evidence. Governance decisions record the checks performed. Review the corresponding call events for upstream execution results.'],
       ] },
     }],
     ['trace-sources', {
@@ -482,11 +482,11 @@ guide('runtime-trace-guide', ['调用轨迹查询、事件详情与导出', 'Run
     }],
     ['performance', {
       title: '性能概览与持续加载',
-      paragraphs: ['性能统计注明已加载事件数和总事件数。长会话需要继续加载事件后再判断；当前可见部分的耗时不能冒充整个会话总耗时。并发调用存在时间重叠，逐项耗时相加也不等于用户等待时长。'],
+      paragraphs: ['性能统计注明已加载事件数和总事件数。长会话需加载完整事件后评估总耗时；并发调用按时间重叠关系分析用户等待时长。'],
       bullets: ['模型慢：先定位模型请求的时间与返回状态，再看目标服务和请求选项。', '工具慢：检查 Tool 调用及父步骤，区分等待审批、网关阻断、网络等待和工具执行。', '事件不全：检查接入方是否发送开始/结束事件和一致 ID，再确认时间筛选、权限和分页。', '页面刷新只读取已上报数据，不会补录缺失的 Agent 内部步骤。'],
     }, {
       title: 'Performance and incremental loading',
-      paragraphs: ['Performance states loaded versus total events. Load more of long sessions before drawing conclusions; the visible subset is not whole-session latency. Concurrent calls overlap, so summed durations do not equal user wait time.'],
+      paragraphs: ['Performance statistics show loaded and total event counts. Load all events before assessing total session time; account for overlapping concurrent calls when analyzing user wait time.'],
       bullets: ['Slow model: locate request timing/status, then inspect upstream service and request options.', 'Slow Tool: inspect the call and parent step; distinguish approval waits, blocking, network waits, and execution.', 'Incomplete events: check start/end reporting and consistent IDs, then filters, permissions, and pagination.', 'Refresh retrieves reported data; it does not reconstruct missing internal Agent steps.'],
     }],
     ['trace-export', {

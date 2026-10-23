@@ -7,7 +7,7 @@
 1. skill 同步到本地后可能被篡改
 2. skill 在运行时可能调用未授权 tool
 
-当前最实用的接法不是直接改 OpenClaw 核心，而是使用 OpenClaw 官方 hooks：
+使用 OpenClaw 官方 hooks 接入：
 
 - `agent:bootstrap`
 - `before_tool_call`

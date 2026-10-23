@@ -22,7 +22,7 @@
 |---|---|---|---|
 | Claude Code | `demo/claude-code-api-hook/` | `PreToolUse` 识别到 Skill 调用后执行内容签名和加载许可检查 | 无法解析的输入和非 Skill 调用放行，必须用真实事件验证 Skill 提取 |
 | TraeCode / TRAE CN | 官方 Hook 协议已支持，可以 `demo/claude-code-api-hook/` 作为适配起点 | 官方提供 `PreToolUse`，输入包含 `tool_name` 和 `tool_input` | Agent Manager 尚未在真实 TraeCode 中完成端到端验证，不应宣称已可用 |
-| Codex | `demo/codex-agent-manager-hook/` | `PreToolUse` 在受支持的 Tool 前校验发现到的全部受治理 Skill | 当前覆盖 Bash、`apply_patch`、MCP 等受支持路径，不代表所有 Tool |
+| Codex | `demo/codex-agent-manager-hook/` | `PreToolUse` 在受支持的 Tool 前校验发现到的全部受治理 Skill | 当前覆盖 Bash、`apply_patch`、MCP 等受支持路径 |
 | OpenClaw | `demo/openclaw-agent-manager-hook/` | `agent:bootstrap` 做加载校验，`before_tool_call` 计划做 Tool 检查 | 当前是骨架，需要根据目标 OpenClaw 版本的真实 payload 和插件工程适配 |
 
 ## 2. 平台侧准备
@@ -113,7 +113,7 @@ Claude Code 配置位置：
 tail -f ~/.agent-manager/logs/agent_guard_hook.log
 ```
 
-该示例只对能够识别出的 Skill 调用执行 fail-closed 校验。无法解析的事件和非 Skill 调用直接放行，因此“配置文件存在”不等于覆盖已经生效。
+该示例只对能够识别出的 Skill 调用执行 fail-closed 校验。无法解析的事件和非 Skill 调用直接放行。接入后需验证目标宿主的事件格式和实际拦截结果。
 
 Claude Code 官方参考：
 

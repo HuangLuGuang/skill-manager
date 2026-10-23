@@ -165,7 +165,7 @@ services:
 不会自动加载上述 override；`upgrade.sh` 还会用安装包替换主 Compose 文件。
 使用这两个脚本且需要自定义公钥挂载时，首次启动前将同一 backend 配置合并到主文件。
 升级前备份现场配置，在维护窗口完成升级后重新合并挂载配置，重建 backend 并检查授权有效，再恢复业务。
-`.env` 与数据卷保留不代表自定义 Compose 挂载自动保留；默认使用镜像公钥的部署无需额外挂载。
+升级后需重新合并自定义 Compose 挂载；默认使用镜像公钥的部署无需额外挂载。
 
 ### 重建后的密钥与授权持久化验收
 
@@ -326,7 +326,7 @@ API Key 写入 Compose、环境变量、目标配置或验收日志。
 
 Worker 镜像内置健康检查，Compose 也会执行同一检查。成功领取任务、空闲心跳以及长任务期间的成功
 续租都会刷新健康标记；控制面持续不可达时不会刷新。`docker compose ps agent-security-worker`
-显示 `healthy` 只证明 Worker、内部引擎和控制面租约通道正常，不等于任何外部目标已完成风险扫描。
+`healthy` 表示 Worker、内部引擎和控制面租约通道正常。外部目标需创建风险扫描任务进行验证。
 
 Compose 默认使用非 root、只读根文件系统、`/tmp` tmpfs、`init`、删除全部 capability 和
 `no-new-privileges`，并限制为 128 个进程、512 MiB 内存、1 个 CPU。可按实测通过
@@ -369,7 +369,7 @@ Content-Type: application/json
 3. 分别提交一个授权的 Agent Mock、Dify 资产清单、MCP 元数据和源码、受控 MCP 动态/红队、受控 LLM 红队和授权网络端点扫描，确认任务从
    `pending` 进入 `running`，最终形成对应 Case、Finding/零 Finding或证据不足说明和原始产物摘要。
    Dify 项还应核对 `dify-asset-inventory@1` 加密产物、字段来源、Workspace ID 脱敏和五类覆盖状态；
-   Console API 成功不代表 MCP、知识库和运行轨迹均已验证。
+   按使用范围继续验证 MCP、知识库和运行轨迹。
 4. 核对 `docker compose logs --since 10m agent-security-worker`；日志不得出现 Worker Token、模型
    API Key、目标凭据或原始 Prompt/Response。
 
@@ -430,7 +430,7 @@ Token 或任一新增服务无法通过健康检查时，部署会失败并收�
 ```
 
 内网目标仍需目标与策略双重 CIDR 白名单。TLS 校验不可关闭。外部 SaaS 的字段以锁定版本 Provider
-清单和目标创建接口校验为准；没有账号、授权目标和评估模型时，镜像健康不等于真实扫描已验收。
+清单和目标创建接口校验为准；真实扫描验收需准备账号、授权目标和评估模型。
 
 ## 可选 MCP 业务案例
 

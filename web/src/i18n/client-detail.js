@@ -12,7 +12,7 @@ export const clientDetailMessages = {
     registeredBy: '注册人', copyId: '复制客户端 ID', idCopied: '客户端 ID 已复制',
     copyFailed: '复制失败，请选择客户端 ID 手动复制', refreshFailed: '设备状态刷新失败，请重试',
     systemEvents: '查看系统事件', approvalScope: '统计范围',
-    logUnknown: '日志来源有待确认项', logImpact: '部分日志可能尚未采集；查看对应来源，不代表整个通道已停止。',
+    logUnknown: '日志来源有待确认项', logImpact: '部分日志可能尚未采集，请查看对应来源的状态和原因。',
   },
   'en-US': {
     installed: '{count} entries installed', reported: 'Installation reports received for {count} entries',
@@ -27,6 +27,6 @@ export const clientDetailMessages = {
     registeredBy: 'Registered by', copyId: 'Copy client ID', idCopied: 'Client ID copied',
     copyFailed: 'Copy failed. Select the client ID and copy it manually.', refreshFailed: 'Unable to refresh device status. Please try again.',
     systemEvents: 'View system events', approvalScope: 'Count scope',
-    logUnknown: 'Log source needs verification', logImpact: 'Some logs may not have been collected. Check the affected source; this does not mean the entire channel has stopped.',
+    logUnknown: 'Log source needs verification', logImpact: 'Some logs may not have been collected. Check the affected source for its status and reason.',
   },
 }

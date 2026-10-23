@@ -1174,7 +1174,7 @@ window.clientStaticI18nBindings = [
     "selector": "#aidr-product-inspector>details:nth-of-type(1)>p:nth-of-type(2)",
     "nodeIndex": 0,
     "key": "ui.aidrDesktop.trust_hint",
-    "source": "安装不会自动授予 Hook 信任。请在 Codex 原生 /hooks 中审阅；新会话才应用配置，不会重启已有会话。安装、自检和接收器运行均不证明真实事件已到达。"
+    "source": "普通插件请在 Codex 原生 /hooks 中审阅；受管方式由宿主管理配置提供信任，仍需核对实际加载。新会话应用配置，不会重启已有会话。接入后在新会话触发事件并核对平台记录。"
   },
   {
     "selector": "#aidr-product-inspector>details:nth-of-type(2)>summary:nth-of-type(1)",
@@ -2380,7 +2380,7 @@ window.clientStaticI18nBindings = [
     "selector": "#event-record-boundary",
     "nodeIndex": 0,
     "key": "ui.eventRecord.boundary",
-    "source": "内容核对基于采集时的观察，不证明调用瞬间内容。"
+    "source": "内容核对使用采集时观察到的文件内容，观察时间见记录。"
   },
   {
     "selector": "#event-record-skill",

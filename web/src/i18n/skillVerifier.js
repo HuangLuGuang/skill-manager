@@ -21,8 +21,8 @@ export const skillVerifierMessages = {
     verify: '在同一个已配置环境的终端执行 verify。下方命令由运行端执行；页面不会代替运行端连接或校验。',
     skillPath: '待验证的本地 Skill 目录', pathHelp: '填包含 SKILL.md 的单个 Skill 绝对路径，不是 ZIP、Skill 根目录或 Verifier 自身目录。',
     success: '确认输出验证通过且退出码为 0。脚本先校验本地内容摘要，再检查 APPROVED / DEPLOYED 状态和当前 Agent 的加载许可；任何非零退出码都应停止加载。',
-    audit: '打开 Skill 运行审计，核对本次时间、当前 Agent ID、目标 Skill，以及验签和加载检查结果。下载、复制配置或凭证关联均不代表验证成功。',
-    invoke: '在真实 Agent 会话中要求：每次使用第三方 Skill 前先执行 agent-manager-skill-verifier，只有退出码为 0 才继续。确认会话实际执行了脚本；终端单次验证通过不代表后续每次都会校验。',
+    audit: '打开 Skill 运行审计，核对本次时间、当前 Agent ID、目标 Skill，以及验签和加载检查结果。',
+    invoke: '在真实 Agent 会话中要求：每次使用第三方 Skill 前先执行 agent-manager-skill-verifier，只有退出码为 0 才继续。通过会话记录确认脚本已执行。',
     copyCommand: '复制命令模板', copied: '命令模板已复制', downloadFailed: 'Verifier 下载失败，请检查权限与网络后重试。',
     troubleshootTitle: '验证失败时怎么处理',
     failures: {
@@ -57,8 +57,8 @@ export const skillVerifierMessages = {
     verify: 'Run verify in the same configured terminal. Execute the command on the runtime machine; this page does not connect or verify on its behalf.',
     skillPath: 'Local Skill directory to verify', pathHelp: 'Use the absolute path of one Skill containing SKILL.md, rather than a ZIP, a Skill root or the Verifier itself.',
     success: 'Confirm successful verification and exit code 0. The script checks the local content digest, then APPROVED / DEPLOYED status and this Agent’s loading permission. Stop loading on any nonzero exit code.',
-    audit: 'Open Skill runtime audit and match the time, Agent ID, target Skill, signature check and loading decision. Downloading, copying configuration or linking a credential does not prove successful verification.',
-    invoke: 'In the real Agent session, require agent-manager-skill-verifier before every third-party Skill use, proceeding only on exit code 0. Confirm the session actually runs the script. A successful terminal check does not prove subsequent checks will run.',
+    audit: 'Open Skill runtime audit and match the time, Agent ID, target Skill, signature check and loading decision.',
+    invoke: 'In the real Agent session, require agent-manager-skill-verifier before every third-party Skill use, proceeding only on exit code 0. Check the session records to confirm the script ran.',
     copyCommand: 'Copy command template', copied: 'Command template copied', downloadFailed: 'Verifier download failed. Check permissions and connectivity, then retry.',
     troubleshootTitle: 'Resolve verification failures',
     failures: {

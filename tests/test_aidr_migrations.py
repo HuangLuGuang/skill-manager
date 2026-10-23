@@ -10,6 +10,41 @@ from backend.aidr_migrations import upgrade_aidr_schema
 from backend.aidr_models import AidrHookEvent, AidrOperation
 from backend.aidr_enforcement import AidrRuntimeRecord
 from backend.runtime_governance import Observation, view
+from backend.aidr_risk import RiskFinding
+
+
+def test_risk_upgrade_preserves_findings_and_control_codes(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'risk.db'}")
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(RiskFinding.__table__.insert().values(
+            id='existing-risk', client_id='old', source='hook', anchor_id=1,
+            risk_code='tool_policy_denied', severity='medium', config_revision=1,
+            rule_version='1', occurred_at='2026-10-22T00:00:00Z', time_basis='event',
+        ))
+        conn.exec_driver_sql('ALTER TABLE aidr_risk_findings DROP COLUMN control_code')
+        conn.exec_driver_sql('ALTER TABLE aidr_risk_findings DROP COLUMN disposition')
+        conn.exec_driver_sql('ALTER TABLE aidr_risk_findings DROP COLUMN disposition_revision')
+        before = dict(conn.exec_driver_sql('SELECT * FROM aidr_risk_findings').mappings().one())
+    upgrade_aidr_schema(engine)
+    with Session(engine) as db:
+        finding = db.query(RiskFinding).filter_by(client_id='old').one()
+        assert finding.control_code == ''
+        assert finding.disposition == 'open' and finding.disposition_revision == 0
+        assert {key: getattr(finding, key) for key in ('id', 'risk_code', 'anchor_id')} == {
+            key: before[key] for key in ('id', 'risk_code', 'anchor_id')}
+        finding.control_code = 'policy_denied'
+        finding.disposition = 'accepted'
+        finding.disposition_revision = 2
+        db.commit()
+    upgrade_aidr_schema(engine)
+    with engine.connect() as conn:
+        after = dict(conn.exec_driver_sql('SELECT * FROM aidr_risk_findings').mappings().one())
+        assert after.pop('control_code') == 'policy_denied'
+        assert after.pop('disposition') == 'accepted'
+        assert after.pop('disposition_revision') == 2
+        assert after == before
+    engine.dispose()
 
 
 def legacy_database(tmp_path):
@@ -86,7 +121,7 @@ def test_runtime_policy_upgrade_preserves_existing_tasks_and_default(tmp_path):
     engine, tables = legacy_database(tmp_path)
     with engine.begin() as c:
         c.exec_driver_sql('ALTER TABLE client_governance_policies DROP COLUMN runtime_governance_json')
-        c.exec_driver_sql("INSERT INTO client_governance_policies(scope,rules_json,prompt_guard_json,compression_json,model_routing_json,revision,enabled,protocol,updated_at) VALUES('@default','{}','null','null','null',4,1,2,'2026-09-30 00:00:00')")
+        c.exec_driver_sql("INSERT INTO client_governance_policies(scope,rules_json,prompt_guard_json,compression_json,model_routing_json,desktop_menu_visibility_json,desktop_menu_protocol,revision,enabled,protocol,updated_at) VALUES('@default','{}','null','null','null','{}',1,4,1,2,'2026-09-30 00:00:00')")
         c.execute(models.ClientTask.__table__.insert().values(client_id='old',task_type='aidr_plugin_action',payload_json='{"frozen":"exact-old-task"}',request_key='old-runtime-task'))
         before = list(c.exec_driver_sql('SELECT * FROM client_tasks').all())
         batches = list(c.exec_driver_sql('SELECT batch_id,digest FROM aidr_batches').all())

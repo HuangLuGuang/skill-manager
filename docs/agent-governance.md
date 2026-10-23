@@ -111,7 +111,7 @@ For the internal model gateway, configure the platform endpoint and runtime cred
 
 **English:** When a Client automatically rotates a runtime credential, MCP access is restricted to active gateways in both the existing credential and the Agent's current grants.
 
-详情页的 MCP 区域分别显示网关配置、有效凭证的权限覆盖情况和最近 10 条工具调用。凭证权限已配置表示存在已启用、未过期且具备上述三个权限的凭证；来源 IP、Agent 状态及网关策略仍可能限制运行。新调用按调用时凭证绑定的 Agent 身份记录，后续改绑不会改变归属；未记录身份的历史调用仅保留在全局 MCP 审计中。平台配置和工具列表读取均不代表工具调用成功。
+详情页的 MCP 区域分别显示网关配置、有效凭证的权限覆盖情况和最近 10 条工具调用。凭证权限已配置表示存在已启用、未过期且具备上述三个权限的凭证；来源 IP、Agent 状态及网关策略仍可能限制运行。新调用按调用时凭证绑定的 Agent 身份记录，后续改绑不会改变归属；未记录身份的历史调用仅保留在全局 MCP 审计中。工具调用结果在调用审计中查看。
 
 **English:** Agent details separates gateway configuration, valid credential coverage and the latest ten tool calls. Configured coverage requires an active, unexpired credential with all three MCP scopes; IP rules, Agent state and gateway policies still apply. New calls capture the Agent binding at call time, preserving attribution if credentials are rebound. Historical calls without an identity remain in global MCP audit. Saved settings and tool listing do not prove a successful tool call.
 

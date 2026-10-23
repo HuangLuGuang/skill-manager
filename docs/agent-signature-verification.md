@@ -31,7 +31,7 @@ separate bounded capacity. These changes require deployed mixed-load validation 
 
 ### 异步使用审计与加载前验签
 
-本文下述主动调用验签接口的加载前集成，与“Skill 使用审计”的异步观察是两个调用时点。使用审计由后台日志采集器计算或复用本地 SHA-256 摘要，平台核对已签名批准摘要及当前批准、撤销和授权状态；同步 Hook 路径不读取整个 Skill 目录。审计结果不代表宿主实际加载成功，也不证明加载瞬间内容。
+本文下述主动调用验签接口的加载前集成，与“Skill 使用审计”的异步观察是两个调用时点。使用审计由后台日志采集器计算或复用本地 SHA-256 摘要，平台核对已签名批准摘要及当前批准、撤销和授权状态；同步 Hook 路径不读取整个 Skill 目录。审计使用采集时的内容观察，宿主加载结果单独记录。
 
 使用审计默认最长复用摘要 300 秒，复用前检查文件元数据，保留原观察时间；缓存到期或检测到变化后全量重读。平台状态默认独立按 30 秒调度刷新。两种核对方式、资源上限及告警分类见 [项目指南](project-guide.md#skill-使用证据与认证告警)。离线、证据不足及超限均保持待确认。元数据缓存不是防篡改证明，Windows 同大小且恢复 mtime 的变化可能到到期重读才发现；需要调用时证明的宿主仍须实现可靠的加载前拦截与内容绑定。
 
@@ -39,13 +39,13 @@ separate bounded capacity. These changes require deployed mixed-load validation 
 
 ### 从平台指引开始 / Start from the platform guide
 
-在智能体列表或详情打开“接入指引”，选择 Skill 加载与工具检查能力，在凭证中心确认 `runtime:verify-signature`、`runtime:can-load` 和所需工具检查权限。返回指引后，在真实加载路径接入下列接口；验签记录证明一次校验的结果，实际代码加载仍须由运行端控制。关联凭证记录本身不代表凭证仍有效。
+在智能体列表或详情打开“接入指引”，选择 Skill 加载与工具检查能力，在凭证中心确认 `runtime:verify-signature`、`runtime:can-load` 和所需工具检查权限。返回指引后，在真实加载路径接入下列接口；验签记录证明一次校验的结果，实际代码加载仍须由运行端控制。调用时校验关联凭证的有效性。
 
 **English:** Open the Agent integration guide from its list or detail entry, select Skill checks, and confirm signature, load and required tool scopes in Credential Center. Return to the guide and integrate the endpoints below in the actual Loader. Verification records prove check results; the runtime must enforce loading decisions. A linked credential record does not establish current validity.
 
 ### 主动验签集成
 
-支持本地 Skill 指令的运行端可在“接入与运行 → Agent Skill Verifier”使用分步指引：选择身份、创建两项最小权限的运行凭证、下载并配置、执行 `verify --path`、按 Agent ID 核对运行审计。已由客户端发现的 Agent 复用现有身份。安装包与一次终端验证不保证后续 Agent 自动执行，必须在实际会话核对调用；强制拦截需要 Loader / Hook / SDK。
+支持本地 Skill 指令的运行端可在“接入与运行 → Agent Skill Verifier”使用分步指引：选择身份、创建两项最小权限的运行凭证、下载并配置、执行 `verify --path`、按 Agent ID 核对运行审计。已由客户端发现的 Agent 复用现有身份。在实际 Agent 会话中核对每次校验调用；强制拦截需接入 Loader / Hook / SDK。
 
 **English:** For runtimes supporting local Skill instructions, use Integration & Runtime → Agent Skill Verifier: select an identity, create a runtime credential with the two minimal verification scopes, install and configure, run `verify --path`, then match audit records by Agent ID. Reuse Client-discovered identities. Installation and a terminal check do not ensure future Agent invocation; verify the real session. Mandatory enforcement requires a Loader / Hook / SDK.
 
@@ -53,7 +53,7 @@ separate bounded capacity. These changes require deployed mixed-load validation 
 
 **English:** For real Codex acceptance, repeat use in the same session and require a fresh standalone Verifier call each time. Confirm that tampering, missing runtime credentials and revocation stop target reads and execution. Set `login: false` explicitly in `exec_command` to preserve the current launch environment, then correlate actual command exit codes with platform audit. See the [reproducible host acceptance](../demo/agent-manager-skill-verifier/README.md#真实-codex-宿主验收--real-codex-acceptance).
 
-同一个 Agent 还需要调用 MCP 时，先在智能体中选择允许的 MCP 网关，再为运行凭证增加所需的 `mcp:*` 权限和网关子集，按照接入指引配置 `/mcp/{gateway_slug}`。Skill 验签与 MCP 工具授权分别在各自入口执行，MCP 工具调用成功不代表 Skill 已通过内容验签。
+同一个 Agent 还需要调用 MCP 时，先在智能体中选择允许的 MCP 网关，再为运行凭证增加所需的 `mcp:*` 权限和网关子集，按照接入指引配置 `/mcp/{gateway_slug}`。Skill 验签与 MCP 工具授权分别在各自入口执行。
 
 **English:** To use MCP with the same Agent, configure its allowed gateways, grant the runtime credential the required `mcp:*` scopes and a gateway subset, then configure `/mcp/{gateway_slug}` using the integration guide. Skill signature checks and MCP authorization run at their respective boundaries; a successful MCP call does not prove Skill content verification.
 

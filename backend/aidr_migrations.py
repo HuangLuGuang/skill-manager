@@ -16,6 +16,13 @@ def upgrade_aidr_schema(engine):
         conn.commit()
         try:
             conn.exec_driver_sql("BEGIN IMMEDIATE")
+            risk_columns = {r[1] for r in conn.exec_driver_sql('PRAGMA table_info("aidr_risk_findings")')}
+            if risk_columns and 'control_code' not in risk_columns:
+                conn.exec_driver_sql("ALTER TABLE aidr_risk_findings ADD COLUMN control_code VARCHAR(128) NOT NULL DEFAULT ''")
+            if risk_columns and 'disposition' not in risk_columns:
+                conn.exec_driver_sql("ALTER TABLE aidr_risk_findings ADD COLUMN disposition VARCHAR(32) NOT NULL DEFAULT 'open'")
+            if risk_columns and 'disposition_revision' not in risk_columns:
+                conn.exec_driver_sql("ALTER TABLE aidr_risk_findings ADD COLUMN disposition_revision INTEGER NOT NULL DEFAULT 0")
             # Rebuild only derived overview metadata; original evidence and ACKs stay intact.
             rebuild_overview = False
             for name in ('aidr_overview_evidence', 'aidr_overview_operations'):

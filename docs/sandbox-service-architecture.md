@@ -112,7 +112,7 @@ Skill 详情的 Sandbox 调试信息在“说明”之前展示整行“错误�
 
 ## RemoteSandboxRunner 设计
 
-`RemoteSandboxRunner` 的目标不是替代治理逻辑，而是把高风险 skill 的试跑从主服务进程中拆出去。
+`RemoteSandboxRunner` 将高风险 skill 的试跑移到独立服务。
 
 推荐对接的独立服务能力：
 
@@ -227,7 +227,7 @@ Agent Manager 需要的只是一个稳定返回结果的 HTTP API，不关心对
 
 ### 调试说明的中英文展示
 
-调试汇总和 Probe 执行结果的 `reason` 保留原文；平台生成的新结果同时提供 `reason_code` 和 `reason_params`，详情按 `skillDetail.sandboxReasons` 双语资源显示。已知原因包括 nsjail / subprocess 执行、默认或指定参数、超时、Docker 不可用、运行方式或脚本类型不支持、远程地址未配置、请求失败、拒绝执行、响应格式异常和跳过分析。远程服务的 `success` 表示请求已处理，不代表脚本退出码为 0。
+调试汇总和 Probe 执行结果的 `reason` 保留原文；平台生成的新结果同时提供 `reason_code` 和 `reason_params`，详情按 `skillDetail.sandboxReasons` 双语资源显示。已知原因包括 nsjail / subprocess 执行、默认或指定参数、超时、Docker 不可用、运行方式或脚本类型不支持、远程地址未配置、请求失败、拒绝执行、响应格式异常和跳过分析。远程服务的 `success` 表示请求已处理，脚本执行结果通过退出码查看。
 
 原因识别集中在 `agent_manager/core/sandbox.py`。已有报告在扫描报告 API 响应中补齐汇总及 Probe 原因编码，不回写历史报告；已存在的编码和参数保留。前端仅翻译资源声明的编码，未知说明原样显示。动态异常、URL、路径、状态码及多行上游错误作为参数保留原文，使用文本转义和换行显示；内置远程服务明确的后端不可用模板可完整翻译。
 
