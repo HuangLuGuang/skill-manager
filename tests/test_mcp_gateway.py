@@ -1187,3 +1187,159 @@ def test_server_health_without_existing_authentication(tmp_path, monkeypatch, va
     assert updated.status_code == 200
     assert updated.json()["health_status"] == ("unknown" if value else "healthy")
     assert updated.json()["last_checked_at"] == (None if value else discovered["last_checked_at"])
+
+
+@pytest.mark.parametrize("locale", ["zh-CN", "en-US"])
+@pytest.mark.parametrize("failure", [
+    "ReadTimeout", "ConnectTimeout", "WriteTimeout", "PoolTimeout", "json_limit", "sse_limit",
+])
+def test_gateway_upstream_limits_return_specific_errors_and_release_slots(
+    tmp_path, monkeypatch, locale, failure,
+):
+    client, sessions = _client(tmp_path, monkeypatch)
+    _configured_gateway(client)
+    token = _gateway_token(client)
+    with sessions() as db:
+        server = db.query(models.McpServer).one()
+        server.timeout_seconds = 4
+        server.max_response_kb = 1
+        db.query(models.McpTool).filter_by(name="search").one().max_concurrent = 1
+        db.commit()
+
+    async def failing_call(server, method, params):
+        if failure.endswith("Timeout"):
+            raise getattr(httpx, failure)("")
+        content_type = "text/event-stream" if failure == "sse_limit" else "application/json"
+        transport = httpx.MockTransport(lambda request: httpx.Response(
+            200, headers={"content-type": content_type}, content=b"x" * 1025,
+        ))
+        async with httpx.AsyncClient(transport=transport) as upstream:
+            result, _ = await mcp_gateway._post_upstream(server, {"id": 1}, client=upstream)
+            return result
+
+    monkeypatch.setattr(mcp_gateway, "_validate_resolved_endpoint", lambda _: ["93.184.216.34"])
+    monkeypatch.setattr(mcp_gateway, "_call_upstream", failing_call)
+    payload = {"jsonrpc": "2.0", "id": 17, "method": "tools/call",
+               "params": {"name": "crm__search", "arguments": {"query": "repro"}}}
+    headers = {"Authorization": f"Bearer {token}", "Accept-Language": locale}
+    response = client.post("/mcp/readonly", headers=headers, json=payload)
+    error = response.json()["error"]
+    assert response.status_code == 200
+    assert response.json()["id"] == 17
+    assert error["code"] == -32000
+    timeout = failure.endswith("Timeout")
+    expected_code = "mcp.upstream_timeout" if timeout else "mcp.upstream_response_too_large"
+    expected_params = {"timeout_seconds": 4} if timeout else {"max_response_kb": 1}
+    assert error["data"] == {"error_code": expected_code, "error_params": expected_params}
+    expected = {
+        (True, "zh-CN"): "上游 MCP 调用超时（配置超时：4 秒）",
+        (True, "en-US"): "Upstream MCP call timed out (configured timeout: 4 seconds)",
+        (False, "zh-CN"): "上游 MCP 响应超过限制：1 KB",
+        (False, "en-US"): "Upstream MCP response exceeds the limit: 1 KB",
+    }[timeout, locale]
+    assert error["message"] == expected
+    audit = client.get("/api/v1/mcp/audit").json()
+    assert audit[0]["status"] == "error"
+    assert audit[0]["error"] == {
+        True: "上游 MCP 调用超时（配置超时：4 秒）",
+        False: "上游 MCP 响应超过限制：1 KB",
+    }[timeout]
+
+    # 失败后再调用同一并发上限为1的工具，验证租约已释放。
+    async def success(*args):
+        return {"jsonrpc": "2.0", "id": 1, "result": {"content": []}}
+    monkeypatch.setattr(mcp_gateway, "_call_upstream", success)
+    assert "result" in client.post("/mcp/readonly", headers=headers, json=payload).json()
+
+
+@pytest.mark.parametrize("sse", [False, True])
+@pytest.mark.parametrize("extra", [0, 1])
+def test_upstream_response_byte_limit_boundary(monkeypatch, sse, extra):
+    monkeypatch.setattr(mcp_gateway, "_validate_resolved_endpoint", lambda _: ["93.184.216.34"])
+    raw = b'data: {"id":1,"result":{}}\n\n' if sse else b'{"id":1,"result":{}}'
+    raw += b" " * (1024 + extra - len(raw))
+    closed = []
+
+    class ResponseStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield raw[:1000]
+            yield raw[1000:]
+
+        async def aclose(self):
+            closed.append(True)
+
+    async def run():
+        server = models.McpServer(endpoint="https://mcp.example.com/mcp", max_response_kb=1)
+        transport = httpx.MockTransport(lambda request: httpx.Response(
+            200, headers={"content-type": "text/event-stream" if sse else "application/json"},
+            stream=ResponseStream(),
+        ))
+        async with httpx.AsyncClient(transport=transport) as upstream:
+            if extra:
+                with pytest.raises(ValueError, match="1 KB"):
+                    await mcp_gateway._post_upstream(server, {"id": 1}, client=upstream)
+            else:
+                result, _ = await mcp_gateway._post_upstream(server, {"id": 1}, client=upstream)
+                assert result == {"id": 1, "result": {}}
+    asyncio.run(run())
+    assert closed == [True]
+
+
+@pytest.mark.parametrize("locale", ["zh-CN", "en-US"])
+@pytest.mark.parametrize("timeout", [True, False])
+@pytest.mark.parametrize("operation", ["debug", "discover"])
+def test_admin_reports_upstream_limits(tmp_path, monkeypatch, locale, timeout, operation):
+    client, sessions = _client(tmp_path, monkeypatch)
+    server = client.post("/api/v1/mcp/servers", json={
+        "slug": "limits", "name": "Limits", "endpoint": "https://mcp.example.com/mcp",
+        "timeout_seconds": 4,
+    }).json()
+
+    async def failing_call(server, method, params):
+        if timeout:
+            raise httpx.ReadTimeout("")
+        # 使用真实流式读取边界产生超限异常。
+        transport = httpx.MockTransport(lambda request: httpx.Response(
+            200, content=b"x" * (1024 * 1024 + 1),
+        ))
+        async with httpx.AsyncClient(transport=transport) as upstream:
+            return await mcp_gateway._post_upstream(server, {"id": 1}, client=upstream)
+    monkeypatch.setattr(mcp_gateway, "_call_upstream", failing_call)
+    monkeypatch.setattr(mcp_gateway, "_validate_resolved_endpoint", lambda _: ["93.184.216.34"])
+    path = "/api/v1/mcp/debug/upstream"
+    body = {
+        "endpoint": server["endpoint"], "timeout_seconds": 4,
+        "method": "tools/call", "params": {"name": "slow_echo", "arguments": {}},
+    }
+    if operation == "discover":
+        path = f"/api/v1/mcp/servers/{server['id']}/discover"
+        body = {}
+    response = client.post(path, headers={"Accept-Language": locale}, json=body)
+    assert response.status_code == (504 if timeout else 502)
+    expected_code = "mcp.upstream_timeout" if timeout else "mcp.upstream_response_too_large"
+    expected_params = {"timeout_seconds": 4} if timeout else {"max_response_kb": 1024}
+    assert response.json()["error_code"] == expected_code
+    assert response.json()["error_params"] == expected_params
+    if locale == "en-US":
+        expected = "timed out" if timeout else "exceeds the limit"
+    else:
+        expected = "超时" if timeout else "超过限制"
+    assert expected in response.json()["detail"]
+    if operation == "discover":
+        with sessions() as db:
+            assert db.get(models.McpServer, server["id"]).health_status == "unhealthy"
+
+
+def test_unknown_gateway_error_stays_generic(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path, monkeypatch)
+    _configured_gateway(client)
+    token = _gateway_token(client)
+
+    async def fail(*args):
+        raise ValueError("internal detail that must not be exposed")
+    monkeypatch.setattr(mcp_gateway, "_call_upstream", fail)
+    result = client.post("/mcp/readonly", headers={"Authorization": f"Bearer {token}"}, json={
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "crm__search", "arguments": {"query": "repro"}},
+    }).json()
+    assert result["error"] == {"code": -32000, "message": "上游 MCP 调用失败"}

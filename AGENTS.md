@@ -294,3 +294,5 @@ make sandbox-runtime-build
 - 深度扫描 PDF 发现项复用噪声过滤及 `pdf_file` 原因编码，详情复用 `skillDetail.suppressed.reasons.pdf_file` 双语资源，PDF 明细隐藏行号但保留报告原值，其他文件行号展示保持现有行为；全部发现项为 PDF 或位图噪声时有效严重度为 SAFE，剩余有效发现项继续参与判定，原始报告保留；历史明细补齐按规则编码、文件和行号排除已记录的有效发现，保留原计数、风险和存储。
 
 - MCP Server 编辑时鉴权留空，保存前测试按 server_id 复用已保存凭证，Endpoint 的查询参数、路径或地址变化均与保存后发现一致；地址变化且复用非空已存凭证时通过 `iam.check` 校验 `mcp:update`，在调用上游前拒绝无编辑权限的请求；显式测试凭证仅用于本次请求，测试不写回配置。独立临时测试使用请求自身凭证。
+
+- MCP 上游超时及响应超限通过 `_upstream_limit_error` 分类，使用 `mcp.upstream_timeout` / `mcp.upstream_response_too_large` 和配置参数；超限使用 `McpResponseTooLargeError` 携带上限。网关保持 JSON-RPC `-32000`，稳定编码与参数放 `error.data`，按请求语言返回原因；MCP 调试发送当前语言并复用 `web/src/i18n/errors.js`，原始响应保留。直连调试、连接发现与调用审计复用分类，失败后释放并发租约。

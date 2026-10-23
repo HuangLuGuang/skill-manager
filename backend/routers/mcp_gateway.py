@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from .. import auth, iam, models, schemas
-from ..api_errors import ApiError
+from ..api_errors import ApiError, request_locale
 from ..agent_mcp import ensure_agent_mcp_scope
 from ..config import settings
 from ..mcp_validation import field_issue, fields_error
@@ -378,8 +378,40 @@ def _runtime_tool_policy_denial(
     return None
 
 
-def _upstream_connection_error(exc: Exception, *, debug: bool = False) -> ApiError:
+class McpResponseTooLargeError(ValueError):
+    """携带实际响应上限，避免从提示文本识别错误。"""
+
+    def __init__(self, max_response_kb: int) -> None:
+        self.max_response_kb = max_response_kb
+        super().__init__(f"上游 MCP 响应超过限制: {max_response_kb} KB")
+
+
+def _upstream_limit_error(exc: Exception, timeout_seconds: int) -> ApiError | None:
+    """将超时及响应超限转换为可本地化的具体原因。"""
+    if isinstance(exc, httpx.TimeoutException):
+        return ApiError(
+            504, "mcp.upstream_timeout",
+            f"上游 MCP 调用超时（配置超时：{timeout_seconds} 秒）",
+            f"Upstream MCP call timed out (configured timeout: {timeout_seconds} seconds)",
+            params={"timeout_seconds": timeout_seconds},
+        )
+    if isinstance(exc, McpResponseTooLargeError):
+        return ApiError(
+            502, "mcp.upstream_response_too_large",
+            f"上游 MCP 响应超过限制：{exc.max_response_kb} KB",
+            f"Upstream MCP response exceeds the limit: {exc.max_response_kb} KB",
+            params={"max_response_kb": exc.max_response_kb},
+        )
+    return None
+
+
+def _upstream_connection_error(
+    exc: Exception, *, timeout_seconds: int, debug: bool = False,
+) -> ApiError:
     """将 HTTP 客户端固定说明结构化，避免中文界面混入英文提示。"""
+    limit_error = _upstream_limit_error(exc, timeout_seconds)
+    if limit_error is not None:
+        return limit_error
     code = "mcp.debug_failed" if debug else "mcp.connection_failed"
     zh_prefix = "MCP 调试失败" if debug else "MCP Server 连接失败"
     en_prefix = "MCP debugging failed" if debug else "MCP Server connection failed"
@@ -479,7 +511,7 @@ async def _post_upstream(
         async for chunk in response.aiter_bytes():
             content.extend(chunk)
             if len(content) > max_bytes:
-                raise ValueError(f"上游 MCP 响应超过限制: {max_bytes // 1024} KB")
+                raise McpResponseTooLargeError(max_bytes // 1024)
         buffered = httpx.Response(
             status_code=response.status_code,
             headers=response.headers,
@@ -672,7 +704,7 @@ async def discover_server(server_id: int, db: Session = Depends(get_db)):
         row.health_status = "unhealthy"
         row.last_checked_at = datetime.utcnow()
         db.commit()
-        raise _upstream_connection_error(exc) from exc
+        raise _upstream_connection_error(exc, timeout_seconds=row.timeout_seconds) from exc
 
 
 @admin_router.get("/gateways", response_model=list[schemas.McpGatewayResponse])
@@ -1183,7 +1215,7 @@ async def debug_upstream(
     try:
         result = await _call_upstream(transient, body.method, body.params)
     except Exception as exc:
-        raise _upstream_connection_error(exc, debug=True) from exc
+        raise _upstream_connection_error(exc, timeout_seconds=transient.timeout_seconds, debug=True) from exc
     return {
         "endpoint": endpoint,
         "method": body.method,
@@ -1826,6 +1858,16 @@ def _prepare_gateway_invocation(
             return _jsonrpc_error(request_id, -32000, "上游 MCP 调用失败")
         except Exception as exc:
             audit.status = "error"
+            limit_error = _upstream_limit_error(exc, server.timeout_seconds)
+            if limit_error is not None:
+                audit.error = limit_error.zh_message
+                message = (
+                    limit_error.en_message if request_locale(request) == "en-US"
+                    else limit_error.zh_message
+                )
+                return _jsonrpc_error(request_id, -32000, message, {
+                    "error_code": limit_error.code, "error_params": limit_error.params,
+                })
             audit.error = str(exc)[:1000]
             return _jsonrpc_error(request_id, -32000, "上游 MCP 调用失败")
         except BaseException:
