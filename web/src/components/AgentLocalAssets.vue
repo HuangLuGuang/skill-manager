@@ -55,11 +55,12 @@ import { formatDateTime } from '../utils/format'
 import AgentMcpInventory from './AgentMcpInventory.vue'
 import { withAssetNameSearch } from '../utils/assetNameSearch'
 const props = defineProps({
+  initialTab: { type: String, default: 'skills' },
   inventory: { type: Object, default: null },
   skills: { type: Array, default: () => [] },
   integrations: { type: Boolean, default: true },
 })
-const activeTab = ref('skills')
+const activeTab = ref(props.initialTab)
 const { t } = useI18n(), simpleImage = Empty.PRESENTED_IMAGE_SIMPLE
 const assetTabLabel = (key, count) => t(`localAssets.${key}`) + (props.inventory ? ` (${count})` : '')
 const skillColumns = computed(() => [

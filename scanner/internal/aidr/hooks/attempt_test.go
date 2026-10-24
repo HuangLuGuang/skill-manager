@@ -14,6 +14,12 @@ import (
 )
 
 func TestApprovalAttemptIdentitySingleDeliveryAndLifecycle(t *testing.T) {
+	for _, agent := range []string{"codex", "workbuddy"} {
+		t.Run(agent, func(t *testing.T) { testApprovalAttemptLifecycle(t, agent) })
+	}
+}
+
+func testApprovalAttemptLifecycle(t *testing.T, agent string) {
 	ctx := context.Background()
 	now := time.Now()
 	dir := storeDirectory(t)
@@ -29,7 +35,7 @@ func TestApprovalAttemptIdentitySingleDeliveryAndLifecycle(t *testing.T) {
 	}
 	var records []Record
 	for i := 1; i <= 5; i++ {
-		r, err := s.Receive(ctx, testID(i), "501", "codex", "PreToolUse", []byte(storeInput))
+		r, err := s.Receive(ctx, testID(i), "501", agent, "PreToolUse", []byte(storeInput))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -1,4 +1,7 @@
+import { overviewTabsMessages } from './overview-tabs.js'
+import { securityRulesMessages } from './security-rules.js'
 import { aidrRiskMessages } from './aidr-risk.js'
+import { riskOverviewMessages } from './risk-overview.js'
 import { scannerGuideMessages } from './scannerGuide.js'
 import { difyRuntimeMessages } from './difyRuntime.js'
 import { externalAccessMessages } from './externalAccess.js'
@@ -63,7 +66,10 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      securityRules: securityRulesMessages['zh-CN'],
       aidrRisk: aidrRiskMessages['zh-CN'],
+      riskOverview: riskOverviewMessages['zh-CN'],
+      overviewTabs: overviewTabsMessages['zh-CN'],
       externalAccess: externalAccessMessages['zh-CN'],
       externalDelivery: externalDeliveryMessages['zh-CN'],
       externalCallbacks: externalCallbackMessages['zh-CN'],
@@ -1224,7 +1230,10 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      securityRules: securityRulesMessages['en-US'],
       aidrRisk: aidrRiskMessages['en-US'],
+      riskOverview: riskOverviewMessages['en-US'],
+      overviewTabs: overviewTabsMessages['en-US'],
       externalAccess: externalAccessMessages['en-US'],
       externalDelivery: externalDeliveryMessages['en-US'],
       externalCallbacks: externalCallbackMessages['en-US'],

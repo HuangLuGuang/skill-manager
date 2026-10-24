@@ -281,7 +281,7 @@ test('agents-only reader loads without requesting unrelated account or credentia
     hasAccess: code => code === 'agents:view',
     listGroups: forbidden, listManagedUsers: forbidden, listModelEndpoints: forbidden,
     listSkills: forbidden,
-    groups: {}, users: {}, models: {}, skills: {},
+    groups: ref([]), users: ref([]), models: ref([]), skills: ref([]),
   }
   await (await viewFunction('Agents', 'loadOptions', context))()
   for (const name of ['groups', 'users', 'models', 'skills']) assert.deepEqual(context[name].value, [])

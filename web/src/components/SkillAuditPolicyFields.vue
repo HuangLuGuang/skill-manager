@@ -1,6 +1,5 @@
 <template>
   <section class="skill-policy">
-    <header><h4>{{ t('aidr.skillUse.policyTitle') }}</h4><a-tag color="blue">{{ t('aidr.skillUse.policy.async') }}</a-tag></header>
     <a-space wrap>
       <a-checkbox :checked="modelValue.enabled" :disabled="disabled" @update:checked="set('enabled', $event)">{{ t('aidr.skillUse.enabled') }}</a-checkbox>
       <a-checkbox :checked="modelValue.alerts" :disabled="inactive" @update:checked="set('alerts', $event)">{{ t('aidr.skillUse.alerts') }}</a-checkbox>
@@ -35,10 +34,10 @@ const actions = computed(() => ['record', 'alert'].map(value => ({ value, label:
 function set(key, value) { emit('update:modelValue', { ...props.modelValue, [key]: value }) }
 </script>
 <style scoped>
-.skill-policy { margin: 20px 0; min-width: 0; }
-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; } h4 { margin: 0; } h5 { margin: 20px 0 8px; font-size: 14px; }
+.skill-policy { margin: 12px 0; min-width: 0; }
+h5 { margin: 20px 0 8px; font-size: 14px; }
 .muted { color: #64748b; font-size: 12px; line-height: 1.6; margin: 10px 0; }
-.field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; margin: 16px 0; }
+.field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin: 12px 0; }
 .field-grid label { display: flex; flex-direction: column; gap: 8px; min-width: 0; } .wide { grid-column: 1 / -1; }
 .ant-select, .ant-input-number { width: 100%; min-width: 0; }
 .advanced { padding: 12px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; } summary { cursor: pointer; }

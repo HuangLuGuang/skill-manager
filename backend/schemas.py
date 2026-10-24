@@ -433,6 +433,7 @@ class AgentAssetSkill(BaseModel):
 
 
 class AgentAssetInstance(BaseModel):
+    risk_products: list[str] = Field(default_factory=list)
     asset_inventory: ClientAssetInventory | None = None
     client_id: str
     client_name: str
@@ -458,6 +459,7 @@ class AgentAssetInstance(BaseModel):
 
 
 class AgentRiskScope(BaseModel):
+    detection_status: str = 'pending'
     open_count: int = 0
     client_id: str
     client_name: str
@@ -468,6 +470,8 @@ class AgentRiskScope(BaseModel):
 
 
 class AgentRiskSummary(BaseModel):
+    detection_disabled: int = 0
+    detection_pending: int = 0
     open_count: int = 0
     status: str
     high: int = 0

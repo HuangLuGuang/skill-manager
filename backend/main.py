@@ -227,6 +227,8 @@ app.include_router(clients.router, prefix=settings.API_PREFIX)
 app.include_router(dashboard.router, prefix=settings.API_PREFIX)
 app.include_router(aidr.router, prefix=settings.API_PREFIX)
 app.include_router(aidr.global_tool_router, prefix=settings.API_PREFIX)
+app.include_router(aidr.global_risk_router, prefix=settings.API_PREFIX)
+app.include_router(aidr.security_router, prefix=settings.API_PREFIX)
 app.include_router(aidr_enforcement.router, prefix=settings.API_PREFIX)
 app.include_router(external_ai_gateways.router, prefix=settings.API_PREFIX)
 app.include_router(external_ai_gateways.runtime_router, prefix=settings.API_PREFIX)
@@ -287,9 +289,14 @@ def ensure_sqlite_schema() -> None:
     Base.metadata.create_all(bind=engine)
     from .aidr_migrations import upgrade_aidr_schema
     upgrade_aidr_schema(engine)
+    from .aidr_risk import RiskFinding
+    for index in RiskFinding.__table__.indexes:
+        index.create(bind=engine, checkfirst=True)
     from .aidr_tool_policy_scope import initialize_global_policy
     with SessionLocal() as policy_db:
         initialize_global_policy(policy_db)
+        from .aidr_risk import initialize_global_detection
+        initialize_global_detection(policy_db)
         policy_db.commit()
     from .iam import initialize as initialize_iam, migrate as migrate_iam
     migrate_iam(engine)

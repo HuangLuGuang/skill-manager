@@ -9,7 +9,7 @@ from .aidr_products import HookAgentID, BY_ID
 from .aidr_command_rules import CommandCondition, SHELL_TOOLS
 
 from pydantic import Field, model_validator
-from sqlalchemy import Column, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Column, ForeignKey, Integer, String, Text, UniqueConstraint, tuple_
 from sqlalchemy.dialects.sqlite import insert
 
 from .aidr_behavior import Strict
@@ -223,9 +223,19 @@ def publish(db, client_id, body, username):
     return policy
 
 
-def approval_view(row):
+def approval_view(row, report=None):
     state = "expired" if row.expires_at <= int(time.time()) and row.state in ("pending", "approved") else row.state
+    if report and report.get("code") == "aidr_hook_approval_timeout":
+        state = "timed_out"
     return {"id": row.id, "revision": str(row.revision), "state": state, "recorded_state": row.state, "scope": json.loads(row.scope), "created_at": str(row.created_at), "expires_at": str(row.expires_at), "decided_by": row.decided_by, "evidence_type": "agent_hook", "execution_point": "plugin_pre_tool"}
+
+
+def approval_views(db, rows):
+    keys = [(row.client_id, row.stream_id, row.event_id) for row in rows]
+    reports = db.query(HookAttemptReportRow).filter(tuple_(HookAttemptReportRow.client_id,
+        HookAttemptReportRow.stream_id, HookAttemptReportRow.event_id).in_(keys)).all() if keys else []
+    indexed = {(r.client_id, r.stream_id, r.event_id): json.loads(r.payload) for r in reports}
+    return [approval_view(row, indexed.get((row.client_id, row.stream_id, row.event_id))) for row in rows]
 
 
 def request_approval(db, client_id, body):

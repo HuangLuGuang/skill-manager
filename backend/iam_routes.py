@@ -32,6 +32,7 @@ def route_permission(request):
     if method == "POST" and path in {
         "/api/v1/clients/{client_id}/aidr/hook-policy/preview",
         "/api/v1/clients/{client_id}/aidr/enforcement/policy/preview",
+        "/api/v1/clients/{client_id}/aidr/risks/commands/test",
     }:
         return "clients:view"
     if method == "POST" and path in {"/api/v1/clients/{client_id}/aidr/enforcement/policy", "/api/v1/clients/{client_id}/aidr/enforcement/collection", "/api/v1/clients/{client_id}/aidr/enforcement/collection/rediscover"}:

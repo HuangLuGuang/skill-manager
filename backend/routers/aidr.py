@@ -3,13 +3,13 @@ from ..aidr_skill_contract import SkillAuditPolicy
 import hashlib
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, Path, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, func, lambda_stmt
+from sqlalchemy import and_, or_, func, lambda_stmt, case
 from ..aidr_operations import merge_operations, present, encode_cursor, decode_cursor, stamp
 from starlette.concurrency import run_in_threadpool
 from ..services.gateway_db import run_db
@@ -22,6 +22,7 @@ from .. import aidr_sessions
 from ..aidr_turns import present as present_log
 from .. import aidr_overview
 from .. import aidr_risk
+from .. import aidr_security_rules as security_rules
 from .. import aidr_hooks
 from .. import aidr_hook_runtime
 from .. import aidr_plugin_status
@@ -45,6 +46,81 @@ _BATCH_INSERT = lambda_stmt(lambda: insert(models.AidrBatch.__table__).on_confli
 _EVENT_INSERT = lambda_stmt(lambda: insert(models.AidrEvent.__table__).on_conflict_do_nothing(
     index_elements=['client_id', 'logical_id']))
 global_tool_router = APIRouter(prefix='/v1/aidr/tool-policy', tags=['aidr'])
+global_risk_router = APIRouter(prefix='/v1/aidr/risks', tags=['aidr'])
+security_router = APIRouter(prefix='/v1/aidr/security-rules', tags=['aidr'])
+
+
+def risk_settings_admin(db, user, write=False):
+    iam.check(db, user, 'settings:update' if write else 'settings:view')
+    if user.role not in ('admin', 'super_admin'):
+        raise ApiError(403, 'aidr.risk.admin_required', '需要管理员权限', 'Administrator role required')
+
+
+def risk_config_input(body, client=False):
+    from pydantic import ValidationError
+    try:
+        return (aidr_risk.ClientDetectionConfig if client else aidr_risk.DetectionConfig).model_validate(body)
+    except ValidationError:
+        raise ApiError(422, 'aidr.risk.invalid_config', '请检查路径格式、数量、规则及检测设置', 'Check paths, limits, rules and detection settings') from None
+
+
+def risk_config_conflict():
+    raise ApiError(409, 'aidr.risk.config_conflict', '检测配置已更新，请重新读取后保存', 'Detection configuration changed; reload before saving')
+
+
+def test_risk_command(body):
+    from pydantic import ValidationError
+    try:
+        value = aidr_risk.CommandTestInput.model_validate(body)
+    except ValidationError:
+        raise ApiError(422, 'aidr.risk.invalid_command_test', '请检查命令、工作目录及规则条件', 'Check command, working directory and rule conditions') from None
+    return aidr_risk.command_assessment(value.command, value.cwd, value.configuration.model_dump(), value.platform)
+
+
+@global_risk_router.post('/commands/test')
+def global_risk_command_test(body: dict, response: Response, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    risk_settings_admin(db, user)
+    response.headers['Cache-Control'] = 'no-store'
+    return test_risk_command(body)
+
+
+@router.post('/risks/commands/test')
+def client_risk_command_test(client_id: str, body: dict, response: Response, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, 'clients:view')
+    device_for_user(db, client_id, user)
+    iam.check(db, user, 'settings:view')
+    response.headers['Cache-Control'] = 'no-store'
+    return test_risk_command(body)
+
+
+@global_risk_router.get('/configuration')
+def global_risk_configuration(response: Response, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    risk_settings_admin(db, user)
+    response.headers['Cache-Control'] = 'no-store'
+    revision, config = aidr_risk.global_configuration(db)
+    return {'revision': revision, **config, 'catalog': aidr_risk.catalog.CATALOG,
+            'impact': aidr_risk.configuration_impact(db), 'can_edit': 'settings:update' in iam.permission_codes(db, user)}
+
+
+@global_risk_router.put('/configuration')
+def save_global_risk_configuration(body: dict, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    value = persist_global_risk_configuration(body, db, user)
+    db.commit()
+    return value
+
+
+def persist_global_risk_configuration(body, db, user):
+    risk_settings_admin(db, user, True)
+    config = risk_config_input(body)
+    db.connection().exec_driver_sql('UPDATE aidr_global_risk_configs SET revision=revision WHERE 0')
+    revision, _ = aidr_risk.global_configuration(db)
+    if revision != config.expected_revision:
+        risk_config_conflict()
+    payload = config.model_dump(exclude={'expected_revision'})
+    db.add(aidr_risk.GlobalRiskConfig(revision=revision + 1, payload=dump(payload)))
+    _operation(db, user, 'aidr.risk.configure_global', 'global', dump({'revision': revision + 1}))
+    db.flush()
+    return {'revision': revision + 1, **payload}
 
 
 @router.get('/risks/configuration')
@@ -53,32 +129,40 @@ def risk_configuration(client_id: str, response: Response, db: Session = Depends
     device_for_user(db, client_id, user)
     iam.check(db, user, 'settings:view')
     response.headers['Cache-Control'] = 'no-store'
-    revision, config = aidr_risk.configuration(db, client_id)
+    view = aidr_risk.configuration_view(db, client_id)
     permissions = iam.permission_codes(db, user)
-    return {'revision': revision, **config, 'can_edit': user.role in ('admin', 'super_admin') and {'clients:update', 'settings:update'} <= permissions}
+    return {**view, **view['effective'], 'catalog': aidr_risk.catalog.CATALOG,
+            'platform': _client_or_404(db, client_id).os,
+            'global_config': aidr_risk.global_configuration(db)[1],
+            'can_edit': user.role in ('admin', 'super_admin') and {'clients:update', 'settings:update'} <= permissions}
 
 
 @router.put('/risks/configuration')
 def save_risk_configuration(client_id: str, body: dict, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
-    from pydantic import ValidationError
+    value = persist_risk_configuration(client_id, body, db, user)
+    db.commit()
+    return value
+
+
+def persist_risk_configuration(client_id, body, db, user):
     device_for_user(db, client_id, user)
     iam.check(db, user, 'clients:update')
     iam.check(db, user, 'settings:update')
     if user.role not in ('admin', 'super_admin'):
         raise ApiError(403, 'aidr.risk.admin_required', '需要管理员权限', 'Administrator role required')
-    try:
-        config = aidr_risk.DetectionConfig.model_validate(body)
-    except ValidationError:
-        raise ApiError(422, 'aidr.risk.invalid_config', '请检查路径格式、数量和长度：仅支持无通配符的规范绝对路径，每类最多32项，每项最多512字节', 'Use normalized absolute paths without wildcards: at most 32 per category and 512 bytes per path') from None
+    config = risk_config_input(body, True)
     db.connection().exec_driver_sql('UPDATE aidr_risk_configs SET revision=revision WHERE 0')
     revision, _ = aidr_risk.configuration(db, client_id)
     if revision != config.expected_revision:
-        raise ApiError(409, 'aidr.risk.config_conflict', '检测配置已更新，请重新读取后保存', 'Detection configuration changed; reload before saving')
-    payload = config.model_dump(exclude={'expected_revision'})
+        risk_config_conflict()
+    if (config.enabled_mode is not None or config.rules_mode == 'inherit') and config.expected_global_revision != aidr_risk.global_configuration(db)[0]:
+        risk_config_conflict()
+    payload = config.model_dump(exclude={'expected_revision', 'expected_global_revision'})
     db.add(aidr_risk.RiskConfig(client_id=client_id, revision=revision + 1, payload=dump(payload)))
     _operation(db, user, 'aidr.risk.configure', client_id, dump({'revision': revision + 1}))
-    db.commit()
-    return {'revision': revision + 1, **payload}
+    db.flush()
+    view = aidr_risk.configuration_view(db, client_id)
+    return {**view, **view['effective']}
 
 
 @router.get('/risks/summary')
@@ -89,18 +173,52 @@ def risk_summary(client_id: str, response: Response, db: Session = Depends(get_d
     return aidr_risk.summary(db, client_id)
 
 
+def validate_overview_range(since, until):
+    if since is None and until is None:
+        return
+    if since is None or until is None or not 0 < until - since <= 720 * 3600 or until > 253402300799:
+        fail(422, 'overview_range_invalid', '统计时间范围无效', 'Invalid statistics time range')
+
+
+@router.get('/risks/overview')
+def risk_overview(client_id: str, response: Response, agent: str = Query('', max_length=32), days: int = Query(7, ge=7, le=30),
+                  offset_minutes: int = Query(0, ge=-840, le=840),
+                  since: int | None = Query(None, ge=0), until: int | None = Query(None, ge=0),
+                  db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    from ..aidr_risk_overview import overview
+    iam.check(db, user, 'clients:view')
+    device_for_user(db, client_id, user)
+    response.headers['Cache-Control'] = 'no-store'
+    validate_overview_range(since, until)
+    return overview(db, client_id, days, offset_minutes, since=since, until=until, agent=agent)
+
+
 @router.get('/risks')
 def risk_list(client_id: str, response: Response, page: int = Query(1, ge=1, le=100000),
               page_size: int = Query(20, ge=1, le=100), severity: str = Query('', pattern='^(|medium|high)$'),
               risk_code: str = Query('', pattern='^(|' + '|'.join(aidr_risk.RISK_CODES) + ')$'),
               agent: str = Query('', max_length=32), source: str = Query('', pattern='^(|hooks|logs|system)$'),
               disposition: str = Query('', pattern='^(|open|accepted|false_positive|resolved)$'),
+              sort_by: str = Query('occurred_at', pattern='^(occurred_at|detected_at|severity|agent)$'),
+              sort_order: str = Query('desc', pattern='^(asc|desc)$'),
               since: datetime | None = None, until: datetime | None = None,
+              detected_since: datetime | None = None, detected_before: datetime | None = None,
+              agent_type: str = Query('', max_length=32), unknown_agent: bool = False,
               db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     iam.check(db, user, 'clients:view')
     device_for_user(db, client_id, user)
     response.headers['Cache-Control'] = 'no-store'
     query = db.query(aidr_risk.RiskFinding).filter_by(client_id=client_id)
+    if any(value is not None and value.tzinfo is None for value in (detected_since, detected_before)) or (detected_since and detected_before and detected_since > detected_before):
+        raise ApiError(422, 'aidr.risk.invalid_range', '时间范围必须带时区，且开始时间不能晚于结束时间', 'Use timezone-aware times with start no later than end')
+    if detected_since:
+        query = query.filter(aidr_risk.RiskFinding.detected_at >= detected_since.astimezone(timezone.utc).replace(tzinfo=None))
+    if detected_before:
+        query = query.filter(aidr_risk.RiskFinding.detected_at < detected_before.astimezone(timezone.utc).replace(tzinfo=None))
+    if agent_type:
+        query = query.filter(aidr_risk.RiskFinding.agent.in_(aidr_risk.risk_products(agent_type)))
+    if unknown_agent:
+        query = query.filter(aidr_risk.RiskFinding.agent == '')
     if any(value is not None and value.tzinfo is None for value in (since, until)) or (since and until and since > until):
         raise ApiError(422, 'aidr.risk.invalid_range', '时间范围必须带时区，且开始时间不能晚于结束时间', 'Use timezone-aware times with start no later than end')
     if since:
@@ -111,8 +229,10 @@ def risk_list(client_id: str, response: Response, page: int = Query(1, ge=1, le=
         if value:
             query = query.filter(getattr(aidr_risk.RiskFinding, name) == value)
     total = query.count()
-    rows = query.order_by(aidr_risk.RiskFinding.occurred_at.desc(), aidr_risk.RiskFinding.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
-    return {'items': [aidr_risk.present(row) for row in rows], 'total': total, 'page': page, 'page_size': page_size}
+    field = case((aidr_risk.RiskFinding.severity == 'high', 2), else_=1) if sort_by == 'severity' else getattr(aidr_risk.RiskFinding, sort_by)
+    order = field.asc() if sort_order == 'asc' else field.desc()
+    rows = query.order_by(order, aidr_risk.RiskFinding.occurred_at.desc(), aidr_risk.RiskFinding.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return {'items': aidr_risk.present_rows(db, rows), 'total': total, 'page': page, 'page_size': page_size}
 
 
 @router.get('/risks/{finding_id}')
@@ -127,12 +247,21 @@ def risk_detail(client_id: str, finding_id: str, response: Response, include_evi
     if include_evidence:
         iam.check(db, user, 'clients:read-audit-content')
     evidence = []
+    result_reasons = []
+    result_feedback = False
     refs = db.query(aidr_risk.RiskEvidence).filter_by(finding_id=finding.id).order_by(aidr_risk.RiskEvidence.record_id).all()
     for ref in refs:
         row = db.query(aidr_risk.SOURCES[ref.source]).filter_by(id=ref.record_id, client_id=client_id).first()
         item = {'source': ref.source, 'record_id': str(ref.record_id), 'digest': ref.digest,
                 'expired': row is None or row.expired_at is not None}
         item['changed'] = not item['expired'] and (row.content_hash or hashlib.sha256(row.payload_json.encode()).hexdigest()) != ref.digest
+        if not item['expired'] and not item['changed']:
+            raw_result = json.loads(row.payload_json)
+            result_event = raw_result.get('event', raw_result) if ref.source == 'hooks' else raw_result
+            if result_event.get('kind') in ('tool.post', 'tool.failure', 'tool_result'):
+                result_feedback = True
+                result_reasons.extend(reason for reason in (result_event.get('behavior') or {}).get('uncertainty', [])
+                    if reason in ('host_result_not_provided', 'result_format_unsupported', 'result_fields_conflict'))
         if include_evidence and not item['expired'] and not item['changed']:
             raw = json.loads(row.payload_json)
             event = raw.get('event', raw) if ref.source == 'hooks' else raw
@@ -148,7 +277,15 @@ def risk_detail(client_id: str, finding_id: str, response: Response, include_evi
     if include_evidence:
         _operation(db, user, 'aidr.risk.evidence_view', client_id, dump({'finding_id': finding.id, 'count': len(evidence)}))
         db.commit()
-    return {**aidr_risk.present(finding), 'evidence': evidence}
+    context = db.get(aidr_risk.RiskDetectionContext, finding.id)
+    snapshot = json.loads(context.payload) if context else {}
+    matches = snapshot.get('matches')
+    if matches is not None and not include_evidence:
+        matches = [{key: hit[key] for key in ('id', 'name', 'risk_code', 'severity')} for hit in matches]
+    return {**aidr_risk.present_rows(db, [finding])[0], 'evidence': evidence, 'result_reasons': sorted(set(result_reasons)),
+            'result_feedback': result_feedback,
+            'detection_source': snapshot.get('rules_mode'), 'detection_matches': matches,
+            'detection_revisions': {key: snapshot[key] for key in ('global_revision', 'client_revision') if key in snapshot}}
 
 
 @router.get('/risks/{finding_id}/dispositions')
@@ -201,7 +338,7 @@ def risk_dispose(client_id: str, finding_id: str, body: dict, db: Session = Depe
         'revision': value.expected_revision + 1, 'previous': previous, 'status': value.status}))
     db.commit()
     db.refresh(finding)
-    return aidr_risk.present(finding)
+    return aidr_risk.present_rows(db, [finding])[0]
 
 
 def tool_policy_admin(user=Depends(auth.get_current_admin_user)):
@@ -231,17 +368,22 @@ def publish_global_tools(body: hook_control.ToolPolicyInput, db: Session = Depen
 @router.get('/overview')
 def audit_overview(client_id: str, response: Response, source: str = Query('hooks', pattern='^(hooks|logs)$'),
                    agent: str = Query('', pattern='^(|qoder|' + '|'.join(BY_ID) + ')$'), hours: int = Query(24, ge=1, le=720),
+                   since: int | None = Query(None, ge=0), until: int | None = Query(None, ge=0),
                    db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     device_for_user(db, client_id, user)
     response.headers['Cache-Control'] = 'no-store'
-    return aidr_overview.cached_overview(db, client_id, source, agent, hours)
+    validate_overview_range(since, until)
+    return aidr_overview.cached_overview(db, client_id, source, agent, hours, since, until)
 
 
 @router.get('/overview/tasks')
 def audit_overview_tasks(client_id: str, before: int | None = Query(None, ge=1),
+                         since: int | None = Query(None, ge=0), until: int | None = Query(None, ge=0),
+                         status: str = Query('', pattern='^(|pending|running|succeeded|failed|cancelled)$'),
                          db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     device_for_user(db, client_id, user)
-    return aidr_overview.task_summary(db, client_id, before)
+    validate_overview_range(since, until)
+    return aidr_overview.task_summary(db, client_id, before, since, until, status)
 
 
 @router.get('/overview/entry')
@@ -920,7 +1062,7 @@ def hook_approval_list(client_id: str, before: int = Query(2**63-1, ge=1, le=2**
         query = query.filter(func.json_extract(table.scope, '$.agent') == agent)
     rows = query.filter(or_(table.created_at<before, and_(table.created_at==before, table.id<before_id))).order_by(table.created_at.desc(), table.id.desc()).limit(limit+1).all()
     items = rows[:limit]
-    return {"items": [hook_control.approval_view(row) for row in items], "has_more": len(rows)>limit, "next_before": str(items[-1].created_at) if items else None, "next_before_id": items[-1].id if items else None}
+    return {"items": hook_control.approval_views(db, items), "has_more": len(rows)>limit, "next_before": str(items[-1].created_at) if items else None, "next_before_id": items[-1].id if items else None}
 
 
 @router.post("/hook-approvals/{approval_id}/decision")
@@ -943,7 +1085,7 @@ def hook_approval_detail(client_id: str, approval_id: str, db: Session = Depends
         fail(404, "hook_approval_missing", "审批不存在", "Approval not found")
     event = db.query(AidrHookEvent).filter_by(client_id=client_id, stream_id=row.stream_id, event_id=row.event_id).first()
     report = db.query(hook_control.HookAttemptReportRow).filter_by(client_id=client_id, stream_id=row.stream_id, event_id=row.event_id).first()
-    return {"approval": hook_control.approval_view(row), "evidence_record_id": str(event.id) if event else None, "evidence": metadata_view(json.loads(event.payload_json)) if event and event.expired_at is None else None, "evidence_code": 'aidr_audit_history_retention' if event and event.expired_at is not None else '', "client_report": {"record": json.loads(report.payload), "received_at": str(report.received_at), "evidence_type": "client_report"} if report else None}
+    return {"approval": hook_control.approval_view(row, json.loads(report.payload) if report else None), "evidence_record_id": str(event.id) if event else None, "evidence": metadata_view(json.loads(event.payload_json)) if event and event.expired_at is None else None, "evidence_code": 'aidr_audit_history_retention' if event and event.expired_at is not None else '', "client_report": {"record": json.loads(report.payload), "received_at": str(report.received_at), "evidence_type": "client_report"} if report else None}
 
 
 @router.post("/hook-attempt-reports")
@@ -951,3 +1093,190 @@ async def hook_attempt_report(client_id: str, request: Request, authorization: s
     await run_in_threadpool(runtime_device, db, client_id, authorization, request, "aidr:report-events")
     raw = await bounded_body(request)
     return await run_in_threadpool(hook_control.save_attempt_report, db, client_id, raw)
+
+
+# Read-through migration keeps old signed policies and independent inheritance authoritative.
+def security_configuration(client_id, response, db, user):
+    response.headers['Cache-Control'] = 'no-store'
+    if client_id:
+        iam.check(db, user, 'clients:view')
+        device_for_user(db, client_id, user)
+    else:
+        tool_policy_admin(user)
+    permissions = iam.permission_codes(db, user)
+    detection = None
+    if 'settings:view' in permissions:
+        detection = (risk_configuration(client_id, response, db, user) if client_id
+                     else global_risk_configuration(response, db, user))
+    control = hook_policy_view(client_id, db, user) if client_id else global_tool_policy(db, user)
+    control['can_edit'] = control['can_edit'] and (not client_id or 'clients:update' in permissions)
+    return {'detection': detection, 'control': control, **security_rules.document_view(db, detection, control, client_id)}
+
+
+@security_router.get('')
+def global_security_configuration(response: Response, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    return security_configuration('', response, db, user)
+
+
+@router.get('/security-rules')
+def client_security_configuration(client_id: str, response: Response, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    return security_configuration(client_id, response, db, user)
+
+
+def save_security_configuration(client_id, body, response, db, user):
+    from pydantic import ValidationError
+    if 'document' in body:
+        return save_security_document(client_id, body, response, db, user)
+    if not body or set(body) - {'detection', 'control'} or any(not isinstance(value, dict) for value in body.values()):
+        raise ApiError(422, 'aidr.security.invalid_config', '请检查安全规则配置', 'Check security rule configuration')
+    if client_id:
+        device_for_user(db, client_id, user)
+        iam.check(db, user, 'clients:update')
+    tool_policy_admin(user)
+    # Serialize version checks and both writes; any failure rolls back the whole request.
+    db.connection().exec_driver_sql('UPDATE aidr_global_risk_configs SET revision=revision WHERE 0')
+    try:
+        if 'detection' in body:
+            if client_id:
+                persist_risk_configuration(client_id, body['detection'], db, user)
+            else:
+                persist_global_risk_configuration(body['detection'], db, user)
+        if 'control' in body:
+            model = tool_scope.ClientPolicyInput if client_id else hook_control.ToolPolicyInput
+            value = model.model_validate(body['control'])
+            if client_id:
+                tool_scope.publish_client(db, client_id, value, user.username)
+            else:
+                tool_scope.publish_global(db, value, user.username)
+            _operation(db, user, 'aidr.hook.policy' if client_id else 'aidr.hook.global_policy',
+                       client_id or 'global', dump({'rule_count': len(value.rules)}))
+        db.flush()
+        result = security_configuration(client_id, response, db, user)
+        db.commit()
+        return result
+    except ValidationError:
+        db.rollback()
+        raise ApiError(422, 'aidr.security.invalid_config', '请检查安全规则配置', 'Check security rule configuration') from None
+    except Exception:
+        db.rollback()
+        raise
+
+
+def security_versions(view):
+    return {'risk': view['detection']['revision'], 'risk_global': view['detection'].get('global_revision'),
+            'control': view['control']['revision'], 'control_global': view['control'].get('global_revision'),
+            'scope': view['control'].get('scope_revision')}
+
+
+def save_security_document(client_id, body, response, db, user):
+    from pydantic import ValidationError
+    tool_policy_admin(user)
+    iam.check(db, user, 'settings:update')
+    if client_id:
+        device_for_user(db, client_id, user)
+        iam.check(db, user, 'clients:update')
+    db.connection().exec_driver_sql('UPDATE aidr_global_risk_configs SET revision=revision WHERE 0')
+    try:
+        view = security_configuration(client_id, response, db, user)
+        if view['detection'] is None:
+            iam.check(db, user, 'settings:view')
+        if set(body) != {'document', 'expected', 'source', 'enabled_mode', 'enabled', 'default_action'}:
+            security_rules.invalid()
+        if body['expected'] != security_versions(view):
+            raise ApiError(409, 'aidr.security.config_conflict', '安全规则已更新，请重新读取后保存', 'Security rules changed; reload before saving')
+        document = security_rules.clean_document(body['document'])
+        source = body['source']
+        if source not in ('inherit', 'custom', 'mixed') or not client_id and source != 'custom':
+            security_rules.invalid()
+        d, c = view['detection'], view['control']
+        if source == 'mixed':
+            if (d['rules_mode'] == 'inherit') == c['inherit']:
+                security_rules.invalid()
+            previous = {r['id']: r for r in view['rules']}
+            current = {r['id']: r for r in document['rules']}
+            if current.keys() - previous.keys():
+                security_rules.invalid()
+            for key, row in previous.items():
+                if row['source'] != 'client' and current.get(key) != {k: v for k, v in row.items() if k != 'source'}:
+                    security_rules.invalid()
+            new_paths = {p['id']: p for p in document['path_sets']}
+            for row in view['path_sets']:
+                if row['source'] != 'client' and new_paths.get(row['id']) != {k: v for k, v in row.items() if k != 'source'}:
+                    security_rules.invalid()
+        rules_mode = d.get('rules_mode', 'custom') if source == 'mixed' else source
+        inherit = c.get('inherit', False) if source == 'mixed' else source == 'inherit'
+        # Validate referenced collections even for disabled rules before publishing either engine.
+        for rule in document['rules']:
+            security_rules.rule_configuration(rule, document, 'linux')
+        compiled = security_rules.control_rules(document)
+        detection = {key: d[key] for key in ('sensitive_paths', 'protected_paths', 'builtin_ids', 'command_rules', 'custom_commands')}
+        detection.update(enabled=body['enabled'], security=document, expected_revision=d['revision'])
+        if client_id:
+            detection.update(rules_mode=rules_mode, enabled_mode=body['enabled_mode'], expected_global_revision=d['global_revision'])
+        if client_id:
+            persist_risk_configuration(client_id, detection, db, user)
+        else:
+            persist_global_risk_configuration(detection, db, user)
+        policy = {'default_action': body['default_action'], 'rules': compiled}
+        control_body = {**policy, 'expected_revision': c['revision']}
+        changed = security_rules.digest(policy) != security_rules.digest(security_rules.editor_policy(c, bool(client_id))) or client_id and inherit != c['inherit']
+        if changed:
+            if client_id:
+                control_body.update(inherit=inherit, expected_scope_revision=c['scope_revision'], expected_global_revision=c['global_revision'])
+                tool_scope.publish_client(db, client_id, tool_scope.ClientPolicyInput.model_validate(control_body), user.username)
+            else:
+                tool_scope.publish_global(db, hook_control.ToolPolicyInput.model_validate(control_body), user.username)
+            _operation(db, user, 'aidr.hook.policy' if client_id else 'aidr.hook.global_policy', client_id or 'global', dump({'rule_count': len(compiled)}))
+        security_rules.save_metadata(db, client_id, document, policy)
+        db.flush()
+        result = security_configuration(client_id, response, db, user)
+        db.commit()
+        return result
+    except ValidationError:
+        db.rollback()
+        security_rules.invalid()
+    except Exception:
+        db.rollback()
+        raise
+
+
+@security_router.put('')
+def save_global_security_configuration(body: dict, response: Response, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    return save_security_configuration('', body, response, db, user)
+
+
+@router.put('/security-rules')
+def save_client_security_configuration(client_id: str, body: dict, response: Response, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    return save_security_configuration(client_id, body, response, db, user)
+
+
+def preview_security_document(client_id, body, response, db, user):
+    from pydantic import ValidationError
+    security_configuration(client_id, response, db, user)
+    iam.check(db, user, 'settings:view')
+    try:
+        if set(body) != {'document', 'command', 'cwd', 'platform', 'agent', 'tool', 'enabled', 'default_action'}:
+            security_rules.invalid()
+        document = security_rules.clean_document(body['document'])
+        config = aidr_risk.CommandTestInput.model_validate({key: body[key] for key in ('cwd', 'platform')} | {'command': body['command'] or 'true', 'configuration': {'enabled': body['enabled'], 'security': document}})
+        policy = hook_control.ToolPolicyInput(expected_revision='0', default_action=body['default_action'], rules=security_rules.control_rules(document))
+        control = preview_hook(HookRulePreview(policy=policy, agent=body['agent'], tool=body['tool'], command=body['command'], cwd=body['cwd']))
+        control['security_rule_ids'] = [r['id'] for r in document['rules'] if set(security_rules.control_ids(r)).intersection(control['matched_rule_ids'])]
+        configuration = config.configuration.model_dump() | {'platform': config.platform}
+        event = {'kind': 'tool.pre', 'agent': body['agent'], 'tool': body['tool'], 'behavior': {'actions': [{'category': 'command', 'command': body['command'], 'cwd': body['cwd']}] if body['command'] else []}}
+        assessment = aidr_risk.command_assessment(config.command, config.cwd, configuration, config.platform) if body['command'] else {'status': 'unmatched', 'matches': [], 'unresolved_rules': []}
+        assessment['matches'] = aidr_risk.detect_matches(event, configuration, windows=config.platform == 'windows')
+        assessment['status'] = 'matched' if assessment['matches'] else 'disabled' if not body['enabled'] else 'unresolved' if assessment['unresolved_rules'] else 'unmatched'
+        return {'risk': assessment, 'control': control}
+    except ValidationError:
+        security_rules.invalid()
+
+
+@security_router.post('/preview')
+def global_security_preview(body: dict, response: Response, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    return preview_security_document('', body, response, db, user)
+
+
+@router.post('/security-rules/preview')
+def client_security_preview(client_id: str, body: dict, response: Response, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    return preview_security_document(client_id, body, response, db, user)

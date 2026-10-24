@@ -629,25 +629,19 @@ Agent 日志本地数据库默认配额为 1 GiB（1024 MiB）。平台持久化
 
 UI 验收 Todo（简体中文 / English）：在“采集状态”核对“已释放本地正文”的数量及说明；在“审计采集与脱敏”核对平台保留期限与本地 ACK 后释放的区别；确认已上传会话正文仍可从平台打开。
 
-规则编辑区按常用预设、当前规则和未命中处理组织；规则列表可直接调整 Agent 与处理方式。已发布信息以版本、发布人和时间展示，历史策略继续保存在后端。底栏“预览并发布”先核对草稿和默认处理，再提交签名策略。
+安全规则配置位于“客户端 → 全局客户端配置 → 安全规则”，单客户端从详情的“客户端配置 → 安全规则”进入。规则列表提供一个“新增规则”入口，新增与编辑共用弹窗。每条规则由匹配对象（命令、工具调用或内置行为）、适用智能体/系统、引用路径集合、风险记录（不记录/中等/高）、执行前动作（不参与/允许/审批/拒绝）和启用状态组成。可按名称或条件即时搜索，筛选有动作或仅记录风险的规则；名称与严重度支持排序。
 
-客户端管理页顶部的“全局工具规则”统一配置预设、自定义规则和未命中处理。平台启动时，若没有已发布的全局规则，自动创建版本 1：规则为空，未命中时允许，发布者为 `system`。重复启动不会追加版本；已有全局规则保持不变。管理员可预览影响的继承客户端数量及保持单独配置的数量，再发布新全局版本。未配置过工具规则的客户端默认继承；升级前已有设备签名规则的客户端保留单独配置。在客户端“工具与命令规则”中开启“继承全局工具规则”，预览并发布后改为跟随全局；关闭继承后可在当前规则基础上编辑并单独发布。单独配置整体替换全局规则，不合并两套规则。
+路径集合编辑弹窗提供全部内置路径分类浏览，展开后显示适用系统、实际模板和精确文件/目录匹配方式，并标记已选分类。空集合显示添加提示；浏览模板不会自动启用。规则的适用智能体支持选择一个或多个，全部与具体智能体互斥；选中任一智能体即可匹配，测试规则仍一次选择一个智能体。旧单值及全部配置保持兼容，多选执行前动作编译为各智能体的独立客户端规则，仍受发布策略最多 128 条规则的限制；测试结果回溯到统一规则。动作字段仅显示当前不支持条件的具体说明。路径集合独立保存名称、明确绝对路径和内置路径条目，允许多条规则引用；修改集合会同时更新所有引用规则，仍被引用的集合不可删除。明确路径保持“自身及子路径”匹配，内置条目保留系统范围和精确文件/目录语义。自定义命令引用明确路径集合；执行前动作需选择全部系统；当前 Hook 命令动作只支持单个 POSIX 路径前缀，保留允许规则要求所有子命令/目标匹配的语义。内置复杂行为和 Windows 特有命令条件用于风险记录；执行前动作的可选范围由客户端现有匹配能力决定。工具调用可以同时记录风险并配置执行前动作。审批仍受产品能力限制。
 
-**English — initialization:** On startup, a platform without published global rules creates revision 1 with an empty rule list and an allow fallback, published by `system`. Subsequent restarts preserve existing revisions and client overrides. Administrators publish further changes as new revisions.
+客户端可选择“继承全局”或“单独配置”；历史混合继承显示“保留当前继承关系”，继承部分继续跟随全局更新，本地部分保持。继承项只读；切换单独配置后可编辑完整规则集。风险记录启停仍可独立继承或覆盖。迁移按原条目保留规则与路径引用，不自动合并条件相似的旧规则。已有工具规则 ID、签名、历史风险结论、默认动作和 Hook 运行模式保持；只读打开不会发布新策略。
 
-全局规则版本、设备签名版本和客户端实际报告分别展示。全局发布只追加配置版本，不逐台签名、不扫描事件；设备下次请求控制快照时按自己的身份和递增版本签发，重复同步不重复生成版本。全局命令规则可先保存；未报告命令匹配能力的接收器暂不获得新签名，保留原本地策略，升级并提交近期能力报告后继续同步。离线客户端同样继续使用本地已验证策略，恢复连接后同步；发布不会改变 Hook 的仅审计/拦截模式。新全局版本尚未签发期间，平台不批准旧版本的待处理调用；已在设备签发并缓存的规则及许可按其原有有效性执行，离线撤销不是即时的。全局规则持续有效，直到新版本替换。
+统一接口为 `GET/PUT /api/v1/aidr/security-rules` 和 `GET/PUT /api/v1/clients/{client_id}/aidr/security-rules`。保存提交统一规则文档、路径集合、来源和预期修订；在一个事务内验证权限、引用、字段、并发修订和客户端能力，再保存风险配置并按需发布工具策略。执行策略未变化时不重签。旧检测/工具接口继续兼容，旧接口写入后按实际有效配置重新展示。任何失败整体回滚，页面保留草稿。新配置作用于后续尚未检测的证据，历史命中快照保持。
 
-**English:** Use **Clients → Global tool rules** for shared presets, custom rules and fallback handling. Clients without existing tool rules inherit by default; legacy device policies remain overrides. In a client's rule editor, review and publish the inheritance switch to follow global updates, or disable it to publish a complete local override. Global publication stores one revision; each device receives an individually signed, monotonic policy on its next control snapshot. Repeated synchronization is idempotent. Command rules wait for a recent capable receiver report; offline or incompatible receivers retain their verified local policy. Hook mode remains independent. Saved targets, issued device revisions and client-reported application are distinct. Pending calls under outdated global rules cannot receive new platform approval; offline cached authority is not instantly revoked.
+“测试规则”使用当前草稿及智能体、工具名、系统、工作目录、命令输入，同时展示风险命中与最终执行前动作；接口为上述安全规则路径下的 `POST /preview`。复用后台匹配器，拒绝优先于审批、允许；“不参与”不产生允许规则。命令不执行、不签发策略或创建审批。修改输入清除旧结果。系统原生访问策略及审批处理仍从“策略与审批”进入。
 
-UI 验收 Todo（简体中文 / English）：从客户端列表打开全局规则；编辑预设、自定义命令和未命中处理；核对发布预览的继承/覆盖数量；取消预览不保存；已有客户端保持单独规则；开启继承、关闭继承和恢复继承后核对来源及签名版本；等待实际客户端回执；两窗口并发修改提示刷新；390px 窄屏检查抽屉、继承开关、规则编辑弹窗及底栏。后端隔离测试覆盖签名、幂等、恢复继承、权限、冲突与能力门槛，真实宿主拦截需单独验收。
+平台启动时幂等初始化全局空工具规则与未命中允许的基线；已有配置保持。全局发布按设备下次请求分别签发，命令策略要求近期接收器能力报告。离线客户端继续使用已验证的本地策略，恢复后同步；待签发新版本期间不批准旧版本的待处理调用。保存、签发和宿主实际应用分别核验。
 
-“测试规则命中”默认折叠，Hook 测试分为“命令”和“宿主工具名称”：命令框填写 `rm -rf ./example` 等内容，执行工具选择 Hook 实际报告的 `Bash`、`exec` 等名称；原生工具测试填写 `Read` 等工具名。模拟结果只显示本次最终处理，逐条命中原因在详情展开查看。系统测试填写进程归属和文件绝对路径。测试使用未保存的草稿，不发布策略、不创建审批、不执行工具；修改草稿或输入会清除旧结果。Hook 复用服务端真实匹配逻辑，拒绝优先于审批和允许。系统测试只做路径预匹配；实际设备还按文件身份匹配，因此硬链接等不同路径仍可能命中。预览假设策略有效且处于拦截模式，客户端实际模式及版本仍以回执为准。
-
-**English:** The editor groups presets, current rules and fallback handling. Agent scope and handling can be edited inline. Published metadata shows revision, author and time; historical policies remain stored. Review and publish opens a draft summary before submission. The collapsed tester separates command input from native tool names. Command tests use the selected shell tool reported by Hooks, while native-tool tests accept names such as Read. One simulated outcome is prominent; per-rule reasons are expandable.
-
-UI 验收 Todo（中英文）：检查预设/自定义编辑、行内修改、默认允许/拒绝说明；分别测试命令和宿主工具，展开未命中原因；修改输入后结果清除；预览发布后取消不保存；390px 窄屏检查表格卡片、编辑弹窗和底栏，确认所有操作可见。
-
-“工具与命令规则”提供递归删除、Git reset --hard、curl 管道运行脚本三个可编辑预设，也可添加自定义规则：命令名或可执行文件路径、必须包含/至少包含一个参数、目标绝对路径前缀、管道目标、Agent 和允许/审批/拒绝。参数每行一个，按完整参数匹配，短选项组 `-fr` 可匹配 `-r`。宿主工具名称规则继续精确匹配 `Bash`、`exec` 等；已有工具名 `rm` 的规则保留原语义，需要编辑为“命令及参数”才能匹配 Bash 内的 rm。“未命中规则时”选择拒绝仍拒绝所有未匹配工具；明确选择默认决定，先测试草稿，再发布签名策略。测试不执行命令、不创建审批、不改变真实设备策略。
+UI 验收 Todo（中英文）：全局及客户端入口只显示一个新增按钮；新增、编辑内置行为/命令/工具共用弹窗；一条规则同时配置风险记录和动作；新建集合并由两条规则引用，修改后同时生效，引用中禁止删除；客户端继承、独立、历史混合来源保持；普通 rm、rm -f、Windows 命令测试；保存冲突保留草稿；390px 窄屏核对列表卡片、弹窗滚动及操作按钮。真实宿主拦截需结合客户端模式、能力和回执验收。
 
 命令匹配支持有界的 Shell 字面量语法：引号、转义、多条命令和管道。`echo rm` 不匹配 rm；非允许规则匹配任一子命令，允许规则要求所有子命令及指定路径均匹配。目标路径按文本和 Hook 工作目录规范化，不证明文件身份或软链接目标。变量、替换、重定向、包装执行、缺失命令等无法可靠解析时，该条件不计为命中，继续判断其他规则；没有规则明确命中时，采用“未命中规则时”的允许、审批或拒绝设置，并保留解析不确定标记。因此默认允许也会放行无法解析的命令。仅审计继续执行。匹配范围为上述命令条件；Python/JavaScript 等脚本正文不在解析范围内。
 
@@ -655,9 +649,9 @@ UI 验收 Todo（中英文）：检查预设/自定义编辑、行内修改、�
 
 命令规则采用签名策略 schema 3；原生工具规则继续使用 schema 2，旧安装标识和历史规则保留。发布新命令规则要求最近 90 秒的接收器报告声明 `command_rules_schema: 1`，否则提示升级且不发布。需先更新后端，再升级客户端/接收器。发布成功与设备已应用分别核对。审批沿用原始输入摘要、调用身份、策略版本和一次性授权；不为规则匹配增加原始命令上传。
 
-**English:** Tool and command rules offer editable recursive-delete, Git reset --hard and curl-to-shell presets plus custom executable, required/alternative arguments, target path prefix, pipeline target, Agent scope and decision. Native tool rules retain exact-name semantics. Preview only analyzes the draft. The literal shell subset handles quoting, escapes and multiple commands. Unresolved conditions are not matches; confirmed matches retain their precedence, otherwise the configured default applies, including allowing unresolved commands when default is allow. Audit mode continues. Paths are textual, not filesystem identity. Interpreter source code is outside this matcher. Command policies use signed schema 3 and require a fresh receiver capability report; native-only policies remain schema 2. Upgrade the backend and receiver before publishing. Matching does not expand raw-command collection. New pre-tool events persist the client control decision; rejected calls show a red Blocked label, reason and matched rule. This is not an OS execution receipt. Historical missing decisions are not inferred. Check these states in both languages and at narrow widths.
+**English:** Tool and command rules configure executable, required/alternative arguments, target path prefix, pipeline target, Agent scope and decision in Security rules. Native tool rules retain exact-name semantics. Preview only analyzes the draft. The literal shell subset handles quoting, escapes and multiple commands. Unresolved conditions are not matches; confirmed matches retain their precedence, otherwise the configured default applies, including allowing unresolved commands when default is allow. Audit mode continues. Paths are textual, not filesystem identity. Interpreter source code is outside this matcher. Command policies use signed schema 3 and require a fresh receiver capability report; native-only policies remain schema 2. Upgrade the backend and receiver before publishing. Matching does not expand raw-command collection. New pre-tool events persist the client control decision; rejected calls show a red Blocked label, reason and matched rule. This is not an OS execution receipt. Historical missing decisions are not inferred. Check these states in both languages and at narrow widths.
 
-人工验收清单 / Manual UI checklist（简体中文与英文均检查）：预设编辑、自定义参数与路径、重复 ID 提示、修改后旧预览清除、`echo rm` 不命中与 `rm -rf` 命中、未命中默认决定、只读权限、390px 窄屏弹窗/表格及底部操作。真实宿主验收需在隔离目录发布专用测试规则，核对接收器 schema 3 回执、原生 Hook、平台审批、一次性批准消费及恢复原策略；单元测试和网页预览不代替此验收。
+人工验收清单 / Manual UI checklist（简体中文与英文均检查）：规则编辑、自定义参数与路径、重复 ID 提示、修改后旧预览清除、`echo rm` 不命中与 `rm -rf` 命中、未命中默认决定、只读权限、390px 窄屏弹窗/表格及底部操作。真实宿主验收需在隔离目录发布专用测试规则，核对接收器 schema 3 回执、原生 Hook、平台审批、一次性批准消费及恢复原策略；单元测试和网页预览不代替此验收。
 
 客户端策略弹窗的正文使用单一滚动区域，底栏根据按钮换行自动预留空间。“接入与运行”的预览、返回和确认操作，以及“审计采集与脱敏”的保存操作均固定在底部。审计策略有有效修改后才能保存；点击保存仍需核对变更并按需确认采集风险，提交期间禁止重复保存、切换页签和关闭弹窗。人工检查全局与单机策略、预览返回、审计保存确认和取消及中英文窄屏，确认操作始终可见且不误保存。/ Client policy dialogs use one scrolling body and reserve the actual footer height when buttons wrap. Integration preview/back/confirmation and audit-policy saving stay in the footer. Audit saving requires valid changes and opens the existing change review and any required collection acknowledgement. Submission disables duplicate saves, tab switching and closing. Manually check global/device policies, preview/back, audit review/cancellation and narrow Chinese/English layouts.
 
@@ -795,7 +789,7 @@ The Agent selector includes configured and historically observed root executable
 
 客户端详情的 **插件接入** 使用产品列表与详情双栏。左侧按品牌选择 Claude Code、Codex、WorkBuddy、Qoder、Cursor；Qoder 优先选择本机已发现的入口，需要时在详情下拉框切换共享 Hook 或 Work，操作仍使用各入口的适配 ID。顶部页签及操作栏固定，左右内容区独立滚动；窄屏将产品列表变为横向选择条。
 
-客户端详情的 **概览** 默认统计 Hook，可切换 Agent 日志、Agent 产品和最近 24 小时 / 7 天 / 30 天。Qoder 在筛选中统一为一个产品。终端工具调用次数、工具调用次数、命令出现次数、活跃会话、宿主报告失败支持下钻；趋势按小时聚合显示，长时间范围合并时间柱，命令 / 工具 Top 5 和 Agent 分布可点击查看对应操作。对应操作弹框使用标准分页，显示当前筛选范围内的总条数；默认每页 30 条，可选择 10、20、30、50、100 条并跳转页码。切换每页条数回到第一页，保留当前来源、Agent 与时间范围。点击“查看记录”直接展开详情，沿用审计正文权限；会话项跳转行为审计并带入来源、产品及会话 ID。
+客户端详情的 **概览** 行为 Tab 默认统计 Hook，可切换 Agent 日志、Agent 产品；三个概览 Tab 共用最近 7 天 / 30 天 / 自定义日期筛选（默认近 7 天，最长 30 天）。Qoder 在筛选中统一为一个产品。终端工具调用次数、工具调用次数、活跃会话、宿主报告失败支持下钻；命令出现次数保留在排行中；趋势按小时聚合显示，长时间范围合并时间柱，命令 / 工具 Top 5 和 Agent 分布可点击查看对应操作。对应操作弹框使用标准分页，显示当前筛选范围内的总条数；默认每页 30 条，可选择 10、20、30、50、100 条并跳转页码。切换每页条数回到第一页，保留当前来源、Agent 与时间范围。点击“查看记录”直接展开详情，沿用审计正文权限；会话项跳转行为审计并带入来源、产品及会话 ID。
 
 统计按所选来源独立计算，不跨 Hook / 日志相加。工具前后事件只按可靠原生调用身份合并；调用前事件表示尝试，未知结果不算成功。终端工具调用是包含已识别终端动作的宿主调用，一个包装调用包含多条命令仍只计一次。命令出现次数及排行按 Bash / POSIX 语法拆分后的确定程序名累计：一次调用含 sed、rg、rg 三行，调用为 1 次，命令出现为 3 次，排行为 rg 2 次、sed 1 次。详情保留原始命令，并按顺序展示子命令和行号；完整正文及其解析结果受审计正文权限保护。旧版动作中的命令摘要及包装工具提取的终端动作同样属于审计正文，列表与下钻只返回内容描述；需要 `clients:read-audit-content` 权限才能按记录读取命令与子命令文本。程序名和出现次数仍作为统计元数据展示。支持换行、复合连接、管道、重定向和命令替换，普通引号或 heredoc 正文不算命令，解释器参数内代码不递归解析。循环、分支、函数体按文本出现次数统计；动态程序名不计入排行，截断、不完整语法和超限文本显示原因并保留调用计数。宿主结果属于整个调用，不能分摊为各子命令的执行结果。缺少可靠身份、缺少调用起点或存在歧义的工具事件单列未计入数量。活跃会话按设备、来源、用户、原生产品及会话标识去重，无会话 ID 的记录不计入。Hook 使用本地接收时间，日志使用来源时间；当前小时未结束且存在后台处理延迟，界面展示更新时间。首次回填显示 loading，统计超过一分钟未更新时明确提示延迟。
 
@@ -2567,7 +2561,7 @@ Backend 仅接受可信代理网段提供的转发信息，避免把 Nginx 容�
 
 ### 客户端 MCP 与插件资产 / Client MCP and plugin inventory
 
-客户端详情的资产列表按所属 Agent 展开，在 Skill、插件、MCP 三个并列标签页中分别展示，默认打开 Skill。“智能体管理”的客户端发现实例在“能力与配置”中使用相同的三类资产标签页；已绑定客户端实例的平台 Agent 可在详情的“客户端资产”中按实例查看。Skill 页保留原有认证与处置入口，插件页展开后显示插件内 Skill 和 MCP。资产、发现证据和任务详情使用可读字段展示；采集状态、插件状态、Skill 使用和系统事件展示对应状态、时间、原因与操作。关联键为 `client_id + local_agent_id`，不同安装实例分别上报。
+客户端详情的资产列表按所属 Agent 展开，在 Skill、插件、MCP 三个并列标签页中分别展示，默认打开 Skill。“智能体管理”的客户端发现实例在“资产与配置”中使用相同的三类资产标签页；已绑定客户端实例的平台 Agent 可在详情的“客户端资产”中按实例查看。Skill 页保留原有认证与处置入口，插件页展开后显示插件内 Skill 和 MCP。资产、发现证据和任务详情使用可读字段展示；采集状态、插件状态、Skill 使用和系统事件展示对应状态、时间、原因与操作。关联键为 `client_id + local_agent_id`，不同安装实例分别上报。
 
 MCP 列表包含独立配置和插件内的 MCP，并标注所属插件、配置来源、作用域、连接方式和配置启用状态。插件列表显示名称、版本、格式、路径与发现依据，展开后显示内含 Skill 和 MCP。Codex `.app.json` 中的依赖展示为“已注册服务引用”，只记录引用 ID。启用状态未知时显示“未知”；缓存文件、安装记录、配置记录和本地文件分别标注。
 
@@ -2902,20 +2896,29 @@ AIDR P1 自动日志发现使用持久化目录前沿，近期活动与历史回
 
 策略与审批的 `GET /api/v1/clients/{client_id}/aidr/hook-policy` 返回策略版本、策略内容、编辑权限、规则差异、接收器运行状态和插件状态。历史过期数量由采集诊断接口按需统计，审计保留天数由审计策略配置，后台按保留策略执行到期清理。
 
-客户端详情的“策略与审批”通过“工具规则、审批记录、系统策略”直接切换，切换分类保留本页工具规则草稿。工具规则已有内容时，常用规则预设默认收起；平台配置模式与客户端报告的生效模式并列显示。详情头部将在线状态与名称并列显示，名称旁的信息图标提供客户端 ID 复制和注册人信息；系统与最后心跳位于次要信息行。心跳旁的刷新图标读取平台最近收到的设备详情，概览统计保留独立刷新。右侧提供“客户端配置”入口，弹窗按采集与接入、模型与请求、Agent 发现、Skill 治理、客户端界面、内容与脱敏平级分组，切换分组保留草稿。Skill 治理提供“使用审计 / Usage audit”和“分类处置 / Classification actions”两个子标签，默认进入使用审计（无审计查看权限时进入分类处置）；切换保留未保存草稿，每个子标签独立预览和保存。使用审计与内容脱敏分别继承全局；旧配置沿用原继承状态。采集与接入、模型与请求、客户端界面统一预览并保存；Agent 发现独立保存；内容与脱敏独立预览并保存审计内容策略。Agent 发现支持全局配置与单客户端按 Agent 覆盖，未覆盖条目跟随全局；可逐项恢复继承或全部恢复，全部恢复也会移除客户端专属定义。安装、更新与重试按需展开。配置页通过继承来源、报告时间和配置一致性说明同步状态。
+客户端详情的“策略与审批”保留审批记录与系统策略；“安全规则”按钮打开客户端配置中的同名页签。安全规则统一保存风险检测与工具管控草稿。详情头部将在线状态与名称并列显示，名称旁的信息图标提供客户端 ID 复制和注册人信息；系统与最后心跳位于次要信息行。心跳旁的刷新图标读取平台最近收到的设备详情，概览统计保留独立刷新。右侧提供“客户端配置”入口，弹窗按采集与接入、模型与请求、Agent 发现、Skill 治理、客户端界面、内容与脱敏、安全规则平级分组，切换分组保留草稿。Skill 治理提供“使用审计 / Usage audit”和“分类处置 / Classification actions”两个子标签，默认进入使用审计（无审计查看权限时进入分类处置）；切换保留未保存草稿，每个子标签独立预览和保存。使用审计与内容脱敏分别继承全局；旧配置沿用原继承状态。采集与接入、模型与请求、客户端界面统一预览并保存；Agent 发现独立保存；内容与脱敏独立预览并保存审计内容策略。Agent 发现支持全局配置与单客户端按 Agent 覆盖，未覆盖条目跟随全局；可逐项恢复继承或全部恢复，全部恢复也会移除客户端专属定义。安装、更新与重试按需展开。配置页通过继承来源、报告时间和配置一致性说明同步状态。
 
-In client details, **Policies & approvals** offers direct navigation to **Tool rules**, **Approval requests**, and **System policy**, preserving tool-rule drafts when switching categories. Presets start collapsed when rules exist. Configured and client-reported modes remain distinct; saving does not confirm application. **Client settings**, below **Refresh device data**, has six peer tabs: collection/setup, models/requests, Agent discovery, Skill governance, client interface, and content/redaction. Agent discovery saves independently and supports global definitions, per-Agent client overrides, client-only definitions, and restoring inheritance. Restoring all also removes client-only definitions. Skill governance contains Usage audit and Classification actions, each with its own review and save flow. Usage audit and content/redaction inherit independently; existing policies retain their inheritance choices. Collection/setup, models/requests and client interface share a preview and save flow. Drafts persist across tabs.
+In client details, **Policies & approvals** retains **Approval requests** and **System policy**; its **Security rules** action opens the matching client settings tab. **Client settings** has seven peer tabs: collection/setup, models/requests, Agent discovery, Skill governance, client interface, content/redaction, and security rules. Security rules combines the rule list and path sets, preserving independent detection/control inheritance. Agent discovery saves independently and supports global definitions, per-Agent client overrides and client-only definitions. Skill governance contains Usage audit and Classification actions, each with its own save flow. Usage audit and content/redaction inherit independently. Collection/setup, models/requests and client interface share their existing preview and save flow. Drafts persist across configuration tabs.
 
 手工验收 / Manual verification:
 - 中英文、桌面与窄屏检查三个策略入口、状态信息、规则表和弹窗底部按钮，确认长文案换行且可键盘操作。 / Check both languages, desktop and narrow layouts, keyboard navigation, long labels, and modal footer visibility.
-- 修改工具规则后切换审批记录、系统策略再返回，确认草稿保留；仅查看页面不发布规则。 / Edit a rule, switch through approvals and system policy, and verify the draft remains without publishing.
+- 在安全规则中编辑规则，切换“规则 / 路径集合”确认草稿保留；只查看不产生配置版本。 / Edit security rules and switch between Rules and Path sets; retain drafts and do not publish when merely viewing.
 - 检查全局继承、只读权限、空规则及加载失败状态。 / Check inheritance, read-only access, empty rules, and load failures.
 - 分别修改使用审计、分类处置及内容与脱敏，确认各自预览与保存只影响本区域，其他草稿保留；分别恢复使用审计和内容脱敏的全局继承并核对客户端报告。 / Edit usage audit, classification actions, and content/redaction separately. Verify each review and save affects only that section and retains other drafts; restore each audit section's inheritance independently and verify client reports.
 - 分组修改配置，预览全部变更并保存；核对客户端回执、审批处理及实际生效模式。 / Edit across groups, preview and save all changes, then verify client receipts, approval actions, and the effective mode.
 
-客户端管理的设备详情分为概览、Agent 与资产、插件接入、行为审计、策略与审批。Skill治理与模型配置位于Agent 与资产；Claude/Codex安装、启用与信任位于插件接入；工具日志、Hook生命周期、系统事件及采集诊断位于行为审计；工具审批、系统策略和响应回执位于策略与审批。公共页头只展示设备与心跳，不在各标签下重复库存或任务表。按需加载的摘要保留报告时间与未知状态；安装回执、Hook意图、日志结果与OS执行证据分别核对。详细操作见[客户端说明](agent-manager-client.md)。
+客户端管理的设备详情分为概览、Agent 与资产、插件接入、风险事件、行为审计、策略与审批。Skill治理与模型配置位于Agent 与资产；Claude/Codex安装、启用与信任位于插件接入；工具日志、Hook生命周期、系统事件及采集诊断位于行为审计；工具审批、系统策略和响应回执位于策略与审批。公共页头只展示设备与心跳，不在各标签下重复库存或任务表。按需加载的摘要保留报告时间与未知状态；安装回执、Hook意图、日志结果与OS执行证据分别核对。详细操作见[客户端说明](agent-manager-client.md)。
 
-从 **智能体列表 → 客户端发现 → 详情** 可进入单个 Agent 的工作区，按“概览、能力与配置、行为审计、策略与审批、执行记录”组织信息。先选择安装入口，再查看该入口报告的 Skill、模型配置和任务；会话、插件及工具审批按客户端与 Agent 类型查询。系统事件按程序路径或 macOS 应用包筛选，未知归属与其他路径仍可在客户端详情查看。共享接收器、设备信息及跨 Agent 策略由客户端详情管理，两处提供互相跳转入口。
+从 **智能体列表 → 客户端发现 → 详情** 可进入单个 Agent 的工作区，按“概览、资产与配置、插件接入、风险事件、行为审计、策略与审批、执行记录”组织信息。先选择安装入口，再查看该入口报告的 Skill、模型配置和任务；会话、插件及工具审批按客户端与 Agent 类型查询。系统事件按程序路径或 macOS 应用包筛选，未知归属与其他路径仍可在客户端详情查看。共享接收器、设备信息及跨 Agent 策略由客户端详情管理，两处提供互相跳转入口。
+
+概览包含资产、行为、风险三个 Tab，共用最近 7 天（默认）或最近 30 天筛选。资产使用所选安装入口的最新快照，展示 Skill、MCP（含插件内 MCP）、插件与上报模型，图表可打开对应资产明细；未上报或不支持的资产计数保持未知。行为统计按来源分别汇总工具、命令、失败和会话，支持图表与记录下钻。
+
+风险概览与风险事件固定在所选客户端和产品范围；同产品多个安装入口共享风险记录，不重复分摊。安装入口选项同时展示客户端名称、本地实例 ID 和路径。每个实例的安装类型通过现有适配器独立映射到记录产品，未映射类型显示空结果与评分不可用状态，设备级未知产品记录保留在客户端风险页。风险趋势、类型与处置图表按首次检测时间下钻；当前待处理卡片进入不限检测时间的列表。清空筛选仍保留固定产品范围。风险评分沿用客户端公式，但只计算本产品当前待处理记录；检测关闭或统计未追上时保持状态说明。风险详情复用证据权限、规则快照与处置历史。
+
+The discovered-agent overview has Assets, Activity and Risks tabs with a shared last-7-days default or last-30-days filter. Assets use the selected installation's latest snapshot, including skills, MCP entries (also those bundled with plugins), plugins and the reported model. Missing or unsupported counts remain unknown. Activity metrics and drilldowns use one source at a time.
+
+Installation choices show the client name, local instance ID and path. Each installation provides its own product mapping. Risks are scoped to the selected client and mapped product identities. Installations of the same product share these records; unmapped types show no attributed records and an unavailable score, and device-only findings stay in the client risk view. Charts drill down by first detection time, while current open-risk cards include all detection dates. Clearing filters preserves the product scope. The score uses the existing client formula on this product's current backlog only; disabled or pending detection displays its status. Details retain evidence permissions, rule snapshots and disposition history.
+
 
 Agent 工作区通过采集报告、原始证据和任务回执展示执行结果与策略应用状态。插件操作、Skill 治理及受支持的模型切换复用现有权限和任务校验。日志重试在桌面客户端“Agent 运行治理 → 接入与采集”执行。English: Agents → Client discovery → Details opens the installation workspace. Skills, model configuration and tasks follow the selected installation; sessions, plugins and tool approvals follow the client and agent type. Shared services and cross-agent policy remain in client details. Runtime reports and execution receipts establish actual outcomes.
 
@@ -2944,34 +2947,83 @@ macOS 系统采集复用 ES 精确进程归属与 libproc 套接字快照，新�
 
 状态、递增处置版本、处理人、原因和时间在同一事务中写入，系统审计同步记录 `aidr.risk.dispose`；失败全部回滚。每次提交带 `expected_revision`，重复提交、状态未改变或版本冲突返回稳定错误码，页面保留草稿，可重新读取状态后再次选择。处置历史分页查看，原始原因不翻译。旧表升级为待处理、版本 0；处置不删除证据、不改写检测更新时间，迟到结果不覆盖人工处置，新调用产生的独立风险仍为待处理。
 
-风险列表按处置状态筛选，顶部同时显示历史严重度数量及四类处置数量；智能体列表与范围选择弹窗增加待处理数，原有历史数量保留。处置后重新加载列表和汇总；智能体页刷新查询后显示最新值。风险证据正文继续独立校验读取权限。
+风险列表按处置状态筛选；智能体列表与范围选择弹窗增加待处理数，原有历史数量保留。处置后重新加载列表和汇总；智能体页刷新查询后显示最新值。风险证据正文继续独立校验读取权限。
 
 风险列表以紧凑统计、筛选和记录为主，检测进度以单行展示，检查时间在悬浮提示中查看。详情先展示风险事实，再提供处置表单、原始证据和历史；重新读取状态按钮在处置失败时显示并保留草稿。
 
+记录时间、风险等级和智能体产品支持服务端全量排序，默认时间降序；排序及筛选回到第一页，保留每页数量。产品选择器可搜索设备已记录的产品；日期范围包含开始日和结束日全天，选择完整范围或清空后查询。检测配置冲突时可重新读取最新版本并保留草稿，核对后保存。未读取的证据展示数量，无处置历史时显示简短空状态，路径格式说明位于字段帮助中。
+
 **English layout:** The list prioritizes compact counts, filters and findings. Detection progress is shown inline, with the check time in a tooltip. Details show risk facts before disposition, original evidence and history. Reload status appears after a disposition error and preserves the draft.
+
+“All device risks” counts remain independent of list filters. Time, severity and agent product sort the full server result before pagination; time defaults to descending. Sorting and filtering reset to page one and retain page size. Search the product selector for recorded products. Select or clear the local date range to query, including the full start and end dates. On a settings conflict, reload the latest revision while preserving the draft, review it and save. Unopened evidence shows a count; empty history uses a short message. Path-format guidance is available beside each field.
 
 **English:** Risk details support Open, Accepted risk, False positive and Resolved, with reopening to Open. Updates require client view/update permissions and device visibility. Reasons are required, preserve their original text, and allow up to 1000 Unicode characters including whitespace and newlines. Resolved records a human completion declaration; execution results remain evidence-based. Each update atomically writes a revision, actor, reason, timestamp and operation audit. Stale/repeated updates return a stable conflict code; the UI retains the draft for reload and review. History is paginated. Existing findings migrate to Open at revision zero. Disposition preserves evidence and detection timestamps; late outcomes retain the disposition, while independent new findings start Open. Lists filter by disposition and show historical counts alongside open counts; refresh the agent list to see updated summaries.
 
-入口为 **客户端详情 → 行为审计 → 风险事件**。服务端后台按 Hook、会话日志、系统事件三个来源增量检测已持久化证据；上传 ACK 仍只代表证据持久化，不等待风险分析。首次启动会从当前保留记录开始有界扫描，页面显示处理进度与检查时间；全部游标追上只表示已处理上报证据，不表示终端采集完整或没有风险。
+入口为 **客户端详情 → 风险事件**。服务端后台按 Hook、会话日志、系统事件三个来源增量检测已持久化证据；上传 ACK 仍只代表证据持久化，不等待风险分析。首次启动会从当前保留记录开始有界扫描，页面显示处理进度与检查时间；全部游标追上只表示已处理上报证据，不表示终端采集完整或没有风险。
+
+智能体列表检查检测进度时，按可见客户端及证据来源通过索引查询最新记录 ID，再与该来源的检测游标比较；无记录、游标缺失或落后、检查时间超过 30 秒及检测关闭时的状态规则保持一致。
+
+智能体列表首屏加载资产及归属展示所需的用户、部门数据；模型、可选 Skill 和外部 AI 网关在打开登记或编辑弹窗时加载，平台智能体详情打开时加载 Skill 信息。选项加载完成后回填编辑内容；加载失败可重新点击重试。全局会话、权限和审批数量检查保持原有机制。
 
 风险类型及当前边界：
 
 智能体列表的“关联产品风险”列按当前账号可见的关联客户端实例，汇总设备与产品范围内全部已记录风险，展示高/中等数量、最高严重度和最近风险时间。同一智能体关联多个相同设备/产品实例时只计一次；多个智能体共享该范围时各自展示同一组产品风险，不宜跨行求和。数量为零仅表示没有已记录风险，检测进度与路径配置需进入风险页查看。无关联实例、产品尚未映射和缺少 `clients:view` 权限分别显示；有部分实例无法映射时提示数量。
 
-点击“查看相关风险”进入客户端详情的风险事件页并预填产品筛选；有多个设备/产品范围时先选择。产品筛选可清除或修改，顶部统计仍为设备全部已记录风险。产品映射复用 AIDR 适配器登记（例如 `claude-code` → `claude`）；Qoder 的 `qoder-cli` 与共享 `qoder-hooks` 分别提供入口。系统设备级风险或无法映射的产品需在客户端风险页查看；这些记录不推断到具体安装入口。汇总由服务端按可见客户端一次分组查询，不逐行发起风险请求，不返回证据正文。
+点击“查看相关风险”进入客户端详情的风险事件页并预填产品筛选；有多个设备/产品范围时先选择。产品筛选可清除或修改。产品映射复用 AIDR 适配器登记（例如 `claude-code` → `claude`）；Qoder 的 `qoder-cli` 与共享 `qoder-hooks` 分别提供入口。系统设备级风险或无法映射的产品需在客户端风险页查看；这些记录不推断到具体安装入口。汇总由服务端按可见客户端一次分组查询，不逐行发起风险请求，不返回证据正文。
 
 | 类型 | 检测依据 | 结果含义 |
 | --- | --- | --- |
-| 保护目录删除命令 | 可完整解析的 POSIX 命令，或系统 exec 的完整 argv，包含递归删除参数并命中保护路径 | 发起调用或观察到进程执行，不证明具体文件已删除 |
+| 保护路径删除命令 | 可完整解析的 POSIX rm 命令（普通删除、-f 或递归删除），或系统 exec 的完整 argv，删除目标命中保护路径 | 发起调用或观察到进程执行，不证明具体文件已删除 |
 | 下载内容直接交给 Shell | 可解析的 curl 标准输出或 wget `-O -` / `--output-document=-`，使用 HTTP(S) 字面地址并直接管道连接无参数 sh/bash | 识别操作形式，不判断下载内容是否恶意；复杂选项、包装和不支持语法不作确定命中 |
 | 敏感路径读取 | 文件读取工具的目标命中敏感路径 | 工具请求；后置结果单独展示，系统默认采集不提供完整读取审计 |
 | 保护路径变更 | 文件写入、编辑、重命名、Patch 请求，或有确定进程归属的系统文件变化 | 区分工具报告结果和系统观察；重命名检查源与目标 |
 | 工具策略拒绝 | Hook 的 deny 决策及策略版本 | Hook 报告拒绝，不等同于宿主已确认阻断；可能由策略缺失或过期导致 |
 | 系统访问拒绝 | 系统授权 deny 记录 | 分别展示系统拒绝响应成功、失败或未知 |
 
-“检测配置”提供启停、敏感读取路径和保护路径。默认启用检测，路径列表为空；路径列表为空时相应路径风险不检测。每行一个规范绝对路径，无通配符，每类最多 32 项，每项最多 512 UTF-8 字节，同时匹配该路径及其下级路径。Windows 文件目标按 Windows 路径规则处理；命令检测限 POSIX 字面命令。相对目标需要工作目录，匹配不解析软链接。修改配置需要管理员身份及 `clients:update`、`settings:update` 权限，使用版本冲突校验并保留非法草稿。检测配置独立于执行策略，只用于尚未检测的证据；已有风险保留原检测配置版本，迟到结果可以更新其结果状态。
+全局入口为 **客户端 → 全局客户端配置 → 安全规则**；客户端入口为 **客户端详情 → 客户端配置 → 安全规则**。全局设置提供风险记录开关、统一规则列表及独立路径集合。客户端分别选择“风险记录开关：继承全局／开启／关闭”和“规则来源：继承全局／单独配置”。明确的客户端启停优先于全局默认；单独规则独立于后续全局变更，切换独立配置时复制当前全局规则供编辑，保存后生效。统一规则来源随客户端继承选择生效，历史混合继承保留。
 
-列表可按风险类型、严重度、来源、产品标识及时间筛选。时间输入按浏览器时区转换为带时区参数，起止边界均包含；顶部数量是设备全部已记录风险，不随筛选变化。详情包含原因、产品/设备归属、时间依据、动作结果、控制反馈、检测及执行策略版本、证据引用与不确定性。批次 A 的归属为产品或设备范围，不推断安装入口。Hook、日志和系统来源分别计数，不将推测关联当作确定去重。
+内置路径按 Linux、macOS、Windows 区分，覆盖常见 SSH 私钥、AWS 凭证、Kubernetes 配置、包管理器认证文件、系统密码数据库，以及 SSH 授权公钥、账号权限、sudo 与启动配置。内置精确文件只匹配文件自身；目录项包含下级路径；`{user}` 仅匹配单个路径段，Windows 常见用户目录当前为 C 盘。路径集合可展开核对实际路径；编辑集合可选择内置条目及附加路径，规则列表调整命令检测开关。非标准主目录、其他磁盘或企业目录使用自定义绝对路径补充。
+
+自定义路径每行一个规范绝对路径，无通配符，每个集合最多 32 项，每项最多 512 UTF-8 字节，同时匹配该路径及其下级路径。Windows 文件目标按 Windows 路径规则处理；命令检测按系统使用 POSIX 或 Windows 字面语法。相对目标需要工作目录，匹配不解析软链接。敏感路径读取依赖工具文件读取证据；命令中的隐含读取不会自动转换为文件读取。
+
+新安装及尚无全局配置的升级默认启用推荐敏感/保护路径。已有全局配置仅在仍为首个初始化版本且完整匹配旧默认空配置时，追加新修订启用推荐路径；保留旧版本，重复启动不重复迁移。后续保存过的空配置、明确关闭、自定义路径或统一规则文档均保留，需管理员确认后保存才能补齐。旧客户端明确保存的配置按独立配置读取，保留启停和路径；未配置客户端跟随全局基线。初始化幂等，不覆盖后续保存。全局配置要求管理员与设置查看/修改权限；客户端额外要求设备可见性及客户端查看/修改权限。客户端保存校验全局与本地修订，冲突保留草稿，重新读取前确认替换。
+
+风险记录设置用于后续待检测证据，执行前动作按工具策略发布；已有处置保持。关闭期间游标仍推进，开启后不自动回扫。新风险保存命中规则快照、配置修订引用和规则来源，旧风险保留原记录。智能体列表补充关联设备的关闭/待检测数量；风险历史计数仍保留。
+
+统一编辑器支持最多 32 条记录风险的自定义命令规则，每条包含稳定 ID、名称（1–100 Unicode 字符）、启停、Linux/macOS/Windows 范围、严重度、程序名/完整路径，以及可选的全部参数、任一参数、路径集合引用和紧邻管道目标。参数每行一项，最多 16 项、每项 256 UTF-8 字节；管道程序最多 8 项。路径前缀匹配非选项参数，不假定该参数一定是文件操作目标。规则编辑先应用到草稿，点击安全规则的保存后发布；客户端继承、独立配置和并发冲突规则保持一致。已有配置缺少自定义规则时按空列表读取，升级不自动启用新增命令规则。
+
+新增内置规则：Linux 明确设备目标的 `mkfs -t`、`mkfs.ext2/ext3/ext4`（支持 `-F`、`-q`）、`mkfs.xfs`（支持 `-f`、`-q`）及无额外选项的 `mkfs.vfat/exfat`；macOS `diskutil eraseDisk / eraseVolume / reformat`；`dd of=` 写入常见磁盘设备（排除普通文件、`/dev/null`、`count=0`）；`chmod` 通过三/四位八进制模式或明确的 `o/a` 符号模式给予其他用户写权限，且目标命中保护路径。设备路径按平台识别，不访问服务器设备、不推断远端设备是否存在。无法完整解释的格式化选项、变量、重定向、`sudo` 或 Shell 包装返回无法解析，不作确定命中。Windows 检测范围见下表。
+
+Windows 命令检测与自定义规则、草稿测试、历史追溯共用同一后台入口。程序、参数条件与路径比较忽略大小写，保留反斜杠和原始证据；自定义程序可使用完整盘符或 UNC 路径。旧自定义规则的系统范围保持不变，需要 Windows 时显式勾选。
+
+| 风险类型 | Windows 支持形式 | 判断依据 |
+| --- | --- | --- |
+| 格式化 | `format D: /FS:NTFS /Q`、`Format-Volume -DriveLetter D` | 明确卷或盘符；支持的 format 选项为 `/Q /X /C /FS: /V: /P:`；Format-Volume 支持文件系统、标签、分配单元大小、Force/Full |
+| 设备写入/清除 | `Clear-Disk -Number 2 -RemoveData`、Windows dd 的 `of=\\.\PhysicalDrive2` 或设备卷路径 | 明确磁盘编号或原始设备输出；普通文件输出、只读输入及 count=0 不命中 |
+| 保护路径删除 | `del/erase`、`rd/rmdir`、`Remove-Item -Path/-LiteralPath` | 目标命中保护路径；相对路径需 Windows 工作目录，支持末尾 `\*`、`\*.*`，其他通配符显示无法解析 |
+| 保护路径权限修改 | `icacls /grant[:r]`、`takeown /f` | Everyone、Users、Authenticated Users 及对应 SID 的 F/M/W 授权，或保护路径所有权修改；仅查询、只读授权不命中 |
+
+支持显式 `cmd [/d] /c`、`powershell/pwsh [-NoProfile/-NonInteractive/-NoLogo] -Command` 命令文本包装；PowerShell 包装内的 rm/ri/del/erase/rd/rmdir 按 Remove-Item 处理。支持字面多命令与管道，不执行表达式。`-WhatIf` / `-WhatIf:$true` 排除内置风险，`-WhatIf:$false` 和 `-Confirm:$false` 保留真实操作语义；自定义条件仍按所配置的字面参数匹配。路径不解析远端重解析点，也不验证目标设备是否存在。
+
+外部脚本、编码命令、环境变量、重定向、远程目标参数、diskpart 脚本和动态 Set-Acl 输入显示无法解析；不会读取服务器上同名脚本或推断脚本内容。Windows 检测消费已有 Hook/日志上报，本项不增加 Windows 原生系统采集器。WorkBuddy PowerShell 工具已补入命令行为分类；该工具需更新客户端采集组件后上报，旧记录缺失的命令正文不回填。
+
+**Windows commands:** The same runtime, draft-test and frozen-provenance pipeline supports Windows. Executable, literal argument and path comparisons are case-insensitive, preserving original evidence and backslashes. Custom executable/path fields accept drive-qualified and UNC paths; existing custom rules keep their OS selection. Built-ins recognize explicit `format` / `Format-Volume` volumes, `Clear-Disk -Number` and Windows dd raw-device outputs, protected-path `del/erase`, `rd/rmdir`, `Remove-Item`, broad `icacls /grant[:r]` F/M/W grants to Everyone/Users/Authenticated Users (or their SIDs), and `takeown /f`. Read-only grants, regular dd output files and count=0 are excluded. Relative paths require a Windows working directory; terminal all-files globs are supported, other wildcards remain unresolved.
+
+Explicit `cmd [/d] /c` and `powershell/pwsh [-NoProfile/-NonInteractive/-NoLogo] -Command` text wrappers are supported. PowerShell wrapper aliases map to Remove-Item. WhatIf/WhatIf:$true suppress built-in findings; WhatIf:$false and Confirm:$false retain operation semantics. Custom conditions still match configured literal arguments. External/encoded scripts, dynamic variables, redirection, remote-target options, diskpart scripts and dynamic Set-Acl remain unresolved. No server-side script or device is accessed. Windows detection uses received Hook/log evidence; this change adds no native Windows collector. WorkBuddy PowerShell now projects command behavior and requires the updated client collector; missing command text in old records is not reconstructed.
+
+语法依据 / Syntax references: [format](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/format)、[Format-Volume](https://learn.microsoft.com/en-us/powershell/module/storage/format-volume)、[Clear-Disk](https://learn.microsoft.com/en-us/powershell/module/storage/clear-disk)、[Remove-Item](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/remove-item)、[icacls](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/icacls)、[takeown](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/takeown)。
+
+“测试命令”在弹窗输入系统、工作目录和命令，使用当前草稿调用 `/api/v1/aidr/risks/commands/test` 或设备作用域的 `/risks/commands/test`，与后台检测共用匹配函数。客户端入口默认选择该设备系统；测试需要客户端查看与设置查看权限，无需设备同步权限。只解析，不执行命令、不保存测试文本、不创建风险。返回命中、未命中支持规则、无法解析或检测关闭；部分规则无法判断时单独列出。同一证据的同类风险合并命中规则，严重度取最高值。
+
+风险详情的“命中检测规则”读取检测时保存的名称、条件、目标、严重度、全局及客户端修订。规则被改名、移除或关闭后，历史追溯保持原样；迟到结果只更新动作结果。检测规则明细独立于执行策略的 `rule_ids`，旧风险缺少明细时明确显示未记录，不使用当前规则回算。普通详情仅返回规则身份和严重度；匹配条件与目标必须通过“读取原始证据”的审计正文权限与访问审计后查看。
+
+**Command rules and provenance:** Configure up to 32 custom rules with stable IDs, names (1–100 Unicode characters), enabled state, Linux/macOS/Windows scope, severity, executable and optional all/any arguments, path-argument prefix and immediate pipeline destination. Arguments are one per line (16 per group, 256 UTF-8 bytes each); pipe destinations allow up to 8 executable names. Path-prefix matching applies to non-option arguments, not inferred file targets. Apply edits to the draft, then save detection settings to publish. Existing configurations retain their selected commands and default to no custom rules.
+
+New built-ins cover supported Linux `mkfs -t` / ext2/ext3/ext4 / xfs / vfat / exfat forms with explicit device targets; macOS `diskutil eraseDisk / eraseVolume / reformat`; `dd of=` to recognized disk-device paths (excluding regular files, `/dev/null` and `count=0`); and explicit world-write permission grants by `chmod` to protected paths. Device matching uses platform-specific path forms, without accessing server devices or asserting remote-device existence. Unsupported options, variables, redirection and sudo/Shell wrappers remain unresolved. Windows command coverage is detailed in the Windows section above.
+
+The client command-test dialog defaults to the device OS and requires client/settings view permissions, without device-sync permission. It uses the current draft and the same matcher as detection, returning matched, unmatched, unresolved or disabled results plus any partially unresolved rules. It executes nothing, stores no test text and creates no finding. Same-type findings for one source call aggregate matching rules and retain the highest severity. Details show frozen rule identities, names, conditions, targets and configuration revisions; later edits or results do not replace the snapshot. Detection matches remain separate from execution-policy rule IDs. Legacy findings without saved matches are labeled accordingly. Conditions and targets require the existing audited evidence-content access; ordinary details expose only rule identity and severity.
+
+列表可按风险类型、严重度、来源、产品标识及时间筛选。日期范围按本地日期转换为带时区参数，包含开始日和结束日全天。详情包含原因、产品/设备归属、时间依据、动作结果、控制反馈、检测及执行策略版本、证据引用与不确定性。批次 A 的归属为产品或设备范围，不推断安装入口。Hook、日志和系统来源分别计数，不将推测关联当作确定去重。
 
 查看要求客户端可见性及 `clients:view`。命令、路径和原始动作内容须点击“读取证据内容”，额外校验 `clients:read-audit-content`，并记录不含正文的访问审计。证据引用不复制原始正文，原记录按保留策略过期后，详情显示“原始证据已过期或不可用”。未收到结果、身份冲突、截断和脱敏按事实展示；风险发现不赋予客户端执行或阻断权限。
 
@@ -2979,11 +3031,15 @@ macOS 系统采集复用 ES 精确进程归属与 libproc 套接字快照，新�
 
 人工 UI 验收：中英文和窄屏检查列表、筛选、详情及配置；验证长命令滚动、路径换行、空列表/未启动/已关闭/请求失败状态；检查迟到结果刷新、不同设备隔离、无正文权限、证据过期、非法路径草稿保留和配置冲突；快速切换筛选、分页与设备，确认旧请求不覆盖新结果。后端规则、结果关联、事务重试和权限由 `tests/test_aidr_risk.py` 覆盖；不新增 UI 单元测试。
 
-**English:** Open **Client details → Behavior audit → Risk events**. The background worker evaluates retained Hook, session-log and system evidence in bounded transactions, independently of upload ACKs. Detection covers literal recursive deletion of protected paths, supported HTTP(S) downloader-to-Shell pipelines, sensitive file-read requests, protected-path changes, Hook deny decisions and system authorization denials. Initial detection processes retained evidence; caught-up cursors do not establish complete endpoint coverage or safety. Current system telemetry is macOS-specific; file changes are not full read auditing and socket snapshots are not exfiltration proof.
+**English:** Open **Client details → Risk events**. The background worker evaluates retained Hook, session-log and system evidence in bounded transactions, independently of upload ACKs. Detection covers literal rm deletion of protected paths, including plain rm, rm -f and recursive deletion, supported HTTP(S) downloader-to-Shell pipelines, sensitive file-read requests, protected-path changes, Hook deny decisions and system authorization denials. Initial detection processes retained evidence; caught-up cursors do not establish complete endpoint coverage or safety. Current system telemetry is macOS-specific; file changes are not full read auditing and socket snapshots are not exfiltration proof.
 
-Detection is enabled by default with empty sensitive/protected path lists. Paths must be normalized absolute paths without wildcards (32 per category, 512 UTF-8 bytes each), matching themselves and descendants. Relative activity paths require a working directory; symlinks are not resolved. Windows file paths use Windows semantics; command detection is limited to supported POSIX forms. Versioned settings apply to evidence not yet evaluated and never alter execution policies. Recorded findings retain their original detection version while later same-source results can update outcomes. Product/device attribution remains explicit; sources are counted separately.
+**Global and client detection settings:** Open **Clients → Global client settings → Security rules** for global defaults, or **Client details → Client settings → Security rules** for client overrides. Detection status (Follow global / Enabled / Disabled) and rule source (Follow global / Client configuration) are independent. An explicit client status overrides the global default. Switching to client configuration copies the current global rules for editing; saved independent rules remain unchanged by future global updates. Global settings show separate affected-client counts for rules and default status.
 
-Filters support severity, type, source, product and inclusive time bounds entered in the browser timezone. Header counts cover all device findings. Detail shows reasons, timing basis, results, control feedback, versions and evidence references. Content access requires `clients:read-audit-content`, device visibility and an access audit record. Original evidence expires under existing retention policy; findings do not retain copies of raw content. Validate both languages, narrow layouts, long commands/paths, loading/error/disabled states, late results, permissions, expired evidence, preserved invalid drafts, configuration conflicts and stale-response protection manually.
+Built-in paths cover common SSH private keys, AWS credentials, Kubernetes and package-manager configuration, password databases, authorized keys, account permissions, sudo and startup configuration. They are OS-specific; exact-file rules do not match descendants, directory rules do, and `{user}` matches exactly one path segment. Windows user templates currently use drive C. Expand built-in entries under Path sets to inspect paths. Edit a collection to select built-ins; enable command rules from the rule list. Add absolute paths for nonstandard home directories, other drives and business data. Custom paths retain the 32-per-category / 512-UTF-8-byte limits and match descendants; wildcards and shell expansion are unsupported. Relative activity paths require a working directory; symlinks are not resolved. File reads require file-read tool evidence; Command parsing uses the supported POSIX or Windows literal forms for the selected OS.
+
+Fresh installations enable recommended paths. Upgrades preserve the empty-path global baseline until an administrator selects and saves the desired built-in paths. Existing explicit client settings remain independent and retain their status and paths; unconfigured clients inherit the baseline. Initialization is idempotent. Global writes require administrator and settings permissions; client writes additionally require client permissions and visibility. Both global and local revisions are checked, with drafts preserved on conflict. Settings affect pending evidence only; disabled detection still advances cursors and re-enabling does not backfill. Findings retain matched-rule snapshots and configuration revision references, original outcomes and disposition history. Agent summaries show disabled/pending device counts alongside historical findings.
+
+Filters support severity, type, source, product and inclusive local calendar dates. Detail shows reasons, timing basis, results, control feedback, versions and evidence references. Content access requires `clients:read-audit-content`, device visibility and an access audit record. Original evidence expires under existing retention policy; findings do not retain copies of raw content. Validate both languages, narrow layouts, long commands/paths, loading/error/disabled states, late results, permissions, expired evidence, preserved invalid drafts, configuration conflicts and stale-response protection manually.
 
 ### AIDR 多产品适配目录
 
@@ -3134,3 +3190,58 @@ ZIP 上传、Scanner 和网络 ZIP 导入仅解开外层传输包，保留 Skill
 旧版本保持历史内容，不原地改写签名包；重新提交原始目录以生成一致的版本。扫描缓存版本已更新，避免沿用旧分析流程的结果。
 
 English: ZIP uploads, Scanner submissions, and network ZIP imports unpack only the transport archive. Original Skill files and embedded ZIPs remain unchanged for fingerprints, signatures, release packages, and the detail file tree. Ordinary files remain previewable; embedded ZIPs are not expanded in that tree. Security analysis uses a disposable copy and recursively expands ZIPs with an eight-level limit, aggregate limits of 50,000 files / 1 GiB, and a 100 MiB per-file limit. Unsafe paths, symlinks, and exceeded limits stop the scan. Copies are cleaned on completion or exceptions; subsequent scans on Windows/macOS/Linux reclaim directories owned by exited processes using a cross-platform liveness probe without sending signals. Directories with live or unknown owners are preserved. Historical signed versions remain unchanged; resubmit originals for a consistent version. The scan-cache schema has been updated.
+
+
+### Unified security rule configuration
+
+Open **Clients → Global client settings → Security rules**, or **Client details → Client settings → Security rules**. One Add rule entry and one shared editor configure conditions, Agent/OS scope, a referenced path set, risk recording, pre-execution action and enabled state. Search and filters update immediately; name and severity are sortable.
+
+Path sets are independently named collections shared by multiple rules. Editing a set updates all references; referenced sets cannot be deleted. Explicit paths match themselves and descendants; built-in paths retain OS and exact-file/directory matching. Custom commands reference explicit paths. Actions require all operating systems; current Hook command actions support one POSIX path prefix, preserving all-segment/all-target matching for allow rules. Built-in complex behaviors and Windows-specific conditions support risk recording; action choices follow current Hook capabilities. Native tool calls can record risks and apply actions together. WorkBuddy, Claude Code, Codex and Qoder Hooks support platform approval. Products without approval support disable Require approval; Allow and Deny remain available. The server validates every selected product before saving.
+
+WorkBuddy、Claude Code、Codex 和 Qoder Hooks 支持平台人工审批；未接入审批的智能体禁用“需要审批”，可使用允许或拒绝。服务端保存前逐一校验所选智能体，失败时保留原配置。
+
+Clients can inherit global rules or maintain a complete override. Legacy mixed inheritance remains dynamic under Keep current inheritance; inherited entries are read-only. Risk recording can independently inherit, enable or disable. Migration retains separate legacy entries, original tool-rule IDs, signatures, defaults and historical risk snapshots. Opening the page does not publish. A unified document is validated and saved atomically with optimistic revision checks, permissions and receiver capabilities; unchanged execution policies are not re-signed. Legacy APIs remain compatible and their updates are reflected in the unified view. Failed saves retain the draft.
+
+Test rules parses the current draft without executing commands, publishing policies or creating approvals. It displays risk matches and the final action together. Deny takes precedence over approval and allow; No action contributes no allow rule. Global publication waits for device-scoped signing and receiver capability reports; saving, issuing and actual host application are separate validation steps. OS-native policies and approval handling remain in Policies & approvals.
+
+风险列表与详情按设备、流和事件标识读取审批回执，分别展示客户端已使用审批授权或拒绝反馈；执行结果仍以工具后置证据为准。历史规则快照保持原样。
+
+Risk lists and details join approval receipts by device, stream and event identity. Grant consumption and denial feedback are separate from execution results, which require post-tool evidence. Historical rule snapshots are preserved.
+
+WorkBuddy 人工审批复用执行前 Hook：本地请求等待最多约 45 秒，Hook 外层等待预算 50 秒，宿主配置超时 60 秒。批准仅授权本次调用并一次性消费；拒绝或超时停止本次调用。再次发起同一命令仍需新的审批。平台审批记录与客户端回执分别保留，授权已使用不等同于工具执行成功。旧客户端需要升级后才能执行 WorkBuddy 审批；保存配置不代表设备已应用。
+
+WorkBuddy approval uses the pre-tool Hook and existing signed grants. Local attempts expire after about 45 seconds, within the 50-second bridge budget and 60-second host timeout. Approval authorizes only that attempt and is consumed once; denial or timeout stops it. Repeating a command requires a new approval. Platform decisions and client receipts remain separate, and grant consumption does not establish execution success. Older clients must be upgraded; saving a policy does not establish device application.
+
+风险列表不展示动作结果列。详情保留明确执行结果；收到后置反馈但缺少结果状态时显示“未采集到执行结果”，未收到后置反馈时显示“未采集到执行反馈”。审批与拦截反馈单独展示，证据冲突保留冲突状态。检测修订号保留在接口追溯数据中，不在正文展示。点击“处理风险”展开处理方式与原因，取消收起并保留本次草稿；保存成功后收起。规则快照及原始证据按原权限查看，命令和用户规则名称保持原文。
+
+Risk lists omit the action-result column. Details retain explicit outcomes, show Execution result not captured when feedback lacks an outcome, and Execution feedback not captured when no feedback arrived. Approval and denial feedback remain separate; conflicting evidence retains its conflict status. Detection revisions remain in trace metadata, outside the detail body. Handle risk opens the resolution form; Cancel collapses it while retaining the draft, and successful saving closes it. Rule snapshots and original evidence retain existing permissions; commands and user-provided rule names remain unchanged.
+
+审批状态读取会按设备、流和事件匹配客户端回执。收到审批超时回执后，列表与详情显示“审批已超时”，详情不提供变更操作，服务端拒绝后续批准；历史平台记录不回写。未收到回执时不推测客户端已超时。
+
+Approval reads match client receipts by device, stream and event. A timeout receipt makes both list and detail show Approval timed out, removes decision actions and prevents subsequent approval. Historical platform records remain unchanged. No client timeout is inferred before a receipt arrives.
+
+客户端详情的“风险事件 / Risk events”与“行为审计 / Behavior audit”同级。智能体风险汇总直接打开风险事件并保留智能体筛选；历史风险深链接仍定位到新页签。风险详情保留关联证据及正文读取权限。
+
+Risk events is a peer tab of Behavior audit in client details. Agent risk summaries open Risk events with the agent filter retained; historical risk deep links resolve to the new tab. Risk details retain linked evidence and audit-content permissions.
+
+风险事件在对应表头提供筛选，风险类型列同时筛选类型与严重度。选择立即生效并高亮图标，日期选完整范围后包含开始日和结束日全天。最右侧表头提供刷新及有条件时的清空筛选；筛选回到第一页，保留排序与每页数量，默认每页 10 条。
+
+Risk events filters live in column headers; Risk type includes type and severity. Selections apply immediately and highlight the filter icon. Complete date ranges include both full local dates. The rightmost column header provides Refresh and Clear filters when active. Filtering resets to page one while retaining sorting and page size, which defaults to 10.
+
+全局与单客户端配置共用紧凑的分类导航；窄屏横向滚动切换分类。采集模式、通道和停用影响的说明位于字段旁帮助图标，继承选择、异常和生效状态直接展示。使用审计仍单独保存。
+
+Global and per-client settings share compact category navigation, with horizontal scrolling on narrow screens. Field help explains collection modes, channels and disabling effects; inheritance controls, errors and effective status remain visible. Usage audit is saved separately.
+
+### 客户端概览风险统计 / Client risk overview
+
+概览分为资产、行为、风险三个 Tab，共用时间筛选，默认近 7 天（含今天），支持近 30 天与自定义日期，最长 720 小时。切换 Tab 保留所选时间。资产展示最新上报的智能体、Skill 记录和已安装治理插件；Skill 按智能体目录计数，包含共享目录，图表可下钻到名称与路径。治理任务按期间创建时间统计全部匹配任务的当前状态，支持按状态下钻、游标翻页。行为保留来源、智能体筛选与工具趋势、排行和会话下钻，通道状态归入行为 Tab。风险展示当前待处理、高风险待处理、期间新增，以及新增趋势、类型分布、智能体分布和处置环形图。图表按首次检测时间聚合，日期边界使用浏览器当前时区偏移；当天截止本次查询时间。处置图表示该期间新增风险的当前状态，非期间处置操作次数。切换期间不改变当前待处理存量和评分。
+
+点击指标或图表进入复用的风险列表、详情、规则追溯及处置流程。图表下钻使用首次检测时间的左闭右开区间；普通风险事件页仍按发生时间筛选。聚焦图表后使用方向键选择、回车下钻。处置成功后刷新概览，原有智能体跳转及审计正文权限不变。
+
+风险评分采用 `round(100 × (1 − exp(−W / 60)))`，`W = 当前高风险待处理数 × 8 + 当前中等风险待处理数 × 3`。0–29为低，30–59为中等，60–100为高。已解决、接受风险、误报不计分；重新打开恢复计分。同一发现记录只计一次，不同来源的独立发现分别计数，不能将跨来源推断关联当作去重。评分说明展示本次数量与权重贡献。权重及分段是尚未经事故数据校准的产品口径；0分表示无待处理记录，终端采集覆盖另看通道状态。检测关闭、游标未追上或检查超过30秒未更新时不展示数值评分。首次升级增加客户端/首次检测时间索引，不回写历史记录。
+
+Overview has Assets, Activity and Risks tabs with a shared date filter, defaulting to the last 7 days including today. It supports 30 days and custom dates up to 720 hours, retained across tabs. Assets show the latest reported agents, Skill records per agent directory (including shared directories), and installed governance plugins. Skill bars open names and paths. Tasks count all tasks created in the selected period by current status, with filtered cursor-paginated history. Activity retains source/agent filters, tool trends, rankings, session links and channel status. Risks show current open and high-open counts, new findings in the selected period, and trend, type, agent and disposition charts. Charts use first detection time and the browser's current timezone offset; today ends at query time. Disposition shows the current status of findings detected in the selected period, not the number of disposition operations. Period selection does not change the current backlog or score.
+
+Click metrics or charts to open the existing risk list, details, rule trace and disposition flow. Chart drilldowns use inclusive first-detection start and exclusive end boundaries; the regular Risk events page retains occurrence-time filtering. Focus a chart, use arrow keys to select a data point, and press Enter to drill down. Saving a disposition refreshes the overview. Agent links and evidence-content permissions remain unchanged.
+
+The score is `round(100 × (1 − exp(−W / 60)))`, where `W = open high × 8 + open medium × 3`. Levels are Low (0–29), Medium (30–59), High (60–100). Resolved, accepted and false-positive findings are excluded; reopening restores their contribution. Each finding counts once; independent cross-source findings count separately. Inferred cross-source links do not establish deduplication. The explanation shows actual counts and weights. Weights and thresholds are product choices not yet calibrated against incident data. Zero means no open findings; consult channel status for collection coverage. Scores are unavailable when detection is disabled, cursors lag, or checks are over 30 seconds old. Upgrade adds a client/first-detection index without rewriting historical findings.

@@ -1,7 +1,7 @@
 <template>
   <section>
-    <a-alert :message="$t('clientDiscovery.description')" type="info" show-icon class="notice" />
-    <p>{{ $t(clientId ? 'clientDiscovery.overrideHelp' : 'clientDiscovery.globalHelp') }}</p>
+    <p class="discovery-help">{{ $t('clientDiscovery.description') }}</p>
+    <p class="discovery-help">{{ $t(clientId ? 'clientDiscovery.overrideHelp' : 'clientDiscovery.globalHelp') }}</p>
     <a-button v-if="clientId" class="notice" :disabled="fieldsDisabled" @click="resetAll">{{ $t('clientDiscovery.resetAll') }}</a-button>
     <a-alert v-if="error" :message="error" type="error" show-icon class="notice" />
     <a-spin :spinning="loading">
@@ -53,7 +53,7 @@ const error = ref('')
 const busy = computed(() => loading.value || saving.value)
 const fieldsDisabled = computed(() => busy.value || !!error.value || !can('clients:update'))
 const canSave = computed(() => !fieldsDisabled.value)
-const agentDisabled = agent => fieldsDisabled.value || (props.clientId && !agent.override)
+const agentDisabled = agent => fieldsDisabled.value || (!!props.clientId && !agent.override)
 defineExpose({ busy, canSave, save })
 let version = ''
 let sequence = 0
@@ -111,11 +111,12 @@ async function save() {
 </script>
 
 <style scoped>
-.notice { margin-bottom: 16px; }
-.agent-search { margin-bottom: 16px; }
-.definitions { margin-bottom: 16px; }
-.definition { border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
-.heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 12px; }
+.discovery-help { margin: 0 0 8px; color: #64748b; font-size: 12px; }
+.notice { margin-bottom: 8px; }
+.agent-search { margin-bottom: 8px; }
+.definitions { margin-bottom: 8px; }
+.definition { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+.heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .heading strong { overflow-wrap: anywhere; }
 .fields { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 12px; }
 .fields label, .roots { display: flex; flex-direction: column; gap: 6px; min-width: 0; }

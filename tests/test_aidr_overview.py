@@ -373,3 +373,57 @@ def test_existing_overview_upgrade_rebuilds_only_projections(service):
     with factory() as db:
         assert overview(db, 'one', now=NOW)['totals']['command_occurrences'] == 1
         assert db.get(AidrHookEvent, ident).payload_json == original
+
+
+def test_explicit_partial_hours_match_drilldown_and_cache_scope(service):
+    from backend.aidr_overview import details
+    client, factory = service
+    start = NOW.replace(minute=15, second=0, microsecond=0) - timedelta(hours=3)
+    end = start + timedelta(hours=2, minutes=10)
+    for n, at in enumerate([start-timedelta(seconds=1), start, start+timedelta(hours=1), end-timedelta(seconds=1), end], 1):
+        ident = hook(factory, n, call=str(n))
+        with factory() as db:
+            row = db.get(AidrHookEvent, ident)
+            raw = json.loads(row.payload_json); raw['received_at'] = at.isoformat()
+            row.payload_json = json.dumps(raw); db.commit()
+    drain(factory)
+    scope = dict(since=int(start.timestamp()), until=int(end.timestamp()))
+    result = client.get(BASE, params=scope).json()
+    assert result['totals']['tools'] == 3
+    assert result['totals']['command_occurrences'] == 3
+    assert sum(r['commands'] + r['other'] for r in result['trend']) == 3
+    with factory() as db:
+        assert details(db, 'one', 'hooks', **scope)['total'] == 3
+    assert client.get(BASE, params={**scope, 'until': scope['since'] + 1}).json()['totals']['tools'] == 1
+    for path in [BASE, BASE+'/tasks']:
+        for invalid in [dict(since=1), dict(since=2, until=1), dict(since=0, until=720*3600+1)]:
+            assert client.get(path, params=invalid).status_code == 422
+
+
+def test_period_task_counts_are_not_limited_to_history_page(service):
+    client, factory = service
+    start = datetime(2026, 1, 2)
+    with factory() as db:
+        db.add_all([ClientTask(client_id='one', task_type='skill_action', status='succeeded', created_at=start) for _ in range(32)])
+        db.add(ClientTask(client_id='one', task_type='skill_action', status='failed', created_at=start))
+        db.add(ClientTask(client_id='one', task_type='skill_action', status='cancelled', created_at=start))
+        db.add(ClientTask(client_id='one', task_type='skill_action', status='failed', created_at=start+timedelta(days=1)))
+        db.add(ClientTask(client_id='two', task_type='skill_action', status='failed', created_at=start))
+        db.commit()
+    scope = dict(since=int(start.replace(tzinfo=timezone.utc).timestamp()), until=int((start+timedelta(days=1)).replace(tzinfo=timezone.utc).timestamp()))
+    result = client.get(BASE+'/tasks', params=scope).json()
+    assert result['counts'] == {'succeeded':32,'failed':1,'cancelled':1}
+    assert len(result['history']) == 30
+    tail = client.get(BASE+'/tasks', params={**scope, 'before':result['next_cursor']}).json()
+    assert len(tail['history']) == 4
+    failed = client.get(BASE+'/tasks', params={**scope, 'status':'failed'}).json()
+    assert len(failed['history']) == 1 and failed['history'][0]['status'] == 'failed'
+
+
+def test_inventory_types_resolve_to_recorded_behavior_products():
+    from backend.aidr_overview import product_id
+    assert product_id('claude-code') == product_id('claude') == 'claude'
+    assert product_id('qoderwork') == product_id('qoder-work') == 'qoder'
+    assert product_id('codex') == 'codex'
+    assert product_id('unmapped') == 'unmapped'
+    assert product_id('') == ''
