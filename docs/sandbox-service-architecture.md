@@ -200,6 +200,14 @@ Agent Manager 需要的只是一个稳定返回结果的 HTTP API，不关心对
 
 - `~/.agent-manager/sandbox.yaml`
 
+### 本地 Docker 配置保存校验
+
+保存已启用的 `docker` 配置时，Backend 在写入前通过 `sandbox_docker_error` 检查 Docker 命令、Docker 服务连接及所选镜像；连接测试复用该检查。服务与镜像检查共用最多 3 秒预算，不执行 Skill 或拉取镜像。Docker 使用 Backend 自身的连接配置，因此宿主机可运行 Docker 并不表示 Backend 容器具备相同能力。 系统状态同步返回 Docker 错误编码和参数，系统设置页复用保存错误的双语资源，切换语言即时更新；原状态消息字段保留兼容。
+
+失败返回 HTTP 422，分别使用 `sandbox.docker_command_unavailable`、`sandbox.docker_daemon_unavailable`、`sandbox.image_unavailable`；策略页复用保存失败区域展示中英文说明并保留草稿，原 Sandbox 配置不变。切换运行方式时清除 Sandbox 分组上次保存失败提示，保留其他分组错误，并记录本次切换待保存；切回原方式仍启用保存按钮。只有 Sandbox 保存成功或重新加载已保存配置后，才清除待保存状态。缺少命令时改用远程服务；服务不可达时检查 Docker 服务及 Backend 连接权限；镜像不可用时确认所选镜像已安装且可访问。
+
+使用方式：启用 Sandbox 后，在“高级配置 → Sandbox 服务”选择本地 Docker 和镜像，再保存。关闭 Sandbox 或保存远程模式时不检查本地 Docker。历史配置正常读取，无数据库迁移；Compose 更新应用镜像即可，Backend 未提供 Docker 能力时使用远程 Sandbox。
+
 ## 为什么保留 Docker 后端
 
 短期不建议直接切掉 Docker probe，原因有两个：

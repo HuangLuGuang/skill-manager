@@ -103,6 +103,7 @@ import { modelLabel } from '../utils/modelLabels'
 import AidrRedactionSettings from '../components/AidrRedactionSettings.vue'
 import BrandingSettings from '../components/BrandingSettings.vue'
 import { translateLegacy as phrase } from '../i18n'
+import { localizeApiError } from '../i18n/errors'
 
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
@@ -120,7 +121,7 @@ import {
 } from '../api'
 
 const loading = ref(false)
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const sourceStatus = ref({})
 const managerStatus = ref({})
 const llmConfig = ref({})
@@ -265,7 +266,13 @@ const analysisItems = computed(() => [
     statusText: sandboxEnabled.value
       ? (managerStatus.value.sandbox_available ? phrase('legacy.18ety4i') : phrase('legacy.vub0qv'))
       : phrase('legacy.1tylsuy'),
-    description: managerStatus.value.sandbox_status_message || phrase('legacy.1pluc6n'),
+    description: managerStatus.value.sandbox_status_error_code
+      ? localizeApiError({
+        code: managerStatus.value.sandbox_status_error_code,
+        params: managerStatus.value.sandbox_status_error_params,
+        message: managerStatus.value.sandbox_status_message,
+      }, locale.value)
+      : managerStatus.value.sandbox_status_message || phrase('legacy.1pluc6n'),
     meta: [
       { label: phrase('legacy.m51d96'), value: sandboxRuntime.value },
       { label: phrase('legacy.1xibtz6'), value: sandboxTargetValue.value },

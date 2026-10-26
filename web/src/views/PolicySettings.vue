@@ -191,7 +191,7 @@
               <a-collapse-panel v-if="hasAccess('settings:view')" key="sandbox" :header="t('policySettings.sandboxConfig')">
                 <div class="form-grid">
                   <a-form-item :label="t('policySettings.runtime')" v-bind="fieldProps('sandbox.runtime')">
-                    <a-select :id="'advanced-sandbox.runtime'" v-model:value="sandboxForm.runtime" :options="runtimeOptions" :disabled="saving || loading || !hasAccess('settings:update')" />
+                    <a-select :id="'advanced-sandbox.runtime'" v-model:value="sandboxForm.runtime" :options="runtimeOptions" @change="handleSandboxRuntimeChange" :disabled="saving || loading || !hasAccess('settings:update')" />
                   </a-form-item>
                   <a-form-item :label="t('policySettings.timeout')" v-bind="fieldProps('sandbox.timeout_seconds')"><ConfigIntegerInput :id="'advanced-sandbox.timeout_seconds'" v-model:value="sandboxForm.timeout_seconds" :min="1" :max="300" :step="1" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
                 </div>
@@ -273,6 +273,7 @@ const loaded = ref(false)
 const loadFailed = ref(false)
 const saving = ref(false)
 const savedState = reactive({ policy: '', llm: '', sandbox: '' })
+const sandboxRuntimeDirty = ref(false)
 const persistedPolicy = ref({})
 const activeTab = ref('decision')
 const ruleSections = ref([])
@@ -445,9 +446,9 @@ const buildSandboxPayload = () => {
 const buildSnapshotPayload = () => ({
   policy: buildPayload(), llm: { ...llmForm }, sandbox: { ...sandboxForm },
 })
-const dirty = computed(() => loaded.value && Object.entries(buildSnapshotPayload()).some(
+const dirty = computed(() => loaded.value && (sandboxRuntimeDirty.value || Object.entries(buildSnapshotPayload()).some(
   ([key, payload]) => JSON.stringify(payload) !== savedState[key],
-))
+)))
 const markSaved = () => {
   for (const [key, payload] of Object.entries(buildSnapshotPayload())) savedState[key] = JSON.stringify(payload)
 }
@@ -489,6 +490,7 @@ const applySandboxConfig = (sandbox) => {
   sandboxForm.remote_url = sandbox?.remote_url ?? defaultSandboxRemoteUrl
   sandboxForm.remote_api_key = ''
   sandboxForm.clear_remote_api_key = false
+  sandboxRuntimeDirty.value = false
 }
 
 
@@ -563,6 +565,11 @@ const failureLines = failures => failures.flatMap(failure => {
     ? failure.errors.map(error => `${prefix}: ${t(`policySettings.fieldNames.${error.field}`)}: ${errorMessage(error)}`)
     : [`${prefix}: ${configRequestError(failure, locale.value)}`]
 })
+const handleSandboxRuntimeChange = () => {
+  // 运行方式切换由用户保存确认，同时清除上次 Sandbox 配置的保存错误。
+  sandboxRuntimeDirty.value = true
+  saveFailures.value = saveFailures.value.filter(failure => failure.group !== 'sandbox')
+}
 for (const [group, form] of Object.entries(forms)) {
   watch(() => ({ ...form }), (current, previous) => {
     for (const field of Object.keys(current)) {
@@ -597,7 +604,8 @@ const handleSaveAll = async () => {
     { key: 'sandbox', build: buildSandboxPayload, update: updateSandboxConfig, apply: applySandboxConfig },
   ].filter(job => hasAccess(job.key === 'policy' ? 'policy:update' : 'settings:update')
     && (job.key === 'policy' || hasAccess('settings:view'))
-    && JSON.stringify(buildSnapshotPayload()[job.key]) !== savedState[job.key])
+    && ((job.key === 'sandbox' && sandboxRuntimeDirty.value)
+      || JSON.stringify(buildSnapshotPayload()[job.key]) !== savedState[job.key]))
   if (!await validateGroups(jobs.map(job => job.key))) return
   saving.value = true
   saveFailures.value = []
