@@ -294,6 +294,13 @@ def _finding_policy_keys(finding: dict[str, Any]) -> list[str]:
     keys: list[str] = []
     if _is_documented_external_api_example(rule, file_path, haystack):
         return ["documented_external_api"]
+    # 第三方分类使用稳定编码，先关联策略项，避免证据文本影响分类。
+    category_key = {
+        "unauthorized_tool_use": "tool_misuse",
+        "supply_chain_attack": "supply_chain",
+    }.get(category, category)
+    if category_key in DEFAULT_RISK_CLASSIFICATION:
+        return [category_key]
     if rule in {"dependency_missing", "missing_dependency"} or category == "dependency":
         keys.append("dependency")
     if category == "runtime":
