@@ -188,9 +188,9 @@ Hook/log uploads retry network failures and HTTP 404/408/429/5xx within the coll
 
 客户端模型切换支持按 Agent 编辑配置、参数预览、备份恢复和独立调用验证。各适配器的实际验证范围见 [模型切换记录](acceptance/model-switching-2026-09-13/README.md)，内置代理方式见 [模型网关](model-gateway.md#客户端模型切换--client-model-switching)。客户已有网关时，平台智能体可不经客户端直接注册外部身份、选择动态模型并通过 Agent 运行凭证领取绑定 Key；客户端模型切换仍沿用任务绑定凭据流程，详见 [外部 AI 网关接入与 Skill 治理](external-ai-gateway-integration.md)。
 
-模型切换自动签发的运行凭证默认仅记录 Prompt 风险，支持在管理台客户端策略中配置 Prompt 防护，继承平台默认或单台覆盖；保存更新已有凭证，新建凭证继承当前策略。客户端通过长轮询同步显示状态，网关在后续请求中执行保存后的配置。LLM 复核开关当前仅保存，尚未执行复核。
+模型切换自动签发的运行凭证默认仅记录 Prompt 风险，支持在管理台客户端策略中配置 Prompt 防护，继承平台默认或单台覆盖；保存更新已有凭证，新建凭证继承当前策略。客户端通过长轮询同步显示状态，网关在后续请求中执行保存后的配置。AI 语义检测由“模型网关 / Prompt 防护”的平台开关、检测模型及超时设置统一控制，默认关闭；开启后应用到所有防护未关闭的内置网关请求，包括客户端请求。客户端原有 LLM 复核字段保留，当前执行不依赖该字段。具体规则、模型配置和失败处理见 `docs/model-gateway.md`。
 
-Prompt Guard for runtime credentials issued by model switching defaults to log only and is configured in client policies, with platform defaults and per-client overrides. Saving updates existing credentials; new credentials inherit the current policy. Long polling synchronizes the desktop display, while subsequent gateway requests enforce the saved settings. The LLM review flag is currently stored without executing a review.
+Prompt Guard for runtime credentials issued by model switching defaults to log only and is configured in client policies, with platform defaults and per-client overrides. Saving updates existing credentials; new credentials inherit the current policy. Long polling synchronizes the desktop display, while subsequent gateway requests enforce the saved settings. AI semantic detection is controlled by the platform switch, detection model and timeout under Model Gateway / Prompt Guard. It defaults to off; when enabled it applies to all built-in gateway requests with protection on, including client requests. The existing client LLM review field is retained but does not control execution. See `docs/model-gateway.md` for configuration and failure handling.
 
 Client model switching provides Agent-specific configuration, parameter previews, backup recovery and isolated call verification. See the [evidence matrix](acceptance/model-switching-2026-09-13/README.md) for the actual validation scope and the [gateway guide](model-gateway.md#客户端模型切换--client-model-switching) for usage.
 

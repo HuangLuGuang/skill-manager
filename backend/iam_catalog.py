@@ -58,7 +58,7 @@ PAGES = [
     ("providers", "model-gateway", "供应商与模型", "Providers & Models", "/model-gateway/providers", "providers:view", "api", None),
     ("bindings", "model-gateway", "组策略绑定", "Group Policy Bindings", "/model-gateway/policy-bindings", "groups:view", "team", None),
     ("privacy", "model-gateway", "隐私策略", "Privacy Policies", "/model-gateway/policies", "privacy:view", "setting", None),
-    ("prompt-guard", "model-gateway", "Prompt 防护测试", "Prompt Guard Test", "/model-gateway/prompt-guard", "privacy:test", "safety", None),
+    ("prompt-guard", "model-gateway", "Prompt 防护", "Prompt Guard", "/model-gateway/prompt-guard", "privacy:test", "safety", None),
     ("skill-alerts", "model-gateway", "Skill 风险告警", "Skill Risk Alerts", "/model-gateway/skill-alerts", "privacy:view", "safety", None),
     ("privacy-audit", "model-gateway", "隐私审计", "Privacy Audit", "/model-gateway/audit", "privacy_audit:view", "audit", None),
     ("stats", "model-gateway", "Token 压缩统计", "Token Compression", "/model-gateway/stats", "privacy_audit:view", "barChart", None),

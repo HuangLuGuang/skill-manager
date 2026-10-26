@@ -593,3 +593,20 @@ def test_documentation_editor_can_load_its_configuration_without_reader_grant(ap
         db.commit()
     assert c.get(path).status_code == 200
     assert c.post(path, json=config).status_code == 403
+
+
+def test_prompt_guard_menu_title_upgrade_preserves_custom_names(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'menu-upgrade.db'}")
+    Base.metadata.create_all(engine)
+    with sessionmaker(bind=engine)() as db:
+        iam.initialize(db)
+        menu = db.get(im.Menu, 'prompt-guard')
+        menu.title_zh, menu.title_en, menu.title_key = 'Prompt 防护测试', 'Prompt Guard Test', None
+        db.commit()
+        iam.initialize(db)
+        iam.initialize(db)
+        assert (menu.title_zh, menu.title_en, menu.title_key) == ('Prompt 防护', 'Prompt Guard', 'iam.navigation.prompt-guard')
+        menu.title_zh, menu.title_en, menu.title_key = '企业提示防护', 'Enterprise Guard', None
+        db.commit()
+        iam.initialize(db)
+        assert (menu.title_zh, menu.title_en, menu.title_key) == ('企业提示防护', 'Enterprise Guard', None)

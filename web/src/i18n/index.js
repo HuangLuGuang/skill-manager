@@ -1,4 +1,5 @@
 import { overviewTabsMessages } from './overview-tabs.js'
+import { promptGuardMessages } from './prompt-guard.js'
 import { securityRulesMessages } from './security-rules.js'
 import { aidrRiskMessages } from './aidr-risk.js'
 import { riskOverviewMessages } from './risk-overview.js'
@@ -67,6 +68,7 @@ export const i18n = createI18n({
   messages: {
     'zh-CN': {
       securityRules: securityRulesMessages['zh-CN'],
+      promptGuard: promptGuardMessages['zh-CN'],
       aidrRisk: aidrRiskMessages['zh-CN'],
       riskOverview: riskOverviewMessages['zh-CN'],
       overviewTabs: overviewTabsMessages['zh-CN'],
@@ -1242,6 +1244,7 @@ export const i18n = createI18n({
     },
     'en-US': {
       securityRules: securityRulesMessages['en-US'],
+      promptGuard: promptGuardMessages['en-US'],
       aidrRisk: aidrRiskMessages['en-US'],
       riskOverview: riskOverviewMessages['en-US'],
       overviewTabs: overviewTabsMessages['en-US'],
