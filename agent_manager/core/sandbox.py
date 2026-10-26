@@ -426,6 +426,8 @@ class SandboxConnectionTest(BaseModel):
     runtime: str
     target: str | None = None
     message: str
+    error_code: str | None = None
+    error_params: dict[str, str] = Field(default_factory=dict)
     duration_ms: int | None = None
 
 
@@ -1066,12 +1068,17 @@ def test_sandbox_connection(
     resolved = config or SandboxConfig.load()
     started = time.monotonic()
 
-    def finish(available: bool, message: str, target: str | None = None) -> SandboxConnectionTest:
+    def finish(
+        available: bool, message: str, target: str | None = None,
+        *, error_code: str | None = None, error_params: dict[str, str] | None = None,
+    ) -> SandboxConnectionTest:
         return SandboxConnectionTest(
             available=available,
             runtime=resolved.runtime,
             target=target if target is not None else _sandbox_test_target(resolved),
             message=message,
+            error_code=error_code,
+            error_params=error_params or {},
             duration_ms=int((time.monotonic() - started) * 1000),
         )
 
@@ -1081,7 +1088,12 @@ def test_sandbox_connection(
     if resolved.runtime == "docker":
         code = sandbox_docker_error(resolved, timeout_seconds)
         if code:
-            return finish(False, SANDBOX_DOCKER_ERRORS[code][0].format(image=resolved.image))
+            # 保留原消息兼容旧客户端，错误编码供界面按语言展示。
+            return finish(
+                False, SANDBOX_DOCKER_ERRORS[code][0].format(image=resolved.image),
+                error_code=code,
+                error_params={"image": resolved.image} if code == "sandbox.image_unavailable" else {},
+            )
         return finish(True, "Docker Sandbox 镜像可用")
 
     if resolved.runtime != "remote":
