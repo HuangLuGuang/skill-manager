@@ -568,6 +568,8 @@ The editor tests the selected draft against text, source and mode without saving
 
 ## 6. 模型供应商与模型
 
+新建模型供应商的请求超时默认为 180 秒，可配置范围为 1–600 秒；已有供应商保留已保存的超时。
+
 模型供应商保存 `base_url`、上游协议（OpenAI Chat Completions、OpenAI Responses API 或 Anthropic Messages 兼容）、API Key、超时和启用状态。
 
 - `base_url` 必须包含供应商要求的 API 版本路径；网关不会自动插入 `/v1`。

@@ -301,7 +301,7 @@ const formState = reactive({
   risk_classification: { ...defaultRiskClassification },
 })
 const llmForm = reactive({
-  enabled: false, model: '', timeout_seconds: 30,
+  enabled: false, model: '', timeout_seconds: 180,
   max_files: 6, max_file_chars: 3000, max_manifest_chars: 12000,
 })
 const sandboxForm = reactive({
@@ -469,7 +469,7 @@ const applyPolicy = policy => {
 const applyLlmConfig = (llm) => {
   llmForm.enabled = llm?.enabled ?? false
   llmForm.model = llm?.model || ''
-  llmForm.timeout_seconds = llm?.timeout_seconds ?? 30
+  llmForm.timeout_seconds = llm?.timeout_seconds ?? 180
   llmForm.max_files = llm?.max_files ?? 6
   llmForm.max_file_chars = llm?.max_file_chars ?? 3000
   llmForm.max_manifest_chars = llm?.max_manifest_chars ?? 12000

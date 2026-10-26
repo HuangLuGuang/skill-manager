@@ -1207,7 +1207,7 @@ class ModelProviderCreate(BaseModel):
     api_format: str = Field(default="openai", pattern="^(openai|anthropic|responses_api)$")
     api_key: Optional[str] = None
     enabled: bool = True
-    timeout_seconds: int = Field(default=60, ge=1, le=600)
+    timeout_seconds: int = Field(default=180, ge=1, le=600)
 
 
 class ModelProviderUpdate(BaseModel):
