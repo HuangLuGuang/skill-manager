@@ -27,6 +27,20 @@ from pydantic import BaseModel, Field, HttpUrl, TypeAdapter, ValidationError
 logger = logging.getLogger(__name__)
 
 SANDBOX_URL_MAX_LENGTH = 2048
+SANDBOX_DOCKER_ERRORS = {
+    "sandbox.docker_command_unavailable": (
+        "当前 Backend 运行环境未检测到 Docker 命令，无法使用“本地 Docker”运行方式，请改用“远程服务”。",
+        "The current Backend environment has no Docker command. Local Docker is unavailable. Use Remote Service.",
+    ),
+    "sandbox.docker_daemon_unavailable": (
+        "当前 Backend 无法连接 Docker 服务，请检查 Docker 服务及连接权限，或改用“远程服务”。",
+        "The current Backend cannot connect to Docker. Check the Docker service and connection permissions, or use Remote Service.",
+    ),
+    "sandbox.image_unavailable": (
+        "无法访问运行镜像 {image}，请确认镜像已安装且 Backend 可访问，或改用“远程服务”。",
+        "Cannot access runtime image {image}. Check that the image is installed and accessible to the Backend, or use Remote Service.",
+    ),
+}
 _http_url = TypeAdapter(HttpUrl)
 
 
@@ -1018,6 +1032,33 @@ def _sandbox_test_target(config: SandboxConfig) -> str | None:
     return None
 
 
+def sandbox_docker_error(config: SandboxConfig, timeout_seconds: int = 3) -> str | None:
+    """Check the Backend's Docker service and selected image within one budget."""
+    if shutil.which("docker") is None:
+        return "sandbox.docker_command_unavailable"
+    # 保存和连接测试共用检查；先确认服务可达，避免将连接故障误报为镜像缺失。
+    deadline = time.monotonic() + max(1, min(timeout_seconds, 10))
+    checks = (
+        (["docker", "info", "--format", "{{.ServerVersion}}"], "sandbox.docker_daemon_unavailable"),
+        (["docker", "image", "inspect", config.image], "sandbox.image_unavailable"),
+    )
+    for command, code in checks:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return code
+        try:
+            completed = subprocess.run(
+                command, capture_output=True, text=True, timeout=remaining, check=False,
+            )
+        except FileNotFoundError:
+            return "sandbox.docker_command_unavailable"
+        except (OSError, subprocess.SubprocessError):
+            return code
+        if completed.returncode != 0:
+            return code
+    return None
+
+
 def test_sandbox_connection(
     config: SandboxConfig | None = None,
     timeout_seconds: int = 3,
@@ -1038,21 +1079,9 @@ def test_sandbox_connection(
         return finish(False, "Sandbox 未启用")
 
     if resolved.runtime == "docker":
-        if shutil.which("docker") is None:
-            return finish(False, "Docker 命令不可用")
-        try:
-            completed = subprocess.run(
-                ["docker", "image", "inspect", resolved.image],
-                capture_output=True,
-                text=True,
-                timeout=max(1, min(timeout_seconds, 10)),
-                check=False,
-            )
-        except Exception as exc:
-            return finish(False, f"Docker Sandbox 检查失败：{exc}")
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout or "").strip()
-            return finish(False, f"Sandbox 镜像不可用：{detail or resolved.image}")
+        code = sandbox_docker_error(resolved, timeout_seconds)
+        if code:
+            return finish(False, SANDBOX_DOCKER_ERRORS[code][0].format(image=resolved.image))
         return finish(True, "Docker Sandbox 镜像可用")
 
     if resolved.runtime != "remote":

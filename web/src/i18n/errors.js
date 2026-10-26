@@ -62,6 +62,18 @@ const errorMessages = {
   'request.validation_failed': { 'zh-CN': '请求参数无效', 'en-US': 'Invalid request parameters' },
   'http.500': { 'zh-CN': '服务器内部错误', 'en-US': 'Internal server error' },
   'http.403': { 'zh-CN': '权限不足', 'en-US': 'Permission denied' },
+  'sandbox.docker_command_unavailable': {
+    'zh-CN': '当前 Backend 运行环境未检测到 Docker 命令，无法使用“本地 Docker”运行方式，请改用“远程服务”。',
+    'en-US': 'The current Backend environment has no Docker command. Local Docker is unavailable. Use Remote Service.',
+  },
+  'sandbox.docker_daemon_unavailable': {
+    'zh-CN': '当前 Backend 无法连接 Docker 服务，请检查 Docker 服务及连接权限，或改用“远程服务”。',
+    'en-US': 'The current Backend cannot connect to Docker. Check the Docker service and connection permissions, or use Remote Service.',
+  },
+  'sandbox.image_unavailable': {
+    'zh-CN': '无法访问运行镜像 {image}，请确认镜像已安装且 Backend 可访问，或改用“远程服务”。',
+    'en-US': 'Cannot access runtime image {image}. Check that the image is installed and accessible to the Backend, or use Remote Service.',
+  },
   'sandbox.url_required': { 'zh-CN': '请填写远程 Sandbox 服务地址。', 'en-US': 'Enter the remote Sandbox service URL.' },
   'sandbox.url_too_long': { 'zh-CN': '远程 Sandbox 服务地址最多 2048 个字符。', 'en-US': 'The remote Sandbox service URL must not exceed 2048 characters.' },
   'sandbox.url_invalid': { 'zh-CN': '请输入有效的 HTTP/HTTPS 服务地址，不含空白、查询参数或片段。', 'en-US': 'Enter a valid HTTP/HTTPS service URL without whitespace, query parameters, or fragments.' },

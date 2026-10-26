@@ -1898,6 +1898,8 @@ flowchart TB
 
 它内置常见 Python 依赖，避免很多 skill 因为 `requests` 之类库缺失直接失败。
 
+保存已启用的本地 Docker 配置前，Backend 会检查 Docker 命令、服务连接和运行镜像，总检查预算为 3 秒。不可用时阻止保存，在策略配置“高级配置”显示具体原因并保留草稿；请按提示修复环境或选择远程服务。切换运行方式会清除 Sandbox 上次保存失败提示，并显示“未保存”、启用保存按钮；切回原方式也需点击保存确认，成功后显示“已保存”。检查依据是 Backend 的实际运行环境，宿主机安装 Docker 不会自动使 Backend 容器具备 Docker 能力。关闭 Sandbox 和保存远程模式不依赖本地 Docker。历史配置可正常读取，无需数据库迁移，Docker 部署更新应用镜像即可。实现和错误码见 [Sandbox 配置保存校验](sandbox-service-architecture.md#本地-docker-配置保存校验)。 系统状态同步返回 Docker 错误编码和参数，系统设置页复用保存错误的双语资源，切换语言即时更新；原状态消息字段保留兼容。
+
 ### 10.2 Remote backend
 
 适合：
