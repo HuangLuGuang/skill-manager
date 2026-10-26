@@ -1012,12 +1012,19 @@ def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_pat
 
 def test_client_can_issue_task_bound_agent_runtime_credential_when_explicitly_allowed(tmp_path):
     client = _client(tmp_path)
+    database = next(client.app.dependency_overrides[get_db]())
+    privacy_policy = models.PrivacyPolicy(name="delegated-policy", entity_types_json="[]")
+    database.add(privacy_policy)
+    database.commit()
+    policy_id = privacy_policy.id
+    database.close()
     created_client_credential = client.post(
         "/api/v1/access/tokens",
         json={
             "name": "auto-model-host",
             "token_type": "client",
             "allow_agent_credential_issuance": True,
+            "privacy_policy_id": policy_id,
         },
     )
     assert created_client_credential.status_code == 200
@@ -1099,6 +1106,7 @@ def test_client_can_issue_task_bound_agent_runtime_credential_when_explicitly_al
         models.AccessToken.status == "active",
     ).one()
     assert runtime.bound_agent_id == managed_agent_id
+    assert runtime.privacy_policy_id == policy_id
     assert json.loads(runtime.scopes_json) == [
         "runtime:verify-signature",
         "runtime:can-load",

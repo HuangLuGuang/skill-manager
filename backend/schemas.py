@@ -525,6 +525,7 @@ class AgentAssetListResponse(BaseModel):
 
 
 class AccessTokenCreate(BaseModel):
+    privacy_policy_id: Optional[int] = Field(default=None, gt=0)
     platform_id: Optional[str] = Field(default=None, max_length=64)
     allowed_department_ids: list[str] = Field(default_factory=list)
     name: str
@@ -551,6 +552,7 @@ class AccessTokenCreate(BaseModel):
 
 
 class AccessTokenUpdate(BaseModel):
+    privacy_policy_id: Optional[int] = Field(default=None, gt=0)
     allowed_department_ids: Optional[list[str]] = None
     name: Optional[str] = None
     bound_agent_id: Optional[str] = None
@@ -576,6 +578,7 @@ class AccessTokenUpdate(BaseModel):
 
 
 class AccessTokenResponse(BaseModel):
+    privacy_policy_id: Optional[int] = None
     platform_id: Optional[str] = None
     allowed_department_ids: list[str] = Field(default_factory=list)
     id: int

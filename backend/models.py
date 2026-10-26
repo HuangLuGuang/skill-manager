@@ -152,6 +152,7 @@ class AccessToken(Base):
     __tablename__ = "access_tokens"
     __table_args__ = {"sqlite_autoincrement": True}
     platform_id = Column(String(64), index=True, nullable=True)
+    privacy_policy_id = Column(Integer, ForeignKey("privacy_policies.id"), nullable=True)
     allowed_department_ids_json = Column(Text, default="[]", nullable=False)
 
     id = Column(Integer, primary_key=True, index=True)
