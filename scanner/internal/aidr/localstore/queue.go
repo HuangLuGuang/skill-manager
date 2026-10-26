@@ -45,14 +45,18 @@ func (s *Store) Prepare(ctx context.Context, maxRecords, maxBytes int) (*UploadB
 }
 
 func (s *Store) prepare(ctx context.Context, maxRecords, maxBytes int) (*UploadBatch, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	var b UploadBatch
+	var frozenBatch bool
+	err := s.db.QueryRowContext(ctx, `SELECT 1 AS frozen,id,digest,payload FROM active_batch WHERE singleton=1
+ UNION ALL SELECT 0,'','',X'' WHERE EXISTS(SELECT 1 FROM outbox)
+ ORDER BY frozen DESC LIMIT 1`).Scan(&frozenBatch, &b.ID, &b.Digest, &b.Payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
-	var b UploadBatch
-	err = tx.QueryRow(`SELECT id,digest,payload FROM active_batch WHERE singleton=1`).Scan(&b.ID, &b.Digest, &b.Payload)
-	if err == nil {
+	if frozenBatch {
 		var frozen Envelope
 		if json.Unmarshal(b.Payload, &frozen) != nil {
 			return nil, errors.New("aidr_store_corrupt")
@@ -62,9 +66,12 @@ func (s *Store) prepare(ctx context.Context, maxRecords, maxBytes int) (*UploadB
 		}
 		return &b, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	// Store ownership and mu keep the queue stable until the freezing transaction.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return nil, err
 	}
+	defer tx.Rollback()
 	rows, err := tx.Query(`SELECT seq,kind,record_id,payload FROM outbox ORDER BY seq LIMIT ?`, maxRecords)
 	if err != nil {
 		return nil, err
@@ -168,7 +175,7 @@ func (s *Store) Acknowledge(ctx context.Context, id, digest string) error {
 	if _, err = tx.Exec(`DELETE FROM outbox WHERE seq<=?`, through); err != nil {
 		return err
 	}
-	if err = releaseAcknowledgedPayloads(tx); err != nil {
+	if err = releaseAcknowledgedPayloads(tx, s.maintenanceIndexed); err != nil {
 		return err
 	}
 	for key, value := range map[string]any{"last_ack_id": id, "last_ack_seq": through, "last_ack_at": time.Unix(0, now).UTC().Format(time.RFC3339Nano)} {
@@ -208,22 +215,28 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var v Status
-	err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM sources),(SELECT count(*) FROM logical_events),(SELECT count(*) FROM evidence),(SELECT count(*) FROM outbox),(SELECT count(*) FROM logical_events WHERE payload IS NOT NULL),(SELECT count(*) FROM logical_events WHERE payload IS NULL)`).Scan(&v.Sources, &v.LogicalEvents, &v.Evidence, &v.Queued, &v.RetainedPayloads, &v.EvictedPayloads)
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return v, err
 	}
-	if err = s.db.QueryRow(`SELECT count(*) FROM coverage_history`).Scan(&v.CoverageRecords); err != nil {
+	defer tx.Rollback()
+	err = tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM sources),(SELECT count(*) FROM logical_events),(SELECT count(*) FROM evidence),(SELECT count(*) FROM outbox),(SELECT count(*) FROM logical_events WHERE payload IS NOT NULL)`).Scan(&v.Sources, &v.LogicalEvents, &v.Evidence, &v.Queued, &v.RetainedPayloads)
+	if err != nil {
+		return v, err
+	}
+	v.EvictedPayloads = v.LogicalEvents - v.RetainedPayloads
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM coverage_history`).Scan(&v.CoverageRecords); err != nil {
 		return v, err
 	}
 	v.AcknowledgedSequence = "0"
 	for key, dst := range map[string]*string{"retired_through": &v.RetiredThrough, "runtime_policy_version": &v.RuntimePolicyVersion, "last_ack_seq": &v.AcknowledgedSequence, "last_ack_at": &v.LastAcknowledgedAt, "recovery_code": &v.RecoveryCode, "intake_code": &v.IntakeCode, "upload_code": &v.UploadCode} {
-		err = s.db.QueryRow(`SELECT value FROM metadata WHERE key=?`, key).Scan(dst)
+		err = tx.QueryRowContext(ctx, `SELECT value FROM metadata WHERE key=?`, key).Scan(dst)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return v, err
 		}
 	}
 	var runtimeEnabled string
-	err = s.db.QueryRow(`SELECT value FROM metadata WHERE key='runtime_collection_enabled'`).Scan(&runtimeEnabled)
+	err = tx.QueryRowContext(ctx, `SELECT value FROM metadata WHERE key='runtime_collection_enabled'`).Scan(&runtimeEnabled)
 	if err == nil {
 		if runtimeEnabled != "true" && runtimeEnabled != "false" {
 			return v, ErrInvalid
@@ -234,10 +247,10 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 		return v, err
 	}
 	var pages, size int64
-	if err = s.db.QueryRow(`PRAGMA page_count`).Scan(&pages); err != nil {
+	if err = tx.QueryRowContext(ctx, `PRAGMA page_count`).Scan(&pages); err != nil {
 		return v, err
 	}
-	if err = s.db.QueryRow(`PRAGMA page_size`).Scan(&size); err != nil {
+	if err = tx.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&size); err != nil {
 		return v, err
 	}
 	v.DatabaseBytes = pages * size
@@ -255,6 +268,7 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 func (s *Store) Prune(ctx context.Context, now time.Time) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	clear(s.readCheckpoints)
 	retention := s.limits.Retention
 	if s.policy != nil && s.policy.Lifecycle != nil {
 		retention = time.Duration(s.policy.Lifecycle.RetentionDays) * 24 * time.Hour
@@ -328,7 +342,7 @@ func (s *Store) Prune(ctx context.Context, now time.Time) (int64, error) {
 	if _, err = tx.Exec(`INSERT INTO metadata(key,value) VALUES('source_revision',coalesce((SELECT max(revision) FROM sources),0)) ON CONFLICT(key) DO UPDATE SET value=max(CAST(value AS INTEGER),CAST(excluded.value AS INTEGER))`); err != nil {
 		return 0, err
 	}
-	if _, err = tx.Exec(`DELETE FROM sources WHERE NOT EXISTS(SELECT 1 FROM coverage_history WHERE source_id=sources.id) AND NOT EXISTS(SELECT 1 FROM logical_events WHERE coalesce(source_id,json_extract(payload,'$.source_id'))=sources.id)`); err != nil {
+	if _, err = tx.Exec(`DELETE FROM sources WHERE NOT EXISTS(SELECT 1 FROM coverage_history WHERE source_id=sources.id) AND NOT EXISTS(SELECT 1 FROM logical_events WHERE CAST(coalesce(source_id,json_extract(payload,'$.source_id')) AS TEXT)=sources.id)`); err != nil {
 		return 0, err
 	}
 	if _, err = tx.Exec(`DELETE FROM discovery_files WHERE reason='aidr_log_source_missing' AND NOT EXISTS(SELECT 1 FROM sources WHERE sources.id=discovery_files.id)`); err != nil {

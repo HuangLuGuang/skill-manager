@@ -5,10 +5,54 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
+
+func TestEventWakeIgnoresSiblingWrites(t *testing.T) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+	root := t.TempDir()
+	path := filepath.Join(root, eventWakeFile)
+	if err = watchEventWake(watcher, path); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(root, "daemon-health.json"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-watcher.Events:
+		t.Fatalf("unrelated runtime write woke uploader: %v", event)
+	case err := <-watcher.Errors:
+		t.Fatal(err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err = os.WriteFile(path, []byte{1}, 0600); err != nil {
+		t.Fatal(err)
+	}
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case event := <-watcher.Events:
+			if event.Name != path {
+				t.Fatal(event)
+			}
+			if event.Op&fsnotify.Write != 0 {
+				return
+			}
+		case <-timer.C:
+			t.Fatal("wake file write was missed")
+		}
+	}
+}
 
 func TestEventUploaderCrossProcessWakeAndShutdown(t *testing.T) {
 	store := ordinaryFixture(t)
@@ -26,6 +70,21 @@ func TestEventUploaderCrossProcessWakeAndShutdown(t *testing.T) {
 	go func() { defer close(done); runEventUploader(ctx, NewAPI(server.URL, "fixture", time.Second), store) }()
 	// Let the initial empty pass complete; subsequent work must wake the idle worker.
 	time.Sleep(100 * time.Millisecond)
+	// Atomic replacement invalidates inode watches; subsequent producers must still wake immediately.
+	wakePath := filepath.Join(store.root, eventWakeFile)
+	if err := os.Rename(wakePath, wakePath+".old"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, err := os.Stat(wakePath); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("wake file watch was not restored")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	producer, err := OpenStore(filepath.Join(store.root, "client.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +100,7 @@ func TestEventUploaderCrossProcessWakeAndShutdown(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("cross-process wake was lost")
 	}
-	deadline := time.Now().Add(time.Second)
+	deadline = time.Now().Add(time.Second)
 	for queueTotal(t, store) != 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}

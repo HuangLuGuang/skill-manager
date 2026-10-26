@@ -3,16 +3,23 @@ package localstore
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 )
 
 // Release only durable platform-confirmed payloads. Identity hashes and source
 // observation metadata remain available for deduplication and retirement.
-func releaseAcknowledgedPayloads(tx *sql.Tx) error {
+func releaseAcknowledgedPayloads(tx *sql.Tx, indexed bool) error {
+	logicalIndex, coverageIndex := "", ""
+	if indexed {
+		logicalIndex = " INDEXED BY logical_events_release"
+		coverageIndex = " INDEXED BY coverage_release"
+	}
+	// Retention indexes include released history; pin cleanup to retained bodies.
 	for _, statement := range []string{
-		`UPDATE logical_events SET source_id=coalesce(source_id,json_extract(payload,'$.source_id')), observed_at=coalesce(observed_at,json_extract(payload,'$.observed_at')), payload=NULL WHERE acked_ns IS NOT NULL AND payload IS NOT NULL`,
+		`UPDATE logical_events` + logicalIndex + ` SET source_id=coalesce(source_id,json_extract(payload,'$.source_id')), observed_at=coalesce(observed_at,json_extract(payload,'$.observed_at')), payload=NULL WHERE acked_ns IS NOT NULL AND payload IS NOT NULL`,
 		`UPDATE evidence SET payload=NULL WHERE payload IS NOT NULL AND EXISTS (SELECT 1 FROM logical_events WHERE id=evidence.logical_id AND acked_ns IS NOT NULL)`,
-		`UPDATE coverage_history SET payload='',payload_encoding='released' WHERE acked_ns IS NOT NULL AND payload_encoding!='released'`,
+		`UPDATE coverage_history` + coverageIndex + ` SET payload='',payload_encoding='released' WHERE acked_ns IS NOT NULL AND payload_encoding!='released'`,
 	} {
 		if _, err := tx.Exec(statement); err != nil {
 			return err
@@ -54,19 +61,9 @@ func (s *Store) initializeACKRelease(ctx context.Context) error {
 			}
 		}
 	}
-	if err = releaseAcknowledgedPayloads(tx); err != nil {
+	// Legacy ACK bodies must release space before optional indexes allocate pages.
+	if err = releaseAcknowledgedPayloads(tx, false); err != nil {
 		return err
-	}
-	// Partial indexes keep ACK cleanup proportional to retained payloads rather
-	// than repeatedly scanning every confirmed identity.
-	for _, statement := range []string{
-		`CREATE INDEX IF NOT EXISTS logical_events_release ON logical_events(acked_ns) WHERE payload IS NOT NULL`,
-		`CREATE INDEX IF NOT EXISTS evidence_release ON evidence(logical_id) WHERE payload IS NOT NULL`,
-		`CREATE INDEX IF NOT EXISTS coverage_release ON coverage_history(acked_ns) WHERE payload_encoding!='released'`,
-	} {
-		if _, err = tx.Exec(statement); err != nil {
-			return err
-		}
 	}
 	if err = tx.Commit(); err != nil {
 		return err
@@ -92,6 +89,41 @@ func (s *Store) initializeACKRelease(ctx context.Context) error {
 		}
 	}
 	return s.reclaimPages(ctx, 0)
+}
+
+func (s *Store) initializeMaintenanceIndexes(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{
+		`CREATE INDEX IF NOT EXISTS sources_revision ON sources(revision)`,
+		`CREATE INDEX IF NOT EXISTS sources_discovery ON sources(id,CAST(json_extract(cursor,'$.offset') AS INTEGER)) WHERE json_extract(cursor,'$.context_repair') IS NULL`,
+		`CREATE INDEX IF NOT EXISTS logical_events_release ON logical_events(acked_ns) WHERE payload IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS evidence_release ON evidence(logical_id) WHERE payload IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS coverage_release ON coverage_history(acked_ns) WHERE payload_encoding!='released'`,
+		`CREATE INDEX IF NOT EXISTS logical_events_retention ON logical_events(acked_ns) WHERE acked_ns IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS logical_events_retention_source ON logical_events(CAST(coalesce(source_id,json_extract(payload,'$.source_id')) AS TEXT))`,
+		`CREATE INDEX IF NOT EXISTS coverage_source ON coverage_history(source_id)`,
+		`CREATE INDEX IF NOT EXISTS coverage_retention ON coverage_history(acked_ns) WHERE acked_ns IS NOT NULL`,
+	} {
+		if _, err = tx.ExecContext(ctx, statement); err != nil {
+			// A full queue must remain open for ACK/draining without optional indexes.
+			if errors.Is(storageError(err), ErrCapacity) {
+				return nil
+			}
+			return err
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		if errors.Is(storageError(err), ErrCapacity) {
+			return nil
+		}
+		return err
+	}
+	s.maintenanceIndexed = true
+	return nil
 }
 
 func (s *Store) reclaimPages(ctx context.Context, pages int) error {

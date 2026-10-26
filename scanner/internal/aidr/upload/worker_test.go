@@ -88,6 +88,56 @@ func TestCapabilitySummaryKeepsDegradation(t *testing.T) {
 	}
 }
 
+func TestWorkerStatusIntervalAndObserverFailure(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := localstore.Open(filepath.Join(root, "state"), localstore.DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var beats atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		if strings.HasSuffix(r.URL.Path, "/heartbeat") {
+			var body map[string]any
+			json.Unmarshal(raw, &body)
+			beats.Add(1)
+			json.NewEncoder(w).Encode(map[string]any{"schema_version": 2, "client_id": "device-one", "stream_id": body["stream_id"], "server_received_at": "2026-09-23T00:00:00Z"})
+		} else {
+			json.NewEncoder(w).Encode(receipt(r, raw))
+		}
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	failure := errors.New("status_write_failed")
+	var observed []time.Time
+	err = Run(ctx, store, newClient(t, server.URL), WorkerOptions{
+		Roots: []Root{{Agent: "claude", Path: root}}, Interval: time.Second,
+		HeartbeatInterval: time.Second, DiscoveryInterval: time.Minute,
+		StatusInterval: 1500 * time.Millisecond, IntakeEnabled: func() bool { return false },
+		StatusObserver: func(localstore.Status) error {
+			observed = append(observed, time.Now())
+			if len(observed) == 1 {
+				if beats.Load() != 1 {
+					t.Error("first status was delayed")
+				}
+				return nil
+			}
+			return failure
+		},
+	})
+	if !errors.Is(err, failure) || len(observed) != 2 {
+		t.Fatalf("observer failure lost: %v, reports=%d", err, len(observed))
+	}
+	if observed[1].Sub(observed[0]) < 1500*time.Millisecond || beats.Load() < 2 {
+		t.Fatal("status throttle did not preserve heartbeat work")
+	}
+}
+
 func TestAutomaticDiscoveryBacklogOfflineAndRestart(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {

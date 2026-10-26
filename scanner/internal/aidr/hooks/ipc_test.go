@@ -3,11 +3,13 @@
 package hooks
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -284,5 +286,23 @@ func TestReceiverRealSocketIdentityFramingAndShutdown(t *testing.T) {
 	}
 	if _, err = os.Lstat(path); !os.IsNotExist(err) {
 		t.Fatal("owned socket not removed")
+	}
+}
+
+type shortFrameWriter struct{}
+
+func (shortFrameWriter) Write(p []byte) (int, error) { return len(p) - 1, nil }
+func TestFrameWritePreservesBytesAndShortWriteFailure(t *testing.T) {
+	req := IPCRequest{Version: 1, Method: "GetHealth"}
+	var frame bytes.Buffer
+	if err := writeFrame(&frame, req); err != nil {
+		t.Fatal(err)
+	}
+	var got IPCRequest
+	if err := readFrame(&frame, &got); err != nil || got.Version != 1 || got.Method != req.Method {
+		t.Fatal(got, err)
+	}
+	if err := writeFrame(shortFrameWriter{}, req); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatal(err)
 	}
 }

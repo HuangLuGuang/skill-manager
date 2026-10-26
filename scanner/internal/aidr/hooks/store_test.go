@@ -38,6 +38,55 @@ func storeDirectory(t *testing.T) string {
 
 func testID(n int) string { return fmt.Sprintf("%016x%016x", time.Now().UnixMilli(), n) }
 
+func TestPrepareEmptyThenReceive(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, storeDirectory(t), 10)
+	if b, err := s.Prepare(ctx); err != nil || b != nil {
+		t.Fatal(b, err)
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := s.Prepare(cancelled); err != context.Canceled {
+		t.Fatal("empty queue ignored cancellation", err)
+	}
+	if _, err := s.Receive(ctx, testID(1), "501", "codex", "PreToolUse", []byte(storeInput)); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.Prepare(ctx)
+	if err != nil || b == nil {
+		t.Fatal("received event not ready immediately", err)
+	}
+	if err = s.Acknowledge(ctx, s.device, s.stream, b.Digest, b.Count, true); err != nil {
+		t.Fatal(err)
+	}
+	if b, err = s.Prepare(ctx); err != nil || b != nil {
+		t.Fatal("acknowledged queue not empty", b, err)
+	}
+	if err = s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Prepare(ctx); err == nil {
+		t.Fatal("closed database returned empty success")
+	}
+}
+
+func TestStatusCountsPendingKindsAndRecentSuppression(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, storeDirectory(t), 10)
+	if _, err := s.Receive(ctx, testID(1), "501", "codex", "PreToolUse", []byte(storeInput)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO hook_attempts(event_id,receiver,user_scope,scope,expires_at) VALUES('pending','test','501','{}',1);
+	INSERT INTO hook_attempt_reports(event_id,payload,digest,acked) VALUES('unsent',X'7B7D','test',0),('sent',X'7B7D','test',1);
+	INSERT INTO hook_suppressed_receipts(event_id,input_hash,seen_at) VALUES('recent','test',?),('old','test',1)`, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.Status(ctx)
+	if err != nil || state.Queued != 1 || state.PendingUploads != 3 || state.Suppressed != 1 || state.LastSequence != "1" {
+		t.Fatal(state, err)
+	}
+}
+
 func TestBridgeProvenanceIsFrozenAndCannotChangeOnRetry(t *testing.T) {
 	ctx := context.Background()
 	dir := storeDirectory(t)

@@ -315,7 +315,11 @@ func writeFrame(w io.Writer, value any) error {
 	}
 	var header [4]byte
 	binary.BigEndian.PutUint32(header[:], uint32(len(b)))
-	_, err = io.Copy(w, io.MultiReader(bytes.NewReader(header[:]), bytes.NewReader(b)))
+	buffers := net.Buffers{header[:], b}
+	written, err := buffers.WriteTo(w)
+	if err == nil && written != int64(len(header)+len(b)) {
+		return io.ErrShortWrite
+	}
 	return err
 }
 

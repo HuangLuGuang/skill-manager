@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"time"
 
@@ -41,7 +42,10 @@ func (l Limits) valid() bool {
 }
 
 type Store struct {
+	maintenanceIndexed bool
+	readCheckpoints    map[string]Checkpoint
 	skillObserver      *agentlog.SkillObserver
+	readCache          agentlog.ReadCache
 	policy             *agentlog.AuditPolicy
 	collectionResumeAt time.Time
 	runtimeResumeAt    time.Time
@@ -143,7 +147,8 @@ func Open(dir string, limits Limits) (*Store, error) {
 	s := &Store{db: db, lock: lock, limits: limits, skillObserver: agentlog.NewSkillObserver()}
 	fail := func(e error) (*Store, error) { db.Close(); lock.Close(); return nil, e }
 	db.SetMaxOpenConns(1)
-	if _, err = db.Exec(`PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=1048576;`); err != nil {
+	// Keep frequently counted history indexes hot without caching event bodies wholesale.
+	if _, err = db.Exec(`PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA cache_size=-8192; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=1048576;`); err != nil {
 		return fail(err)
 	}
 	var version, pageSize int
@@ -182,6 +187,9 @@ func Open(dir string, limits Limits) (*Store, error) {
 	if err = s.initializeACKRelease(context.Background()); err != nil {
 		return fail(storageError(err))
 	}
+	if err = s.initializeMaintenanceIndexes(context.Background()); err != nil {
+		return fail(err)
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		return fail(err)
@@ -214,6 +222,7 @@ func (s *Store) Close() error {
 		return nil
 	}
 	s.closed = true
+	clear(s.readCheckpoints)
 	_, err := s.db.Exec(`UPDATE metadata SET value='1' WHERE key='clean_shutdown'`)
 	_, checkpointErr := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
 	return errors.Join(err, checkpointErr, s.db.Close(), s.lock.Close())
@@ -242,6 +251,22 @@ func (s *Store) Checkpoint(ctx context.Context, sourceID string) (Checkpoint, er
 	}
 	return c, nil
 }
+
+// Ready prefetches one bounded batch; each checkpoint is consumed only once.
+func (s *Store) checkpointForRead(ctx context.Context, id string) (Checkpoint, error) {
+	if err := ctx.Err(); err != nil {
+		return Checkpoint{}, err
+	}
+	s.mu.Lock()
+	c, ok := s.readCheckpoints[id]
+	delete(s.readCheckpoints, id)
+	s.mu.Unlock()
+	if ok {
+		return c, nil
+	}
+	return s.Checkpoint(ctx, id)
+}
+
 func hash(data []byte) string { h := sha256.Sum256(data); return hex.EncodeToString(h[:]) }
 func canonicalEvent(e agentlog.Event) []byte {
 	e.ReceivedAt = time.Time{}
@@ -305,8 +330,8 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 	}
 	defer tx.Rollback()
 	var rev int64
-	var oldCursor string
-	err = tx.QueryRowContext(ctx, `SELECT revision,cursor FROM sources WHERE id=?`, b.Source.ID).Scan(&rev, &oldCursor)
+	var oldCursor, oldCoverage string
+	err = tx.QueryRowContext(ctx, `SELECT revision,cursor,coverage FROM sources WHERE id=?`, b.Source.ID).Scan(&rev, &oldCursor, &oldCoverage)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return zero, err
 	}
@@ -349,6 +374,29 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 	cursor, _ = json.Marshal(b.Cursor)
 	if len(coverage) > 16384 || len(cursor) > 512<<10 {
 		return zero, ErrInvalid
+	}
+	// Persist scheduling progress with the checkpoint, using the same durable commit.
+	readOffset := agentlog.ReadOffset(b.Source, b.Cursor)
+	if b.Cursor.ContextRepair != nil {
+		readOffset = b.Cursor.ContextRepair.Offset
+	}
+	if _, err = tx.ExecContext(ctx, discoveryReadDoneSQL, now, readOffset, b.Source.ID); err != nil {
+		return zero, err
+	}
+	if rev != 0 && len(b.Events) == 0 && len(b.TurnLinks) == 0 && oldCursor == string(cursor) && oldCoverage == string(coverage) {
+		var intakeError bool
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM metadata WHERE key='intake_code')`).Scan(&intakeError); err != nil {
+			return zero, err
+		}
+		if intakeError {
+			if _, err = tx.ExecContext(ctx, `DELETE FROM metadata WHERE key='intake_code'`); err != nil {
+				return zero, err
+			}
+		}
+		if err = tx.Commit(); err != nil {
+			return zero, err
+		}
+		return Checkpoint{rev, b.Cursor, b.Coverage}, nil
 	}
 	var nextRevision int64
 	if err = tx.QueryRow(`SELECT max(coalesce((SELECT CAST(value AS INTEGER) FROM metadata WHERE key='source_revision'),0),coalesce((SELECT max(revision) FROM sources),0))+1`).Scan(&nextRevision); err != nil {
@@ -408,11 +456,6 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 	}
 	// Unchanged polls don't grow the queue. Coverage changes are durable records
 	// even when a missing/unreadable source has no initialized file cursor.
-	var oldCoverage string
-	err = tx.QueryRow(`SELECT coverage FROM sources WHERE id=?`, b.Source.ID).Scan(&oldCoverage)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return zero, err
-	}
 	var newLinks []agentlog.TurnLink
 	for _, link := range b.TurnLinks {
 		res, err := tx.ExecContext(ctx, `INSERT INTO event_turn_links(id,turn_id) SELECT id,? FROM logical_events WHERE id=? AND source_id=? ON CONFLICT(id) DO NOTHING`, link.TurnID, link.LogicalEventID, b.Source.ID)
@@ -498,6 +541,7 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 	if err = tx.Commit(); err != nil {
 		return zero, err
 	}
+	delete(s.readCheckpoints, b.Source.ID)
 	if s.hook != nil {
 		s.hook("after_commit")
 	}
@@ -514,10 +558,14 @@ func storageError(err error) error {
 
 // Collect reads using the durable cursor, then atomically saves the proposal.
 func (s *Store) Collect(ctx context.Context, source agentlog.Source, budget agentlog.Budget, since time.Time) (Checkpoint, error) {
+	return s.collect(ctx, source, budget, since, nil)
+}
+
+func (s *Store) collect(ctx context.Context, source agentlog.Source, budget agentlog.Budget, since time.Time, crawler *Crawler) (Checkpoint, error) {
 	if err := s.pruneForIntake(ctx); err != nil {
 		return Checkpoint{}, storageError(err)
 	}
-	c, err := s.Checkpoint(ctx, source.ID)
+	c, err := s.checkpointForRead(ctx, source.ID)
 	if err != nil {
 		return c, err
 	}
@@ -525,7 +573,7 @@ func (s *Store) Collect(ctx context.Context, source agentlog.Source, budget agen
 	if s.runtimeResumeAt.After(budget.CollectionResumeAt) {
 		budget.CollectionResumeAt = s.runtimeResumeAt
 	}
-	b, err := agentlog.ReadWithPolicy(ctx, source, c.Cursor, budget, since, s.policy, s.skillObserver)
+	b, err := s.readCache.Read(ctx, source, c.Cursor, budget, since, s.policy, s.skillObserver)
 	if err != nil {
 		return c, err
 	}
@@ -538,7 +586,29 @@ func (s *Store) Collect(ctx context.Context, source agentlog.Source, budget agen
 			return c, err
 		}
 	}
-	return s.Commit(ctx, c, b)
+	if crawler != nil && c.Revision != 0 && len(b.Events) == 0 && len(b.TurnLinks) == 0 && reflect.DeepEqual(c.Cursor, b.Cursor) && reflect.DeepEqual(c.Coverage, b.Coverage) {
+		if err := ctx.Err(); err != nil {
+			return c, err
+		}
+		offset := agentlog.ReadOffset(source, b.Cursor)
+		if b.Cursor.ContextRepair != nil {
+			offset = b.Cursor.ContextRepair.Offset
+		}
+		s.mu.Lock()
+		if crawler.readProgress == nil {
+			crawler.readProgress = make(map[string]readProgress)
+		}
+		crawler.readProgress[source.ID] = readProgress{time.Now().UnixNano(), offset, c.Revision}
+		s.mu.Unlock()
+		return c, nil
+	}
+	checkpoint, err := s.Commit(ctx, c, b)
+	if err == nil && crawler != nil {
+		s.mu.Lock()
+		delete(crawler.readProgress, source.ID)
+		s.mu.Unlock()
+	}
+	return checkpoint, err
 }
 
 // Retention is periodic maintenance, independent of the number of sources.
