@@ -102,6 +102,7 @@ make sandbox-runtime-build
 - 模型网关和隐私路由在 `backend/routers/llm_gateway.py`，用于管理模型供应商、模型、用户组、LLM API Key、隐私策略，并提供 OpenAI-compatible Chat Completions 代理。
 - Sandbox 运行封装在 `agent_manager/core/sandbox.py`。
 - 策略相关逻辑在 `agent_manager/core/policy.py`。
+- 第三方发现项优先按稳定 category 编码关联准入策略，同名编码直接匹配，`unauthorized_tool_use` 映射 `tool_misuse`、`supply_chain_attack` 映射 `supply_chain`；保留文档外部 API 示例优先规则及历史报告判定，回归覆盖三种策略分类。
 - 模型和 registry 数据结构在 `agent_manager/core/models.py`、`agent_manager/core/manager.py`。
 - 新增 API 时要考虑登录权限、审计日志、错误信息中文可读性和前端兼容。
 - 提交 skill 相关接口应保持幂等和防重复提交意识，前端禁用按钮不能替代后端校验。
