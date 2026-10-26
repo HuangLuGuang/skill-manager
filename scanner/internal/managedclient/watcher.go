@@ -1,6 +1,7 @@
 package managedclient
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -139,7 +140,9 @@ func (watcher *SkillWatcher) Refresh(home string, store *Store) error {
 func (watcher *SkillWatcher) addRoot(root string) error {
 	root = filepath.Clean(root)
 	if info, err := os.Stat(root); err == nil && info.IsDir() {
-		return watcher.addTree(root)
+		if err := watcher.addTree(root); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 	}
 	parent := root
 	for {
@@ -149,14 +152,44 @@ func (watcher *SkillWatcher) addRoot(root string) error {
 		}
 		parent = next
 		if info, err := os.Stat(parent); err == nil && info.IsDir() {
-			return watcher.add(parent)
+			if err := watcher.add(parent); !os.IsNotExist(err) {
+				return err
+			}
 		}
 	}
+}
+
+func (watcher *SkillWatcher) removed(path string) error {
+	path = filepath.Clean(path)
+	watcher.mu.Lock()
+	var repair []string
+	var failure error
+	for watched := range watcher.watched {
+		if watched == path || pathWithinLexical(watched, path) {
+			if err := watcher.watcher.Remove(watched); err != nil && !errors.Is(err, fsnotify.ErrNonExistentWatch) && !os.IsNotExist(err) {
+				failure = errors.Join(failure, err)
+			}
+			delete(watcher.watched, watched)
+		}
+	}
+	for root := range watcher.roots {
+		if root == path || pathWithinLexical(root, path) {
+			repair = append(repair, root)
+		}
+	}
+	watcher.mu.Unlock()
+	for _, root := range repair {
+		failure = errors.Join(failure, watcher.addRoot(root))
+	}
+	return failure
 }
 
 func (watcher *SkillWatcher) addTree(root string) error {
 	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
+			if path == root {
+				return err
+			}
 			return nil
 		}
 		if !entry.IsDir() {
@@ -165,7 +198,11 @@ func (watcher *SkillWatcher) addTree(root string) error {
 		if path != root && ignoredWatchDirs[entry.Name()] {
 			return filepath.SkipDir
 		}
-		return watcher.add(path)
+		err = watcher.add(path)
+		if path != root && os.IsNotExist(err) {
+			return nil
+		}
+		return err
 	})
 }
 
@@ -189,6 +226,31 @@ func (watcher *SkillWatcher) run() {
 	var timer *time.Timer
 	var timerC <-chan time.Time
 	pending := map[string]bool{}
+	repair := map[string]bool{}
+	queueRepair := func(path string) {
+		watcher.mu.Lock()
+		defer watcher.mu.Unlock()
+		for root := range watcher.roots {
+			if path == root || pathWithinLexical(path, root) || pathWithinLexical(root, path) {
+				repair[root] = true
+				pending[root] = true
+			}
+		}
+	}
+	arm := func() {
+		if timer == nil {
+			timer = time.NewTimer(skillWatchDebounce)
+		} else {
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(skillWatchDebounce)
+		}
+		timerC = timer.C
+	}
 	for {
 		select {
 		case <-watcher.done:
@@ -207,9 +269,23 @@ func (watcher *SkillWatcher) run() {
 				continue
 			}
 			pending[filepath.Clean(event.Name)] = true
+			if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+				watcher.mu.Lock()
+				wasDirectory := watcher.watched[filepath.Clean(event.Name)]
+				watcher.mu.Unlock()
+				if wasDirectory {
+					queueRepair(event.Name)
+				}
+				if err := watcher.removed(event.Name); err != nil {
+					select {
+					case watcher.errors <- err:
+					default:
+					}
+				}
+			}
 			if event.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(event.Name); err == nil && info.IsDir() && !ignoredWatchPath(event.Name) {
-					if err := watcher.addTree(event.Name); err != nil {
+					if err := watcher.addRoot(event.Name); err != nil {
 						select {
 						case watcher.errors <- err:
 						default:
@@ -217,27 +293,32 @@ func (watcher *SkillWatcher) run() {
 					}
 				}
 			}
-			if timer == nil {
-				timer = time.NewTimer(skillWatchDebounce)
-			} else {
-				if !timer.Stop() {
-					select {
-					case <-timer.C:
-					default:
-					}
-				}
-				timer.Reset(skillWatchDebounce)
-			}
-			timerC = timer.C
+			arm()
 		case err, ok := <-watcher.watcher.Errors:
 			if !ok {
 				return
+			}
+			var pathError *os.PathError
+			if errors.Is(err, os.ErrNotExist) && errors.As(err, &pathError) && watcher.relevant(pathError.Path) {
+				queueRepair(pathError.Path)
+				arm()
+				continue
 			}
 			select {
 			case watcher.errors <- err:
 			default:
 			}
 		case <-timerC:
+			for root := range repair {
+				// A cached path can still refer to the inode replaced during the burst.
+				if err := watcher.removed(root); err != nil {
+					select {
+					case watcher.errors <- err:
+					default:
+					}
+				}
+			}
+			clear(repair)
 			paths := make([]string, 0, len(pending))
 			for path := range pending {
 				if !watcher.suppressedPath(path) {

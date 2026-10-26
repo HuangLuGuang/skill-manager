@@ -4,7 +4,6 @@
       <template #title>
         <a-page-header :title="$t('legacy.hx2vnc')" :sub-title="$t('legacy.ud53vr')">
           <template #extra>
-            <a-button v-if="hasAccess('clients:update')" @click="globalToolPolicyOpen = true">{{ $t('aidr.hooks.scope.title') }}</a-button>
             <a-button v-if="hasAccess('clients:view') || hasAccess('settings:view')" @click="openClassification('')">{{ $t('clientPolicy.globalSettings') }}</a-button>
             <a-button type="primary" @click="installGuideVisible = true">{{ $t("legacy.18h6c95") }}</a-button>
             <a-button :loading="loading" @click="loadClients">{{ $t("legacy.12qo56a") }}</a-button>
@@ -131,7 +130,7 @@
           <details><summary>{{ $t('agentRuntimeGovernance.presentation.policyHelp') }}</summary><p>{{ detail.classification?.enabled ? $t('clientGovernance.active') : policyDescription(currentPolicy) }}</p><p>{{ governanceDescription(currentGovernance) }}</p></details>
 
           <p v-if="inventoryType === 'shared'" class="muted">{{ $t('clientDetail.sharedNote') }}</p>
-          <a-table class="local-agents-table" :columns="visibleAgentColumns" :data-source="inventoryAgents" :row-key="row => row.local_agent_id || row.agent_type" size="small" :pagination="{ pageSize: 8, hideOnSinglePage: true }" :expandable="agentTableExpandable" :scroll="{ x: 650 }">
+          <a-table class="local-agents-table" :columns="visibleAgentColumns" :data-source="inventoryAgents" :row-key="row => row.local_agent_id || row.agent_type" size="small" :pagination="{ pageSize: 8, hideOnSinglePage: true }" :expandable="agentTableExpandable" :scroll="{ x: 800 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">
                 <a-button v-if="record.managed_agent_id && hasAccess('agents:view') && !isSharedSkillsRecord(record)" type="link" size="small" :title="$t('agentWorkspace.openAgent')" @click="router.push({ path: '/agents', query: { agent: record.managed_agent_id, client: detail.client_id, local: record.local_agent_id } })">{{ agentLabel(record.agent_type, record) }}</a-button><strong v-else>{{ agentLabel(record.agent_type, record) }}</strong>
@@ -233,18 +232,17 @@
           <ClientEventRecords v-if="inventoryView === 'history'" ref="eventRecordsPanel" :client-id="detail.client_id" :client-name="detail.name || detail.hostname" :agent-label="agentLabel" @collection="navigateDetail('collection')" />
             </a-tab-pane>
             <a-tab-pane key="plugins" :tab="$t('agentRuntimeGovernance.tabs.plugins')"><ClientRuntimeGovernance :client-id="detail.client_id" @collection="navigateDetail('collection')" @policy="navigateDetail('control')" @events="openHookEvents" /></a-tab-pane>
-            <a-tab-pane key="audit" :tab="$t('agentRuntimeGovernance.tabs.audit')"><ClientBehaviorAudit v-model:view="auditView" :client-id="detail.client_id" :activity-request="activityRequest" :risk-agent="riskAgent" @policy="openClassification(detail.client_id)" @plugins="runtimeTab = 'plugins'" /></a-tab-pane>
+            <a-tab-pane key="risks" :tab="$t('aidrRisk.title')"><ClientAidrRisks :client-id="detail.client_id" :initial-agent="riskAgent" /></a-tab-pane>
+            <a-tab-pane key="audit" :tab="$t('agentRuntimeGovernance.tabs.audit')"><ClientBehaviorAudit v-model:view="auditView" :client-id="detail.client_id" :activity-request="activityRequest" @policy="openClassification(detail.client_id)" @plugins="runtimeTab = 'plugins'" /></a-tab-pane>
             <a-tab-pane key="control" :tab="$t('agentRuntimeGovernance.detail.control')">
-              <ClientPolicyWorkbench :key="detail.client_id" v-model="controlView" :client-id="detail.client_id" />
+              <ClientPolicyWorkbench :key="detail.client_id" v-model="controlView" :client-id="detail.client_id" @configure="openClassification(detail.client_id, 'risk')" />
             </a-tab-pane>
           </a-tabs>
         </template>
       </a-spin>
     </a-drawer>
 
-    <a-drawer v-model:open="globalToolPolicyOpen" :title="$t('aidr.hooks.scope.title')" width="min(1100px, 100vw)" :destroy-on-close="true">
-      <ClientHookPanel v-if="globalToolPolicyOpen" global />
-    </a-drawer>
+
     <a-modal v-model:open="installVisible" :title="$t('legacy.1mz4184')" :ok-text="$t('legacy.zerco7')" @ok="createInstall" :confirm-loading="submitting">
       <a-form layout="vertical">
         <a-form-item :label="$t('legacy.5v4zar')">
@@ -348,7 +346,7 @@
       </a-steps>
     </a-modal>
   </div>
-    <ClientGovernancePolicy v-model:open="classificationOpen" :client-id="classificationClientId" :initial-tab="classificationTab" @saved="loadClients(); detailVisible && refreshDetail()" />
+    <ClientGovernancePolicy v-model:open="classificationOpen" :client-id="classificationClientId" :initial-tab="classificationTab" @global-risk="openClassification('', 'risk')" @saved="loadClients(); detailVisible && refreshDetail()" />
 </template>
 
 <script setup>
@@ -357,10 +355,10 @@ import { can as hasAccess } from '../access'
 import ClientGovernancePolicy from '../components/ClientGovernancePolicy.vue'
 import ClientPolicyWorkbench from '../components/ClientPolicyWorkbench.vue'
 import ClientBehaviorAudit from '../components/ClientBehaviorAudit.vue'
+import ClientAidrRisks from '../components/ClientAidrRisks.vue'
 import ClientEventRecords from '../components/ClientEventRecords.vue'
 import ClientDeviceOverview from '../components/ClientDeviceOverview.vue'
 import ClientRuntimeGovernance from '../components/ClientRuntimeGovernance.vue'
-import ClientHookPanel from '../components/ClientHookPanel.vue'
 import ClientSkillScan from '../components/ClientSkillScan.vue'
 import AgentLocalAssets from '../components/AgentLocalAssets.vue'
 import { withAssetNameSearch } from '../utils/assetNameSearch'
@@ -375,7 +373,6 @@ import {
 
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-const globalToolPolicyOpen = ref(false)
 import { message } from 'ant-design-vue'
 import { InfoCircleOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import { copyText } from '../utils/clipboard'
@@ -516,7 +513,7 @@ const columns = [
   { title: phrase('legacy.501w24'), key: 'action', width: 100 },
 ]
 const agentColumns = [
-  { title: 'Agent', key: 'type' },
+  { title: 'Agent', key: 'type', width: 180 },
   { title: i18n.global.t('clientModelConfig.model'), key: 'model', width: 230 },
   { title: () => i18n.global.t('localAssets.assets'), key: 'skills', width: 155 },
   { title: phrase('legacy.501w24'), key: 'action', width: 170, fixed: 'right' },
@@ -922,13 +919,12 @@ const taskStatusLabel = (value, task) => task?.task_type === 'sync_policy' && ta
 const taskColor = value => ({ pending: 'default', running: 'blue', succeeded: 'green', failed: 'red', cancelled: 'default' }[value] || 'default')
 
 watch(() => [route.query.client, route.query.section, route.query.view, route.query.risk_agent], async ([clientId, section, view, agent]) => {
-  if (typeof clientId !== 'string' || !hasAccess('clients:view') || !['overview', 'control', 'audit', 'plugins', 'skills'].includes(section)) return
+  if (typeof clientId !== 'string' || !hasAccess('clients:view') || !['overview', 'control', 'audit', 'risks', 'plugins', 'skills'].includes(section)) return
   try {
     await openDetail({ client_id: clientId })
-    if (route.query.client === clientId && route.query.view === view && route.query.risk_agent === agent && detail.value?.client_id === clientId) {
+    if (route.query.client === clientId && route.query.section === section && route.query.view === view && route.query.risk_agent === agent && detail.value?.client_id === clientId) {
       riskAgent.value = typeof agent === 'string' && agent.length <= 32 ? agent : ''
-      if (section === 'audit' && view === 'risks') auditView.value = 'risks'
-      runtimeTab.value = section
+      runtimeTab.value = section === 'audit' && view === 'risks' ? 'risks' : section
     }
   } catch { message.error(i18n.global.t('agentWorkspace.readFailed')) }
 }, { immediate: true })
@@ -1017,7 +1013,8 @@ onMounted(async () => {
 .local-agents-table :deep(.ant-space-vertical), .local-agents-table :deep(.ant-space-item) { max-width: 100%; }
 .local-agents-table :deep(.ant-btn-link) { max-width: 100%; height: auto; white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .skill-policy-controls > label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 100%; }
-.inventory-navigation { margin: 12px 0; }
+.device-runtime-tabs > :deep(.ant-tabs-nav) { margin-bottom: 8px; }
+.inventory-navigation { margin: 0 0 8px; }
 .inventory-navigation { display: flex; flex-wrap: wrap; }
 .inventory-navigation :deep(.ant-radio-button-wrapper), .skill-policy-controls :deep(.ant-radio-button-wrapper) { height: auto; white-space: normal; }
 .governance-select { width: 270px; max-width: 100%; }
@@ -1026,9 +1023,9 @@ onMounted(async () => {
 .device-status-line { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin: 6px 0 12px; color: #627480; }
 .device-info-content { max-width: min(360px, calc(100vw - 64px)); overflow-wrap: anywhere; }
 .device-info-content code { user-select: text; }
-.detail-panel-heading, .skill-policy-controls { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; margin: 16px 0; }
+.detail-panel-heading, .skill-policy-controls { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
 .detail-panel-heading p { margin: 0; flex: 1; color: #627480; }
-.detail-view-switch { display: flex; flex-wrap: wrap; margin: 16px 0; }
+.detail-view-switch { display: flex; flex-wrap: wrap; margin: 8px 0; }
 .detail-view-switch :deep(.ant-radio-button-wrapper) { height: auto; white-space: normal; }
 .detail-title {
   color: #16324f;

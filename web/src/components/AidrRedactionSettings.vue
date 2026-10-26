@@ -1,6 +1,6 @@
 <template>
-  <a-card :title="t(section === 'skill' ? 'clientPolicy.usageAudit' : 'aidr.redactionSettings.title')" :loading="loading" class="aidr-redaction-settings">
-    <template #extra><a-tag color="blue">{{ t(clientId ? (inherit ? 'aidr.policyNavigation.inherited' : 'aidr.policyNavigation.clientScope') : 'aidr.policyNavigation.global') }}</a-tag></template>
+  <a-card :title="embedded ? undefined : t(section === 'skill' ? 'clientPolicy.usageAudit' : 'aidr.redactionSettings.title')" :loading="loading" class="aidr-redaction-settings" :class="{ embedded }" :bordered="!embedded">
+    <template v-if="!embedded" #extra><a-tag color="blue">{{ t(clientId ? (inherit ? 'aidr.policyNavigation.inherited' : 'aidr.policyNavigation.clientScope') : 'aidr.policyNavigation.global') }}</a-tag></template>
     <a-alert v-if="failed" type="error" :message="t('aidr.redactionSettings.loadFailed')" show-icon>
       <template #action><a-button :disabled="loading || busy" @click="load">{{ t('aidr.redactionSettings.retry') }}</a-button></template>
     </a-alert>
@@ -15,18 +15,18 @@
       </router-link>
     </template>
     <template v-else>
-      <a-alert type="info" show-icon :message="t(section === 'skill' ? 'clientPolicy.usageHelp' : clientId ? 'aidr.policyNavigation.clientHelp' : 'aidr.policyNavigation.scope')" style="margin-bottom: 16px" />
+      <p v-if="section === 'skill'" class="setting-help">{{ t('clientPolicy.usageHelp') }}</p>
+      <p v-else class="setting-help">{{ t('aidr.contentSettings.applies') }}</p>
       <template v-if="clientId">
-        <p>{{ t('aidr.policyNavigation.clientIdentity', { id: clientId }) }}</p>
         <a-space wrap class="inherit-control"><a-switch :checked="inherit" :disabled="busy || !editable" :aria-label="t(section === 'skill' ? 'clientPolicy.inheritUsage' : 'clientPolicy.inheritContent')" @change="setInheritance" /><span>{{ t(section === 'skill' ? 'clientPolicy.inheritUsage' : 'clientPolicy.inheritContent') }}</span></a-space>
       </template>
       <a-alert v-if="saveFailed" type="error" :message="t('aidr.redactionSettings.saveFailed')" show-icon>
         <template #action><a-button :disabled="loading || busy" @click="load">{{ t('aidr.redactionSettings.retry') }}</a-button></template>
       </a-alert>
-      <details v-if="section === 'content'" class="other-policy"><summary>{{ t('aidr.policyNavigation.redaction') }}</summary>
+      <section v-if="section === 'content'" class="other-policy"><h4>{{ t('aidr.policyNavigation.redaction') }}</h4>
       <a-space wrap><a-switch v-model:checked="enabled" :disabled="fieldsDisabled" :aria-label="t('aidr.policyNavigation.redaction')" /><span>{{ t(enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }}</span></a-space>
-      <p>{{ t('aidr.redactionSettings.warning') }}</p><p>{{ t('aidr.redactionSettings.timing') }}</p><p>{{ t('aidr.redactionSettings.history') }}</p>
-      </details>
+      <p class="setting-help">{{ t('aidr.contentSettings.redaction') }}</p>
+      </section>
       <SkillAuditPolicyFields v-if="section === 'skill'" v-model="skillAudit" :disabled="fieldsDisabled" />
       <div v-if="section === 'skill'" class="delivery-state">
         <strong>{{ t('aidr.skillUse.policy.delivery') }}</strong>
@@ -37,20 +37,20 @@
         </template>
         <p v-else-if="clientId">{{ t('aidr.skillUse.policy.noReport') }}</p>
       </div>
-      <details v-if="section === 'content'" class="other-policy"><summary>{{ t('aidr.content.scopeTitle') }}</summary>
+      <section v-if="section === 'content'" class="other-policy"><h4>{{ t('aidr.content.scopeTitle') }}</h4>
       <a-space wrap><a-switch v-model:checked="lifecycle.enabled" :disabled="fieldsDisabled" :aria-label="t('aidr.lifecycle.collection')" /><span>{{ t(lifecycle.enabled ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }}</span></a-space>
-      <p>{{ t('aidr.lifecycle.collectionHelp') }}</p>
-      <a-space direction="vertical"><a-checkbox v-for="kind in scopeKinds" :key="kind" v-model:checked="capture[kind]" :disabled="fieldsDisabled">{{ t('aidr.content.kinds.' + kind) }}</a-checkbox></a-space>
-      <p>{{ t('aidr.content.scopeWarning') }}</p><p>{{ t('aidr.content.support') }}</p><p>{{ t('aidr.content.limits') }}</p>
+      <p class="setting-help">{{ t('aidr.contentSettings.collection') }} <a-tooltip :title="t('aidr.lifecycle.collectionHelp')"><a-button type="text" size="small" :aria-label="t('aidr.lifecycle.collection')"><QuestionCircleOutlined /></a-button></a-tooltip></p>
+      <div class="capture-options"><a-checkbox v-for="kind in scopeKinds" :key="kind" v-model:checked="capture[kind]" :disabled="fieldsDisabled">{{ t('aidr.content.kinds.' + kind) }}</a-checkbox></div>
+      <p class="setting-help">{{ t('aidr.contentSettings.scope') }} <a-tooltip :title="t('aidr.content.support')"><a-button type="text" size="small" :aria-label="t('aidr.content.scopeTitle')"><QuestionCircleOutlined /></a-button></a-tooltip></p>
       <div class="content-limits">
         <label><span>{{ t('aidr.content.fragmentLimit') }}</span><a-input-number v-model:value="capture.max_fragment_bytes" :min="256" :max="32768" :precision="0" :disabled="fieldsDisabled" :aria-label="t('aidr.content.fragmentLimit')" /></label>
         <label><span>{{ t('aidr.content.eventLimit') }}</span><a-input-number v-model:value="capture.max_event_bytes" :min="256" :max="32768" :precision="0" :disabled="fieldsDisabled" :aria-label="t('aidr.content.eventLimit')" /></label>
       </div>
       <p v-if="!validLimits" class="limit-error" role="alert">{{ t('aidr.content.invalidLimits') }}</p>
-      <p>{{ t('aidr.content.limitHelp') }}</p>
+      <p class="setting-help">{{ t('aidr.contentSettings.limits') }}</p>
       <a-space wrap><label for="aidr-retention-days">{{ t('aidr.lifecycle.retention') }}</label><a-input-number id="aidr-retention-days" v-model:value="lifecycle.retention_days" :min="1" :max="365" :precision="0" :disabled="fieldsDisabled" /></a-space>
-      <p>{{ t('aidr.lifecycle.retentionHelp') }}</p><p>{{ t('aidr.lifecycle.compatibilityHelp') }}</p>
-      </details>
+      <p class="setting-help">{{ t('aidr.contentSettings.retention') }}</p>
+      </section>
       <a-button v-if="editable && !externalActions" type="primary" :loading="busy" :disabled="!canReview" @click="review">{{ t(section === 'skill' ? 'clientPolicy.saveUsage' : 'aidr.redactionSettings.save') }}</a-button>
     </template>
     <a-modal :z-index="1020" :width="720" wrap-class-name="aidr-policy-review" v-model:open="reviewOpen" :title="t('aidr.redactionSettings.reviewTitle')" :ok-text="t('aidr.redactionSettings.confirmSave')" :cancel-text="t('aidr.redactionSettings.cancelReview')" :confirm-loading="busy" :ok-button-props="{ disabled: busy || !editable || (requiresAcknowledgement && !acknowledged) }" :cancel-button-props="{ disabled: busy }" :closable="!busy" :mask-closable="!busy" :keyboard="!busy" @ok="save" @cancel="cancelReview">
@@ -79,13 +79,14 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
+import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { can, pageAllowed } from '../access'
 import { getAidrRedaction, saveAidrRedaction, getClientAuditPolicy, saveClientAuditPolicy } from '../api'
 import SkillAuditPolicyFields from './SkillAuditPolicyFields.vue'
 import SkillAuditPolicyReview from './SkillAuditPolicyReview.vue'
 import { normalizeSkillAudit, validSkillAudit, sameSkillAudit } from '../skill-audit-policy'
 const { t } = useI18n()
-const props = defineProps({ summary: Boolean, externalActions: Boolean, section: { type: String, default: 'content' }, clientId: { type: String, default: '' } })
+const props = defineProps({ summary: Boolean, embedded: Boolean, externalActions: Boolean, section: { type: String, default: 'content' }, clientId: { type: String, default: '' } })
 const emit = defineEmits(['saved'])
 const policyInheritance = value => (props.section === 'skill' ? value.skill_audit_inherit ?? value.inherit : value.inherit) ?? true
 const inherit = ref(true)
@@ -184,13 +185,18 @@ async function save() {
 </script>
 <style scoped>
 .aidr-redaction-settings { margin: 20px 0; overflow-wrap: anywhere; }
-.inherit-control { display: flex; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid #f0f0f0; }
+.aidr-redaction-settings.embedded { margin: 0; }
+.embedded :deep(.ant-card-body) { padding: 0; }
+.inherit-control { display: flex; margin-bottom: 8px; }
 .ant-checkbox-wrapper { margin-top: 12px; }
-.content-limits { display: flex; flex-wrap: wrap; gap: 16px 24px; margin: 16px 0; }
+.content-limits { display: flex; flex-wrap: wrap; gap: 12px 16px; margin: 12px 0; }
 .content-limits label { display: flex; flex-direction: column; gap: 8px; }
 .content-limits .ant-input-number { width: 160px; max-width: 100%; }
 .limit-error { color: #b42318; }
-.other-policy { border-top: 1px solid #e2e8f0; padding: 16px 0; } .other-policy summary { cursor: pointer; font-weight: 600; margin-bottom: 12px; }
+.other-policy { border-top: 1px solid #e2e8f0; padding: 12px 0; } .other-policy h4 { font-weight: 600; margin-bottom: 12px; }
+.setting-help { color: #64748b; font-size: 12px; margin: 8px 0 12px; }
+.capture-options { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin:12px 0; }.capture-options .ant-checkbox-wrapper { margin:0; }
+@media(max-width:600px) { .capture-options { grid-template-columns:1fr; } }
 .delivery-state { background: #f8fafc; border-radius: 8px; padding: 12px 14px; margin: 16px 0; font-size: 12px; } .delivery-state p { margin: 8px 0 0; color: #64748b; }
 :global(.aidr-policy-review .ant-modal) { top: 24px; padding-bottom: 24px; }
 :global(.aidr-policy-review .ant-modal-body) { max-height: calc(100dvh - 180px); overflow-y: auto; overflow-wrap: anywhere; }

@@ -42,10 +42,15 @@ func syncError(store *Store, kind string, err error) {
 	if err != nil {
 		detail = err.Error()
 	}
-	_ = store.SetState("sync:"+kind+":error", detail)
-	if err == nil {
-		_ = store.SetState("sync:"+kind+":success", time.Now().UTC().Format(time.RFC3339Nano))
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	query := `INSERT INTO client_state(key,value,updated_at) VALUES(?,?,?)`
+	args := []any{"sync:" + kind + ":error", detail, now}
+	// Daemon readiness already gets a fresh timestamp in daemon-health.json.
+	if err == nil && kind != "daemon_health" {
+		query += `,(?,?,?)`
+		args = append(args, "sync:"+kind+":success", now, now)
 	}
+	_, _ = store.db.Exec(query+` ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE client_state.value!=excluded.value`, args...)
 }
 
 func heartbeatOnce(ctx context.Context, home string, api API, store *Store) error {

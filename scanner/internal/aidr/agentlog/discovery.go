@@ -29,18 +29,29 @@ func NewSource(agent, root, path string) (Source, error) {
 	return Source{ID: digest(agent, path), Agent: agent, Root: root, Path: path}, nil
 }
 func checkPath(path string) error {
-	for p := filepath.Clean(path); ; p = filepath.Dir(p) {
+	_, err := checkedPathInfo(path)
+	return err
+}
+
+func checkedPathInfo(path string) (os.FileInfo, error) {
+	path = filepath.Clean(path)
+	for p := filepath.Dir(path); ; p = filepath.Dir(p) {
 		st, err := os.Lstat(p)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if st.Mode()&os.ModeSymlink != 0 {
-			return errors.New("aidr_log_symlink")
+			return nil, errors.New("aidr_log_symlink")
 		}
 		if filepath.Dir(p) == p {
-			return nil
+			break
 		}
 	}
+	st, err := os.Lstat(path)
+	if err == nil && st.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("aidr_log_symlink")
+	}
+	return st, err
 }
 func ioReason(err error) string {
 	switch {

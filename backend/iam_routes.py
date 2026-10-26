@@ -8,6 +8,12 @@ to management JWT authentication after FastAPI has selected an endpoint.
 def route_permission(request):
     path = getattr(request.scope.get("route"), "path", request.url.path)
     method = request.method
+    if path.startswith("/api/v1/prompt-guard/rules"):
+        return "privacy:test" if method == "GET" else "privacy:update"
+    if path == "/api/v1/prompt-guard/config":
+        return "privacy:test" if method == "GET" else "privacy:update"
+    if path == "/api/v1/prompt-guard/model-test":
+        return "privacy:update"
     if method == "POST" and path == "/api/v1/external-access/deliveries/{delivery_id}/retry":
         return "external_access:update"
     if method == "POST" and path in {"/api/v1/external-access/callbacks/{callback_id:path}/test",
@@ -32,6 +38,7 @@ def route_permission(request):
     if method == "POST" and path in {
         "/api/v1/clients/{client_id}/aidr/hook-policy/preview",
         "/api/v1/clients/{client_id}/aidr/enforcement/policy/preview",
+        "/api/v1/clients/{client_id}/aidr/risks/commands/test",
     }:
         return "clients:view"
     if method == "POST" and path in {"/api/v1/clients/{client_id}/aidr/enforcement/policy", "/api/v1/clients/{client_id}/aidr/enforcement/collection", "/api/v1/clients/{client_id}/aidr/enforcement/collection/rediscover"}:

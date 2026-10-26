@@ -190,7 +190,7 @@ import { getPrivacyTrace, listPrivacyTraces } from '../api'
 import { copyText, promptManualCopy } from '../utils/clipboard'
 import { formatBeijingDateTime, formatNumber } from '../utils/format'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const loading = ref(false)
 const detailLoading = ref(false)
@@ -318,7 +318,7 @@ const formatGroupNames = (value) => {
 }
 const formatMs = (value) => value || value === 0 ? `${Number(value).toFixed(1)} ms` : '-'
 const promptSecurityRiskLabel = (value) => ({ none: phrase('legacy.41lnsu'), LOW: phrase('legacy.qy3yng'), MEDIUM: phrase('legacy.pakbe9'), HIGH: phrase('legacy.197bn2e') }[value] || phrase('legacy.41lnsu'))
-const promptSecurityActionLabel = (value) => ({ off: phrase('legacy.g0fanx'), log: phrase('legacy.4drpun'), pass: phrase('legacy.j666m6'), record: phrase('legacy.cdnjf2'), warn: phrase('legacy.gjwe4z'), block: phrase('legacy.14byf2d') }[value] || phrase('legacy.g0fanx'))
+const promptSecurityActionLabel = (value) => ({ error: t('promptGuard.error'), off: phrase('legacy.g0fanx'), log: phrase('legacy.4drpun'), pass: phrase('legacy.j666m6'), record: phrase('legacy.cdnjf2'), warn: phrase('legacy.gjwe4z'), block: phrase('legacy.14byf2d') }[value] || phrase('legacy.g0fanx'))
 const promptSecurityColor = (value) => ({ LOW: 'blue', MEDIUM: 'orange', HIGH: 'red' }[value] || 'default')
 const promptSecuritySummary = (meta = {}) =>
   `${promptSecurityRiskLabel(meta.prompt_security_risk)} / ${promptSecurityActionLabel(meta.prompt_security_action)}`
@@ -368,10 +368,23 @@ const renderPromptSecurity = (data = {}) => {
     text(`命中数量：${data.findings_count || 0}`, `Findings: ${data.findings_count || 0}`),
   ]
   for (const item of data.findings || []) {
-    lines.push(`\n- ${item.reason || item.rule}（${promptSecurityRiskLabel(item.severity)}）`)
+    const reason = item.rule_name || (item.detector !== 'llm' && te(`promptGuard.rules.${item.rule}`) ? t(`promptGuard.rules.${item.rule}`) : item.reason || item.rule)
+    lines.push(`\n- ${reason}（${promptSecurityRiskLabel(item.severity)}） [${t(item.detector === 'llm' ? 'promptGuard.ai' : 'promptGuard.rule')}]`)
     if (item.snippet) {
       lines.push(text(`  命中片段：${item.snippet}`, `  Matched snippet: ${item.snippet}`))
     }
+  }
+  if (data.llm_status) lines.push(`${t('promptGuard.status')}: ${t(`promptGuard.statuses.${data.llm_status}`)}`)
+  if (data.llm_model) lines.push(`${t('promptGuard.model')}: ${data.llm_model}`)
+  if (data.llm_review_used) lines.push(`${t('promptGuard.duration')}: ${data.llm_duration_ms} ms`)
+  if (data.llm_usage) lines.push(`${t('promptGuard.usage')}: ${data.llm_usage.total_tokens ?? '-'}`)
+  if (data.llm_error_code) {
+    const key = `promptGuard.errors.${data.llm_error_code.split('.').pop()}`
+    lines.push(`${t('promptGuard.error')}: ${te(key) ? t(key) : data.llm_error_code}`)
+  }
+  if (data.error_code) {
+    const key = `promptGuard.errors.${data.error_code.split('.').pop()}`
+    lines.push(`${t('promptGuard.error')}: ${te(key) ? t(key) : data.error_code}`)
   }
   return lines.join('\n')
 }

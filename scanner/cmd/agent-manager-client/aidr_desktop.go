@@ -62,17 +62,11 @@ type desktopPaths struct {
 }
 
 func readDesktopJSON(path string, target any) error {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
-		return errors.New("aidr_desktop_config_unreadable")
-	}
-	f, err := os.Open(path)
+	body, err := readDesktopConfigBytes(path)
 	if err != nil {
-		return errors.New("aidr_desktop_config_unreadable")
+		return err
 	}
-	defer f.Close()
-	body, err := io.ReadAll(io.LimitReader(f, 65537))
-	if err != nil || len(body) > 65536 || json.Unmarshal(body, target) != nil {
+	if json.Unmarshal(body, target) != nil {
 		return errors.New("aidr_desktop_config_invalid")
 	}
 	return nil
@@ -134,12 +128,13 @@ func desktopBinding(home string) (managedclient.Config, desktopPaths, error) {
 	if _, e := os.Lstat(filepath.Join(home, ".agent-manager", "config.json")); os.IsNotExist(e) {
 		return private, p, errors.New("aidr_desktop_not_configured")
 	}
-	if e := readDesktopJSON(filepath.Join(home, ".agent-manager", "config.json"), &private); e != nil {
+	body, e := readDesktopConfigBytes(filepath.Join(home, ".agent-manager", "config.json"))
+	if e != nil {
 		return private, p, e
 	}
-	cfg, e := managedclient.LoadConfig(home)
+	cfg, e := managedclient.ParseConfig(body)
 	if e != nil {
-		return cfg, p, errors.New("aidr_desktop_config_unreadable")
+		return cfg, p, errors.New("aidr_desktop_config_invalid")
 	}
 	if cfg.Server == "" || cfg.Token == "" {
 		return cfg, p, errors.New("aidr_desktop_not_configured")

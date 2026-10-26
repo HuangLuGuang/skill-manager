@@ -517,12 +517,93 @@ def test_mcp_gateway_discovers_filters_calls_and_audits(tmp_path, monkeypatch):
     assert called.json()["id"] == 5
     assert called.json()["result"]["content"][0]["text"] == "alice"
 
-    audit = client.get("/api/v1/mcp/audit").json()
+    audit = client.get("/api/v1/mcp/audit").json()["items"]
     assert [row["status"] for row in audit].count("denied") == 2
     success = next(row for row in audit if row["status"] == "success")
     assert success["gateway_slug"] == "readonly"
     assert success["server_slug"] == "crm"
     assert success["tool_name"] == "search"
+    assert all(row["token_name"] == "readonly-client" and row["token_exists"] for row in audit)
+    token_id = success["token_id"]
+    with _testing_session() as db:
+        db.get(models.AccessToken, token_id).name = "renamed-client"
+        db.add(models.McpCallAudit(
+            request_id="legacy-without-name", token_id=token_id,
+            gateway_slug="readonly", status="success",
+        ))
+        db.commit()
+    renamed = client.get("/api/v1/mcp/audit").json()["items"]
+    assert renamed[0]["token_name"] == "renamed-client"
+    assert all(row["token_name"] == "readonly-client" for row in renamed[1:])
+    assert client.delete(f"/api/v1/access/tokens/{token_id}").status_code == 200
+    deleted = client.get("/api/v1/mcp/audit").json()["items"]
+    assert all(not row["token_exists"] for row in deleted)
+    assert deleted[0]["token_name"] is None
+    assert all(row["token_name"] == "readonly-client" for row in deleted[1:])
+
+
+def test_audit_paginates_all_records_and_sorts_before_pagination(tmp_path, monkeypatch):
+    client, sessions = _client(tmp_path, monkeypatch)
+    with sessions() as db:
+        db.add_all([
+            models.McpCallAudit(
+                request_id=f"page-{i:03}", token_id=25, token_name="Deleted credential",
+                gateway_slug="gateway", status="success", duration_ms=(234 - i) // 2,
+                created_at=datetime(2026, 10, 1) + timedelta(minutes=i),
+            ) for i in range(235)
+        ])
+        db.commit()
+    endpoint = "/api/v1/mcp/audit"
+    first = client.get(endpoint).json()
+    assert (first["total"], first["page"], first["page_size"], len(first["items"])) == (235, 1, 10, 10)
+    assert first["items"][0]["request_id"] == "page-234"
+    pages = [client.get(endpoint, params={"page": page, "page_size": 100}).json() for page in (1, 2, 3)]
+    assert [len(page["items"]) for page in pages] == [100, 100, 35]
+    assert len({row["id"] for page in pages for row in page["items"]}) == 235
+    assert pages[-1]["items"][-1]["request_id"] == "page-000"
+    for field in ("created_at", "duration_ms"):
+        result = client.get(endpoint, params={"sort_by": field, "sort_order": "asc", "page": 2, "page_size": 100}).json()
+        expected = ("page-100", "page-199") if field == "created_at" else ("page-133", "page-036")
+        assert (result["items"][0]["request_id"], result["items"][-1]["request_id"]) == expected
+    slowest = client.get(endpoint, params={"sort_by": "duration_ms", "sort_order": "desc"}).json()
+    assert [row["request_id"] for row in slowest["items"][:3]] == ["page-000", "page-002", "page-001"]
+    assert client.get(endpoint, params={"page": 99}).json()["items"] == []
+    for params in ({"page_size": 101}, {"page": 0}, {"sort_by": "token_hash"}, {"sort_order": "invalid"}):
+        assert client.get(endpoint, params=params).status_code == 422
+
+
+def test_audit_filters_share_total_and_preserve_snapshot_names(tmp_path, monkeypatch):
+    client, sessions = _client(tmp_path, monkeypatch)
+    with sessions() as db:
+        token = models.AccessToken(name="Current name", token_type="mcp_gateway", token_hash="test", token_prefix="test")
+        db.add(token)
+        db.flush()
+        start = datetime(2026, 10, 25, 16)
+        end = datetime(2026, 10, 26, 15, 59, 59, 999999)
+        for index, stamp in enumerate((start - timedelta(microseconds=1), start, end, end + timedelta(microseconds=1))):
+            db.add(models.McpCallAudit(
+                request_id=f"request_{index}", token_id=token.id, token_name="Original name",
+                gateway_slug="finance", server_slug="crm", tool_name="search", status="denied", created_at=stamp,
+            ))
+        db.add(models.McpCallAudit(
+            request_id="legacy", token_id=token.id, gateway_slug="finance", status="success",
+        ))
+        db.commit()
+    endpoint = "/api/v1/mcp/audit"
+    params = {
+        "request_id": "request_", "target": "crm", "token_name": "Original", "status": "denied",
+        "created_from": "2026-10-26T00:00:00+08:00", "created_to": "2026-10-26T23:59:59.999999+08:00",
+        "page_size": 1,
+    }
+    result = client.get(endpoint, params=params).json()
+    assert result["total"] == 2
+    assert [item["request_id"] for item in result["items"]] == ["request_2"]
+    assert client.get(endpoint, params={**params, "page": 2}).json()["items"][0]["request_id"] == "request_1"
+    assert client.get(endpoint, params={"token_name": "Current"}).json()["items"][0]["request_id"] == "legacy"
+    assert client.get(endpoint, params={"request_id": "%"}).json()["total"] == 0
+    assert client.get(endpoint, params={"request_id": "_"}).json()["total"] == 4
+    for target in ("finance", "search"):
+        assert client.get(endpoint, params={**params, "target": target}).json()["total"] == 2
 
 
 def test_p6_tool_access_modes_and_production_denylist_are_enforced_before_upstream(tmp_path, monkeypatch):
@@ -716,7 +797,7 @@ def test_mcp_gateway_blocks_schema_drift_and_wrong_gateway_token(tmp_path, monke
         json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "crm__search", "arguments": {}}},
     )
     assert called.json()["error"]["message"] == "Tool Schema 已变化，需要重新审核"
-    assert client.get("/api/v1/mcp/audit").json()[0]["status"] == "denied"
+    assert client.get("/api/v1/mcp/audit").json()["items"][0]["status"] == "denied"
 
     db = testing_session()
     db.add(models.McpGateway(slug="other", name="Other Gateway", status="active"))
@@ -1238,7 +1319,7 @@ def test_gateway_upstream_limits_return_specific_errors_and_release_slots(
         (False, "en-US"): "Upstream MCP response exceeds the limit: 1 KB",
     }[timeout, locale]
     assert error["message"] == expected
-    audit = client.get("/api/v1/mcp/audit").json()
+    audit = client.get("/api/v1/mcp/audit").json()["items"]
     assert audit[0]["status"] == "error"
     assert audit[0]["error"] == {
         True: "上游 MCP 调用超时（配置超时：4 秒）",

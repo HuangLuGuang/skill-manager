@@ -236,6 +236,35 @@ func TestCapacityPreservesCursorAndExplicitStatus(t *testing.T) {
 	}
 }
 
+func TestPrepareEmptyThenEnqueue(t *testing.T) {
+	s := openStore(t, tempDir(t), DefaultLimits())
+	if b, err := s.Prepare(testContext, 500, 1<<20); err != nil || b != nil {
+		t.Fatal(b, err)
+	}
+	ctx, cancel := context.WithCancel(testContext)
+	cancel()
+	if _, err := s.Prepare(ctx, 500, 1<<20); !errors.Is(err, context.Canceled) {
+		t.Fatal("empty queue ignored cancellation", err)
+	}
+	collect(t, s, source(t, lines(1)))
+	b, err := s.Prepare(testContext, 500, 1<<20)
+	if err != nil || b == nil {
+		t.Fatal("new data not ready immediately", err)
+	}
+	if err = s.Acknowledge(testContext, b.ID, b.Digest); err != nil {
+		t.Fatal(err)
+	}
+	if b, err = s.Prepare(testContext, 500, 1<<20); err != nil || b != nil {
+		t.Fatal("acknowledged queue not empty", b, err)
+	}
+	if err = s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Prepare(testContext, 500, 1<<20); err == nil {
+		t.Fatal("closed database returned empty success")
+	}
+}
+
 func TestBatchReplayACKAndRetention(t *testing.T) {
 	src := source(t, lines(6))
 	dir := tempDir(t)
@@ -293,7 +322,32 @@ func TestUnavailableSourceCoverageAndBoundedBatch(t *testing.T) {
 	if c.Coverage.Status != "unavailable" || c.Cursor.SchemaVersion != 0 {
 		t.Fatal(c)
 	}
+	var before, after int64
+	if e := s.db.QueryRow(`SELECT total_changes()`).Scan(&before); e != nil {
+		t.Fatal(e)
+	}
+	next := collect(t, s, src)
+	if e := s.db.QueryRow(`SELECT total_changes()`).Scan(&after); e != nil {
+		t.Fatal(e)
+	}
+	if next.Revision != c.Revision || before != after {
+		t.Fatalf("unchanged collection wrote database: revision %d -> %d, changes %d -> %d", c.Revision, next.Revision, before, after)
+	}
+	unchanged, err := agentlog.ReadIncremental(testContext, src, c.Cursor, agentlog.DefaultBudget(), time.Unix(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Commit(testContext, Checkpoint{}, unchanged); !errors.Is(err, ErrConflict) {
+		t.Fatal("unchanged batch bypassed revision check", err)
+	}
+	if _, err = s.db.Exec(`INSERT OR REPLACE INTO metadata(key,value) VALUES('intake_code','aidr_store_capacity')`); err != nil {
+		t.Fatal(err)
+	}
 	collect(t, s, src)
+	var failures int
+	if err = s.db.QueryRow(`SELECT count(*) FROM metadata WHERE key='intake_code'`).Scan(&failures); err != nil || failures != 0 {
+		t.Fatal("successful unchanged collection did not clear intake failure", failures, err)
+	}
 	if status(t, s).Queued != 1 {
 		t.Fatal("unchanged coverage grows outbox")
 	}
@@ -543,14 +597,38 @@ func TestCrashWorker(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	stop := func() { fmt.Println("CRASH_BOUNDARY_READY"); select {} }
+	stop := func() {
+		fmt.Println("CRASH_BOUNDARY_READY")
+		for {
+			time.Sleep(time.Hour)
+		}
+	}
 	s.hook = func(at string) {
 		if at == stage {
 			stop()
 		}
 	}
-	if _, e = s.Collect(testContext, src, agentlog.DefaultBudget(), time.Unix(0, 0)); e != nil {
+	crawler, e := s.NewCrawler(src.Agent, src.Root)
+	if e != nil {
 		t.Fatal(e)
+	}
+	if _, e = crawler.Step(testContext, 64, 1000, time.Second); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = crawler.Collect(testContext, src, agentlog.DefaultBudget(), time.Unix(0, 0)); e != nil {
+		t.Fatal(e)
+	}
+	if stage == "revalidated_before_flush" {
+		if _, e = s.db.Exec(`UPDATE discovery_files SET pending=1,read_ns=0`); e != nil {
+			t.Fatal(e)
+		}
+		if _, e = crawler.Collect(testContext, src, agentlog.DefaultBudget(), time.Unix(0, 0)); e != nil {
+			t.Fatal(e)
+		}
+		if len(crawler.readProgress) != 1 {
+			t.Fatal("unchanged revalidation was not batched")
+		}
+		stop()
 	}
 	if stage == "received_before_ack" {
 		b, e := s.Prepare(testContext, 500, 1<<20)
@@ -578,7 +656,7 @@ func TestCrashWorker(t *testing.T) {
 }
 
 func TestSIGKILLRecoveryBoundaries(t *testing.T) {
-	for _, stage := range []string{"after_read", "before_commit", "after_commit", "received_before_ack"} {
+	for _, stage := range []string{"after_read", "before_commit", "after_commit", "received_before_ack", "revalidated_before_flush"} {
 		t.Run(stage, func(t *testing.T) {
 			dir := tempDir(t)
 			src := source(t, lines(12))
@@ -618,9 +696,15 @@ func TestSIGKILLRecoveryBoundaries(t *testing.T) {
 			if v.RecoveryCode != "aidr_store_unclean_shutdown" {
 				t.Fatal(v)
 			}
-			committed := stage == "after_commit" || stage == "received_before_ack"
+			committed := stage == "after_commit" || stage == "received_before_ack" || stage == "revalidated_before_flush"
 			if committed && v.LogicalEvents != 12 || !committed && v.LogicalEvents != 0 {
 				t.Fatal(v)
+			}
+			if stage == "revalidated_before_flush" {
+				var pending int
+				if e = s.db.QueryRow(`SELECT pending FROM discovery_files WHERE id=?`, src.ID).Scan(&pending); e != nil || pending != 1 {
+					t.Fatal("killed revalidation skipped pending work", pending, e)
+				}
 			}
 			collect(t, s, src)
 			if status(t, s).LogicalEvents != 12 {

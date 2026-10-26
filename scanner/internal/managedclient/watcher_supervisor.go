@@ -54,8 +54,24 @@ func startSkillMonitor(parent context.Context, home string, store *Store, retry 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ticker := time.NewTicker(retry)
-		defer ticker.Stop()
+		var retryTimer *time.Timer
+		var retryC <-chan time.Time
+		retryDelay := min(time.Second, retry)
+		defer func() {
+			if retryTimer != nil {
+				retryTimer.Stop()
+			}
+		}()
+		scheduleRetry := func() {
+			if retryTimer == nil {
+				retryTimer = time.NewTimer(retryDelay)
+			} else {
+				retryTimer.Reset(retryDelay)
+			}
+			retryC = retryTimer.C
+			retryDelay = min(2*retryDelay, retry)
+		}
+		var nextImmediate time.Time
 		var source skillWatchSource
 		closeSource := func() {
 			m.mu.Lock()
@@ -98,6 +114,7 @@ func startSkillMonitor(parent context.Context, home string, store *Store, retry 
 			if err != nil {
 				closeSource()
 				changed(nil)
+				scheduleRetry()
 				return
 			}
 			m.mu.Lock()
@@ -105,6 +122,18 @@ func startSkillMonitor(parent context.Context, home string, store *Store, retry 
 			m.mu.Unlock()
 			if newSource {
 				changed(nil)
+			}
+		}
+		recoverSource := func(err error) {
+			syncError(store, "watcher", err)
+			closeSource()
+			changed(nil)
+			if !time.Now().Before(nextImmediate) {
+				retryDelay = min(time.Second, retry)
+				nextImmediate = time.Now().Add(retry)
+				refresh()
+			} else {
+				scheduleRetry()
 			}
 		}
 		refresh()
@@ -117,8 +146,12 @@ func startSkillMonitor(parent context.Context, home string, store *Store, retry 
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
-				refresh()
+			case <-retryC:
+				retryC = nil
+				if source == nil {
+					nextImmediate = time.Now().Add(retry)
+					refresh()
+				}
 			case <-m.refresh:
 				// Creation failures retry on the timer, not on every compensating scan.
 				if source != nil {
@@ -128,17 +161,13 @@ func startSkillMonitor(parent context.Context, home string, store *Store, retry 
 				if ok {
 					changed(paths)
 				} else {
-					syncError(store, "watcher", errors.New("skill_watcher_closed"))
-					closeSource()
-					changed(nil)
+					recoverSource(errors.New("skill_watcher_closed"))
 				}
 			case err, ok := <-failures:
 				if !ok || err == nil {
 					err = errors.New("skill_watcher_closed")
 				}
-				syncError(store, "watcher", err)
-				closeSource()
-				changed(nil)
+				recoverSource(err)
 			}
 		}
 	}()

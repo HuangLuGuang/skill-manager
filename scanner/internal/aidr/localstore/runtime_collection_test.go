@@ -78,3 +78,17 @@ func TestRuntimePausePreservesFrozenAndResumeBoundary(t *testing.T) {
 		t.Fatal("duplicate ACK changed receipt time", err)
 	}
 }
+
+func TestRuntimeTargetRejectsPresentEmptyMetadata(t *testing.T) {
+	for _, key := range []string{"runtime_collection_enabled", "runtime_collection_resume_at"} {
+		t.Run(key, func(t *testing.T) {
+			s := openStore(t, tempDir(t), DefaultLimits())
+			if _, err := s.db.Exec(`INSERT INTO metadata(key,value) VALUES(?,'')`, key); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetRuntimeTarget(testContext, true, "1"); err != ErrInvalid {
+				t.Fatal("corrupt metadata accepted", err)
+			}
+		})
+	}
+}

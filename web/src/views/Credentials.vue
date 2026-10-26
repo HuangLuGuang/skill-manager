@@ -44,9 +44,11 @@
           <p>{{ $t('credentials.inventoryDescription') }}</p>
         </div>
         <a-space wrap>
+          <a-button v-if="focusedTokenId" type="link" @click="clearTokenFilter">{{ $t('credentials.clearFilter') }}</a-button>
           <a-select
             v-model:value="filters.token_type"
             allow-clear
+            :disabled="Boolean(focusedTokenId)"
             :placeholder="$t('credentials.allCallers')"
             style="width: 210px"
             @change="fetchTokens"
@@ -66,15 +68,17 @@
         row-key="id"
         :loading="loading"
         size="middle"
-        :pagination="{ pageSize: 10 }"
+        :pagination="{ current: tokenPage, pageSize: 10 }"
+        @change="pagination => { tokenPage = pagination.current }"
         :scroll="{ x: 990 }"
       >
         <template #emptyText>
           <div class="empty-credentials">
             <div class="empty-credentials__mark">KEY</div>
-            <strong>{{ $t('credentials.emptyTitle') }}</strong>
-            <span>{{ $t('credentials.emptyDescription') }}</span>
-            <a-button v-if="hasAccess('credentials:create')" type="primary" @click="openCreate()">{{ $t('credentials.createFirst') }}</a-button>
+            <strong>{{ focusedTokenId ? $t('credentials.notFound') : $t('credentials.emptyTitle') }}</strong>
+            <span v-if="!focusedTokenId">{{ $t('credentials.emptyDescription') }}</span>
+            <a-button v-if="focusedTokenId" @click="clearTokenFilter">{{ $t('credentials.clearFilter') }}</a-button>
+            <a-button v-else-if="hasAccess('credentials:create')" type="primary" @click="openCreate()">{{ $t('credentials.createFirst') }}</a-button>
           </div>
         </template>
 
@@ -404,7 +408,7 @@
 <script setup>
 import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess, pageAllowed } from '../access'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import AgentMcpGateways from '../components/AgentMcpGateways.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
@@ -453,6 +457,16 @@ const returnToIntegration = () => {
 watch(createdVisible, open => { if (!open) createdToken.value = '' })
 const actionId = ref(null)
 const tokens = ref([])
+const tokenPage = ref(1)
+const focusedTokenId = computed(() => {
+  const value = route.query.token_id
+  return typeof value === 'string' && /^[1-9]\d*$/.test(value) ? value : undefined
+})
+const clearTokenFilter = () => {
+  const query = { ...route.query }
+  delete query.token_id
+  router.replace({ query })
+}
 const agents = ref([])
 const models = ref([])
 const optionsLoading = ref(false)
@@ -806,17 +820,28 @@ const savePermissions = async () => {
   } finally { creating.value = false }
 }
 
+let tokenRequest = 0
 const fetchTokens = async () => {
+  const request = ++tokenRequest
   loading.value = true
+  tokenPage.value = 1
   try {
-    const data = await listAccessTokens({ token_type: filters.token_type || undefined })
+    const data = await listAccessTokens({ token_type: focusedTokenId.value ? undefined : filters.token_type || undefined, token_id: focusedTokenId.value })
+    if (request !== tokenRequest) return
     tokens.value = data.items || []
   } catch (error) {
+    if (request !== tokenRequest) return
     message.error(error.response?.data?.detail || t('credentials.loadFailed'))
   } finally {
-    loading.value = false
+    if (request === tokenRequest) loading.value = false
   }
 }
+watch(focusedTokenId, () => {
+  filters.token_type = undefined
+  tokens.value = []
+  fetchTokens()
+})
+onUnmounted(() => { tokenRequest++ })
 const loadedOptions = new Set()
 const pendingOptions = new Map()
 const fetchOptions = async (force = false, forList = false) => {

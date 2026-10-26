@@ -6,7 +6,7 @@
         <a-page-header :title="$t('legacy.5chjsa')" :sub-title="$t('agentAssets.subtitle')">
           <template #extra>
             <a-button v-if="pageAllowed('/runtime')" @click="router.push('/runtime')">{{ $t('agentIntegration.choose') }}</a-button>
-            <a-button v-if="hasAccess('agents:create')" type="primary" @click="openAgent()">{{ $t('agentIntegration.register') }}</a-button>
+            <a-button v-if="hasAccess('agents:create')" type="primary" :loading="optionsLoading" :disabled="optionsLoading" @click="openAgent()">{{ $t('agentIntegration.register') }}</a-button>
           </template>
         </a-page-header>
       </template>
@@ -52,7 +52,7 @@
           <a-button @click="resetFilters" :disabled="loading">{{ $t("legacy.1wq9feq") }}</a-button>
         </div>
 
-        <a-table class="agent-asset-table" :data-source="agents" :columns="columns" :show-sorter-tooltip="false" :scroll="{ x: 1940 }" rowKey="asset_key" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }">
+        <a-table class="agent-asset-table" :data-source="agents" :columns="columns" :show-sorter-tooltip="false" :scroll="{ x: 1940 }" rowKey="asset_key" :loading="loading || optionsLoading || detailLoading" :pagination="{ pageSize: 10, showSizeChanger: true }">
           <template #headerCell="{ column }">
             <span v-if="column.key === 'risk'">{{ column.title }} <a-tooltip :title="$t('aidrRisk.assets.scopeHelp')"><InfoCircleOutlined tabindex="0" :aria-label="$t('aidrRisk.assets.scopeHelp')" /></a-tooltip></span>
             <span v-else-if="column.sortHelp" class="asset-sort-heading">
@@ -66,7 +66,7 @@
           <template #emptyText>
             <div class="source-empty">
               <p>{{ $t(sourceEmptyKey) }}</p>
-              <a-button v-if="sourceEmptyKey === 'agentIntegration.emptyPlatform' && hasAccess('agents:create')" type="primary" @click="openAgent()">{{ $t('agentIntegration.register') }}</a-button>
+              <a-button v-if="sourceEmptyKey === 'agentIntegration.emptyPlatform' && hasAccess('agents:create')" type="primary" :loading="optionsLoading" :disabled="optionsLoading" @click="openAgent()">{{ $t('agentIntegration.register') }}</a-button>
               <a-button v-if="sourceEmptyKey === 'agentIntegration.emptyClient' && pageAllowed('/clients')" type="primary" @click="router.push('/clients')">{{ $t('agentIntegration.client.open') }}</a-button>
             </div>
           </template>
@@ -109,6 +109,7 @@
               <template v-if="record.risk_summary?.status === 'product_only'">
                 <a-tag v-if="record.risk_summary.highest_severity" :color="record.risk_summary.highest_severity === 'high' ? 'red' : 'orange'">{{ $t(`aidrRisk.severity.${record.risk_summary.highest_severity}`) }}</a-tag>
                 <div>{{ $t('aidrRisk.assets.counts', record.risk_summary) }}</div>
+                <div v-if="record.risk_summary.detection_disabled || record.risk_summary.detection_pending" class="muted">{{ $t('aidrRisk.settings.coverage', { disabled: record.risk_summary.detection_disabled, pending: record.risk_summary.detection_pending }) }}</div>
                 <div>{{ $t('aidrRisk.disposition.pendingCount', { count: record.risk_summary.open_count }) }}</div>
                 <div v-if="record.risk_summary.latest_at" class="muted">{{ $t('aidrRisk.assets.latest') }}: {{ formatDateTime(record.risk_summary.latest_at) }}</div>
                 <div class="muted">{{ $t('aidrRisk.assets.productScope') }}</div>
@@ -391,7 +392,7 @@ const assetVisible = ref(false)
 const riskScopesOpen = ref(false), riskScopes = ref([])
 function goToRisks(scope) {
   riskScopesOpen.value = false
-  router.push({ path: '/clients', query: { client: scope.client_id, section: 'audit', view: 'risks', risk_agent: scope.agent } })
+  router.push({ path: '/clients', query: { client: scope.client_id, section: 'risks', risk_agent: scope.agent } })
 }
 function openRisks(record) {
   riskScopes.value = record.risk_summary.scopes
@@ -594,15 +595,16 @@ watch(() => route.query.origin, origin => {
 })
 
 const loadOptions = async () => {
-  const [groupRes, userRes, modelRes, skillRes] = await Promise.all([
+  const [groupRes, userRes] = await Promise.all([
     hasAccess('groups:view') ? listGroups() : [],
     hasAccess('users:view') ? listManagedUsers() : [],
-    hasAccess('models:view') ? listModelEndpoints() : [],
-    hasAccess('skills:view') ? listSkills({ status: 'APPROVED,DEPLOYED' }) : [],
   ])
   groups.value = groupRes
   users.value = userRes
-  models.value = modelRes
+}
+
+const loadSkills = async () => {
+  const skillRes = hasAccess('skills:view') ? await listSkills({ status: 'APPROVED,DEPLOYED' }) : []
   skills.value = Array.isArray(skillRes.items) ? skillRes.items : skillRes
 }
 
@@ -621,8 +623,19 @@ const resetFilters = async () => {
   await fetchAgentAssets()
 }
 
-const openAsset = (record) => {
+const detailLoading = ref(false)
+const openAsset = async (record) => {
   if (record.origin_type === 'client_discovery') { workspaceAsset.value = record; router.push({ query: { ...route.query, agent: record.agent_id } }); return }
+  if (detailLoading.value) return
+  detailLoading.value = true
+  try {
+    await loadSkills()
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('agentAssets.loadFailed'))
+    return
+  } finally {
+    detailLoading.value = false
+  }
   selectedAsset.value = record
   assetDetailTab.value = 'overview'
   assetVisible.value = true
@@ -634,7 +647,23 @@ const editSelectedAsset = () => {
   if (record) openAgent(record)
 }
 
-const openAgent = (record = null) => {
+const optionsLoading = ref(false)
+const openAgent = async (record = null) => {
+  if (optionsLoading.value) return
+  optionsLoading.value = true
+  try {
+    const [modelRes] = await Promise.all([
+      hasAccess('models:view') ? listModelEndpoints() : [],
+      loadSkills(),
+      loadExternalGateways(),
+    ])
+    models.value = modelRes
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('agentAssets.loadFailed'))
+    return
+  } finally {
+    optionsLoading.value = false
+  }
   editingAgentId.value = record?.managed_agent_pk || record?.id || null
   editingOriginType.value = record?.origin_type || 'platform'
   createdDraft.value = false
@@ -769,18 +798,18 @@ const handleDelete = async (record) => {
 }
 
 onMounted(async () => {
-  await Promise.all([loadOptions(), loadExternalGateways(), fetchAgentAssets()])
+  await Promise.all([loadOptions(), fetchAgentAssets()])
   if (typeof route.query.detail === 'string') {
     const record = agents.value.find(item => item.agent_id === route.query.detail && item.origin_type === 'platform')
-    if (record) { openAsset(record); assetDetailTab.value = route.query.detail_tab === 'mcp' ? 'mcp' : 'overview' }
+    if (record) { await openAsset(record); assetDetailTab.value = route.query.detail_tab === 'mcp' ? 'mcp' : 'overview' }
   }
   if (route.query.create === '1' && hasAccess('agents:create')) {
-    openAgent()
+    await openAgent()
     const query = { ...route.query }; delete query.create
     await router.replace({ query })
   } else if (typeof route.query.edit === 'string' && hasAccess('agents:update')) {
     const record = agents.value.find(item => item.agent_id === route.query.edit && item.origin_type === 'platform')
-    if (record) openAgent(record)
+    if (record) await openAgent(record)
     const query = { ...route.query }; delete query.edit
     await router.replace({ query })
   }

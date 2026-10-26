@@ -185,3 +185,9 @@ The opt-in `AIDR_LOCAL_PRODUCT_SAMPLES=1 go test ./internal/aidr/agentlog -run
 TestLocalProductSamples -v` reads local samples and prints only aggregate counts;
 it does not upload data or copy conversations into fixtures. This is parser
 validation, not real end-to-end product acceptance.
+
+### Windows PowerShell command evidence
+
+WorkBuddy `PowerShell` tool calls now use the command behavior category, preserving bounded `command` / `cmd` and `cwd` / `workdir` fields under the existing capture and redaction policy. Update the client collector and platform together. The platform can evaluate Windows literal commands; this does not add native Windows system collection or reconstruct missing historical text.
+
+WorkBuddy 的 `PowerShell` 工具调用按命令行为投影，在既有采集与脱敏策略下保留限长的命令和工作目录字段。客户端采集组件与平台需配套更新；平台检测 Windows 字面命令，本项不增加 Windows 原生系统采集，也不补造历史缺失正文。

@@ -93,7 +93,7 @@ export const policySettingsMessages = {
     },
     "fieldHints": {
       "llm_model": "从模型列表选择；启用 AI 时必选，关闭时可留空。用于 AI 分析和复核。",
-      "llm_timeout_seconds": "正整数，5–180 秒。例如 30；整次 AI 分析的总时限，包含输入准备、模型调用和结果处理。供应商请求超时更短时可提前结束。",
+      "llm_timeout_seconds": "正整数，5–600 秒。例如 30；整次 AI 分析的总时限，包含输入准备、模型调用和结果处理。供应商请求超时更短时可提前结束。",
       "llm_max_files": "正整数，1–20。例如 6；提供给 AI 的文件数量上限。",
       "llm_max_manifest_chars": "正整数，2000–50000 个字符。例如 12000；提供给 AI 的 SKILL.md 字符上限。",
       "llm_max_file_chars": "正整数，500–20000 个字符。例如 3000；每个文件提供给 AI 的字符上限。",
@@ -228,7 +228,7 @@ export const policySettingsMessages = {
     },
     "fieldHints": {
       "llm_model": "Select a listed model. Required when AI is enabled; optional when disabled. Used for AI analysis and review.",
-      "llm_timeout_seconds": "Positive integer, 5–180 seconds, e.g. 30. Total time limit for AI analysis, including input preparation, the model request and result processing. A shorter provider request timeout may end it earlier.",
+      "llm_timeout_seconds": "Positive integer, 5–600 seconds, e.g. 30. Total time limit for AI analysis, including input preparation, the model request and result processing. A shorter provider request timeout may end it earlier.",
       "llm_max_files": "Positive integer, 1–20, e.g. 6. Maximum number of files sent to AI.",
       "llm_max_manifest_chars": "Positive integer, 2000–50000 characters, e.g. 12000. Maximum SKILL.md characters sent to AI.",
       "llm_max_file_chars": "Positive integer, 500–20000 characters, e.g. 3000. Maximum characters per file sent to AI.",

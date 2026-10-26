@@ -89,7 +89,10 @@ class OverviewCommandBucket(Base):
 
 
 def product_id(agent):
-    return aidr_adapters.get(agent).family or agent
+    adapter = aidr_adapters.get(agent)
+    if agent not in aidr_adapters.ADAPTERS:
+        adapter = next((a for a in aidr_adapters.ADAPTERS.values() if a.inventory_type == agent and agent), adapter)
+    return adapter.family or adapter.id
 
 
 def digest(parts):
@@ -277,30 +280,31 @@ def advance(db, limit=250):
     return more
 
 
-def overview(db, client_id, source='hooks', agent='', hours=24, now=None):
+def overview(db, client_id, source='hooks', agent='', hours=24, now=None, since=None, until=None):
     agent = product_id(agent)
     now = now or datetime.now(timezone.utc)
-    end = int(now.timestamp()) + 1
-    start = (end // 3600 - hours + 1) * 3600
+    end = until if until is not None else int(now.timestamp()) + 1
+    start = since if since is not None else (end // 3600 - hours + 1) * 3600
     model = AidrHookEvent if source == 'hooks' else AidrEvent
     maximum = db.query(func.max(model.id)).filter(model.client_id == client_id).scalar() or 0
     state = db.get(OverviewWatermark, source)
     ready = maximum == 0 or bool(state and state.position >= min(maximum, state.initial_ceiling))
     # New events can arrive continuously; a caught-up worker timestamp distinguishes
     # short live lag from an old backlog without interpreting partial totals as final.
-    params = dict(client=client_id, source=source, agent=agent, start=start, end=end, current=end//3600*3600)
+    params = dict(client=client_id, source=source, agent=agent, start=start, end=end,
+                  complete_start=(start + 3599)//3600*3600, current=end//3600*3600)
     where = 'client_id=:client AND source=:source AND hour>=:start AND hour<:end'
     if agent:
         where += ' AND product=:agent'
-    rows = db.execute(text(f'SELECT product,hour,tool,command,calls,failures FROM aidr_overview_buckets WHERE {where} AND hour<:current'), params).mappings().all()
+    rows = db.execute(text(f'SELECT product,hour,tool,command,calls,failures FROM aidr_overview_buckets WHERE {where} AND hour>=:complete_start AND hour<:current'), params).mappings().all()
     # The open hour uses the same event-time boundary as drilldown, including when
     # a client's clock is ahead. Completed hours remain pre-aggregated.
-    current_where = 'client_id=:client AND source=:source AND at>=:current AND at<:end'
+    current_where = 'client_id=:client AND source=:source AND at>=:start AND at<:end AND (at<:complete_start OR at>=:current)'
     if agent:
         current_where += ' AND product=:agent'
-    rows += db.execute(text(f'''SELECT product,:current hour,tool,command,count(*) calls,sum(failed) failures
-        FROM aidr_overview_operations WHERE {current_where} GROUP BY product,tool,command'''), params).mappings().all()
-    trend = {at: {'at': at, 'commands': 0, 'other': 0} for at in range(start, end, 3600)}
+    rows += db.execute(text(f'''SELECT product,at/3600*3600 hour,tool,command,count(*) calls,sum(failed) failures
+        FROM aidr_overview_operations WHERE {current_where} GROUP BY hour,product,tool,command'''), params).mappings().all()
+    trend = {at: {'at': max(start, at), 'commands': 0, 'other': 0} for at in range(start//3600*3600, end, 3600)}
     totals = dict(commands=0, tools=0, failures=0, command_occurrences=0)
     ranks = {k: {} for k in ('commands', 'tools', 'agents')}
     for row in rows:
@@ -314,7 +318,7 @@ def overview(db, client_id, source='hooks', agent='', hours=24, now=None):
                 ranks[dimension][value] = ranks[dimension].get(value, 0) + n
     # Occurrences have a separate aggregation so repeated subcommands never multiply tool calls.
     command_rows = db.execute(text(f'''SELECT program,sum(occurrences) occurrences
-        FROM aidr_overview_command_buckets WHERE {where} AND hour<:current GROUP BY program'''), params).mappings().all()
+        FROM aidr_overview_command_buckets WHERE {where} AND hour>=:complete_start AND hour<:current GROUP BY program'''), params).mappings().all()
     command_rows += db.execute(text(f'''SELECT j.key program,sum(j.value) occurrences
         FROM aidr_overview_operations, json_each(command_counts_json) j
         WHERE {current_where} GROUP BY j.key'''), params).mappings().all()
@@ -326,7 +330,7 @@ def overview(db, client_id, source='hooks', agent='', hours=24, now=None):
         sum(CASE WHEN phase!='activity' AND (operation_key='' OR NOT EXISTS (SELECT 1 FROM aidr_overview_operations o WHERE o.key=aidr_overview_evidence.operation_key)) THEN 1 ELSE 0 END) unlinked
         FROM aidr_overview_evidence WHERE {evidence_where}'''), params).mappings().one()
     totals['sessions'] = extras['sessions']
-    status = 'preparing' if not ready else 'delayed' if maximum and state and end-state.updated_at > 60 else 'ready'
+    status = 'preparing' if not ready else 'delayed' if maximum and state and now.timestamp()-state.updated_at > 60 else 'ready'
     return dict(state=status, updated_at=state.updated_at if state else None,
                 source=source, agent=agent, since=start, until=end, totals=totals,
                 unlinked=extras['unlinked'] or 0, trend=list(trend.values()),
@@ -337,15 +341,15 @@ _cache = OrderedDict()
 _cache_lock = RLock()
 
 
-def cached_overview(db, client_id, source, agent, hours):
+def cached_overview(db, client_id, source, agent, hours, since=None, until=None):
     # Authentication/visibility runs before this function. Only metadata is cached;
     # retention invalidates it, and the key includes the database and full scope.
-    key = (db.get_bind(), client_id, source, agent, hours)
+    key = (db.get_bind(), client_id, source, agent, hours, since, until)
     with _cache_lock:
         cached = _cache.get(key)
         if cached and time.monotonic() - cached[0] < 5:
             return cached[1]
-    result = overview(db, client_id, source, agent, hours)
+    result = overview(db, client_id, source, agent, hours, since=since, until=until)
     with _cache_lock:
         _cache[key] = (time.monotonic(), result)
         _cache.move_to_end(key)
@@ -359,10 +363,16 @@ def invalidate_cache():
         _cache.clear()
 
 
-def task_summary(db, client_id, before=None):
+def task_summary(db, client_id, before=None, since=None, until=None, status=''):
     from .models import ClientTask
     from .runtime_governance import Observation
     q = db.query(ClientTask).filter(ClientTask.client_id == client_id)
+    if since is not None:
+        q = q.filter(ClientTask.created_at >= datetime.fromtimestamp(since, timezone.utc).replace(tzinfo=None),
+                     ClientTask.created_at < datetime.fromtimestamp(until, timezone.utc).replace(tzinfo=None))
+    counts = dict(q.with_entities(ClientTask.status, func.count()).group_by(ClientTask.status).all())
+    if status:
+        q = q.filter(ClientTask.status == status)
     history = q.filter(ClientTask.id < before).order_by(ClientTask.id.desc()).limit(31).all() if before else q.order_by(ClientTask.id.desc()).limit(31).all()
     def present(row):
         payload = json.loads(row.payload_json)
@@ -370,7 +380,8 @@ def task_summary(db, client_id, before=None):
                     created_at=row.created_at, finished_at=row.finished_at,
                     payload={k: payload[k] for k in ('action', 'agent', 'agent_type', 'skill_name', 'policy_version', 'target') if k in payload})
     result = dict(history=[present(row) for row in history[:30]], next_cursor=history[29].id if len(history)>30 else None, attention=[])
-    if before:
+    result['counts'] = counts
+    if before or since is not None:
         return result
     active = q.filter(ClientTask.status.in_(('pending', 'running'))).order_by(ClientTask.id.desc()).limit(101).all()
     cutoff = datetime.utcnow() - timedelta(days=7)

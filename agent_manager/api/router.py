@@ -565,7 +565,7 @@ class VerifySkillSignatureResponse(BaseModel):
 
 # 只约束配置写入边界，旧 YAML 继续按原模型读取，避免升级后无法启动。
 _ADVANCED_INTEGER_LIMITS = {
-    "llm": {"timeout_seconds": (5, 180), "max_files": (1, 20),
+    "llm": {"timeout_seconds": (5, 600), "max_files": (1, 20),
             "max_manifest_chars": (2000, 50000), "max_file_chars": (500, 20000)},
     "sandbox": {"timeout_seconds": (1, 300), "pids_limit": (1, 1024)},
     "policy": {},

@@ -1198,7 +1198,7 @@ const zh = {
         {
           id: 'advanced-services',
           title: '配置模型与服务参数',
-          paragraphs: ['在“检测设置”点击相应能力的“配置服务”，进入高级配置。选择已登记的 AI 模型并按需调整超时和内容上限；Sandbox 可选择本地 Docker 或远程服务，配置资源参数，远程服务支持测试连接。完成后点击“保存修改”，再提交或重新检测验证实际执行。'],
+          paragraphs: ['在“检测设置”点击相应能力的“配置服务”，进入高级配置。选择已登记的 AI 模型，超时可设置为 5–600 秒，并按需调整内容上限；Sandbox 可选择本地 Docker 或远程服务，配置资源参数，远程服务支持测试连接。完成后点击“保存修改”，再提交或重新检测验证实际执行。'],
           image: { name: 'skill-policy-advanced', alt: '高级配置与 AI 分析服务', caption: '示例配置：模型选择与扫描内容上限位于高级配置。' },
         },
         {
@@ -4213,7 +4213,7 @@ en.articles['skill-policy'] = {
     {
           id: 'advanced-services',
           title: 'Configure models and service parameters',
-          paragraphs: ['In Detection settings, select Configure service for the relevant capability to open advanced settings. Select a registered AI model and adjust timeout and content limits as needed. For Sandbox, choose local Docker or a remote service and configure resources; remote services support connection testing. Select Save changes, then submit or rescan to verify actual execution.'],
+          paragraphs: ['In Detection settings, select Configure service for the relevant capability to open advanced settings. Select a registered AI model, set the timeout to 5–600 seconds, and adjust content limits as needed. For Sandbox, choose local Docker or a remote service and configure resources; remote services support connection testing. Select Save changes, then submit or rescan to verify actual execution.'],
           image: { name: 'skill-policy-advanced', alt: 'Advanced configuration and AI analysis service', caption: 'Example configuration: model selection and scanning content limits are under Advanced configuration.' },
         },
         {

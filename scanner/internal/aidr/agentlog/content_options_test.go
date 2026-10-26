@@ -9,7 +9,7 @@ import (
 
 func TestCommandBodyCaptureAndConfiguredLimits(t *testing.T) {
 	command := "cat <<'EOF'\n真实正文\nTOKEN=SYNTHETIC-SECRET\nEOF\n"
-	for _, tool := range []string{"Bash", "exec_command", "shell_command", "exec", "js"} {
+	for _, tool := range []string{"Bash", "PowerShell", "exec_command", "shell_command", "exec", "js"} {
 		var source any = map[string]string{"command": command}
 		field := "input.command"
 		if tool == "exec_command" {

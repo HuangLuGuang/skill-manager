@@ -538,10 +538,13 @@ def verify_plain_token(row: models.AccessToken, plain: str) -> bool:
 @router.get("", response_model=schemas.AccessTokenListResponse)
 async def list_access_tokens(
     token_type: str | None = None,
+    token_id: int | None = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
     query = db.query(models.AccessToken)
+    if token_id is not None:
+        query = query.filter(models.AccessToken.id == token_id)
     if token_type:
         query = query.filter(models.AccessToken.token_type == token_type)
     rows = query.order_by(models.AccessToken.id.desc()).all()

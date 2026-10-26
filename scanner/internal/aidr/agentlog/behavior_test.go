@@ -13,6 +13,7 @@ func TestReadableBehaviorIndependentExpectations(t *testing.T) {
 		exit                                                                *int
 	}{
 		{name: "shell intent", tool: "Bash", kind: "tool_call", input: `{"command":"/bin/ls -l /tmp/audit","cwd":"/tmp/audit"}`, category: "command", status: "unknown", command: "/bin/ls -l /tmp/audit"},
+		{name: "windows powershell intent", tool: "PowerShell", kind: "tool_call", input: `{"command":"Remove-Item C:\\Protected -Recurse","cwd":"C:\\Work"}`, category: "command", status: "unknown", command: `Remove-Item C:\Protected -Recurse`},
 		{name: "file read", tool: "Read", kind: "tool_call", input: `{"file_path":"/tmp/audit/input.txt","content":"DO_NOT_COPY"}`, category: "file_read", status: "unknown", target: "/tmp/audit/input.txt"},
 		{name: "file edit", tool: "Edit", kind: "tool_call", input: `{"file_path":"/tmp/audit/input.txt","old_string":"DO_NOT_COPY","new_string":"DO_NOT_COPY"}`, category: "file_edit", status: "unknown", target: "/tmp/audit/input.txt"},
 		{name: "file rename", tool: "rename_file", kind: "tool_call", input: `{"old_path":"/tmp/audit/input.txt","new_path":"/tmp/audit/renamed.txt"}`, category: "file_rename", status: "unknown", target: "/tmp/audit/input.txt"},
