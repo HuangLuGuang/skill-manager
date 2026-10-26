@@ -22,7 +22,8 @@ func doubaoTrajectory(root, path string) []string {
 
 func doubaoWorkLogAdapter() logAdapter {
 	return logAdapter{
-		Read: readDoubaoWork,
+		Roots: doubaoRoots,
+		Read:  readDoubaoWork,
 		ReadOffset: func(s Source, c Cursor) int64 {
 			if doubaoCacheSource(s.Root, s.Path) {
 				if c.ScanComplete {
@@ -52,13 +53,30 @@ func readDoubaoWork(ctx context.Context, s Source, c Cursor, b Budget, since tim
 	var turns map[string]string
 	var revision string
 	if parts := doubaoTrajectory(s.Root, s.Path); parts != nil && policy != nil && policy.CollectionEnabled() {
-		turns, revision = doubaoTurns(ctx, s.Root, parts[0])
+		if feishuProfile(s.Root) != "" {
+			indexCtx, cancel := context.WithTimeout(ctx, b.Duration)
+			turns, revision = feishuTurns(indexCtx, s.Root, parts[0])
+			cancel()
+		} else {
+			turns, revision = doubaoTurns(ctx, s.Root, parts[0])
+		}
 	}
 	b.Events = min(b.Events, 128)
+	var messages map[string]doubaoMessageLink
+	if policy != nil && policy.MessageLinkSchema == 1 && (len(turns) > 0 || len(b.RetainedTurns) > 0) {
+		if turns == nil {
+			turns = map[string]string{}
+		}
+		messages = doubaoMessageLinks(ctx, s, turns, b.RetainedTurns)
+		metadata, _ := json.Marshal(messages)
+		revision = digest("doubao-message-links/1", revision, string(metadata))
+	}
 	enrich := func(out ReadBatch) ReadBatch {
 		for _, e := range out.Events {
 			if turn := turns[e.CallID]; turn != "" && (e.Kind == "tool_call" || e.Kind == "tool_result") {
-				out.TurnLinks = append(out.TurnLinks, TurnLink{e.LogicalEventID, e.SessionID, e.CallID, turn, e.ContentDigest})
+				out.TurnLinks = append(out.TurnLinks, TurnLink{e.LogicalEventID, e.SessionID, e.CallID, turn, e.ContentDigest, ""})
+			} else if link, ok := messages[e.CallID]; ok && e.Message != nil {
+				out.TurnLinks = append(out.TurnLinks, TurnLink{e.LogicalEventID, e.SessionID, e.CallID, link.Turn, e.ContentDigest, link.Phase})
 			}
 		}
 		return out

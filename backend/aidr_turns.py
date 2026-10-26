@@ -13,10 +13,12 @@ def event_turn_sql():
 
 def present(db, row):
     event = json.loads(row.payload_json)
-    if not event.get('turn_id'):
-        turn = db.get(AidrEventTurn, row.id)
-        if turn:
+    turn = db.get(AidrEventTurn, row.id)
+    if turn:
+        if not event.get('turn_id'):
             event['turn_id'] = turn.turn_id
+        if turn.message_phase and event.get('message'):
+            event['message']['phase'] = turn.message_phase
     return event
 
 
@@ -36,11 +38,18 @@ def apply(db, client_id, coverage):
         expected = (coverage.source_id, link.session_id, link.native_call_id, link.content_digest)
         observed = tuple(event.get(k) for k in ('source_id', 'session_id', 'native_call_id', 'content_digest'))
         prior = db.get(AidrEventTurn, row.id)
+        phase = link.message_phase or ''
+        if phase and (row.agent != 'doubaowork' or row.kind != 'assistant_message'
+                      or event.get('message', {}).get('phase') not in ('unspecified', phase)
+                      or (prior and prior.message_phase not in ('', phase))):
+            raise ApiError(409, 'aidr.turn_link_conflict', '轮次关联与原始记录不一致', 'Turn association conflicts with retained evidence')
         if (not aidr_adapters.get(row.agent).log_turn_links or expected != observed
                 or event.get('turn_id') not in ('', link.turn_id)
                 or (prior and prior.turn_id != link.turn_id)):
             raise ApiError(409, 'aidr.turn_link_conflict', '轮次关联与原始记录不一致', 'Turn association conflicts with retained evidence')
-        db.execute(insert(AidrEventTurn).values(event_id=row.id, turn_id=link.turn_id).on_conflict_do_nothing())
+        db.execute(insert(AidrEventTurn).values(event_id=row.id, turn_id=link.turn_id, message_phase=phase).on_conflict_do_nothing())
+        if prior and phase and not prior.message_phase:
+            prior.message_phase = phase
         if row.kind not in ('tool_call', 'tool_result'):
             continue
         operations = db.query(AidrOperation).filter(

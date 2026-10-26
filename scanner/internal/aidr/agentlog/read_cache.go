@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
 
 type readStamp struct {
 	main, wal os.FileInfo
+	related   map[string]os.FileInfo
 }
 
 func inspectReadStamp(s Source) (readStamp, bool) {
@@ -19,6 +21,36 @@ func inspectReadStamp(s Source) (readStamp, bool) {
 		return readStamp{}, false
 	}
 	stamp := readStamp{main: main}
+	if s.Agent == "doubaowork" && doubaoCacheSource(s.Root, s.Path) {
+		stamp.related = make(map[string]os.FileInfo)
+		for _, name := range doubaoCacheDirs(s.Root) {
+			folder := filepath.Join(s.Root, name)
+			if err := checkPath(folder); err != nil {
+				if os.IsNotExist(err) && name == doubaoLauncherDB {
+					continue
+				}
+				return readStamp{}, false
+			}
+			entries, err := os.ReadDir(folder)
+			if err != nil {
+				return readStamp{}, false
+			}
+			for _, entry := range entries {
+				if !doubaoCacheFile.MatchString(entry.Name()) {
+					continue
+				}
+				path := filepath.Join(folder, entry.Name())
+				if len(stamp.related) >= 256 {
+					return readStamp{}, false
+				}
+				info, err := checkedPathInfo(path)
+				if err != nil || !info.Mode().IsRegular() || skillChangeTime(info) == 0 {
+					return readStamp{}, false
+				}
+				stamp.related[path] = info
+			}
+		}
+	}
 	if s.Agent == "teleagent" {
 		for _, suffix := range []string{"-wal", "-shm"} {
 			info, err := checkedPathInfo(s.Path + suffix)
@@ -34,6 +66,14 @@ func inspectReadStamp(s Source) (readStamp, bool) {
 }
 
 func (s readStamp) equal(other readStamp) bool {
+	if len(s.related) != len(other.related) {
+		return false
+	}
+	for path, info := range s.related {
+		if !sameLogFileVersion(info, other.related[path]) {
+			return false
+		}
+	}
 	return sameLogFileVersion(s.main, other.main) &&
 		(s.wal == nil && other.wal == nil || sameLogFileVersion(s.wal, other.wal))
 }
@@ -60,7 +100,11 @@ func readKey(value any) [32]byte {
 
 func (cache *ReadCache) Read(ctx context.Context, s Source, old Cursor, b Budget, since time.Time, policy *AuditPolicy, observer *SkillObserver) (ReadBatch, error) {
 	// Doubao correlation also depends on SDK logs outside this source file.
-	if s.Agent == "doubaowork" || !b.valid() {
+	doubaoSnapshot := s.Agent == "doubaowork" && doubaoCacheSource(s.Root, s.Path)
+	if s.Agent == "doubaowork" && !doubaoSnapshot || !b.valid() {
+		return ReadWithPolicy(ctx, s, old, b, since, policy, observer)
+	}
+	if doubaoSnapshot && (policy == nil || !policy.CollectionEnabled()) {
 		return ReadWithPolicy(ctx, s, old, b, since, policy, observer)
 	}
 	cache.mu.Lock()
@@ -87,12 +131,12 @@ func (cache *ReadCache) Read(ctx context.Context, s Source, old Cursor, b Budget
 	}
 	after, current := inspectReadStamp(s)
 	tracking := valid && current && before.equal(after)
-	if s.Agent == "teleagent" && old.SchemaVersion != 0 && !old.ScanComplete {
+	if (s.Agent == "teleagent" || doubaoSnapshot) && old.SchemaVersion != 0 && !old.ScanComplete {
 		// A mutation between pages invalidates the entire snapshot cycle.
 		tracking = tracking && match
 	}
 	complete := tracking && batch.Coverage.Status == "complete" && batch.Cursor.ContextRepair == nil
-	if s.Agent == "teleagent" {
+	if s.Agent == "teleagent" || doubaoSnapshot {
 		complete = complete && batch.Cursor.ScanComplete
 	} else {
 		complete = complete && after.main != nil && batch.Cursor.Offset == after.main.Size()

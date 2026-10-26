@@ -159,6 +159,7 @@ type TurnLink struct {
 	CallID         string `json:"native_call_id"`
 	TurnID         string `json:"turn_id"`
 	ContentDigest  string `json:"content_digest"`
+	MessagePhase   string `json:"message_phase,omitempty"`
 }
 
 func ValidateTurnLink(link TurnLink) bool {
@@ -167,7 +168,7 @@ func ValidateTurnLink(link TurnLink) bool {
 			return false
 		}
 	}
-	return token(link.SessionID) != "" && token(link.CallID) != "" && token(link.TurnID) != ""
+	return token(link.SessionID) != "" && token(link.CallID) != "" && token(link.TurnID) != "" && (link.MessagePhase == "" || link.MessagePhase == "commentary" || link.MessagePhase == "final")
 }
 
 type Budget struct {
@@ -177,6 +178,7 @@ type Budget struct {
 	Duration  time.Duration
 	// Local resume boundary, not part of the platform policy or source cursor.
 	CollectionResumeAt time.Time
+	RetainedTurns      map[string]string
 }
 
 func DefaultBudget() Budget {

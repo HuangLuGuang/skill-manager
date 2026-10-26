@@ -177,7 +177,7 @@ func readTeleAgent(ctx context.Context, s Source, old Cursor, b Budget, since ti
 			e.SourceInstanceID = digest(s.ID, identity, "sqlite/1")
 			e.EventID = digest("sqlite/1", s.ID, identity, r.ID, strconv.Itoa(e.Block), string(raw))
 			if token(turn) != "" {
-				out.TurnLinks = append(out.TurnLinks, TurnLink{e.LogicalEventID, e.SessionID, e.CallID, turn, e.ContentDigest})
+				out.TurnLinks = append(out.TurnLinks, TurnLink{e.LogicalEventID, e.SessionID, e.CallID, turn, e.ContentDigest, ""})
 			}
 		}
 		c = candidate

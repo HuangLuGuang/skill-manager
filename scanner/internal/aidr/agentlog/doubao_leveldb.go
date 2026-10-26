@@ -16,7 +16,9 @@ func doubaoCRC(b []byte, want uint32) bool {
 	return (x>>15|x<<17)+0xa282ead8 == want
 }
 
-func doubaoStateKey(k []byte) bool {
+func doubaoStateKey(k []byte) bool { return doubaoStateKeyFor(k, false) }
+
+func doubaoStateKeyFor(k []byte, feishu bool) bool {
 	if len(k) < 6 || k[0] != 0 || k[3] != 1 || k[4] != 1 {
 		return false
 	}
@@ -29,6 +31,9 @@ func doubaoStateKey(k []byte) bool {
 		u[i] = binary.BigEndian.Uint16(k[5+size+i*2:])
 	}
 	s := string(utf16.Decode(u))
+	if feishu {
+		return s == "default-chat-im-protocol-store"
+	}
 	return strings.HasPrefix(s, "im-sdk:user:") && strings.HasSuffix(s, ":default-chat-im-protocol-store")
 }
 

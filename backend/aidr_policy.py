@@ -127,7 +127,7 @@ def reject():
     raise ApiError(409, "aidr.redaction_policy_invalid", "脱敏策略凭据或序列范围不匹配", "Redaction policy receipt or sequence range does not match")
 
 
-def issue(db, client_id, stream, frontier, applied_receipt="", applied_after=0, content_supported=False, lifecycle_supported=False, message_supported=False, content_options_supported=False, model_context_supported=False, skill_audit_supported=False, completion_supported=False, command_completion_supported=False):
+def issue(db, client_id, stream, frontier, applied_receipt="", applied_after=0, content_supported=False, lifecycle_supported=False, message_supported=False, content_options_supported=False, model_context_supported=False, skill_audit_supported=False, completion_supported=False, command_completion_supported=False, message_links_supported=False):
     policy = current(db, client_id)
     rows = db.query(models.AidrPolicyReceipt).filter_by(client_id=client_id, stream_id=stream, end_sequence=None).order_by(models.AidrPolicyReceipt.created_at).all()
     if applied_receipt:
@@ -156,7 +156,7 @@ def issue(db, client_id, stream, frontier, applied_receipt="", applied_after=0, 
                                       version=policy["version"], enabled=policy["enabled"], capture_json=capture, lifecycle_json=lifecycle, skill_audit_json=skill_audit, start_sequence=frontier + 1)
         db.add(row)
     db.flush()
-    return {**({"completion_schema": 2 if command_completion_supported else 1} if completion_supported else {}), **({"model_context_schema": 1} if model_context_supported else {}), "version": row.version, "enabled": row.enabled, "receipt": row.id, **({"message_schema": 1} if message_supported else {}), **({'capture': json.loads(row.capture_json)} if row.capture_json else {}),
+    return {**({"message_link_schema": 1} if message_supported and message_links_supported else {}), **({"completion_schema": 2 if command_completion_supported else 1} if completion_supported else {}), **({"model_context_schema": 1} if model_context_supported else {}), "version": row.version, "enabled": row.enabled, "receipt": row.id, **({"message_schema": 1} if message_supported else {}), **({'capture': json.loads(row.capture_json)} if row.capture_json else {}),
             **({'lifecycle': json.loads(row.lifecycle_json)} if row.lifecycle_json else {}),
             **({'skill_audit': json.loads(row.skill_audit_json)} if row.skill_audit_json else {})}
 

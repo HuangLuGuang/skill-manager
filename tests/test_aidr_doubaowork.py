@@ -7,6 +7,36 @@ from backend import aidr_adapters
 from tests.test_aidr_api import service, batch, submit
 
 
+def test_doubao_message_phase_repair_keeps_original_evidence(service):
+    from tests.test_aidr_messages import message_event, issued_policy
+    from tests.test_aidr_operations import upload
+    from tests.test_teleagent_turn_links import repair
+    from backend.aidr_models import AidrEvent
+    client, factory = service
+    policy = issued_policy(client, factory)
+    e = message_event('assistant', 'unspecified', agent='doubaowork', session_id='s', turn_id='')
+    e['message']['policy'] = policy
+    assert upload(client, e).status_code == 200
+    with factory() as db:
+        original = db.query(AidrEvent).one().payload_json
+    first = repair([e], 1, 'native-user')
+    assert submit(client, first).status_code == 200
+    phase = repair([e], 2, 'native-user')
+    phase['records'][0]['payload']['turn_links'][0]['message_phase'] = 'final'
+    for _ in range(2):
+        response = submit(client, phase)
+        assert response.status_code == 200, response.text
+    rows = client.get('/api/v1/clients/one/aidr/events', params={'agent': 'doubaowork'}).json()['items']
+    assert len(rows) == 1
+    assert rows[0]['event']['turn_id'] == 'native-user'
+    assert rows[0]['event']['message']['phase'] == 'final'
+    with factory() as db:
+        assert db.query(AidrEvent).one().payload_json == original
+    conflict = repair([e], 3, 'native-user')
+    conflict['records'][0]['payload']['turn_links'][0]['message_phase'] = 'commentary'
+    assert submit(client, conflict).status_code == 409
+
+
 def test_doubaowork_contract():
     root = Path(__file__).resolve().parents[1]
     products = json.loads((root / 'backend/aidr_products.json').read_text())

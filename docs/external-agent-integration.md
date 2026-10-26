@@ -1464,6 +1464,14 @@ Dify 1.15.0（graphon 0.5.3）通过 [Runtime Adapter 接入包](../integrations
 
 豆包 IM 的 IndexedDB 缓存补充带原生消息 ID 的已发送提问和已结束的可见回复正文块；回复按 `reply_id` 归入提问轮次。沿用现有日志开关、脱敏和上报，不需要 Hook。缓存中的未完成回复与已被清理的历史不补造，原轨迹无 ID 的消息仍保留未归属。
 
+macOS 飞书内豆包工作的本地电脑模式也复用 `doubaowork` 来源：限定读取飞书用户配置中的豆包工作区、Doubao WebView 缓存及 AgentInfra 日志。工具通过 `tcid → agent_id → reply_unique_key → reply_id` 归轮；MCP 消息块自带所属回复和结果，但与原生轨迹调用缺少已验证的 ID 映射时分别保留证据。飞书和独立版缓存中的同会话、消息与块 ID 复用逻辑身份，只入队一次，物理来源仍保留；同步副本不证明再次执行。普通飞书聊天、云电脑执行和 Hook 阻断不在本次范围。具体路径、历史补采限制与验收项见[客户端说明](agent-manager-client.md#macos-飞书内豆包工作的本地电脑模式)。
+
+**English — Feishu local mode:** The macOS Feishu local-computer entry uses the existing `doubaowork` source, policy and upload pipeline. Discovery is restricted to Doubao task workspaces, its WebView cache and native AgentInfra metadata. Native request/message IDs establish turns; absent or conflicting joins remain unassigned. MCP message blocks retain their own turn/results without inventing a join to trajectory IDs. Synced cache records share logical IDs across the two clients while retaining physical evidence, so a synchronized copy is not counted as a second execution. Ordinary Feishu chat, cloud execution and Hook enforcement are outside this integration.
+
+闭合轨迹中的最终回答可通过同段完整工具调用 ID 链关联提问并标记最终回复；历史补关联复用已保存的原生工具归属，保留原始证据、采集开关与脱敏。缺少或冲突的链条保留未归属，详见客户端说明中的判定条件。
+
+**English — final replies:** A closed transcript exchange can identify its final answer and prompt through a complete native tool-call chain. Historical enrichment reuses retained tool associations while preserving evidence, capture controls and redaction. Missing or conflicting chains remain unassigned; see the client guide for the criteria.
+
 **English — message cache:** Doubao's local IndexedDB IM cache supplies acknowledged prompts and finished visible reply blocks with native IDs. Replies use `reply_id` to identify the prompt turn. Existing log controls, redaction and delivery apply without a Hook. Incomplete replies and removed history are not reconstructed; ID-less transcript messages remain unassigned.
 
 **English — turns:** Doubao native tool, runtime-task and frontend message IDs enrich retained history through `turn_links`, preserving original events. Missing/conflicting identities, transcript messages without native message IDs and MCP calls without a verified identity chain remain unassigned.

@@ -67,6 +67,7 @@ class AuditPolicy(Strict):
     skill_audit: SkillAuditPolicy | None = None
     model_context_schema: Literal[1] | None = None
     message_schema: Literal[1] | None = None
+    message_link_schema: Literal[1] | None = None
     completion_schema: Literal[1, 2] | None = None
     version: str = Field(pattern=r"^(0|[1-9][0-9]{0,18})$")
     enabled: bool

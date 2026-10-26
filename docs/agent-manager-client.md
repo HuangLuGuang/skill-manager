@@ -1665,9 +1665,34 @@ Command completion is separately negotiated using `X-AIDR-Command-Completion: 1`
 
 **English — turns:** Native tool IDs are joined through the runtime agent ID and frontend request metadata to the originating message ID. Both legacy receive events and local-office lifecycle start events are supported. Missing or conflicting identities remain unassigned, including transcript messages without native message IDs. Changes trigger resumable metadata-only history enrichment through existing `turn_links`, without restoring expired content or duplicating tools. Upgrade server and client together. The metadata index caches for 15 seconds and scans at most 128 MiB; unavailable metadata leaves transcript collection running. A fresh two-prompt command conversation verified distinct native turns. MCP's frontend, runtime and transcript IDs still lack a verified join and remain unassigned.
 
-本地 2.33.1/2.33.3 样本没有执行时间戳，`observed_at_source=collection` 表示采集时间。首次启用和历史补采按预算读取保留的轨迹，不能用采集起点筛掉更早执行的记录，补采时间也不代表原始对话发生时间。结果已返回与执行成功分开：保留返回内容，成败保持未知，不从任意输出文字推断退出码。不提供 Hook 阻断；飞书内置伙伴不属于此来源。豆包升级改变日志格式时需重新验证。
+本地 2.33.1/2.33.3 样本没有执行时间戳，`observed_at_source=collection` 表示采集时间。首次启用和历史补采按预算读取保留的轨迹，不能用采集起点筛掉更早执行的记录，补采时间也不代表原始对话发生时间。结果已返回与执行成功分开：保留返回内容，成败保持未知，不从任意输出文字推断退出码。不提供 Hook 阻断。豆包升级改变日志格式时需重新验证。
 
-**English:** Select **Doubao Work** (`doubaowork`) in the macOS runtime log policy. File operations, Bash and deferred MCP calls reuse checkpoints, deduplication and batch delivery. User input and assistant replies follow the existing prompt/model-response switches, redaction, limits and protected content access. With message capture negotiated, upgrading automatically replays retained trajectories in resumable batches, adding messages without duplicating tool records. Disabled content retains metadata only; system messages and questions absent from the original log are not reconstructed. Full session IDs appear below session titles. Times represent collection, including historical backfill, rather than original execution. Returned content does not establish success. Feishu's embedded companion and Hook enforcement remain outside this adapter.
+**English:** Select **Doubao Work** (`doubaowork`) in the macOS runtime log policy. File operations, Bash and deferred MCP calls reuse checkpoints, deduplication and batch delivery. User input and assistant replies follow the existing prompt/model-response switches, redaction, limits and protected content access. With message capture negotiated, upgrading automatically replays retained trajectories in resumable batches, adding messages without duplicating tool records. Disabled content retains metadata only; system messages and questions absent from the original log are not reconstructed. Full session IDs appear below session titles. Times represent collection, including historical backfill, rather than original execution. Returned content does not establish success. Hook enforcement remains outside this adapter.
+
+### macOS 飞书内豆包工作的本地电脑模式
+
+已闭合的原生工具交换可补充消息轮次和回复阶段：以用户记录分段，段内全部工具调用 ID 必须准确归到同一提问、全部结果返回后，末尾不再请求工具的唯一回答标记为最终回复；携带工具调用的正文标记为过程回复。缺少首条用户记录的初始段仍需完整调用 ID 链。缺 ID、冲突、未返回或中断段保留未归属，不按文字或时间匹配。这里的“最终回复”表示该段模型回答结束，不表示业务任务成功。
+
+更新后的服务端与客户端通过 `message_link_schema=1` 协商元数据补充能力；历史记录按原事件身份补轮次/阶段，原始正文、摘要和事件数量不变。旧服务端继续按原能力采集。桌面轮次导航直接显示序号；未归属记录单独保留入口。
+
+飞书缓存被替换后，客户端复用仍在保留期内、已按完整工具事件身份保存的轮次关联补充轨迹消息；确认上传后释放正文不会丢失这项关联。没有保存过的关联不能凭顺序或相同文本恢复，仍归入未归属。
+
+**English — retained associations:** After Feishu replaces its cache, retained tool-event identities can recover previously verified turn associations for transcript enrichment, even after acknowledged bodies are released. Associations never captured cannot be reconstructed from ordering or matching text and remain unassigned.
+
+**English:** Closed native tool exchanges can enrich message turns and phases. All call IDs in a user-delimited segment must resolve to one native prompt, and all results must return before its sole terminal answer without tool requests. Tool-bearing prose is progress; the terminal answer is final for that exchange, not proof of business success. Missing IDs, conflicts, incomplete results and interrupted segments remain unassigned. Metadata enrichment is negotiated with `message_link_schema=1` and preserves original event bodies, hashes and counts. Desktop navigation shows explicit round numbers alongside the unassigned entry.
+
+
+飞书本地电脑模式复用 **Doubao Work**（`doubaowork`）日志来源和现有采集开关、正文开关、脱敏、保留期、本地队列及批量上报。自动发现只枚举 `~/Library/Application Support/LarkShell/aha/users/` 下最多 16 个配置目录，并分别读取：
+
+- `doubao/.doubao/agent_mode/workspace/.sessions/<会话>/agents/<代理>/system/trajectory.jsonl`：文件操作、命令、MCP 原生调用及返回内容；无原生消息 ID 的轨迹正文保留未归属。
+- `profile_explorer/IndexedDB/https_www.doubao.com_0.indexeddb.leveldb`：已发送提问、明确结束且可见的回复正文、MCP 操作块。仅接收任务元数据指向当前飞书本地工作区的消息；普通飞书聊天和云电脑任务不作为本地执行采集。兼容消息时间的秒数字符串及毫秒数值。
+- `sdk_storage/log/agent_infra/agent_infra_*.log`：原生 `tcid → agent_id`，结合消息缓存 `reply_unique_key → reply_id`，将命令和文件工具归到原生提问消息 ID。关联索引缓存 15 秒；新增关联沿用 `turn_links` 补充保留的历史事件。字段缺失、冲突、缓存清理或预算超限时保留未归属。
+
+同一操作系统用户下，两端同步的缓存消息沿用独立版逻辑身份（会话 ID、原生消息 ID、正文块 ID），MCP 消息块使用 `cache-mcp:<消息 ID>:<块 ID>` 标识，并按调用/结果分别保存。相同 ID 和内容只入队一次，物理来源分别作为证据保留；不按文字去重，因此不同轮次的同内容调用仍分别保留。缓存中的 MCP 操作块包含参数和结果并能归轮；它与轨迹原生调用 ID 尚无可靠映射，二者保留为不同证据，不按工具名、参数或结果强行合并。来源目录表示采集位置；同步副本不证明在该客户端执行过。
+
+历史补采限于本机仍保留的记录。正在生成或存在正文冲突的缓存块不作为完整回复；原轨迹仍可保留其已记录正文。采集不修改飞书缓存、不注册 Hook、不阻断工具。验收应检查多轮命令的调用/结果归属、MCP 消息块与未归属原生证据、两端同步去重、正文开关及脱敏、暂停/恢复、重启后的补采与重复上报情况。
+
+**English:** Feishu local-computer tasks on macOS reuse the **Doubao Work** log source and its existing collection, content, redaction, retention and upload controls. Discovery is limited to 16 profile entries under `LarkShell/aha/users`, their Doubao trajectories and the Doubao WebView IndexedDB. Only task metadata identifying the profile's local workspace is accepted from the cache. Native runtime call IDs join through request IDs and message `reply_unique_key`/`reply_id`; missing or conflicting links remain unassigned. The 15-second correlation index enriches retained history via existing turn links. Synced cache messages and MCP blocks share logical identities across clients while retaining separate source evidence; identical content with different native IDs is not deduplicated. Finished MCP blocks provide parameters, results and a message turn, but are not merged with native trajectory calls without a verified ID join. A synced cache does not establish execution on the reading client. Historical recovery is limited to retained data; unfinished/conflicting reply blocks are not complete replies. No cache writes or Hook enforcement are introduced.
 
 本地 Skill 列表按内容区域宽度自动切换四列或紧凑两行布局；长名称省略显示，可悬浮查看完整名称。全选旁的帮助提示说明跨页选择与筛选清空规则，窗口缩放不改变选择。
 

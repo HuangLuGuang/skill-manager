@@ -965,7 +965,7 @@ class PolicyRequest(BaseModel):
 
 
 @router.post("/audit-policy")
-def audit_policy(client_id: str, body: PolicyRequest, request: Request, authorization: str | None = Header(None), x_aidr_policy_schema: str = Header('1'), x_aidr_audit_lifecycle: str = Header(''), x_aidr_message_capture: str = Header(''), x_aidr_content_options: str = Header(''), x_aidr_model_context: str = Header(''), x_aidr_skill_audit: str = Header(''), x_aidr_tool_completion: str = Header(''), x_aidr_command_completion: str = Header(''), db: Session = Depends(get_db)):
+def audit_policy(client_id: str, body: PolicyRequest, request: Request, authorization: str | None = Header(None), x_aidr_policy_schema: str = Header('1'), x_aidr_audit_lifecycle: str = Header(''), x_aidr_message_capture: str = Header(''), x_aidr_message_links: str = Header(''), x_aidr_content_options: str = Header(''), x_aidr_model_context: str = Header(''), x_aidr_skill_audit: str = Header(''), x_aidr_tool_completion: str = Header(''), x_aidr_command_completion: str = Header(''), db: Session = Depends(get_db)):
     runtime_device(db, client_id, authorization, request, "aidr:heartbeat", allow_paused=True)
     frontier = int(body.last_sequence)
     if frontier >= 2**63 - 1:
@@ -975,6 +975,8 @@ def audit_policy(client_id: str, body: PolicyRequest, request: Request, authoriz
     if x_aidr_audit_lifecycle not in {'', '1'} or (x_aidr_audit_lifecycle and x_aidr_policy_schema != '2'):
         fail(422, 'policy_schema_unsupported', '审计策略契约不支持', 'Unsupported audit policy schema')
     if x_aidr_message_capture not in {'', '1'} or (x_aidr_message_capture and x_aidr_policy_schema != '2'):
+        fail(422, 'policy_schema_unsupported', '审计策略契约不支持', 'Unsupported audit policy schema')
+    if x_aidr_message_links not in {'', '1'} or (x_aidr_message_links and x_aidr_message_capture != '1'):
         fail(422, 'policy_schema_unsupported', '审计策略契约不支持', 'Unsupported audit policy schema')
     if x_aidr_content_options not in {'', '1'} or (x_aidr_content_options and x_aidr_policy_schema != '2'):
         fail(422, 'policy_schema_unsupported', '审计策略契约不支持', 'Unsupported audit policy schema')
@@ -986,7 +988,7 @@ def audit_policy(client_id: str, body: PolicyRequest, request: Request, authoriz
         fail(422, 'policy_schema_unsupported', '审计策略契约不支持', 'Unsupported audit policy schema')
     if x_aidr_command_completion not in {'', '1'} or (x_aidr_command_completion and x_aidr_tool_completion != '1'):
         fail(422, 'policy_schema_unsupported', '审计策略契约不支持', 'Unsupported audit policy schema')
-    policy = aidr_policy.issue(db, client_id, body.stream_id, frontier, body.applied_receipt, int(body.applied_after), content_supported=x_aidr_policy_schema == '2', lifecycle_supported=x_aidr_audit_lifecycle == '1', message_supported=x_aidr_message_capture == '1', content_options_supported=x_aidr_content_options == '1', model_context_supported=x_aidr_model_context == '1', skill_audit_supported=x_aidr_skill_audit == '1', completion_supported=x_aidr_tool_completion == '1', command_completion_supported=x_aidr_command_completion == '1')
+    policy = aidr_policy.issue(db, client_id, body.stream_id, frontier, body.applied_receipt, int(body.applied_after), content_supported=x_aidr_policy_schema == '2', lifecycle_supported=x_aidr_audit_lifecycle == '1', message_supported=x_aidr_message_capture == '1', message_links_supported=x_aidr_message_links == '1', content_options_supported=x_aidr_content_options == '1', model_context_supported=x_aidr_model_context == '1', skill_audit_supported=x_aidr_skill_audit == '1', completion_supported=x_aidr_tool_completion == '1', command_completion_supported=x_aidr_command_completion == '1')
     db.commit()
     return policy
 
