@@ -103,7 +103,7 @@ class ModelProvider(Base):
     auth_type = Column(String(16), default="bearer", server_default="bearer", nullable=False)
     custom_headers_encrypted = Column(Text, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
-    timeout_seconds = Column(Integer, default=60, nullable=False)
+    timeout_seconds = Column(Integer, default=180, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

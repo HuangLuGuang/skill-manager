@@ -966,7 +966,7 @@ const editingGroupId = ref(null)
 const selectedGroup = ref(null)
 const policyRuleRows = ref([])
 
-const providerForm = reactive({ name: '', base_url: '', api_format: 'openai', api_key: '', auth_type: 'bearer', custom_headers: [], clear_api_key: false, enabled: true, timeout_seconds: 60 })
+const providerForm = reactive({ name: '', base_url: '', api_format: 'openai', api_key: '', auth_type: 'bearer', custom_headers: [], clear_api_key: false, enabled: true, timeout_seconds: 180 })
 const providerHeaderErrorIndex = ref(null)
 const providerHeaderError = computed(() => providerHeaderErrorIndex.value === null ? '' : t('modelGateway.provider.headerError', { index: providerHeaderErrorIndex.value }))
 const providerTestForm = reactive({ model: '' })
@@ -1211,7 +1211,7 @@ const openProvider = (record = null) => {
     custom_headers: (record?.custom_headers || []).map(header => ({ name: header.name, value: '', configured: header.configured, originalName: header.name })),
     clear_api_key: false,
     enabled: record?.enabled ?? true,
-    timeout_seconds: record?.timeout_seconds || 60,
+    timeout_seconds: record?.timeout_seconds || 180,
   })
   providerVisible.value = true
 }
