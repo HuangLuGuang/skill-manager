@@ -621,7 +621,15 @@ Provider tests request up to 128 output tokens and require a successful HTTP res
 
 ## 7. 隐私策略
 
-隐私策略可绑定到用户组；API Key 创建后自动关联当前用户，运行时会按用户所在的启用用户组查找策略；没有命中用户组策略时使用默认策略。
+隐私策略列表通过“设为默认”明确指定唯一的系统默认策略，与用户组绑定相互独立。升级时保留原先第一条未绑定用户组的默认策略，之后按保存的策略 ID 选择，名称不参与判定。
+
+统一凭证创建和编辑支持为模型调用指定隐私策略，或使用“自动选择（用户组 → 系统默认）”。选择优先级为凭证指定策略、用户组策略、系统默认策略；指定策略不与组策略叠加。一条策略可被多张凭证使用。用户组选择沿用现有规则：凭证显式绑定组优先，否则按所属用户的启用组顺序查找；没有所属用户的 Agent 凭证可使用 Agent 部门组。API Key 创建后自动关联当前用户。
+
+客户端凭证启用代发模型凭证时，也可指定策略；后续自动发放和手动领取的模型凭证复制该选择，已发出的凭证保持原配置。系统默认策略、仍绑定用户组或凭证的策略不能删除，须先切换默认或解除相应绑定。选择策略不改变其隐私处理启用状态。
+
+**English:** Set one explicit system default on the Privacy Policies page, independently of group bindings. Upgrades preserve the previous first unbound policy as the default. Model credentials can select a policy directly or use Automatic selection: credential policy, user group policy, then system default. Policies are not combined. Multiple credentials may share one policy. Clients can select a policy for newly issued model credentials, including manual retrieval; existing credentials keep their selection. Default or assigned policies must be replaced or unassigned before deletion.
+
+“数据保留天数”同时控制假名映射与隐私链路追踪，范围为 1～365 天。到期映射不可用于还原，追踪记录自动清理。修改用于后续写入，不改变已有追踪记录的到期时间，也不恢复已删除内容。
 
 首版策略项：
 

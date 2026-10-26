@@ -418,11 +418,34 @@ def test_privacy_upsert_checks_actual_create_or_update_permission(api):
     assert c.post("/api/v1/privacy-policies", json={"name": "New policy"}).status_code == 403
     response = c.post("/api/v1/privacy-policies", json={"id": policy_id, "name": "Updated policy"})
     assert response.status_code == 200, response.text
+    assert c.put(f"/api/v1/privacy-policies/{policy_id}/default").status_code == 200
     with sessions() as db:
         db.query(im.RolePermission).filter_by(role_name="policy_editor").delete()
         db.add(im.RolePermission(role_name="policy_editor", permission_code="privacy:create"))
         db.commit()
     assert c.post("/api/v1/privacy-policies", json={"id": policy_id, "name": "Forbidden update"}).status_code == 403
+    assert c.put(f"/api/v1/privacy-policies/{policy_id}/default").status_code == 403
+
+
+def test_credential_policy_options_do_not_require_policy_edit_permission(api):
+    from backend.routers import access_tokens
+    c, sessions = api
+    c.app.include_router(access_tokens.router, prefix="/api/v1")
+    with sessions() as db:
+        db.add(im.Role(name="credential_editor", display_name="Credential editor"))
+        db.flush()
+        db.add(im.RolePermission(role_name="credential_editor", permission_code="credentials:update"))
+        db.query(models.User).filter_by(username="reader").one().role = "credential_editor"
+        db.commit()
+    as_user(c, "reader")
+    response = c.get("/api/v1/access/tokens/privacy-policies")
+    assert response.status_code == 200
+    assert set(response.json()[0]) == {"id", "name", "is_default"}
+    assert c.put(f"/api/v1/privacy-policies/{response.json()[0]['id']}/default").status_code == 403
+    with sessions() as db:
+        db.query(im.RolePermission).filter_by(role_name="credential_editor").delete()
+        db.commit()
+    assert c.get("/api/v1/access/tokens/privacy-policies").status_code == 403
 
 
 def test_audit_date_ranges_normalize_offsets_and_record_read_permission(api):

@@ -8,6 +8,8 @@ to management JWT authentication after FastAPI has selected an endpoint.
 def route_permission(request):
     path = getattr(request.scope.get("route"), "path", request.url.path)
     method = request.method
+    if path == "/api/v1/access/tokens/privacy-policies" and method == "GET":
+        return None  # The options endpoint accepts credential readers and editors.
     if path.startswith("/api/v1/prompt-guard/rules"):
         return "privacy:test" if method == "GET" else "privacy:update"
     if path == "/api/v1/prompt-guard/config":

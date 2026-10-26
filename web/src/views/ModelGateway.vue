@@ -232,8 +232,8 @@
           <a-alert
             type="info"
             show-icon
-            :message="$t('legacy.1lerf2o')"
-            :description="$t('legacy.4d029z')"
+            :message="$t('modelGateway.privacySelectionTitle')"
+            :description="$t('modelGateway.privacySelectionHelp')"
             style="margin-bottom: 16px"
           />
           <a-table :data-source="policies" :columns="policyColumns" row-key="id" :loading="loading" size="small">
@@ -241,9 +241,8 @@
               <template v-if="column.key === 'name'">
                 <a-space>
                   <span>{{ policyDisplayName(record) }}</span>
-                  <a-tag v-if="record.is_default" color="blue">{{ $t("legacy.1jmrycz") }}</a-tag>
-                  <a-tag v-else-if="record.group_id" color="purple">{{ $t("legacy.vj12xa") }}</a-tag>
-                  <a-tag v-else>{{ $t("legacy.ofub6j") }}</a-tag>
+                  <a-tag v-if="record.is_default" color="blue">{{ $t('modelGateway.systemDefault') }}</a-tag>
+                  <a-tag v-if="record.group_id" color="purple">{{ $t("legacy.vj12xa") }}</a-tag>
                 </a-space>
               </template>
               <template v-else-if="column.key === 'entity_types'">
@@ -260,6 +259,7 @@
               <template v-else-if="column.key === 'action'">
                 <a-space>
                   <a-button v-if="hasAccess('privacy:update')" type="link" @click="openPolicy(record)">{{ $t("legacy.qreyeg") }}</a-button>
+                  <a-button v-if="hasAccess('privacy:update') && !record.is_default" type="link" :loading="defaultPolicyUpdating === record.id" :disabled="defaultPolicyUpdating !== null" @click="makeDefaultPolicy(record)">{{ $t('modelGateway.setDefaultPolicy') }}</a-button>
                   <a-popconfirm v-if="hasAccess('privacy:delete') && (!record.is_default)" :title="$t('legacy.1g0wpcn')" @confirm="handleDeletePolicy(record)">
                     <a-button type="link" danger>{{ $t("legacy.1t2vi4h") }}</a-button>
                   </a-popconfirm>
@@ -623,7 +623,7 @@
           <a-select :disabled="!hasAccess('privacy:view') || !groupOptionsLoaded" :loading="groupOptionsLoading" v-model:value="groupForm.privacy_policy_id" allow-clear :placeholder="$t('legacy.lvqpcd')">
             <a-select-option v-for="item in unboundOrCurrentPolicies" :key="item.id" :value="item.id">{{ policyDisplayName(item) }}</a-select-option>
           </a-select>
-          <div class="muted policy-binding-hint">{{ $t("legacy.1xj70s1") }}</div>
+          <div class="muted policy-binding-hint">{{ $t('modelGateway.groupPrivacyHelp') }}</div>
         </a-form-item>
         <a-form-item><a-checkbox v-model:checked="groupForm.is_active">{{ $t("legacy.5pm2ma") }}</a-checkbox></a-form-item>
       </a-form>
@@ -638,7 +638,7 @@
           <a-select v-model:value="groupPolicyForm.privacy_policy_id" allow-clear :placeholder="$t('legacy.lvqpcd')">
             <a-select-option v-for="item in unboundOrCurrentBindingPolicies" :key="item.id" :value="item.id">{{ policyDisplayName(item) }}</a-select-option>
           </a-select>
-          <div class="muted policy-binding-hint">{{ $t("legacy.1xj70s1") }}</div>
+          <div class="muted policy-binding-hint">{{ $t('modelGateway.groupPrivacyHelp') }}</div>
         </a-form-item>
       </a-form>
     </a-modal>
@@ -652,11 +652,11 @@
         </a-form-item>
         <a-form-item>
           <template #label>
-            <a-tooltip :title="$t('legacy.12zgrwo')">
+            <a-tooltip :title="$t('modelGateway.groupPrivacyHelp')">
               <span>{{ $t("legacy.19kaip8") }}</span>
             </a-tooltip>
           </template>
-          <a-select v-model:value="policyForm.group_id" allow-clear :disabled="policyForm.is_default" :placeholder="$t('legacy.1794y90')">
+          <a-select v-model:value="policyForm.group_id" allow-clear :placeholder="$t('legacy.1794y90')">
             <a-select-option v-for="item in groups" :key="item.id" :value="item.id">{{ item.name }}</a-select-option>
           </a-select>
         </a-form-item>
@@ -692,8 +692,8 @@
           <a-col :span="8">
             <a-form-item>
               <template #label>
-                <a-tooltip :title="$t('legacy.1suq9gf')">
-                  <span>{{ $t("legacy.f2d0q2") }}</span>
+                <a-tooltip :title="$t('modelGateway.dataRetentionHelp')">
+                  <span>{{ $t('modelGateway.dataRetentionDays') }}</span>
                 </a-tooltip>
               </template>
               <a-input-number v-model:value="policyForm.mapping_ttl_days" :min="1" :max="365" style="width: 100%" />
@@ -774,6 +774,7 @@ import {
   listPrivacyPolicies,
   revokeLlmApiKey,
   savePrivacyPolicy,
+  setDefaultPrivacyPolicy,
   testPromptGuard,
   getPromptGuardConfig,
   savePromptGuardConfig,
@@ -796,6 +797,7 @@ const { isEnglish, text } = useLocaleText()
 const activeTab = ref(route.meta.gatewayTab || 'providers')
 const loading = ref(false)
 const submitting = ref(false)
+const defaultPolicyUpdating = ref(null)
 const mappingLoading = ref(false)
 const providers = ref([])
 const expandedProviders = reactive(new Set())
@@ -942,7 +944,7 @@ const policyColumns = computed(() => [
   { title: 'Group ID', dataIndex: 'group_id', width: 100 },
   { title: text('实体类型', 'Entity Types'), key: 'entity_types' },
   { title: text('开关', 'Enabled'), key: 'flags', width: 280 },
-  { title: text('操作', 'Actions'), key: 'action', width: 90 },
+  { title: text('操作', 'Actions'), key: 'action', width: 240 },
 ])
 
 const providerVisible = ref(false)
@@ -1045,10 +1047,10 @@ const mappingPagination = computed(() => ({
 }))
 
 const unboundOrCurrentPolicies = computed(() =>
-  policies.value.filter(item => !item.is_default && (!item.group_id || item.id === groupForm.privacy_policy_id)),
+  policies.value.filter(item => !item.group_id || item.id === groupForm.privacy_policy_id),
 )
 const unboundOrCurrentBindingPolicies = computed(() =>
-  policies.value.filter(item => !item.is_default && (!item.group_id || item.id === groupPolicyForm.privacy_policy_id)),
+  policies.value.filter(item => !item.group_id || item.id === groupPolicyForm.privacy_policy_id),
 )
 const pageTitle = computed(() => activeTab.value === 'prompt-guard' ? t('promptGuard.title') : activeTab.value === 'providers' ? t('modelGateway.catalog.title') : activeTab.value === 'users-groups' ? t('iam.navigation.groups') : phrase('legacy.15en1a5'))
 const pageSubtitle = computed(() =>
@@ -1063,9 +1065,7 @@ const pageSubtitle = computed(() =>
 const showGatewayStats = computed(() => !['providers', 'users-groups', 'prompt-guard'].includes(activeTab.value))
 const groupNameMap = computed(() => new Map(groups.value.map(item => [item.id, item.name])))
 const policyDisplayName = (policy) => {
-  if (policy?.is_default && policy?.name === '默认隐私策略') return text('默认隐私策略', 'Default Privacy Policy')
-  if (policy?.name !== '默认隐私策略') return policy?.name || '-'
-  return `${groupNameMap.value.get(policy.group_id) || text('用户组', 'Group')} ${text('隐私策略', 'Privacy Policy')}`
+  return policy?.name || '-'
 }
 const groupPolicyName = (group) => {
   if (!group?.privacy_policy_id) return text('系统默认策略', 'System Default Policy')
@@ -1550,6 +1550,19 @@ const handleDeletePolicy = async (record) => {
     await loadAll()
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.ptdvkd'))
+  }
+}
+
+const makeDefaultPolicy = async (record) => {
+  if (defaultPolicyUpdating.value !== null) return
+  defaultPolicyUpdating.value = record.id
+  try {
+    await setDefaultPrivacyPolicy(record.id)
+    await loadAll()
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('modelGateway.defaultPolicyFailed'))
+  } finally {
+    defaultPolicyUpdating.value = null
   }
 }
 

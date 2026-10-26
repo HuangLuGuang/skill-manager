@@ -918,8 +918,6 @@ def _bind_group_policy(db: Session, group_id: int, policy_id: int | None) -> Non
     policy = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.id == policy_id).first()
     if not policy:
         raise HTTPException(status_code=404, detail="隐私策略不存在")
-    if policy.id == _get_default_policy(db).id:
-        raise HTTPException(status_code=400, detail="系统默认隐私策略不能绑定用户组")
     if policy.group_id is not None and policy.group_id != group_id:
         raise HTTPException(status_code=400, detail="隐私策略已绑定其他用户组")
     db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.group_id == group_id).update({"group_id": None})
@@ -927,8 +925,14 @@ def _bind_group_policy(db: Session, group_id: int, policy_id: int | None) -> Non
 
 
 def _get_default_policy(db: Session) -> models.PrivacyPolicy:
-    policy = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.group_id.is_(None)).first()
+    config = db.get(models.SystemConfig, "privacy.default_policy_id")
+    if config:
+        return db.get(models.PrivacyPolicy, int(config.value))
+    # Preserve the legacy default once; later selection uses the persisted ID.
+    policy = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.group_id.is_(None)).order_by(models.PrivacyPolicy.id).first()
     if policy:
+        db.add(models.SystemConfig(key="privacy.default_policy_id", value=str(policy.id)))
+        db.commit()
         return policy
     policy = models.PrivacyPolicy(
         name="默认隐私策略",
@@ -944,12 +948,19 @@ def _get_default_policy(db: Session) -> models.PrivacyPolicy:
         dp_min_count=5,
     )
     db.add(policy)
+    db.flush()
+    db.add(models.SystemConfig(key="privacy.default_policy_id", value=str(policy.id)))
     db.commit()
     db.refresh(policy)
     return policy
 
 
 def _resolve_policy(db: Session, key) -> models.PrivacyPolicy:
+    if getattr(key, "privacy_policy_id", None) is not None:
+        policy = db.get(models.PrivacyPolicy, key.privacy_policy_id)
+        if policy is None:
+            raise ApiError(409, "privacy.policy_not_found", "凭证绑定的隐私策略不存在", "The credential's privacy policy does not exist")
+        return policy
     candidate_group_ids: list[int] = []
     if key.group_id is not None:
         candidate_group_ids.append(key.group_id)
@@ -2862,10 +2873,6 @@ async def upsert_privacy_policy(
     if row is None:
         row = models.PrivacyPolicy(group_id=body.group_id, entity_types_json="[]", name=body.name)
         db.add(row)
-    if row.id == default_policy.id and body.group_id is not None:
-        raise HTTPException(status_code=400, detail="系统默认隐私策略不能绑定用户组")
-    if body.name.strip() == "默认隐私策略" and row.id != default_policy.id:
-        raise HTTPException(status_code=400, detail="隐私策略名称已存在，请使用其他名称")
     data = body.model_dump()
     data.pop("id", None)
     entity_types = _normalize_entity_types(data.pop("entity_types") or DEFAULT_ENTITY_TYPES)
@@ -2883,6 +2890,22 @@ async def upsert_privacy_policy(
     return _policy_response(row, default_policy_id=default_policy.id)
 
 
+@admin_router.put("/privacy-policies/{policy_id}/default")
+async def set_default_privacy_policy(
+    policy_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    row = db.get(models.PrivacyPolicy, policy_id)
+    if row is None:
+        raise ApiError(404, "privacy.policy_not_found", "隐私策略不存在", "Privacy policy not found")
+    _get_default_policy(db)
+    config = db.get(models.SystemConfig, "privacy.default_policy_id")
+    config.value = str(row.id)
+    db.commit()
+    return _policy_response(row, default_policy_id=row.id)
+
+
 @admin_router.delete("/privacy-policies/{policy_id}")
 async def delete_privacy_policy(
     policy_id: int,
@@ -2896,6 +2919,8 @@ async def delete_privacy_policy(
         raise HTTPException(status_code=400, detail="默认隐私策略不能删除")
     if row.group_id is not None:
         raise HTTPException(status_code=400, detail="隐私策略已绑定用户组，请先解绑")
+    if db.query(models.AccessToken.id).filter(models.AccessToken.privacy_policy_id == row.id).first():
+        raise ApiError(409, "privacy.policy_in_use", "隐私策略已绑定凭证，请先更改凭证的策略", "Privacy policy is assigned to credentials; change their policy first")
     db.delete(row)
     db.commit()
     return {"status": "deleted"}

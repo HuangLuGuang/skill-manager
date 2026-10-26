@@ -278,6 +278,10 @@
                   <div class="field-hint">{{ $t('credentials.oneProviderPerModel') }}</div>
                   <div class="field-hint">{{ $t(form.token_type === 'client' ? 'credentials.clientDelegatedModelsHint' : 'credentials.allModelsHint') }}</div>
                 </a-form-item>
+                <a-form-item :label="$t('credentials.privacyPolicy')">
+                  <a-select v-model:value="form.privacy_policy_id" :loading="optionsLoading" :disabled="creating" :options="privacyPolicyOptions" />
+                  <div class="field-hint">{{ $t(form.token_type === 'client' ? 'credentials.delegatedPrivacyHelp' : 'credentials.privacyPolicyHelp') }}</div>
+                </a-form-item>
               </a-col>
               <a-col v-if="supportsMcp" :xs="24" :md="supportsModels ? 12 : 24">
                 <a-form-item :label="$t('credentials.allowedGateways')" required>
@@ -426,6 +430,7 @@ import {
   listAgents,
   listMcpGateways,
   listModelEndpoints,
+  listCredentialPrivacyPolicies,
   revokeAccessToken,
 } from '../api'
 
@@ -435,6 +440,11 @@ const t = (key, params) => i18n.global.t(key, params)
 const loading = ref(false)
 const creating = ref(false)
 const editingRecord = ref(null)
+const privacyPolicies = ref([])
+const privacyPolicyOptions = computed(() => [
+  { value: 0, label: t('credentials.automaticPrivacy') },
+  ...privacyPolicies.value.map(policy => ({ value: policy.id, label: `${policy.name} (#${policy.id})${policy.is_default ? ` · ${t('modelGateway.systemDefault')}` : ''}` })),
+])
 const createVisible = ref(false)
 const createStage = ref('choose')
 const selectedScenarioId = ref('agent')
@@ -499,6 +509,7 @@ const modelOptions = computed(() => {
 const mcpGateways = ref([])
 const filters = reactive({ token_type: undefined })
 const form = reactive({
+  privacy_policy_id: 0,
   name: '',
   token_type: 'agent_runtime',
   agent_preset: 'verification',
@@ -702,6 +713,7 @@ const handleScopesChange = () => {
     form.agent_preset = matched?.[0] || 'custom'
   }
   if (!supportsModels.value) {
+    form.privacy_policy_id = 0
     form.allowed_models = []
     form.enable_compression = false
     form.compression_level = 'auto'
@@ -713,6 +725,7 @@ const handleScopesChange = () => {
 }
 const handleClientIssuanceChange = () => {
   if (!form.allow_agent_credential_issuance) {
+    form.privacy_policy_id = 0
     form.allowed_models = []
     form.allow_manual_credential_export = false
   }
@@ -733,6 +746,7 @@ const toggleManualExport = async record => {
 const resetForm = (tokenType, defaults = {}) => {
   ipSearch.value = ''
   Object.assign(form, {
+    privacy_policy_id: defaults.privacy_policy_id || 0,
     name: defaults.name || '',
     token_type: tokenType,
     agent_preset: defaults.agent_preset || 'verification',
@@ -779,7 +793,7 @@ const selectScenario = (scenarioId, defaults = {}) => {
   createStage.value = 'config'
 }
 
-const permissionFields = ['scopes', 'allowed_models', 'allowed_mcp_gateways', 'allow_agent_credential_issuance', 'allow_manual_credential_export']
+const permissionFields = ['scopes', 'allowed_models', 'allowed_mcp_gateways', 'allow_agent_credential_issuance', 'allow_manual_credential_export', 'privacy_policy_id']
 const openEdit = record => {
   if (creating.value || record.status === 'revoked') return
   if (record.token_type === 'openapi') {
@@ -789,7 +803,7 @@ const openEdit = record => {
   openCreate(record)
   editingRecord.value = { ...record }
   for (const field of permissionFields) {
-    form[field] = Array.isArray(record[field]) ? [...record[field]] : record[field]
+    form[field] = field === 'privacy_policy_id' ? record[field] || 0 : Array.isArray(record[field]) ? [...record[field]] : record[field]
   }
   form.agent_preset = Object.entries(agentScopePresets).find(([, scopes]) => sameScopes(form.scopes, scopes))?.[0] || 'custom'
   advancedSections.value = ['advanced']
@@ -803,8 +817,8 @@ const savePermissions = async () => {
   if (!permissions.scopes.length) return message.warning(t('credentials.scopesRequired'))
   const payload = Object.fromEntries(permissionFields.filter(field => {
     const previous = editingRecord.value[field]
-    return Array.isArray(previous) ? !sameScopes(previous, permissions[field]) : previous !== permissions[field]
-  }).map(field => [field, permissions[field]]))
+    return field === 'privacy_policy_id' ? (previous || 0) !== permissions[field] : Array.isArray(previous) ? !sameScopes(previous, permissions[field]) : previous !== permissions[field]
+  }).map(field => [field, field === 'privacy_policy_id' ? permissions[field] || null : permissions[field]]))
   if (!Object.keys(payload).length) {
     createVisible.value = false
     return
@@ -848,6 +862,7 @@ const fetchOptions = async (force = false, forList = false) => {
   const resources = [
     ['agents', agents, listAgents, forList || form.token_type === 'agent_runtime'],
     ['models', models, listModelEndpoints, forList || supportsModels.value],
+    ['privacyPolicies', privacyPolicies, listCredentialPrivacyPolicies, !forList && supportsModels.value],
     ['gateways', mcpGateways, listMcpGateways, !forList && supportsMcp.value],
   ]
   try {
@@ -922,6 +937,7 @@ const handleCreate = async () => {
   creating.value = true
   try {
     const payload = { ...form, name: form.name.trim() }
+    payload.privacy_policy_id = form.privacy_policy_id || null
     delete payload.agent_preset
     const data = await createAccessToken(payload)
     createdToken.value = data.token

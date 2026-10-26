@@ -37,6 +37,7 @@ def get_db(request: Request):
         if request.method in {"POST", "PUT", "PATCH", "DELETE"} and (
             path.startswith(("/api/v1/iam/users", "/api/v1/iam/roles", "/api/v1/iam/menus", "/api/v1/users"))
             or path == "/api/auth/register"
+            or path.startswith(("/api/v1/privacy-policies", "/api/v1/access/tokens", "/api/v1/groups"))
         ):
             db.connection().exec_driver_sql("BEGIN IMMEDIATE")
         yield db

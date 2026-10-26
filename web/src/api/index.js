@@ -364,6 +364,8 @@ export const updateLlmApiKey = (keyId, data) => api.put(`/v1/llm-api-keys/${keyI
 export const revokeLlmApiKey = (keyId) => api.post(`/v1/llm-api-keys/${keyId}/revoke`)
 export const deleteLlmApiKey = (keyId) => api.delete(`/v1/llm-api-keys/${keyId}`)
 export const listPrivacyPolicies = () => api.get('/v1/privacy-policies')
+export const listCredentialPrivacyPolicies = () => api.get('/v1/access/tokens/privacy-policies')
+export const setDefaultPrivacyPolicy = (policyId) => api.put(`/v1/privacy-policies/${policyId}/default`)
 export const savePrivacyPolicy = (data) => api.post('/v1/privacy-policies', data)
 export const deletePrivacyPolicy = (policyId) => api.delete(`/v1/privacy-policies/${policyId}`)
 export const getPrivacyStats = () => api.get('/v1/privacy/stats')

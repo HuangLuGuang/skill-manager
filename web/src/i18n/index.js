@@ -182,6 +182,14 @@ export const i18n = createI18n({
         english: 'English',
       },
       modelGateway: {
+        systemDefault: '系统默认',
+        privacySelectionTitle: '隐私策略选择顺序',
+        groupPrivacyHelp: '凭证未指定策略时，使用其用户组绑定的策略；未匹配用户组策略时使用系统默认策略。留空表示不绑定用户组，不影响系统默认设置。',
+        setDefaultPolicy: '设为默认',
+        defaultPolicyFailed: '设置默认隐私策略失败',
+        privacySelectionHelp: '模型调用优先使用凭证指定的隐私策略；未指定时按用户组选择，未匹配时使用系统默认策略。系统默认策略可以同时绑定用户组。',
+        dataRetentionDays: '数据保留天数',
+        dataRetentionHelp: '假名映射和隐私链路追踪的保留天数（1～365 天）。有效期内同一会话复用相同映射；到期后映射不可用于还原，追踪记录自动清理。修改后用于后续写入，已有追踪记录的到期时间保持不变。',
         groupOptions: {
           loadFailed: '用户或隐私策略选项加载失败，请重试。已填写的内容会保留。',
           retry: '重试',
@@ -948,6 +956,10 @@ export const i18n = createI18n({
       auditLog: auditMessages['zh-CN'],
       auditTrail: auditTrailMessages['zh-CN'],
       credentials: {
+        privacyPolicy: '隐私策略',
+        automaticPrivacy: '自动选择（用户组 → 系统默认）',
+        privacyPolicyHelp: '指定策略后优先使用该策略，不叠加用户组策略；自动选择时沿用用户组策略，未匹配时使用系统默认策略。',
+        delegatedPrivacyHelp: '后续代发的模型凭证继承此选择，已发出的凭证保持原配置。自动选择时按调用凭证的用户组和系统默认策略处理。',
         pageTitle: '统一凭证中心',
         notFound: '凭证不存在或已删除',
         clearFilter: '清空筛选',
@@ -1364,6 +1376,14 @@ export const i18n = createI18n({
         english: 'English',
       },
       modelGateway: {
+        systemDefault: 'System default',
+        privacySelectionTitle: 'Privacy policy selection order',
+        groupPrivacyHelp: 'Credentials without an assigned policy use their user group policy, then the system default if no group policy matches. Leaving this field empty removes the group binding without changing the system default.',
+        setDefaultPolicy: 'Set as default',
+        defaultPolicyFailed: 'Failed to set the default privacy policy',
+        privacySelectionHelp: 'Model calls use the policy assigned to the credential first, then the user group policy, and finally the system default. The system default can also be assigned to a user group.',
+        dataRetentionDays: 'Data retention (days)',
+        dataRetentionHelp: 'Retention period for pseudonym mappings and privacy pipeline traces (1–365 days). The same mapping is reused within a session while valid. Expired mappings cannot restore original values, and expired traces are automatically deleted. Changes apply to subsequent writes; existing traces keep their expiration times.',
         groupOptions: {
           loadFailed: 'Could not load user or privacy policy options. Retry to continue. Your entries are preserved.',
           retry: 'Retry',
@@ -2130,6 +2150,10 @@ export const i18n = createI18n({
       auditLog: auditMessages['en-US'],
       auditTrail: auditTrailMessages['en-US'],
       credentials: {
+        privacyPolicy: 'Privacy policy',
+        automaticPrivacy: 'Automatic (user group → system default)',
+        privacyPolicyHelp: 'An assigned policy takes precedence and is not combined with the group policy. Automatic selection uses the user group policy, then the system default if none matches.',
+        delegatedPrivacyHelp: 'Newly issued model credentials inherit this selection; existing credentials keep their settings. Automatic selection uses the calling credential’s user group and system default policy.',
         pageTitle: 'Credential Center',
         notFound: 'Credential not found or deleted',
         clearFilter: 'Clear filter',

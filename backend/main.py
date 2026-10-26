@@ -710,6 +710,8 @@ def ensure_sqlite_schema() -> None:
 
     from .agent_mcp import migrate_agent_mcp_scope
     migrate_agent_mcp_scope(engine)
+    from .privacy_policy_migration import migrate_privacy_policy_selection
+    migrate_privacy_policy_selection(engine)
 
     # Headroom 压缩字段 migration
     from backend.migrate_compression import migrate as migrate_compression
@@ -725,6 +727,8 @@ validate_security_settings(settings)
 initialize_signing_identity(allow_create=not settings.ENFORCE_SECURE_STARTUP)
 ensure_audit_signing_key()
 ensure_sqlite_schema()
+with SessionLocal() as privacy_db:
+    llm_gateway._get_default_policy(privacy_db)
 with SessionLocal() as identity_db:
     if clients.backfill_client_inventory_identities(identity_db):
         identity_db.commit()
