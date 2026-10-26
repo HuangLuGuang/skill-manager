@@ -460,6 +460,8 @@ Backend 启动时会检查旧版 Skill 数据。首次升级到版本化模型�
 
 P1 安全配置默认使用 SQLite，不新增数据库服务。`request_leases` 表协调共享同一 SQLite 文件的多 Worker 并发额度；它不支持多个主机各自使用独立 SQLite 文件时共享额度。MCP 上游默认只允许 HTTPS，可用 `MCP_OUTBOUND_ALLOWLIST` 配置允许的域名、通配域名或 CIDR。审计签名密钥通过 `AUDIT_SIGNING_PRIVATE_KEY_PATH` 持久化，`SECURITY_AUDIT_EXPORT_PATH` 是可选的追加式 JSONL 导出位置。
 
+统一凭证 ID 升级由 Backend 启动自动执行，Docker 更新镜像并保留原 SQLite 数据卷即可触发，无需手工运行迁移命令。旧 `access_tokens` 表在事务内重建为 `AUTOINCREMENT` 主键，保留记录、字段、约束、索引和触发器；从现存凭证、运行任务、MCP、开放接口、模型调用等关联表及凭证接口审计记录的编号设置递增下限。重复启动跳过已迁移表；迁移失败回滚本次重建并阻止 Backend 启动。首次迁移需要写锁及重建空间，升级前备份 `backend_sqlite` 数据卷。迁移无法还原所有痕迹均已清除的历史编号，也不会修复过去已发生的 ID 混用。升级后可创建测试凭证、删除并再次创建，确认新 ID 大于前一次，并检查 Backend 健康状态。
+
 ## 构建脚本
 
 Backend 镜像通过 `uv pip install --system -e ".[scanner,compression]" -r backend/pyproject.toml python-frontmatter` 安装核心包和管理后端运行依赖。新增后端依赖需维护 `backend/pyproject.toml`；镜像构建直接读取该文件。构建阶段会实际解析一条复合 Shell 命令，确认 `tree-sitter` 与 Bash 语法库可用；CI 继续在切换运行容器前验证应用启动和 `/health`。

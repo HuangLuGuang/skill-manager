@@ -744,6 +744,8 @@ class McpCallAuditResponse(BaseModel):
     id: int
     request_id: str
     token_id: int
+    token_name: Optional[str] = None
+    token_exists: bool
     gateway_slug: str
     server_slug: Optional[str] = None
     tool_name: Optional[str] = None
@@ -753,6 +755,13 @@ class McpCallAuditResponse(BaseModel):
     duration_ms: float
     error: Optional[str] = None
     created_at: datetime
+
+
+class McpCallAuditListResponse(BaseModel):
+    items: list[McpCallAuditResponse]
+    total: int
+    page: int
+    page_size: int
 
 
 class McpUpstreamDebugRequest(BaseModel):

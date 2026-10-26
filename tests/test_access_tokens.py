@@ -144,6 +144,25 @@ def test_create_access_token_returns_plaintext_once_and_lists_masked_record(tmp_
     assert rows[0]["token_prefix"] == body["record"]["token_prefix"]
 
 
+def test_deleted_credential_id_is_not_reused(tmp_path):
+    client = _client(tmp_path)
+    endpoint = "/api/v1/access/tokens"
+    payload = {"name": "id-reuse-check", "token_type": "scanner"}
+    first = client.post(endpoint, json=payload)
+    assert first.status_code == 200
+    first_id = first.json()["record"]["id"]
+    assert client.delete(f"{endpoint}/{first_id}").status_code == 200
+    second = client.post(endpoint, json=payload)
+    assert second.status_code == 200
+    assert second.json()["record"]["id"] > first_id
+    second_id = second.json()["record"]["id"]
+    client.post(endpoint, json={**payload, "name": "another"})
+    filtered = client.get(endpoint, params={"token_id": second_id})
+    assert filtered.status_code == 200
+    assert [row["id"] for row in filtered.json()["items"]] == [second_id]
+    assert client.get(endpoint, params={"token_id": first_id}).json()["items"] == []
+
+
 def test_agent_runtime_can_explicitly_select_non_blocking_prompt_guard(tmp_path):
     client = _client(tmp_path)
     created = client.post(

@@ -701,8 +701,17 @@ export const i18n = createI18n({
         failed: '导出 PDF 扫描报告失败',
         fileSuffix: '扫描报告',
       },
+      mcpAudit: {
+        requestId: '请求 ID', target: '调用目标', duration: '耗时（ms）', status: '状态', time: '时间',
+        clearFilters: '清空筛选', total: '共 {total} 条', startDate: '开始日期', endDate: '结束日期',
+        dateHelp: '按北京时间查询，包含所选日期全天。',
+        statuses: { success: '成功', denied: '已拒绝', error: '失败', running: '执行中' },
+      },
       mcpSecurity: {
         title: 'MCP Tool 安全策略',
+        callCredential: '调用凭证',
+        deletedCredential: '已删除凭证',
+        deleted: '已删除',
         approvalRequired: '需审批',
         accessMode: '读写属性',
         accessModeHelp: '用于服务端执行边界判断；未分类 Tool 在只读模式下按非只读处理并拒绝调用。',
@@ -936,6 +945,8 @@ export const i18n = createI18n({
       auditTrail: auditTrailMessages['zh-CN'],
       credentials: {
         pageTitle: '统一凭证中心',
+        notFound: '凭证不存在或已删除',
+        clearFilter: '清空筛选',
         pageSubtitle: '先按调用者选择凭证，再配置它能访问的资源',
         refresh: '刷新',
         createAction: '创建凭证',
@@ -1865,8 +1876,17 @@ export const i18n = createI18n({
         failed: 'Failed to export PDF scan report',
         fileSuffix: 'scan-report',
       },
+      mcpAudit: {
+        requestId: 'Request ID', target: 'Call target', duration: 'Duration (ms)', status: 'Status', time: 'Time',
+        clearFilters: 'Clear filters', total: '{total} records', startDate: 'Start date', endDate: 'End date',
+        dateHelp: 'Uses Beijing time (UTC+8), including the full selected days.',
+        statuses: { success: 'Success', denied: 'Denied', error: 'Failed', running: 'Running' },
+      },
       mcpSecurity: {
         title: 'MCP Tool Security Policy',
+        callCredential: 'Call credential',
+        deletedCredential: 'Deleted credential',
+        deleted: 'Deleted',
         approvalRequired: 'Approval required',
         accessMode: 'Access mode',
         accessModeHelp: 'Used for server-side execution boundaries. Unclassified Tools fail closed as non-read operations in read-only mode.',
@@ -2100,6 +2120,8 @@ export const i18n = createI18n({
       auditTrail: auditTrailMessages['en-US'],
       credentials: {
         pageTitle: 'Credential Center',
+        notFound: 'Credential not found or deleted',
+        clearFilter: 'Clear filter',
         pageSubtitle: 'Choose the caller first, then define the resources it may access',
         refresh: 'Refresh',
         createAction: 'Create credential',

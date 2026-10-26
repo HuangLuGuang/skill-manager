@@ -595,6 +595,7 @@ def ensure_sqlite_schema() -> None:
         mcp_audit_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mcp_call_audits)").fetchall()}
         mcp_audit_additive_columns = {
             "approval_request_id": "VARCHAR(64)",
+            "token_name": "VARCHAR(128)",
         }
         for column_name, column_type in mcp_audit_additive_columns.items():
             if mcp_audit_columns and column_name not in mcp_audit_columns:
@@ -713,6 +714,11 @@ def ensure_sqlite_schema() -> None:
     # Headroom 压缩字段 migration
     from backend.migrate_compression import migrate as migrate_compression
     migrate_compression()
+
+    from .access_token_migration import migrate_access_token_ids
+    migrate_access_token_ids(engine)
+    for index in models.McpCallAudit.__table__.indexes:
+        index.create(bind=engine, checkfirst=True)
 
 
 validate_security_settings(settings)

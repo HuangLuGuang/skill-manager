@@ -433,6 +433,12 @@ Select an event to open the wide detail panel, or a single detail view on narrow
 
 管理面的 Token、Agent、MCP、模型和策略写操作会进入统一安全审计链。每条事件包含前一条事件哈希，并使用独立 Ed25519 审计密钥签名。管理员可调用 `GET /api/v1/security-audit/verify`，或在 Backend 环境执行 `python -m backend.security_audit verify` 检查完整性。配置 `SECURITY_AUDIT_EXPORT_PATH` 后，同一事件还会追加写入 JSONL，供外部日志平台采集。
 
+MCP 调用审计的“调用凭证”显示凭证名称；新记录保存调用时名称，凭证改名或删除后仍保留。历史记录缺少名称时只在读取响应中关联现存凭证，已删除且无名称快照时显示“已删除凭证”。凭证存在且用户有统一凭证中心查看权限时，点击名称进入凭证中心，由链接中的凭证 ID 精确定位，并提供清空筛选入口。凭证已删除时保留审计信息并隐藏链接。旧库在 Backend 启动时自动增加可空名称字段，不回写历史名称。
+
+MCP 调用审计使用服务端分页，显示匹配记录总数，默认每页 10 条，可切换为 20、50、100 条。请求 ID、调用目标（网关、服务或 Tool）、调用凭证、状态和记录日期在表头筛选；文本输入 300 毫秒防抖，回车或清空立即查询。日期范围按北京时间包含起止日期全天，时间列也显示北京时间。时间及耗时对全部匹配记录排序后分页，同值按记录 ID 稳定排序，默认时间降序。筛选、排序或每页数量变化回第一页，保留每页数量；刷新保留当前条件。防抖期间翻页先应用筛选并回第一页；旧响应不覆盖最新列表、总数或加载状态。
+
+管理接口 `GET /api/v1/mcp/audit` 返回 `{items, total, page, page_size}`，接收 `page`、`page_size`（1–100）、`request_id`、`target`、`token_name`、`status`、`created_from`、`created_to`、`sort_by`（`created_at` / `duration_ms`）及 `sort_order`（`asc` / `desc`）。名称筛选与显示一致，优先使用调用时快照，历史缺失时关联现存名称。带时区日期转换为数据库 UTC，无时区日期按 UTC 处理。前后端需同步升级；Backend 启动幂等补齐时间与耗时排序索引，保留历史审计记录。
+
 ---
 
 ## 4. 总体架构
@@ -2734,6 +2740,8 @@ The clickable flowchart at `/docs/scenario-selection#integration-flow` branches 
 - 一张绑定 Agent 的运行凭证可以组合 `runtime:*`、`model:chat` 和 `mcp:*`；模型与 MCP 网关允许列表分别校验，客户端接入凭证不能替代它。
 - Agent Manager Client 发现本地 Agent 与 Skill 目录，可下发平台批准版本，并按策略审计、恢复或隔离异常内容。
 - 客户端页面中的任务用于安装、恢复、移除 Skill、应用已支持的模型配置和同步策略；执行后应在客户端详情中核对目标、状态和事件。
+
+统一凭证中心的删除会移除凭证记录，吊销则保留记录和吊销状态。凭证 ID 使用 SQLite `AUTOINCREMENT`，删除最高编号或清空凭证后，新建凭证也不会复用迁移后已分配的 ID。旧库在 Backend 启动时自动迁移，并以现存凭证及关联表中的凭证编号为递增下限；历史记录全部消失的编号无法恢复，已经发生的历史 ID 混用不会自动修复。需要保留凭证信息用于追溯时使用吊销。
 
 ## 16. 常见问题
 

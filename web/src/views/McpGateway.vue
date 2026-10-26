@@ -4,7 +4,8 @@
       <template #title>
         <a-page-header :title="pageTitle" :sub-title="pageSubtitle">
           <template #extra>
-            <a-button :loading="loading" @click="fetchAll">{{ text('刷新', 'Refresh') }}</a-button>
+            <a-button v-if="activePage === 'audit' && auditHasFilters" @click="clearAuditFilters">{{ t('mcpAudit.clearFilters') }}</a-button>
+            <a-button :loading="loading" @click="refreshList">{{ text('刷新', 'Refresh') }}</a-button>
             <a-button v-if="activePage === 'servers' && hasAccess('mcp:create')" type="primary" @click="openServer()">{{ $t("legacy.1enmtj9") }}</a-button>
             <a-button v-if="activePage === 'gateways' && hasAccess('mcp:create')" type="primary" @click="openGateway()">{{ $t("legacy.1cl5f6n") }}</a-button>
           </template>
@@ -93,16 +94,33 @@
     <template v-else>
         <section>
 
-          <a-table :data-source="auditRows" :columns="auditColumns" row-key="id" :loading="loading" size="small" :pagination="{ pageSize: 20 }">
+          <a-table :data-source="auditRows" :columns="auditColumns" row-key="id" :loading="loading" size="small" :pagination="auditPagination" :scroll="{ x: 1100 }" @change="auditTableChange">
+            <template #customFilterDropdown="{ column }">
+              <div class="audit-filter" @keydown.stop>
+                <template v-if="column.key === 'created_at'">
+                  <div class="muted">{{ t('mcpAudit.dateHelp') }}</div>
+                  <a-range-picker :value="auditDates" :placeholder="[t('mcpAudit.startDate'), t('mcpAudit.endDate')]" popup-class-name="mcp-audit-date-popup" @change="value => { auditDates = value || []; applyAuditFilters() }" />
+                </template>
+                <a-select v-else-if="column.key === 'status'" :value="auditFilters.status" allow-clear :placeholder="t('mcpAudit.status')" :aria-label="t('mcpAudit.status')" @change="value => { auditFilters.status = value; applyAuditFilters() }">
+                  <a-select-option v-for="status in ['success', 'denied', 'error', 'running']" :key="status" :value="status">{{ t(`mcpAudit.statuses.${status}`) }}</a-select-option>
+                </a-select>
+                <a-input v-else :value="auditFilters[column.key]" allow-clear :placeholder="column.title" :aria-label="column.title" @update:value="value => setAuditText(column.key, value)" @pressEnter="applyAuditFilters" />
+              </div>
+            </template>
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'target'">
                 <div>{{ record.gateway_slug }} → {{ record.server_slug }}</div>
                 <div class="muted">{{ record.tool_name }}</div>
               </template>
-              <template v-else-if="column.key === 'status'">
-                <a-tag :color="record.status === 'success' ? 'green' : 'red'">{{ record.status }}</a-tag>
+              <template v-else-if="column.key === 'token_name'">
+                <router-link v-if="record.token_exists && pageAllowed('/credentials')" class="audit-credential" :to="{ path: '/credentials', query: { token_id: String(record.token_id) } }">{{ record.token_name }}</router-link>
+                <span v-else class="audit-credential">{{ record.token_name || $t('mcpSecurity.deletedCredential') }}</span>
+                <div v-if="!record.token_exists && record.token_name" class="muted">{{ $t('mcpSecurity.deleted') }}</div>
               </template>
-              <template v-else-if="column.key === 'time'">{{ formatTime(record.created_at) }}</template>
+              <template v-else-if="column.key === 'status'">
+                <a-tag :color="({ success: 'green', denied: 'orange', error: 'red', running: 'blue' })[record.status]">{{ t(`mcpAudit.statuses.${record.status}`) }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'created_at'">{{ formatBeijingDateTime(record.created_at) }}</template>
             </template>
           </a-table>
         </section>
@@ -202,7 +220,7 @@
 </template>
 
 <script setup>
-import { can as hasAccess } from '../access'
+import { can as hasAccess, pageAllowed } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
@@ -231,7 +249,7 @@ import {
 } from '../api'
 import { useLocaleText } from '../i18n/useLocaleText'
 import { copyText, promptManualCopy } from '../utils/clipboard'
-import { formatDateTime } from '../utils/format'
+import { formatDateTime, formatBeijingDateTime } from '../utils/format'
 
 const route = useRoute()
 const { t, locale } = useI18n()
@@ -249,6 +267,15 @@ const actionId = ref(null)
 const servers = ref([])
 const gateways = ref([])
 const auditRows = ref([])
+const auditFilters = reactive({ request_id: '', target: '', token_name: '', status: undefined })
+const auditDates = ref([])
+const auditSort = reactive({ field: 'created_at', order: 'descend' })
+const auditPage = reactive({ current: 1, pageSize: 10, total: 0 })
+const auditPagination = computed(() => ({
+  ...auditPage, showSizeChanger: true, pageSizeOptions: ['10', '20', '50', '100'],
+  showTotal: total => t('mcpAudit.total', { total }),
+}))
+const auditHasFilters = computed(() => Object.values(auditFilters).some(Boolean) || auditDates.value.some(Boolean))
 const serverTesting = ref(false)
 const serverTestTools = ref(null)
 const serverVisible = ref(false)
@@ -313,13 +340,23 @@ const gatewayColumns = computed(() => [
   { title: text('操作', 'Actions'), key: 'actions', width: 210 },
 ])
 const auditColumns = computed(() => [
-  { title: text('请求 ID', 'Request ID'), dataIndex: 'request_id', width: 260 },
-  { title: text('调用目标', 'Call Target'), key: 'target' },
-  { title: 'Token ID', dataIndex: 'token_id', width: 100 },
-  { title: text('耗时 ms', 'Duration (ms)'), dataIndex: 'duration_ms', width: 100 },
-  { title: text('状态', 'Status'), key: 'status', width: 90 },
-  { title: text('时间', 'Time'), key: 'time', width: 190 },
-])
+  { title: t('mcpAudit.requestId'), key: 'request_id', dataIndex: 'request_id', width: 260 },
+  { title: t('mcpAudit.target'), key: 'target' },
+  { title: t('mcpSecurity.callCredential'), key: 'token_name', width: 220 },
+  { title: t('mcpAudit.duration'), key: 'duration_ms', dataIndex: 'duration_ms', width: 120 },
+  { title: t('mcpAudit.status'), key: 'status', width: 110 },
+  { title: t('mcpAudit.time'), key: 'created_at', width: 210 },
+].map(column => ({
+  ...column,
+  ...(column.key !== 'duration_ms' ? {
+    customFilterDropdown: true,
+    filteredValue: column.key === 'created_at' ? auditDates.value.filter(Boolean) : auditFilters[column.key] ? [auditFilters[column.key]] : [],
+  } : {}),
+  ...(['created_at', 'duration_ms'].includes(column.key) ? {
+    sorter: true, sortDirections: ['ascend', 'descend', 'ascend'],
+    sortOrder: auditSort.field === column.key ? auditSort.order : null,
+  } : {}),
+})))
 
 const activeServers = computed(() => servers.value.filter(item => item.status === 'active'))
 const enabledTools = server => (server.tools || []).filter(tool => tool.enabled)
@@ -344,16 +381,61 @@ const formatTime = formatDateTime
 const gatewayToolNames = gateway => (gateway.bindings || []).flatMap(binding => binding.allowed_tools.map(name => `${binding.server_slug}__${name}`))
 
 let listSequence = 0
+let auditTimer
+const cancelAuditTimer = () => { clearTimeout(auditTimer); auditTimer = undefined }
+const applyAuditFilters = () => {
+  cancelAuditTimer()
+  auditPage.current = 1
+  fetchAll()
+}
+const setAuditText = (key, value) => {
+  auditFilters[key] = value
+  cancelAuditTimer()
+  listSequence++
+  if (!value) applyAuditFilters()
+  else auditTimer = setTimeout(applyAuditFilters, 300)
+}
+const clearAuditFilters = () => {
+  Object.assign(auditFilters, { request_id: '', target: '', token_name: '', status: undefined })
+  auditDates.value = []
+  applyAuditFilters()
+}
+const refreshList = () => {
+  if (auditTimer) auditPage.current = 1
+  cancelAuditTimer()
+  fetchAll()
+}
+const auditTableChange = (pagination, _filters, sorter, extra) => {
+  const pending = Boolean(auditTimer)
+  cancelAuditTimer()
+  const sizeChanged = pagination.pageSize !== auditPage.pageSize
+  auditPage.pageSize = pagination.pageSize
+  if (extra.action === 'sort') {
+    auditSort.field = sorter.columnKey
+    auditSort.order = sorter.order
+  }
+  auditPage.current = pending || sizeChanged || extra.action === 'sort' ? 1 : pagination.current
+  fetchAll()
+}
 const fetchAll = async () => {
   const sequence = ++listSequence
   const page = activePage.value
   loading.value = true
   try {
-    const rows = await (page === 'servers' ? listMcpServers() : page === 'gateways' ? listMcpGateways() : listMcpAudit({ limit: 200 }))
+    const rows = await (page === 'servers' ? listMcpServers() : page === 'gateways' ? listMcpGateways() : listMcpAudit({
+      ...Object.fromEntries(Object.entries(auditFilters).map(([key, value]) => [key, value || undefined])),
+      created_from: auditDates.value[0] ? `${auditDates.value[0].format('YYYY-MM-DD')}T00:00:00+08:00` : undefined,
+      created_to: auditDates.value[1] ? `${auditDates.value[1].format('YYYY-MM-DD')}T23:59:59.999999+08:00` : undefined,
+      page: auditPage.current, page_size: auditPage.pageSize,
+      sort_by: auditSort.field, sort_order: auditSort.order === 'ascend' ? 'asc' : 'desc',
+    }))
     if (sequence !== listSequence) return
     if (page === 'servers') servers.value = rows || []
     else if (page === 'gateways') gateways.value = rows || []
-    else auditRows.value = rows || []
+    else {
+      auditRows.value = rows.items
+      auditPage.total = rows.total
+    }
   } catch (error) {
     if (sequence !== listSequence) return
     message.error(error.response?.data?.detail || phrase('legacy.1qi24x1'))
@@ -558,12 +640,13 @@ const copy = async value => {
   }
 }
 watch(activePage, () => {
+  cancelAuditTimer()
   serverVisible.value = false
   gatewayVisible.value = false
   toolPolicyVisible.value = false
   fetchAll()
 }, { immediate: true })
-onUnmounted(() => { listSequence++ })
+onUnmounted(() => { listSequence++; cancelAuditTimer() })
 watch(() => [...gatewayForm.tools], () => {
   const selected = new Set(selectedGatewayToolOptions.value.map(tool => tool.exposed_name))
   gatewayForm.production_tool_denylist = gatewayForm.production_tool_denylist.filter(name => selected.has(name))
@@ -574,4 +657,10 @@ watch(() => [...gatewayForm.tools], () => {
 .title { font-weight: 600; }
 .muted { color: #8c8c8c; font-size: 12px; word-break: break-all; }
 .policy-alert { margin-bottom: 16px; }
+.audit-credential { overflow-wrap: anywhere; }
+.audit-filter { display: flex; flex-direction: column; gap: 8px; padding: 12px; width: min(260px, calc(100vw - 32px)); }
+@media (max-width: 640px) {
+  :global(.mcp-audit-date-popup .ant-picker-panels) { flex-direction: column; }
+  :global(.mcp-audit-date-popup .ant-picker-panel-container) { max-height: 70vh; overflow-y: auto; }
+}
 </style>

@@ -150,6 +150,7 @@ class LlmApiKey(Base):
 
 class AccessToken(Base):
     __tablename__ = "access_tokens"
+    __table_args__ = {"sqlite_autoincrement": True}
     platform_id = Column(String(64), index=True, nullable=True)
     allowed_department_ids_json = Column(Text, default="[]", nullable=False)
 
@@ -441,10 +442,15 @@ class McpGatewayBinding(Base):
 
 class McpCallAudit(Base):
     __tablename__ = "mcp_call_audits"
+    __table_args__ = (
+        Index("ix_mcp_call_audits_created_id", "created_at", "id"),
+        Index("ix_mcp_call_audits_duration_id", "duration_ms", "id"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     request_id = Column(String(64), unique=True, index=True, nullable=False)
     token_id = Column(Integer, ForeignKey("access_tokens.id"), index=True, nullable=False)
+    token_name = Column(String(128), nullable=True)
     bound_agent_id = Column(String(128), index=True, nullable=True)
     gateway_slug = Column(String(128), index=True, nullable=False)
     server_slug = Column(String(128), index=True, nullable=True)
