@@ -207,6 +207,19 @@ class ScanRun(BaseModel):
     finished_at: Optional[datetime] = None
     result: dict[str, Any] = Field(default_factory=dict)
 
+    @staticmethod
+    def result_for(entry: RegistryEntry) -> dict[str, Any]:
+        """Build the result shared by completed and reused scan records."""
+        return {
+            "status": entry.status.value,
+            "risk_level": entry.risk_level.value if entry.risk_level else None,
+            "scan_reused": entry.scan_reused,
+            "findings_count": entry.vetting.findings_count if entry.vetting else 0,
+            "sandbox_triggered": bool(entry.vetting and entry.vetting.sandbox_triggered),
+            "sandbox_required_by_policy": bool(entry.vetting and entry.vetting.sandbox_required_by_policy),
+            "sandbox_runtime": entry.vetting.sandbox_runtime if entry.vetting else None,
+        }
+
 
 class AuditEvent(BaseModel):
     """An immutable audit log entry."""

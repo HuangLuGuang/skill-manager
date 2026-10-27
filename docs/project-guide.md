@@ -366,7 +366,13 @@ LLM 分析生成详细的安全报告，如果是恶意skill，还会生成攻�
 为了提升效率，Skill 按“名称族 + 内容版本”管理：
 
 - 同名且内容指纹相同的提交复用已有版本，不重复创建记录。
-- 检测配置也一致且全局启用了“复用检测结果”时，不再重复执行扫描。
+- 检测配置也一致且全局启用了“复用检测结果”时，不再重复执行扫描。每次复用保存一条非强制的 `REUSED` 检测记录及本次报告，来源记录编号关联实际检测来源；重复复用保持同一内容版本、审批及签名，刷新后仍可查询。实际重扫完成后清除旧复用标记；纯复用历史不显示为重新检测。
+- 同版本复用在单个 SQLite 事务内读取当前状态，只更新复用字段，并保存独立的终态检测记录与报告；保存失败整体回滚。并发停用、审批等决定保持，已存在的重扫任务继续执行。无需新增表结构或部署配置。
+- Same-version reuse reads current state and saves reuse metadata, its own terminal scan record and report in one SQLite transaction. Failures roll back together. Concurrent lifecycle decisions are preserved and existing rescans continue. No schema or deployment changes are required.
+- 详情基础信息“结果复用”显示“未复用 / 已复用”（Not reused / Reused）；来源关联在版本检测记录中查看。
+- 详情“版本 → 检测记录”展示可复制的检测记录编号，可与复用来源编号对照；无来源时单元格留空。弹窗中的表格在窄屏可横向滚动。
+- Versions → Scan Runs shows a copyable Scan Run ID for matching the Reused From ID. Records without a source leave that cell empty. The table scrolls horizontally on narrow screens.
+- When content and scan settings match, each reuse saves a non-forced `REUSED` record and its report with the source scan ID. Repeated reuse preserves the content version, approval and signature, and remains visible after refresh. A completed rescan clears the previous reuse flag; reuse history alone does not mark a version as rescanned.
 - 同名但内容不同会创建递增版本，历史版本内容使用服务端快照保存。
 - Skill 详情中的基础信息、检测报告、文件等内容分别加载，已返回的内容立即显示。“版本差异”在打开时加载比较结果，等待期间仍可切换其他标签；相同版本直接显示无文本文件差异，比较失败可点击“重新加载差异”。
 - 版本差异默认以最新版本为目标、前一个版本为基准，支持选择版本、交换比较方向、切换差异文件及并排或单栏对比。在本次详情查看期间，版本选择未变时切换标签再返回会继续等待或显示已有比较结果。比较范围为可读取的 UTF-8 文本文件，单文件不超过 1 MiB；跳过软链接及 `.git`、`.venv`、`node_modules`、`__pycache__`、`dist`、`build` 目录。

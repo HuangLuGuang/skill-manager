@@ -1092,27 +1092,113 @@ class Registry:
             ).fetchone()
             return family["family_id"], int(row["next_no"])
 
+    def record_scan_reuse(
+        self,
+        skill_id: str,
+        content_fingerprint: str,
+        scan_context_fingerprint: str,
+    ) -> tuple[RegistryEntry, str]:
+        """Atomically record reuse against the current version and report."""
+        with self._lock, self._connect() as conn:
+            # 同一事务重读并只更新复用字段，保留并发审批、停用等决定。
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                """SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                   FROM skill_registry s
+                   LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                   WHERE s.skill_id = ?""",
+                (skill_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"skill_id {skill_id!r} not found")
+            entry = self._entry_from_row(row)
+            pending = conn.execute(
+                "SELECT 1 FROM skill_scan_runs WHERE version_id = ? AND status = 'PENDING' LIMIT 1",
+                (skill_id,),
+            ).fetchone()
+            if pending:
+                return entry, "scan_in_progress"
+            if (
+                entry.content_fingerprint != content_fingerprint
+                or entry.scan_context_fingerprint != scan_context_fingerprint
+                or entry.vetting is None
+            ):
+                return entry, "existing_version_rescan"
+
+            source = conn.execute(
+                """SELECT scan_run_id, reused_from_scan_run_id FROM skill_scan_runs
+                   WHERE version_id = ? AND scan_context_fingerprint = ?
+                     AND status IN ('COMPLETED', 'REUSED')
+                   ORDER BY started_at DESC LIMIT 1""",
+                (skill_id, scan_context_fingerprint),
+            ).fetchone()
+            entry.scan_reused = True
+            entry.reused_from_skill_id = skill_id
+            entry.updated_at = datetime.now(timezone.utc)
+            entry.vetting.scan_report = {
+                **entry.vetting.scan_report,
+                "scan_reused": True,
+                "reused_from_skill_id": skill_id,
+            }
+            stamp = entry.updated_at.isoformat()
+            conn.execute(
+                """UPDATE skill_registry SET updated_at = ?, payload = json_set(
+                       payload, '$.scan_reused', json('true'),
+                       '$.reused_from_skill_id', ?, '$.updated_at', ?)
+                   WHERE skill_id = ?""",
+                (stamp, skill_id, stamp, skill_id),
+            )
+            conn.execute(
+                """INSERT INTO skill_scan_reports (skill_id, report, updated_at) VALUES (?, ?, ?)
+                   ON CONFLICT(skill_id) DO UPDATE SET report=excluded.report, updated_at=excluded.updated_at""",
+                (skill_id, json.dumps(entry.vetting.scan_report, ensure_ascii=False), stamp),
+            )
+            conn.execute(
+                "UPDATE skill_families SET updated_at = ? WHERE family_id = ?",
+                (stamp, entry.family_id),
+            )
+            # 复用记录直接进入终态，不结束其他请求创建的 PENDING 任务。
+            run = ScanRun(
+                scan_run_id=str(uuid.uuid4()), version_id=skill_id,
+                scan_context_fingerprint=scan_context_fingerprint,
+                status="REUSED", started_at=entry.updated_at, finished_at=entry.updated_at,
+                reused_from_scan_run_id=(
+                    source["reused_from_scan_run_id"] or source["scan_run_id"]
+                ) if source else None,
+                result=ScanRun.result_for(entry),
+            )
+            self._insert_scan_run(conn, run)
+            conn.execute(
+                "INSERT INTO skill_scan_run_reports (scan_run_id, report) VALUES (?, ?)",
+                (run.scan_run_id, json.dumps(entry.vetting.model_dump(mode="json"), ensure_ascii=False)),
+            )
+            return entry, "existing_version_reused"
+
     def add_scan_run(self, run: ScanRun) -> None:
         with self._lock, self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO skill_scan_runs (
-                    scan_run_id, version_id, scan_context_fingerprint, status, forced,
-                    reused_from_scan_run_id, started_at, finished_at, result
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    run.scan_run_id,
-                    run.version_id,
-                    run.scan_context_fingerprint,
-                    run.status,
-                    1 if run.forced else 0,
-                    run.reused_from_scan_run_id,
-                    run.started_at.isoformat(),
-                    run.finished_at.isoformat() if run.finished_at else None,
-                    json.dumps(run.result, ensure_ascii=False, default=str),
-                ),
-            )
+            self._insert_scan_run(conn, run)
+
+    @staticmethod
+    def _insert_scan_run(conn: sqlite3.Connection, run: ScanRun) -> None:
+        conn.execute(
+            """
+            INSERT INTO skill_scan_runs (
+                scan_run_id, version_id, scan_context_fingerprint, status, forced,
+                reused_from_scan_run_id, started_at, finished_at, result
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run.scan_run_id,
+                run.version_id,
+                run.scan_context_fingerprint,
+                run.status,
+                1 if run.forced else 0,
+                run.reused_from_scan_run_id,
+                run.started_at.isoformat(),
+                run.finished_at.isoformat() if run.finished_at else None,
+                json.dumps(run.result, ensure_ascii=False, default=str),
+            ),
+        )
 
     def update_scan_progress(self, scan_run_id: str, stage: str) -> None:
         with self._lock, self._connect() as conn:

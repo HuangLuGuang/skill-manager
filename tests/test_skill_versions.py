@@ -176,21 +176,95 @@ def test_detail_legacy_options_use_report_with_source(tmp_path):
     assert result["scan_options"]["use_skillspector"] is False
 
 
-def test_same_content_reuses_one_version_and_one_scan(tmp_path):
+def test_same_content_reuses_one_scan_and_persists_reuse_history(tmp_path, monkeypatch):
     skill = tmp_path / "skill"
     _write_skill(skill, "# First")
     manager = _manager(tmp_path)
+    scanner_calls = []
 
+    def scanner(*_args):
+        scanner_calls.append(True)
+        return {"findings": [], "max_severity": "SAFE"}
+
+    monkeypatch.setattr("agent_manager.core.vetting._run_scanner", scanner)
     first = _ensure_trusted(manager, manager.submit(skill))
-    second, should_process, resolution = manager.prepare_submission(skill)
+    source = manager.list_scan_runs(first.skill_id)[0]
 
-    assert second.skill_id == first.skill_id
-    assert second.family_id == first.family_id
-    assert second.version_no == 1
+    # 重复上传保留复用历史，但不重复执行扫描或改变审批签名。
+    for _ in range(3):
+        second, should_process, resolution = manager.prepare_submission(skill)
+        assert second.skill_id == first.skill_id
+        assert second.family_id == first.family_id
+        assert second.version_no == 1
+        assert should_process is False
+        assert resolution == "existing_version_reused"
+        assert second.signature == first.signature
+        assert second.approved_at == first.approved_at
+        assert second.approved_by == first.approved_by
+
+    reloaded = _manager(tmp_path)
+    saved = reloaded.get_skill(first.skill_id)
+    runs = reloaded.list_scan_runs(first.skill_id)
+    assert len(scanner_calls) == 1
+    assert len(reloaded.list_skill_versions(first.family_id)) == 1
+    assert saved.scan_reused is True
+    assert saved.reused_from_skill_id == first.skill_id
+    assert saved.vetting.scan_report["scan_reused"] is True
+    assert len(runs) == 4
+    summary = api_router._version_summary(saved, scan_runs=runs)
+    assert summary["scan_run_count"] == 4
+    assert summary["rescanned"] is False
+    for run in runs[:3]:
+        assert run.status == "REUSED"
+        assert run.forced is False
+        assert run.finished_at is not None
+        assert run.reused_from_scan_run_id == source.scan_run_id
+        assert run.result["scan_reused"] is True
+        assert reloaded.registry.get_scan_run_report(run.scan_run_id)["scan_report"]["scan_reused"] is True
+    assert runs[3].model_dump() == source.model_dump()
+
+
+@pytest.mark.parametrize("terminal_status", ["FAILED", "CANCELLED"])
+def test_reuse_source_ignores_unsuccessful_rescan(tmp_path, terminal_status):
+    skill = tmp_path / "skill"
+    _write_skill(skill, "# First")
+    manager = _manager(tmp_path)
+    first = manager.submit(skill)
+    source = manager.list_scan_runs(first.skill_id)[0]
+    manager.request_rescan(first.skill_id)
+    pending = manager.list_scan_runs(first.skill_id)[0]
+    duplicate, should_process, resolution = manager.prepare_submission(skill)
+    assert duplicate.skill_id == first.skill_id
     assert should_process is False
-    assert resolution == "existing_version_reused"
-    assert len(manager.list_skill_versions(first.family_id)) == 1
-    assert len(manager.list_scan_runs(first.skill_id)) == 1
+    assert resolution == "scan_in_progress"
+    assert len(manager.list_scan_runs(first.skill_id)) == 2
+    pending.status = terminal_status
+    manager.registry.update_scan_run(pending)
+
+    manager.prepare_submission(skill)
+    reused = manager.list_scan_runs(first.skill_id)[0]
+    assert reused.status == "REUSED"
+    assert reused.reused_from_scan_run_id == source.scan_run_id
+
+
+def test_reuse_after_forced_rescan_uses_latest_completed_source(tmp_path):
+    skill = tmp_path / "skill"
+    _write_skill(skill, "# First")
+    manager = _manager(tmp_path)
+    first = manager.submit(skill)
+    manager.prepare_submission(skill)
+    manager.request_rescan(first.skill_id)
+    manager.process_pending_submission(first.skill_id, force_scan=True)
+    source = manager.list_scan_runs(first.skill_id)[0]
+    assert source.status == "COMPLETED"
+    assert source.forced is True
+    assert source.reused_from_scan_run_id is None
+    assert manager.get_skill(first.skill_id).scan_reused is False
+
+    manager.prepare_submission(skill)
+    reused = manager.list_scan_runs(first.skill_id)[0]
+    assert reused.status == "REUSED"
+    assert reused.reused_from_scan_run_id == source.scan_run_id
 
 
 def test_changed_content_creates_new_immutable_version(tmp_path):
