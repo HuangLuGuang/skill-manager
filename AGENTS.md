@@ -113,6 +113,8 @@ make sandbox-runtime-build
 
 ## 前端注意事项
 
+- MCP 调试网关连接超时可配置为1–300整数秒，默认30秒，初始化、通知及工具发现共用总预算；配置变更或页面卸载取消旧连接。切换语言保留页面实例及调试草稿；请求历史按毫秒、秒、分钟展示，输入参数结构及连接错误使用 `mcpDebug` 双语资源，历史Response以detail、error_code和error_params统一展示浏览器网络/预检失败及连接超时；detail按当前语言渲染，reason保留在error_params中，超时记录timeout_seconds；Tool调用超时保持独立。
+
 - MCP 客户端凭证创建和编辑时 scope 留空采用默认三项 MCP 权限，编辑保存前转换为默认权限提交，清空后在输入框内显示灰色默认权限占位提示，沿用原单行尺寸且保留已选网关；IP/CIDR 的前端错误同时展示序号和原值，未确认标签的草稿也校验，服务端创建与更新只校验本次提交的 IP 字段并返回 `credential.invalid_allowed_ips` 及位置。
 
 - MCP 调用审计分页使用 `defaultPageSize: 20` 初始化，由表格管理每页条数选择与页码；验证10、20、50、100条、末页及刷新行为。
