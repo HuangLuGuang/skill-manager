@@ -111,6 +111,7 @@ class PromptGuardConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     enabled: bool = False
     model_id: int | None = Field(default=None, gt=0)
+    image_model_id: int | None = Field(default=None, gt=0)
     timeout_seconds: int = Field(default=180, ge=1, le=180)
     categories: dict[CategoryId, DetectionCategoryConfig] = Field(default_factory=dict)
     rsguard_disabled_categories: list[Literal[tuple(RSGUARD_CATEGORIES)]] = Field(default_factory=list)

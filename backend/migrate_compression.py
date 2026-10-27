@@ -59,6 +59,8 @@ def migrate() -> None:
 
         existing_models = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(model_endpoints)")}
         if existing_models:
+            if "supports_multimodal" not in existing_models:
+                conn.exec_driver_sql("ALTER TABLE model_endpoints ADD COLUMN supports_multimodal BOOLEAN NOT NULL DEFAULT 0")
             if "guard_adapter" not in existing_models:
                 conn.exec_driver_sql("ALTER TABLE model_endpoints ADD COLUMN guard_adapter VARCHAR(16) NOT NULL DEFAULT 'generic'")
             if "upstream_name" not in existing_models:

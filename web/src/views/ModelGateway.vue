@@ -280,6 +280,9 @@
               <a-col :xs="24" :md="12"><a-form-item :label="t('promptGuard.defaultModel')" :validate-status="guardErrors.model ? 'error' : undefined" :help="guardErrors.model ? t(guardErrors.model) : undefined"><a-select v-model:value="guardConfig.model_id" :options="guardModelOptions" allow-clear show-search option-filter-prop="label" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" /></a-form-item></a-col>
               <a-col :xs="24" :md="6"><a-form-item :label="t('promptGuard.timeout')" :validate-status="guardErrors.timeout ? 'error' : undefined" :help="guardErrors.timeout ? t(guardErrors.timeout) : undefined"><a-input-number v-model:value="guardConfig.timeout_seconds" :step="1" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" style="width: 100%" /></a-form-item></a-col>
             </a-row>
+            <a-form-item :label="t('promptGuard.images.model')" :extra="t('promptGuard.images.help')">
+              <a-select v-model:value="guardConfig.image_model_id" :options="imageModelOptions" allow-clear :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" />
+            </a-form-item>
             <p class="muted">{{ t('promptGuard.scope') }}</p>
             <p class="muted">{{ t('promptGuard.failure') }}</p>
             <section v-if="isRsGuard" class="rs-guard-settings">
@@ -313,19 +316,31 @@
                 <div class="prompt-guard-panel-heading">
                   <label for="prompt-guard-content">{{ $t('legacy.1s33gfn') }}</label>
                   <a-space wrap>
-                    <a-dropdown :trigger="['click']" :disabled="testingPromptGuard">
-                      <a-button size="small" type="link" :disabled="testingPromptGuard" aria-haspopup="menu">{{ t('promptGuard.samples.fill') }} <DownOutlined /></a-button>
+                    <a-dropdown :trigger="['click']" :disabled="testingPromptGuard || imageReading">
+                      <a-button size="small" type="link" :disabled="testingPromptGuard || imageReading" aria-haspopup="menu">{{ t('promptGuard.samples.fill') }} <DownOutlined /></a-button>
                       <template #overlay>
                         <a-menu @click="({ key }) => fillPromptGuardSample(key)">
-                          <a-sub-menu v-for="group in promptSampleGroups" :key="group.key" :title="t(group.key === 'normal' ? 'promptGuard.samples.normal' : `promptGuard.categories.${group.key}`)">
+                          <a-sub-menu v-for="group in promptSampleGroups" :key="group.key" :title="t(['normal', 'images'].includes(group.key) ? `promptGuard.samples.${group.key}` : `promptGuard.categories.${group.key}`)">
                             <a-menu-item v-for="key in group.items" :key="key">{{ t(`promptGuard.samples.items.${key}.label`) }}</a-menu-item>
                           </a-sub-menu>
                         </a-menu>
                       </template>
                     </a-dropdown>
-                    <a-button size="small" type="text" :disabled="testingPromptGuard" @click="clearPromptGuardTest">{{ $t('legacy.9mbwb2') }}</a-button>
+                    <a-button size="small" type="text" :disabled="testingPromptGuard || imageReading" @click="clearPromptGuardTest">{{ $t('legacy.9mbwb2') }}</a-button>
                   </a-space>
                 </div>
+                <a-form-item :label="t('promptGuard.images.upload')" :extra="t('promptGuard.images.limits')">
+                  <input ref="imageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden @change="addPromptImages" />
+                  <a-button :disabled="testingPromptGuard || imageReading" @click="imageInput?.click()">{{ t('promptGuard.images.upload') }}</a-button>
+                  <div v-if="promptImages.length" class="guard-images">
+                    <div v-for="(item, index) in promptImages" :key="item.uid" class="guard-image-card">
+                      <a-image :src="item.url" :alt="item.name" :width="144" :height="96" style="object-fit: contain">
+                        <template #previewMask><span class="guard-image-preview"><ZoomInOutlined />{{ t('promptGuard.images.preview') }}</span></template>
+                      </a-image>
+                      <a-button type="text" size="small" :disabled="testingPromptGuard || imageReading" @click="promptImages.splice(index, 1); promptGuardResult = null">{{ t('promptGuard.images.remove', { number: index + 1 }) }}</a-button>
+                    </div>
+                  </div>
+                </a-form-item>
                 <a-form-item class="prompt-guard-input">
                   <a-textarea
                     id="prompt-guard-content"
@@ -336,7 +351,7 @@
                   />
                 </a-form-item>
                 <div class="prompt-guard-submit">
-                  <a-button v-if="hasAccess('privacy:test')" type="primary" :loading="testingPromptGuard" :disabled="guardConfigBusy || loading || guardConfigError || guardConfigDirty" @click="runPromptGuardTest">{{ $t("legacy.1rqbpwt") }}</a-button>
+                  <a-button v-if="hasAccess('privacy:test')" type="primary" :loading="testingPromptGuard" :disabled="guardConfigBusy || loading || guardConfigError || guardConfigDirty || imageReading" @click="runPromptGuardTest">{{ $t("legacy.1rqbpwt") }}</a-button>
                 </div>
               </a-form>
               <section class="prompt-guard-result" aria-live="polite" :aria-busy="testingPromptGuard">
@@ -364,8 +379,8 @@
                     <dl class="prompt-finding-evidence">
                       <template v-if="item.adapter !== 'rsguard'"><dt>{{ t('promptGuard.findingReason') }}</dt>
                       <dd>{{ item.detector === 'llm' || item.rule_name ? item.reason : t('promptGuard.ruleMatchReason', { rule: promptRuleLabel(item.rule) }) }}</dd>
-                      <dt>{{ t('promptGuard.matchedInput') }}</dt>
-                      <dd><pre class="prompt-evidence-text">{{ item.snippet }}</pre></dd></template>
+                      <dt>{{ t(item.adapter === 'vision' ? 'promptGuard.images.evidence' : 'promptGuard.matchedInput') }}</dt>
+                      <dd><span v-if="item.adapter === 'vision'">{{ t('promptGuard.images.number', { number: item.image_index + 1 }) }}</span><pre class="prompt-evidence-text">{{ item.adapter === 'vision' ? item.visual_evidence : item.snippet }}</pre></dd></template>
                       <template v-else><dt>{{ t('promptGuard.rsguard.verdict') }}</dt><dd>{{ t(`promptGuard.rsguard.states.${item.safety}`) }}</dd></template>
                       <template v-if="item.category"><dt>{{ t('promptGuard.categorySettings.category') }}</dt><dd>{{ t(item.adapter === 'rsguard' ? `promptGuard.rsguard.categories.${item.category}` : `promptGuard.categories.${item.category}`) }}</dd></template>
                       <template v-if="item.model"><dt>{{ t('promptGuard.model') }}</dt><dd>{{ item.model }}</dd></template>
@@ -381,6 +396,7 @@
                       <a-descriptions-item :label="t('promptGuard.rsguard.rawLabels')">{{ verdict.raw_safety }} / {{ verdict.raw_categories }}</a-descriptions-item>
                     </a-descriptions>
                   </template>
+                  <a-alert v-if="promptGuardResult.image_status" type="info" :message="t('promptGuard.images.status') + ': ' + t(`promptGuard.images.states.${promptGuardResult.image_status}`)" />
                   <a-descriptions class="prompt-result-metadata" size="small" :column="{ xs: 1, sm: 2 }">
                     <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ promptGuardResult.duration_ms || 0 }} ms</a-descriptions-item>
                     <a-descriptions-item :label="t('promptGuard.status')">{{ te(`promptGuard.statuses.${promptGuardResult.llm_status}`) ? t(`promptGuard.statuses.${promptGuardResult.llm_status}`) : t('promptGuard.statuses.unknown') }}</a-descriptions-item>
@@ -551,6 +567,7 @@
         <a-form-item :label="t('promptGuard.adapter.label')" :extra="t(`promptGuard.adapter.help.${modelForm.guard_adapter}`)">
           <a-select v-model:value="modelForm.guard_adapter" :options="['generic', 'rsguard'].map(value => ({ value, label: t(`promptGuard.adapter.${value}`) }))" />
         </a-form-item>
+        <a-form-item :label="t('promptGuard.images.capability')" :extra="t('promptGuard.images.capabilityHelp')"><a-switch v-model:checked="modelForm.supports_multimodal" /></a-form-item>
         <a-form-item :label="$t('legacy.wbvjnl')"><a-input-number v-model:value="modelForm.context_window" style="width: 100%" /></a-form-item>
         <a-form-item :label="$t('legacy.rvvikw')"><a-input-number v-model:value="modelForm.max_output_tokens" style="width: 100%" /></a-form-item>
         <a-space>
@@ -768,7 +785,12 @@ import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
-import { ApiOutlined, DeleteOutlined, DownOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RightOutlined, StarFilled } from '@ant-design/icons-vue'
+import { ApiOutlined, DeleteOutlined, DownOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RightOutlined, StarFilled, ZoomInOutlined } from '@ant-design/icons-vue'
+import imageNormal from '../assets/prompt-guard/normal.png?inline'
+import imageInjection from '../assets/prompt-guard/injection.png?inline'
+import imageSmallText from '../assets/prompt-guard/small-text-injection.png?inline'
+import imageFraud from '../assets/prompt-guard/fraud.png?inline'
+import imageFinancial from '../assets/prompt-guard/financial.png?inline'
 import dayjs from 'dayjs'
 import { useLocaleText } from '../i18n/useLocaleText'
 import { copyText, promptManualCopy } from '../utils/clipboard'
@@ -996,7 +1018,7 @@ const providerTestForm = reactive({ model: '' })
 const providerTestModelOptions = computed(() => models.value
   .filter(item => item.provider_id === providerUnderTest.value?.id && item.enabled)
   .map(item => ({ value: item.upstream_name || item.name })))
-const modelForm = reactive({ provider_id: null, name: '', upstream_name: '', display_name: '', guard_adapter: 'generic', enabled: true, context_window: null, max_output_tokens: null, is_default: false })
+const modelForm = reactive({ provider_id: null, name: '', upstream_name: '', display_name: '', guard_adapter: 'generic', supports_multimodal: false, enabled: true, context_window: null, max_output_tokens: null, is_default: false })
 const keyForm = reactive({
   name: '',
   allowed_models: [],
@@ -1020,9 +1042,10 @@ const promptGuardForm = reactive({
 })
 const promptGuardResult = ref(null)
 const testingPromptGuard = ref(false)
-const guardConfig = reactive({ enabled: false, model_id: null, timeout_seconds: 180, categories: {}, rsguard_disabled_categories: [] })
+const guardConfig = reactive({ enabled: false, model_id: null, timeout_seconds: 180, image_model_id: null, categories: {}, rsguard_disabled_categories: [] })
 const guardCategories = ref([])
 const rsGuardCategories = ref([])
+const imageModelOptions = computed(() => guardModelOptions.value.filter(option => models.value.some(model => model.id === option.value && model.supports_multimodal && model.guard_adapter === 'generic')))
 const isRsGuard = computed(() => models.value.find(item => item.id === guardConfig.model_id)?.guard_adapter === 'rsguard')
 const genericGuardModelOptions = computed(() => guardModelOptions.value.filter(option => models.value.find(item => item.id === option.value)?.guard_adapter !== 'rsguard'))
 const toggleRsCategory = (key, enabled) => {
@@ -1033,6 +1056,7 @@ const guardConfigDirty = computed(() => savedGuardConfig.value !== null && (
   guardConfig.enabled !== savedGuardConfig.value.enabled ||
   (guardConfig.model_id ?? null) !== savedGuardConfig.value.model_id ||
   guardConfig.timeout_seconds !== savedGuardConfig.value.timeout_seconds ||
+  (guardConfig.image_model_id ?? null) !== (savedGuardConfig.value.image_model_id ?? null) ||
   JSON.stringify(guardConfig.categories) !== JSON.stringify(savedGuardConfig.value.categories) ||
   JSON.stringify(guardConfig.rsguard_disabled_categories) !== JSON.stringify(savedGuardConfig.value.rsguard_disabled_categories || [])
 ))
@@ -1154,10 +1178,35 @@ const syncPolicyRuleRows = () => {
   }))
 }
 
+const promptImages = ref([])
+const imageInput = ref(null)
+const imageReading = ref(false)
+const addPromptImages = async event => {
+  if (testingPromptGuard.value || imageReading.value) return
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  if (promptImages.value.length + files.length > 3 || files.some(file => file.size > 2 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type))) {
+    message.warning(t('promptGuard.images.limits'))
+    return
+  }
+  imageReading.value = true
+  try {
+    const items = await Promise.all(files.map((file, index) => new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve({ uid: `${Date.now()}-${index}`, name: file.name, url: reader.result })
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })))
+    promptImages.value.push(...items)
+    promptGuardResult.value = null
+  } catch {
+    message.error(t('promptGuard.images.readFailed'))
+  } finally { imageReading.value = false }
+}
 const runPromptGuardTest = async () => {
-  if (guardConfigBusy.value || loading.value || guardConfigError.value || guardConfigDirty.value) return
+  if (testingPromptGuard.value || imageReading.value || guardConfigBusy.value || loading.value || guardConfigError.value || guardConfigDirty.value) return
   const content = promptGuardForm.content.trim()
-  if (!content) {
+  if (!content && !promptImages.value.length) {
     message.warning(phrase('legacy.1rxbcfo'))
     return
   }
@@ -1166,7 +1215,7 @@ const runPromptGuardTest = async () => {
   try {
     promptGuardResult.value = await testPromptGuard({
       mode: promptGuardForm.mode,
-      messages: [{ role: 'user', content }],
+      messages: [{ role: 'user', content: promptImages.value.length ? [{ type: 'text', text: content }, ...promptImages.value.map(item => ({ type: 'image_url', image_url: { url: item.url } }))] : content }],
     })
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.tz7iqk'))
@@ -1176,6 +1225,7 @@ const runPromptGuardTest = async () => {
 }
 
 const promptSampleGroups = [
+  { key: 'images', items: ['imageNormal', 'imageInjection', 'imageSmallText', 'imageFraud', 'imageFinancial'] },
   { key: 'injection', items: ['roleplay', 'override', 'encoded', 'memory'] },
   { key: 'privacy', items: ['systemLeak', 'secrets'] },
   { key: 'access', items: ['privilege'] },
@@ -1187,13 +1237,18 @@ const promptSampleGroups = [
   { key: 'facts', items: ['fabrication'] },
   { key: 'normal', items: ['writing', 'security', 'fiction'] },
 ]
+const promptSampleImages = { imageNormal, imageInjection, imageSmallText, imageFraud, imageFinancial }
 const fillPromptGuardSample = key => {
-  if (testingPromptGuard.value) return
+  if (testingPromptGuard.value || imageReading.value) return
   promptGuardForm.content = t(`promptGuard.samples.items.${key}.content`)
+  promptImages.value = promptSampleImages[key]
+    ? [{ uid: key, name: t(`promptGuard.samples.items.${key}.label`), url: promptSampleImages[key] }]
+    : []
   promptGuardResult.value = null
 }
 
 const clearPromptGuardTest = () => {
+  promptImages.value = []
   promptGuardForm.content = ''
   promptGuardResult.value = null
 }
@@ -1427,6 +1482,7 @@ const openModel = (record = null, providerId = null) => {
     name: record?.name || '',
     display_name: record?.display_name || '',
     guard_adapter: record?.guard_adapter || 'generic',
+    supports_multimodal: record?.supports_multimodal ?? false,
     upstream_name: record?.upstream_name || record?.name || '',
     enabled: record?.enabled ?? true,
     context_window: record?.context_window || null,
@@ -1686,6 +1742,11 @@ onUnmounted(() => { loadSequence++ })
 </script>
 
 <style scoped>
+.guard-images { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 8px; }
+.guard-image-card { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 6px; border: 1px solid #e5e9f0; border-radius: 10px; background: #fafbfd; }
+.guard-image-card :deep(.ant-image) { overflow: hidden; border-radius: 6px; background: #fff; }
+.guard-image-card :deep(.ant-image-mask) { background: rgba(15, 23, 42, 0.18); }
+.guard-image-preview { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 16px; background: rgba(15, 23, 42, 0.78); font-size: 12px; white-space: nowrap; }
 .provider-header-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .provider-header-row > .ant-input, .provider-header-row > .ant-input-affix-wrapper { flex: 1 1 160px; min-width: 0; }
 .prompt-result-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
