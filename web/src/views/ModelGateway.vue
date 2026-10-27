@@ -2,7 +2,7 @@
   <div>
     <a-card class="page-card" :body-style="activeTab === 'providers' ? { paddingTop: '12px' } : undefined">
       <template #title>
-        <a-page-header :title="pageTitle" :sub-title="pageSubtitle">
+        <a-page-header :class="{ 'guard-page-header': activeTab === 'prompt-guard' }" :title="pageTitle" :sub-title="pageSubtitle">
           <template #extra>
             <a-button v-if="activeTab === 'prompt-guard'" @click="router.push('/credentials')">{{ $t('legacy.z26gt3') }}</a-button>
             <template v-if="activeTab === 'providers'">
@@ -275,8 +275,16 @@
         <a-tabs v-model:active-key="guardTab">
           <a-tab-pane key="settings" :tab="t('promptGuard.settingsTab')" force-render>
           <a-form layout="vertical" :model="guardConfig">
+            <section class="guard-model-card">
+              <div class="guard-model-summary">
+                <div><span>{{ t('promptGuard.enabled') }}</span><a-switch size="small" v-model:checked="guardConfig.enabled" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" /></div>
+                <div><span>{{ t('promptGuard.defaultModel') }}</span><strong>{{ guardModelLabel(guardConfig.model_id) }}</strong></div>
+                <div><span>{{ t('promptGuard.images.model') }}</span><strong>{{ guardModelLabel(guardConfig.image_model_id) }}</strong></div>
+                <div><span>{{ t('promptGuard.timeout') }}</span><strong>{{ guardConfig.timeout_seconds }}</strong></div>
+                <a-button type="link" @click="guardModelsExpanded = !guardModelsExpanded">{{ t(guardModelsExpanded ? 'promptGuard.workbench.collapse' : 'promptGuard.workbench.edit') }}</a-button>
+              </div>
+              <template v-if="guardModelsExpanded">
             <a-row :gutter="16">
-              <a-col :xs="24" :md="6"><a-form-item :label="t('promptGuard.enabled')"><a-switch v-model:checked="guardConfig.enabled" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" /></a-form-item></a-col>
               <a-col :xs="24" :md="12"><a-form-item :label="t('promptGuard.defaultModel')" :validate-status="guardErrors.model ? 'error' : undefined" :help="guardErrors.model ? t(guardErrors.model) : undefined"><a-select v-model:value="guardConfig.model_id" :options="guardModelOptions" allow-clear show-search option-filter-prop="label" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" /></a-form-item></a-col>
               <a-col :xs="24" :md="6"><a-form-item :label="t('promptGuard.timeout')" :validate-status="guardErrors.timeout ? 'error' : undefined" :help="guardErrors.timeout ? t(guardErrors.timeout) : undefined"><a-input-number v-model:value="guardConfig.timeout_seconds" :step="1" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" style="width: 100%" /></a-form-item></a-col>
             </a-row>
@@ -285,18 +293,23 @@
             </a-form-item>
             <p class="muted">{{ t('promptGuard.scope') }}</p>
             <p class="muted">{{ t('promptGuard.failure') }}</p>
-            <section v-if="isRsGuard" class="rs-guard-settings">
-              <strong>{{ t('promptGuard.rsguard.title') }}</strong>
-              <p class="muted">{{ t('promptGuard.rsguard.help') }}</p>
-              <a-space wrap>
-                <a-checkbox v-for="category in rsGuardCategories" :key="category.id" :checked="!guardConfig.rsguard_disabled_categories.includes(category.id)" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" @change="event => toggleRsCategory(category.id, event.target.checked)">{{ t(`promptGuard.rsguard.categories.${category.id}`) }}</a-checkbox>
-              </a-space>
+
+              </template>
+              <p class="guard-model-help">{{ t(isRsGuard ? 'promptGuard.workbench.rsImageHint' : 'promptGuard.workbench.imageHint') }}</p>
             </section>
-            <PromptGuardCategories v-model="guardConfig.categories" :catalog="guardCategories" :model-options="genericGuardModelOptions" :semantic="!isRsGuard" :editable="hasAccess('privacy:update')" :disabled="guardConfigBusy || loading || guardConfigError" @busy="guardRuleBusy = $event" @changed="promptGuardResult = null" @dirty="guardRuleDirty = $event" />
-            <a-space v-if="hasAccess('privacy:update')" wrap>
-              <a-button :loading="guardConfigOperation === 'test'" :disabled="guardConfigBusy || loading || guardConfigError" @click="submitGuardConfig('test')">{{ t('promptGuard.testModel') }}</a-button>
-              <a-button type="primary" :loading="guardConfigOperation === 'save'" :disabled="guardConfigBusy || loading || guardConfigError" @click="submitGuardConfig('save')">{{ t('promptGuard.save') }}</a-button>
-            </a-space>
+            <PromptGuardCategories :model-value="guardConfig" @update:model-value="value => Object.assign(guardConfig, value)" :catalog="guardCategories" :native-catalog="rsGuardCategories" :saved-custom-categories="savedGuardConfig?.custom_categories || {}" :model-options="genericGuardModelOptions" :semantic="!isRsGuard" :editable="hasAccess('privacy:update')" :disabled="guardConfigBusy || loading || guardConfigError" @busy="guardRuleBusy = $event" @changed="promptGuardResult = null" @dirty="guardRuleDirty = $event">
+              <template #topics>
+                <a-form-item v-if="!isRsGuard || guardConfig.image_model_id" :label="t('promptGuard.topicScope.label')" :extra="t('promptGuard.topicScope.help')" :validate-status="Array.from(guardConfig.business_scope).length > 2000 ? 'error' : undefined" :help="Array.from(guardConfig.business_scope).length > 2000 ? t('promptGuard.topicScope.invalid') : undefined">
+                  <a-dropdown :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')">
+                    <a-button size="small" style="margin-bottom: 8px">{{ t('promptGuard.scopePresets.fill') }} <DownOutlined /></a-button>
+                    <template #overlay><a-menu @click="({ key }) => guardConfig.business_scope = t(`promptGuard.scopePresets.${key}.content`)"><a-menu-item v-for="key in ['banking', 'finance', 'telecom']" :key="key">{{ t(`promptGuard.scopePresets.${key}.label`) }}</a-menu-item></a-menu></template>
+                  </a-dropdown>
+                  <p class="muted">{{ t('promptGuard.scopePresets.draftHelp') }}</p>
+                  <a-textarea v-model:value="guardConfig.business_scope" :rows="3" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" :placeholder="t('promptGuard.topicScope.placeholder')" />
+                </a-form-item>
+              </template>
+            </PromptGuardCategories>
+
           </a-form>
 
           </a-tab-pane>
@@ -313,6 +326,13 @@
           </div>
           <div class="prompt-guard-columns">
               <a-form layout="vertical" :model="promptGuardForm" class="prompt-guard-editor">
+                <a-form-item :label="t('promptGuard.topicScope.testLabel')" :extra="t('promptGuard.topicScope.testHelp')" :validate-status="Array.from(promptGuardForm.business_scope).length > 2000 ? 'error' : undefined" :help="Array.from(promptGuardForm.business_scope).length > 2000 ? t('promptGuard.topicScope.invalid') : undefined">
+                  <a-dropdown :disabled="testingPromptGuard">
+                    <a-button size="small" style="margin-bottom: 8px">{{ t('promptGuard.scopePresets.fill') }} <DownOutlined /></a-button>
+                    <template #overlay><a-menu @click="({ key }) => promptGuardForm.business_scope = t(`promptGuard.scopePresets.${key}.content`)"><a-menu-item v-for="key in ['banking', 'finance', 'telecom']" :key="key">{{ t(`promptGuard.scopePresets.${key}.label`) }}</a-menu-item></a-menu></template>
+                  </a-dropdown>
+                  <a-textarea v-model:value="promptGuardForm.business_scope" :rows="2" :disabled="testingPromptGuard" />
+                </a-form-item>
                 <div class="prompt-guard-panel-heading">
                   <label for="prompt-guard-content">{{ $t('legacy.1s33gfn') }}</label>
                   <a-space wrap>
@@ -384,6 +404,7 @@
                       <template v-else><dt>{{ t('promptGuard.rsguard.verdict') }}</dt><dd>{{ t(`promptGuard.rsguard.states.${item.safety}`) }}</dd></template>
                       <template v-if="item.category"><dt>{{ t('promptGuard.categorySettings.category') }}</dt><dd>{{ t(item.adapter === 'rsguard' ? `promptGuard.rsguard.categories.${item.category}` : `promptGuard.categories.${item.category}`) }}</dd></template>
                       <template v-if="item.model"><dt>{{ t('promptGuard.model') }}</dt><dd>{{ item.model }}</dd></template>
+                      <template v-if="item.model_severity && item.model_severity !== item.severity"><dt>{{ t('promptGuard.categorySettings.modelRisk') }}</dt><dd>{{ t(`promptGuard.ruleEditor.severityValues.${item.model_severity}`) }} · {{ t('promptGuard.categorySettings.overridden') }}</dd></template>
                       <dt>{{ t('promptGuard.contentSource') }}</dt>
                       <dd>{{ promptSourceLabel(item.source || item.role) }}</dd>
                     </dl>
@@ -412,6 +433,10 @@
           </div>
           </a-tab-pane>
         </a-tabs>
+        <div v-if="hasAccess('privacy:update')" class="guard-save-bar">
+          <div><strong :class="{ 'guard-unsaved': guardConfigDirty || guardRuleDirty }">{{ t(guardConfigDirty || guardRuleDirty ? 'promptGuard.workbench.draft' : 'promptGuard.workbench.saved') }}</strong><small>{{ t('promptGuard.workbench.saveHint') }}</small><p v-if="guardSaveError" role="alert" class="guard-save-error">{{ guardSaveError }}</p></div>
+          <a-space wrap><a-button :loading="guardConfigOperation === 'test'" :disabled="guardConfigBusy || loading || guardConfigError" @click="submitGuardConfig('test')">{{ t('promptGuard.testModel') }}</a-button><a-button type="primary" :loading="guardConfigOperation === 'save'" :disabled="guardConfigBusy || loading || guardConfigError || guardRuleDirty || !guardConfigDirty" @click="submitGuardConfig('save')">{{ t('promptGuard.save') }}</a-button></a-space>
+        </div>
       </section>
 
       <section v-if="activeTab === 'audit'">
@@ -614,6 +639,9 @@
         </a-form-item>
         <a-form-item v-if="keyForm.prompt_guard_mode !== 'off'" :label="$t('legacy.otccp4')">
           <div style="color: #888; font-size: 12px; margin-top: 4px">{{ $t("legacy.16x9kox") }}</div>
+        </a-form-item>
+        <a-form-item :label="t('promptGuard.topicScope.credentialLabel')" :extra="t('promptGuard.topicScope.credentialHelp')" :validate-status="Array.from(keyForm.prompt_guard_business_scope).length > 2000 ? 'error' : undefined" :help="Array.from(keyForm.prompt_guard_business_scope).length > 2000 ? t('promptGuard.topicScope.invalid') : undefined">
+          <a-textarea v-model:value="keyForm.prompt_guard_business_scope" :rows="3" />
         </a-form-item>
         <a-row :gutter="16">
           <a-col :span="12">
@@ -1030,6 +1058,7 @@ const keyForm = reactive({
   enable_compression: false,
   compression_level: 'auto',
   prompt_guard_mode: 'log',
+  prompt_guard_business_scope: '',
   prompt_guard_llm_review: false,
 })
 const groupForm = reactive({ name: '', description: '', user_ids: [], privacy_policy_id: null, is_active: true })
@@ -1037,26 +1066,29 @@ const groupPolicyForm = reactive({ privacy_policy_id: null })
 const policyForm = reactive({ id: null, name: phrase('legacy.1t3snxj'), is_default: false, enabled: true, group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 })
 const mappingQuery = reactive({ q: '', page: 1, page_size: 10 })
 const promptGuardForm = reactive({
+  business_scope: '',
   mode: 'block',
   content: '',
 })
 const promptGuardResult = ref(null)
 const testingPromptGuard = ref(false)
-const guardConfig = reactive({ enabled: false, model_id: null, timeout_seconds: 180, image_model_id: null, categories: {}, rsguard_disabled_categories: [] })
+const guardConfig = reactive({ enabled: false, model_id: null, timeout_seconds: 180, image_model_id: null, business_scope: '', custom_categories: {}, custom_checks: {}, categories: {}, rsguard_disabled_categories: [] })
+const guardModelsExpanded = ref(false), guardSaveError = ref('')
+const guardModelLabel = id => guardModelOptions.value.find(item => item.value === id)?.label || t('promptGuard.workbench.none')
 const guardCategories = ref([])
 const rsGuardCategories = ref([])
 const imageModelOptions = computed(() => guardModelOptions.value.filter(option => models.value.some(model => model.id === option.value && model.supports_multimodal && model.guard_adapter === 'generic')))
 const isRsGuard = computed(() => models.value.find(item => item.id === guardConfig.model_id)?.guard_adapter === 'rsguard')
 const genericGuardModelOptions = computed(() => guardModelOptions.value.filter(option => models.value.find(item => item.id === option.value)?.guard_adapter !== 'rsguard'))
-const toggleRsCategory = (key, enabled) => {
-  guardConfig.rsguard_disabled_categories = enabled ? guardConfig.rsguard_disabled_categories.filter(item => item !== key) : [...guardConfig.rsguard_disabled_categories, key]
-}
 const savedGuardConfig = ref(null)
 const guardConfigDirty = computed(() => savedGuardConfig.value !== null && (
   guardConfig.enabled !== savedGuardConfig.value.enabled ||
   (guardConfig.model_id ?? null) !== savedGuardConfig.value.model_id ||
   guardConfig.timeout_seconds !== savedGuardConfig.value.timeout_seconds ||
+  guardConfig.business_scope !== (savedGuardConfig.value.business_scope || '') ||
   (guardConfig.image_model_id ?? null) !== (savedGuardConfig.value.image_model_id ?? null) ||
+  JSON.stringify(guardConfig.custom_categories) !== JSON.stringify(savedGuardConfig.value.custom_categories || {}) ||
+  JSON.stringify(guardConfig.custom_checks) !== JSON.stringify(savedGuardConfig.value.custom_checks || {}) ||
   JSON.stringify(guardConfig.categories) !== JSON.stringify(savedGuardConfig.value.categories) ||
   JSON.stringify(guardConfig.rsguard_disabled_categories) !== JSON.stringify(savedGuardConfig.value.rsguard_disabled_categories || [])
 ))
@@ -1086,9 +1118,11 @@ const guardModelOptions = computed(() => models.value.filter(item => item.enable
 const guardErrorLabel = code => te(`promptGuard.errors.${String(code).split('.').pop()}`) ? t(`promptGuard.errors.${String(code).split('.').pop()}`) : t('promptGuard.testFailed')
 const submitGuardConfig = async operation => {
   if (guardConfigBusy.value) return
-  guardErrors.model = (guardConfig.enabled || operation === 'test') && !isRsGuard.value && guardCategories.value.some(group => { const config = guardConfig.categories[group.id]; return config?.enabled !== false && group.rules.some(rule => !config?.disabled_rules?.includes(rule)) && !config?.model_id && !guardConfig.model_id }) ? 'promptGuard.modelRequired' : ''
+  if (Array.from(guardConfig.business_scope).length > 2000) { guardSaveError.value = t('promptGuard.topicScope.invalid'); return }
+  guardErrors.model = (guardConfig.enabled || operation === 'test') && !isRsGuard.value && [...guardCategories.value.filter(group => !group.custom), ...Object.keys(guardConfig.custom_categories).map(id => ({ id, rules: Object.entries(guardConfig.custom_checks).filter(([, item]) => item.category === id).map(([key]) => key) }))].some(group => { const config = guardConfig.categories[group.id]; return config?.enabled !== false && [...group.rules, ...Object.entries(guardConfig.custom_checks).filter(([, item]) => item.category === group.id).map(([key]) => key)].some(rule => !config?.disabled_rules?.includes(rule)) && !config?.model_id && !guardConfig.model_id }) ? 'promptGuard.modelRequired' : ''
   guardErrors.timeout = Number.isInteger(guardConfig.timeout_seconds) && guardConfig.timeout_seconds >= 1 && guardConfig.timeout_seconds <= 180 ? '' : 'promptGuard.timeoutInvalid'
-  if (guardErrors.model || guardErrors.timeout) return
+  if (guardErrors.model || guardErrors.timeout) { guardModelsExpanded.value = true; return }
+  guardSaveError.value = ''
   guardConfigOperation.value = operation
   try {
     const payload = { ...guardConfig, model_id: guardConfig.model_id ?? null }
@@ -1104,10 +1138,11 @@ const submitGuardConfig = async operation => {
       else message.error(guardErrorLabel(result.llm_error_code))
     }
   } catch (error) {
-    message.error(error.response?.data?.detail || t(operation === 'save' ? 'promptGuard.saveFailed' : 'promptGuard.testFailed'))
+    guardSaveError.value = error.response?.data?.detail || t(operation === 'save' ? 'promptGuard.saveFailed' : 'promptGuard.testFailed')
+    message.error(guardSaveError.value)
   } finally { guardConfigOperation.value = '' }
 }
-watch(() => [promptGuardForm.content, promptGuardForm.mode], () => { promptGuardResult.value = null })
+watch(() => [promptGuardForm.content, promptGuardForm.mode, promptGuardForm.business_scope], () => { promptGuardResult.value = null })
 const mappingPagination = computed(() => ({
   current: mappingQuery.page,
   pageSize: mappingQuery.page_size,
@@ -1206,6 +1241,7 @@ const addPromptImages = async event => {
 const runPromptGuardTest = async () => {
   if (testingPromptGuard.value || imageReading.value || guardConfigBusy.value || loading.value || guardConfigError.value || guardConfigDirty.value) return
   const content = promptGuardForm.content.trim()
+  if (Array.from(promptGuardForm.business_scope).length > 2000) return message.warning(t('promptGuard.topicScope.invalid'))
   if (!content && !promptImages.value.length) {
     message.warning(phrase('legacy.1rxbcfo'))
     return
@@ -1215,6 +1251,7 @@ const runPromptGuardTest = async () => {
   try {
     promptGuardResult.value = await testPromptGuard({
       mode: promptGuardForm.mode,
+      business_scope: promptGuardForm.business_scope,
       messages: [{ role: 'user', content: promptImages.value.length ? [{ type: 'text', text: content }, ...promptImages.value.map(item => ({ type: 'image_url', image_url: { url: item.url } }))] : content }],
     })
   } catch (error) {
@@ -1227,20 +1264,24 @@ const runPromptGuardTest = async () => {
 const promptSampleGroups = [
   { key: 'images', items: ['imageNormal', 'imageInjection', 'imageSmallText', 'imageFraud', 'imageFinancial'] },
   { key: 'injection', items: ['roleplay', 'override', 'encoded', 'memory'] },
-  { key: 'privacy', items: ['systemLeak', 'secrets'] },
+  { key: 'privacy', items: ['systemLeak', 'secrets', 'contactMarketing'] },
   { key: 'access', items: ['privilege'] },
   { key: 'content', items: ['harmful'] },
   { key: 'discrimination', items: ['hiring'] },
-  { key: 'business', items: ['fakeReviews', 'collusion'] },
+  { key: 'business', items: ['fakeReviews', 'collusion', 'ipLicense'] },
   { key: 'resources', items: ['unboundedCalls'] },
   { key: 'professional', items: ['diagnosis', 'investment'] },
   { key: 'facts', items: ['fabrication'] },
+  { key: 'operations', items: ['operationChange'] },
+  { key: 'topics', items: ['topicDrift'] },
+  { key: 'politics', items: ['politicalDiscussion'] },
   { key: 'normal', items: ['writing', 'security', 'fiction'] },
 ]
 const promptSampleImages = { imageNormal, imageInjection, imageSmallText, imageFraud, imageFinancial }
 const fillPromptGuardSample = key => {
   if (testingPromptGuard.value || imageReading.value) return
   promptGuardForm.content = t(`promptGuard.samples.items.${key}.content`)
+  promptGuardForm.business_scope = key === 'topicDrift' ? t('promptGuard.samples.items.topicDrift.scope') : ''
   promptImages.value = promptSampleImages[key]
     ? [{ uid: key, name: t(`promptGuard.samples.items.${key}.label`), url: promptSampleImages[key] }]
     : []
@@ -1250,6 +1291,7 @@ const fillPromptGuardSample = key => {
 const clearPromptGuardTest = () => {
   promptImages.value = []
   promptGuardForm.content = ''
+  promptGuardForm.business_scope = ''
   promptGuardResult.value = null
 }
 
@@ -1526,6 +1568,7 @@ const openKey = (record = null) => {
     enable_compression: record?.enable_compression ?? false,
     compression_level: record?.compression_level || 'auto',
     prompt_guard_mode: record?.prompt_guard_mode || 'log',
+    prompt_guard_business_scope: record?.prompt_guard_business_scope || '',
     prompt_guard_llm_review: record?.prompt_guard_llm_review ?? false,
   })
   keyVisible.value = true
@@ -1533,6 +1576,7 @@ const openKey = (record = null) => {
 
 const saveKey = async () => {
   if (submitting.value) return
+  if (Array.from(keyForm.prompt_guard_business_scope).length > 2000) return message.warning(t('promptGuard.topicScope.invalid'))
   submitting.value = true
   try {
     const payload = {
@@ -1742,6 +1786,27 @@ onUnmounted(() => { loadSequence++ })
 </script>
 
 <style scoped>
+@media (max-width: 600px) {
+  .guard-page-header :deep(.ant-page-header-heading) { flex-direction: column; align-items: stretch; }
+  .page-card .guard-page-header :deep(.ant-page-header-heading-left) { flex-basis: auto; }
+  .guard-page-header :deep(.ant-page-header-heading-extra) { margin-left: 0; }
+}
+.guard-model-card { border: 1px solid #e4e9f1; border-radius: 8px; padding: 16px 20px; }
+.guard-model-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 16px 28px; }
+.guard-model-summary>div { display: flex; align-items: center; gap: 10px; }
+.guard-model-summary span { font-size: 12px; color: #758298; }
+.guard-model-summary strong { font-size: 13px; font-weight: 500; }
+.guard-model-summary>.ant-btn { margin-left: auto; }
+.guard-model-card :deep(.ant-row) { margin-top: 18px; }
+.guard-model-help { font-size: 12px; color: #758298; margin: 10px 0 0; }
+.guard-save-bar { position: fixed; right: 24px; bottom: 16px; width: min(1100px, calc(100vw - 280px)); z-index: 90; background: white; border: 1px solid #dce3ef; border-radius: 9px; box-shadow: 0 3px 22px #263b4920; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.guard-save-bar strong { font-size: 13px; color: #54795e; }
+.guard-save-bar .guard-unsaved { color: #ad7214; }
+.guard-save-bar small { display: block; color: #7c8799; margin-top: 4px; font-size: 11px; }
+.guard-save-error { color: #c43c3c; margin: 5px 0 0; font-size: 12px; }
+.prompt-guard-workbench { padding-bottom: 100px; }
+@media(max-width:900px) { .guard-save-bar { right: 16px; width: calc(100vw - 32px); flex-wrap: wrap; gap: 10px; } .prompt-guard-workbench { padding-bottom: 150px; } .guard-model-card { padding: 14px; } }
+
 .guard-images { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 8px; }
 .guard-image-card { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 6px; border: 1px solid #e5e9f0; border-radius: 10px; background: #fafbfd; }
 .guard-image-card :deep(.ant-image) { overflow: hidden; border-radius: 6px; background: #fff; }

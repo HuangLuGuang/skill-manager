@@ -404,6 +404,8 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN allowed_mcp_gateways_json TEXT NOT NULL DEFAULT '[]'")
         if "prompt_guard_mode" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_mode VARCHAR(32) NOT NULL DEFAULT 'log'")
+        if "prompt_guard_business_scope" not in access_token_columns:
+            conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_business_scope TEXT NOT NULL DEFAULT ''")
         if "prompt_guard_llm_review" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_llm_review BOOLEAN NOT NULL DEFAULT 0")
         runtime_task_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(runtime_tasks)").fetchall()}
@@ -571,6 +573,8 @@ def ensure_sqlite_schema() -> None:
         llm_key_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(llm_api_keys)").fetchall()}
         if "prompt_guard_mode" not in llm_key_columns:
             conn.exec_driver_sql("ALTER TABLE llm_api_keys ADD COLUMN prompt_guard_mode VARCHAR(32) NOT NULL DEFAULT 'log'")
+        if "prompt_guard_business_scope" not in llm_key_columns:
+            conn.exec_driver_sql("ALTER TABLE llm_api_keys ADD COLUMN prompt_guard_business_scope TEXT NOT NULL DEFAULT ''")
         if "prompt_guard_llm_review" not in llm_key_columns:
             conn.exec_driver_sql("ALTER TABLE llm_api_keys ADD COLUMN prompt_guard_llm_review BOOLEAN NOT NULL DEFAULT 0")
         audit_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(llm_request_audit)").fetchall()}
