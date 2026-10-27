@@ -34,7 +34,7 @@ class MaliciousMcpServer:
         self.list_calls = 0
         self.tool_calls = 0
 
-    async def rpc(self, _server, method: str, params: dict) -> dict:
+    async def rpc(self, _server, method: str, params: dict, **_kwargs) -> dict:
         if method == "tools/list":
             self.list_calls += 1
             return {

@@ -182,7 +182,8 @@ class AgentManager:
         }
         reuse_enabled = self.policy.scan_result_reuse_enabled
         if existing:
-            if any(run.status == "PENDING" for run in self.registry.list_scan_runs(existing.skill_id)):
+            runs = self.registry.list_scan_runs(existing.skill_id)
+            if any(run.status == "PENDING" for run in runs):
                 return existing, False, "scan_in_progress"
             if (
                 reuse_enabled
@@ -195,16 +196,11 @@ class AgentManager:
                     content_fingerprint,
                     scan_context_fingerprint,
                 )
-                reused = existing.model_copy(deep=True)
-                reused.scan_reused = True
-                reused.reused_from_skill_id = existing.skill_id
-                if reused.vetting:
-                    reused.vetting.scan_report = {
-                        **reused.vetting.scan_report,
-                        "scan_reused": True,
-                        "reused_from_skill_id": existing.skill_id,
-                    }
-                return reused, False, "existing_version_reused"
+                existing, resolution = self.registry.record_scan_reuse(
+                    existing.skill_id, content_fingerprint, scan_context_fingerprint,
+                )
+                if resolution != "existing_version_rescan":
+                    return existing, False, resolution
             entry = existing
             entry.scan_options = scan_options
             entry.scan_context_fingerprint = scan_context_fingerprint
@@ -326,16 +322,7 @@ class AgentManager:
         run.status = status
         run.reused_from_scan_run_id = reused_from_scan_run_id
         run.finished_at = datetime.now(timezone.utc)
-        run.result = {
-            **run.result,
-            "status": entry.status.value,
-            "risk_level": entry.risk_level.value if entry.risk_level else None,
-            "scan_reused": entry.scan_reused,
-            "findings_count": entry.vetting.findings_count if entry.vetting else 0,
-            "sandbox_triggered": bool(entry.vetting and entry.vetting.sandbox_triggered),
-            "sandbox_required_by_policy": bool(entry.vetting and entry.vetting.sandbox_required_by_policy),
-            "sandbox_runtime": entry.vetting.sandbox_runtime if entry.vetting else None,
-        }
+        run.result = {**run.result, **ScanRun.result_for(entry)}
         # Commit the execution's report with its terminal state. A failed rescan
         # may preserve the version's previous report, which belongs to another run.
         report = entry.vetting.model_dump(mode="json") if entry.vetting and status in {"COMPLETED", "REUSED"} else None
@@ -488,6 +475,9 @@ class AgentManager:
         entry.risk_level = vetting_result.risk_level
         entry.rejection_reason = None
         entry.vetting = vetting_result
+        # 实际重扫完成后清除上一轮的复用标记。
+        entry.scan_reused = False
+        entry.reused_from_skill_id = None
         entry.allowed_tools = allowed_tools
         entry.declared_tools_valid = declared_tools_valid
 

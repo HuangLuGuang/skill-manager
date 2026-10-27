@@ -96,12 +96,14 @@ make sandbox-runtime-build
 
 ## 后端注意事项
 
+- MCP Server 发现按 `nextCursor` 在同一 Session 及协商协议内读取全页，全部成功后统一保存；失败保留工具快照。初始化与分页共用超时及累计响应预算，100页/10000工具上限与游标错误使用 `mcp.discovery.*` 双语资源。回归见 `tests/test_mcp_discovery_pagination.py`。
 - API 路由主要在 `agent_manager/api/router.py`。
 - 核心扫描流程在 `agent_manager/core/vetting.py`。
 - LLM 调用封装在 `agent_manager/core/llm.py`，需要兼容 OpenAI-compatible API（DeepSeek 属于其中一种供应商）。
 - 模型网关和隐私路由在 `backend/routers/llm_gateway.py`，用于管理模型供应商、模型、用户组、LLM API Key、隐私策略，并提供 OpenAI-compatible Chat Completions 代理。
 - Sandbox 运行封装在 `agent_manager/core/sandbox.py`。
 - 策略相关逻辑在 `agent_manager/core/policy.py`。
+- 第三方发现项优先按稳定 category 编码关联准入策略，同名编码直接匹配，`unauthorized_tool_use` 映射 `tool_misuse`、`supply_chain_attack` 映射 `supply_chain`；保留文档外部 API 示例优先规则及历史报告判定，回归覆盖三种策略分类。
 - 模型和 registry 数据结构在 `agent_manager/core/models.py`、`agent_manager/core/manager.py`。
 - 新增 API 时要考虑登录权限、审计日志、错误信息中文可读性和前端兼容。
 - 提交 skill 相关接口应保持幂等和防重复提交意识，前端禁用按钮不能替代后端校验。
@@ -111,6 +113,8 @@ make sandbox-runtime-build
 - Pipeline Trace 会保存原始 PII，只允许管理员或隐私审计角色查看；不要把原始 prompt/response 写入普通日志。
 
 ## 前端注意事项
+
+- MCP 调试网关连接超时可配置为1–300整数秒，默认30秒，初始化、通知及工具发现共用总预算；配置变更或页面卸载取消旧连接。切换语言保留页面实例及调试草稿；请求历史按毫秒、秒、分钟展示，输入参数结构及连接错误使用 `mcpDebug` 双语资源，历史Response以detail、error_code和error_params统一展示浏览器网络/预检失败及连接超时；detail按当前语言渲染，reason保留在error_params中，超时记录timeout_seconds；Tool调用超时保持独立。
 
 - MCP 客户端凭证创建和编辑时 scope 留空采用默认三项 MCP 权限，编辑保存前转换为默认权限提交，清空后在输入框内显示灰色默认权限占位提示，沿用原单行尺寸且保留已选网关；IP/CIDR 的前端错误同时展示序号和原值，未确认标签的草稿也校验，服务端创建与更新只校验本次提交的 IP 字段并返回 `credential.invalid_allowed_ips` 及位置。
 
@@ -146,6 +150,8 @@ make sandbox-runtime-build
 - 禁止 UI 单元测试，列出本次改动受影响的 UI 并给出测试 Todo list，我自行验证。
 
 ## Sandbox 约定
+
+- 已启用的本地 Docker 配置在保存前复用 `sandbox_docker_error` 校验 Backend 的命令、服务连接和镜像，服务与镜像检查共用短超时预算；不可用时通过 `ApiError` 和 `web/src/i18n/errors.js` 展示稳定编码及双语原因，保留原配置和草稿。Sandbox 运行方式由用户切换后清除本分组上次保存失败提示，保留其他分组错误，并进入待保存状态；切回原方式也启用保存按钮，Sandbox 保存成功或重新加载后清除待保存状态。关闭 Sandbox、远程模式及历史配置读取保持兼容。 系统状态同步返回 Docker 错误编码和参数，系统设置页复用保存错误的双语资源，切换语言即时更新；原状态消息字段保留兼容。
 
 - Sandbox 服务地址保存与连接测试共用校验：最多 2048 字符的 HTTP/HTTPS 基础 URL，错误使用 `sandbox.url_*` 稳定编码；前端同步校验并通过 i18n 展示，超长输入保留完整内容并提示错误；仅远程模式校验该地址，保存入口仅校验本次变更的 Sandbox 配置；接口复用 `ApiError` 错误协议。后端地址常量和校验统一放在 `agent_manager/core/sandbox.py`。独立 API 入口须注册 `ApiError` 处理器，保持与后台一致的稳定错误编码和双语响应。
 
@@ -299,3 +305,11 @@ make sandbox-runtime-build
 - MCP Server 编辑时鉴权留空，保存前测试按 server_id 复用已保存凭证，Endpoint 的查询参数、路径或地址变化均与保存后发现一致；地址变化且复用非空已存凭证时通过 `iam.check` 校验 `mcp:update`，在调用上游前拒绝无编辑权限的请求；显式测试凭证仅用于本次请求，测试不写回配置。独立临时测试使用请求自身凭证。
 
 - MCP 上游超时及响应超限通过 `_upstream_limit_error` 分类，使用 `mcp.upstream_timeout` / `mcp.upstream_response_too_large` 和配置参数；超限使用 `McpResponseTooLargeError` 携带上限。网关保持 JSON-RPC `-32000`，稳定编码与参数放 `error.data`，按请求语言返回原因；MCP 调试发送当前语言并复用 `web/src/i18n/errors.js`，原始响应保留。直连调试、连接发现与调用审计复用分类，失败后释放并发租约。
+
+- MCP 调试参数按 JSON Schema 的 const 优先初始化和只读展示，重置及提交保留原始 JSON 值与类型，可选固定参数同样发送；固定值说明复用 mcpDebug.constantValueHelp 双语资源。
+
+- 同版本结果复用通过 `Registry.record_scan_reuse` 在同一连接的 SQLite 事务中重读当前状态，仅更新复用元数据，独立插入终态 REUSED 记录及报告；失败一起回滚，保留最新生命周期决定，进行中任务沿用现有记录。实际重扫完成后清除复用标记，版本摘要按实际扫描记录判断重新检测。
+
+- Skill 详情检测记录首列展示可复制的 `scan_run_id`，语义双语键为 `skillVersions.scanRunId`；来源列沿用 `reused_from_scan_run_id`，无来源留空，窄屏支持横向滚动。
+
+- Skill 详情基础信息的结果复用使用 `skillDetail.notReused` / `skillDetail.reused` 显示“未复用 / 已复用”，来源关联集中展示于版本检测记录。

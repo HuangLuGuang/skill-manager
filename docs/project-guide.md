@@ -366,7 +366,13 @@ LLM 分析生成详细的安全报告，如果是恶意skill，还会生成攻�
 为了提升效率，Skill 按“名称族 + 内容版本”管理：
 
 - 同名且内容指纹相同的提交复用已有版本，不重复创建记录。
-- 检测配置也一致且全局启用了“复用检测结果”时，不再重复执行扫描。
+- 检测配置也一致且全局启用了“复用检测结果”时，不再重复执行扫描。每次复用保存一条非强制的 `REUSED` 检测记录及本次报告，来源记录编号关联实际检测来源；重复复用保持同一内容版本、审批及签名，刷新后仍可查询。实际重扫完成后清除旧复用标记；纯复用历史不显示为重新检测。
+- 同版本复用在单个 SQLite 事务内读取当前状态，只更新复用字段，并保存独立的终态检测记录与报告；保存失败整体回滚。并发停用、审批等决定保持，已存在的重扫任务继续执行。无需新增表结构或部署配置。
+- Same-version reuse reads current state and saves reuse metadata, its own terminal scan record and report in one SQLite transaction. Failures roll back together. Concurrent lifecycle decisions are preserved and existing rescans continue. No schema or deployment changes are required.
+- 详情基础信息“结果复用”显示“未复用 / 已复用”（Not reused / Reused）；来源关联在版本检测记录中查看。
+- 详情“版本 → 检测记录”展示可复制的检测记录编号，可与复用来源编号对照；无来源时单元格留空。弹窗中的表格在窄屏可横向滚动。
+- Versions → Scan Runs shows a copyable Scan Run ID for matching the Reused From ID. Records without a source leave that cell empty. The table scrolls horizontally on narrow screens.
+- When content and scan settings match, each reuse saves a non-forced `REUSED` record and its report with the source scan ID. Repeated reuse preserves the content version, approval and signature, and remains visible after refresh. A completed rescan clears the previous reuse flag; reuse history alone does not mark a version as rescanned.
 - 同名但内容不同会创建递增版本，历史版本内容使用服务端快照保存。
 - Skill 详情中的基础信息、检测报告、文件等内容分别加载，已返回的内容立即显示。“版本差异”在打开时加载比较结果，等待期间仍可切换其他标签；相同版本直接显示无文本文件差异，比较失败可点击“重新加载差异”。
 - 版本差异默认以最新版本为目标、前一个版本为基准，支持选择版本、交换比较方向、切换差异文件及并排或单栏对比。在本次详情查看期间，版本选择未变时切换标签再返回会继续等待或显示已有比较结果。比较范围为可读取的 UTF-8 文本文件，单文件不超过 1 MiB；跳过软链接及 `.git`、`.venv`、`node_modules`、`__pycache__`、`dist`、`build` 目录。
@@ -384,6 +390,12 @@ LLM 分析生成详细的安全报告，如果是恶意skill，还会生成攻�
 - 提交 Skill 与批量重新检测使用相同的横向检测选项及悬停说明，规则分析默认勾选且不可取消。批量重新检测可沿用各 Skill 上次提交的深度扫描、Sandbox、LLM 分析配置，或统一选择这三项；未勾选的可选分析会关闭，当前全局策略要求的检测仍会执行。不可用的检测能力会禁用。LLM 分析先在“模型网关 > 模型管理”添加模型，再在“Skill 治理 > 策略配置 > 高级配置 > AI 分析服务”选择模型，并在“检测设置”启用 AI 分析；已启用且已选择模型时即可勾选。
 - Skill 详情“基础信息”标题右侧只读展示当前版本最近一次提交的深度扫描、Sandbox、LLM 分析勾选状态，任务排队时即可查看。历史记录未保存提交选项时按检测报告展示并标明来源；没有选项或报告的记录显示未知状态。
 - 升级旧数据库时，Registry 会在首次启动时把旧 Skill 按名称归入版本族；同名同内容只保留提交时间最新的一条，同名不同内容按提交时间生成版本号。迁移记录写入 `registry_migrations`，后续启动不会重复迁移，也不会重新扫描。
+
+### 第三方扫描分类与准入策略
+
+第三方扫描发现项优先按结构化 `category` 编码关联现有准入策略：同名编码直接匹配，`prompt_injection` 对应“提示词注入”，`unauthorized_tool_use` 对应“工具滥用”，`supply_chain_attack` 对应“供应链风险”。随后应用该项保存的“判为恶意 / 结合上下文判断 / 仅保留提示”，本次报告记录 `classification_key` 和 `classification`。文档中的外部 API 示例沿用已有优先规则；未匹配到编码时沿用原有文本识别和严重度判定。
+
+使用时，在“Skill 治理 → 策略配置 → 准入策略”保存分类设置，再提交或重新检测 Skill，在详情“实际判定过程 → 发现项分类”查看本次应用的策略。历史报告保留当次判定，重新检测应用新映射。此变更复用现有报告字段，无需数据库迁移、增加依赖或调整 Docker 部署。
 
 ### 3.5 Sandbox 提供运行时观察
 
@@ -408,6 +420,8 @@ LLM 模型网关负责保护发送给外部模型供应商的数据：
 MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟网关发布选定 Tool：
 
 - 管理台在 `能力治理 / MCP 服务` 中登记 Endpoint，连接后保存 `tools/list` Schema 快照。
+- “连接并发现”在同一 MCP Session 内按 `nextCursor` 原样读取后续页，沿用协商协议版本，全部成功后统一更新工具快照。空中间页仍继续翻页；后续页失败保留旧工具及治理策略，并将健康状态标为异常。发现最多100页、10000个工具，初始化和全部分页共用服务配置的超时及累计响应 KB 上限；非法页面、非法或重复游标及数量超限使用 `mcp.discovery.*` 双语错误。操作：配置服务后点击“连接并发现”，完整工具列表自动显示；历史服务重新发现即可补齐。数据库结构不变，无需迁移，Docker 部署更新前后端镜像。
+- **English:** Connect & Discover follows opaque `nextCursor` values within one MCP session and reuses the negotiated protocol version. Tool snapshots update only after every page succeeds; empty intermediate pages continue pagination. A later-page failure preserves existing tools and their governance policies and marks the server unhealthy. Discovery allows up to 100 pages and 10,000 tools; initialization and all pages share the configured timeout and cumulative response-size limit. Invalid pages or cursors, repeated cursors and count limits use bilingual `mcp.discovery.*` errors. Click Connect & Discover to populate the complete list, including for existing servers. No database migration is required; update both Docker images.
 - MCP 服务的“连接并发现”无论成功或失败均自动刷新列表，展示本次健康状态。编辑保存后，Endpoint、鉴权 Header 或鉴权值实际变化时，旧检测状态重置为“未检测 / Not Checked”并清空检测时间；重新发现后显示“正常 / Healthy”或“异常 / Unhealthy”。相同连接配置、留空保留原鉴权以及仅修改名称等其他字段保持原检测结果。复用现有状态字段及凭据解密比较，无需数据库迁移，现有工具快照保持原处理方式。
 - MCP 服务表单通过受管理面权限保护的 `GET /api/v1/mcp/servers/options` 读取当前 `allow_http`。Endpoint悬浮说明及即时协议校验按该值展示HTTPS或HTTP/HTTPS要求，与后端 `MCP_ALLOW_HTTP` 一致；配置加载时显示读取中提示。
 - MCP 服务表单按字段展示中英文错误及悬浮要求（状态不增加说明）。名称、唯一标识及鉴权 Header 最多128字符，Endpoint 最多1024字符，鉴权值最多4096字符，描述最多2000个Unicode字符（含空格和换行）；超时1–300秒，最大响应1–10240 KB，默认值保持30秒及1024 KB。鉴权值须为可打印ASCII字符；Bearer格式为 `Bearer + 空格 + Token`。名称、标识、Endpoint和Header名称保存时去除首尾空白。
@@ -422,6 +436,8 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 - 审批列表的日期范围筛选完整显示开始和结束日期时间（含秒）；筛选栏空间不足时换行，窄屏分行展示时间输入，日期范围按申请时间（created_at）筛选，包含起止边界；请求按日期框可见的秒级北京时间发送，去掉不可见毫秒，零点记录可正确计入。本页列表及详情时间、日期框钟面输入统一为北京时间（UTC+8）。后端把带偏移的查询边界转换为UTC后比较，历史无时区查询仍按UTC处理；不修改历史数据，无需数据库迁移。
 - 审批列表的搜索关键词、MCP Tool、调用凭证在停止输入300毫秒后自动过滤；网关选择及日期范围确认或清空立即过滤，筛选后回到第一页。列表在首次打开、筛选或分页变化、手动刷新及审批操作后查询；刷新按钮仅在手动点击时显示加载状态，其他查询使用列表加载状态。回车、搜索及刷新按钮可立即查询；防抖等待期间翻页或调整每页数量会立即应用新筛选并回到第一页，保留所选每页数量；连续筛选仅采用最新请求结果，离开页面清理待执行查询。
 - `能力治理 / MCP 调试` 可以在保存前使用临时 Endpoint 直连服务，也可以使用真实网关凭证执行 Tool 发现和调用，并展示原始 JSON 请求历史。平台网关凭证旁提供格式悬浮说明；输入后及连接前校验必填和无空白可打印ASCII字符，错误按界面语言显示在字段下，保留草稿，不发送非法请求或回显凭证。凭证是否有效及权限范围仍由服务端校验。
+- MCP 调试的 Tool 参数优先使用 JSON Schema `const` 固定值，以只读 JSON 展示，标签旁提供中英文说明。首次选择、重置和调用保留固定值及原始类型，包括 `false`、`0`、空字符串、`null`、数组与对象；可选固定参数也会发送。普通参数继续按已有默认值和表单校验处理。使用时连接服务或平台网关并选择 Tool，固定参数无需填写。无需数据库迁移，Docker 更新前端镜像即可。
+- MCP 调试的“平台 MCP 网关”可设置“连接超时（秒）”，默认30秒，范围1–300整数秒；初始化、通知和工具发现共用总预算，超时主动取消并停止加载。修改连接配置或离开页面会取消旧连接；可修正地址后重试。网络不可达或跨域预检失败显示可读的中英文提示；请求历史Response区域将浏览器网络/预检失败和连接超时按统一JSON展示：detail随语言更新，error_code分别为mcp.debug.network_failed和mcp.debug.connection_timeout，error_params.reason保留原始异常，超时还记录timeout_seconds，服务端业务错误和原始响应继续保留。Tool调用保持独立超时。切换界面语言保留调试配置和请求历史，固定文案即时更新。请求历史不足1秒显示毫秒、不足1分钟显示秒，其余显示分钟，至多两位小数；原始耗时仍为毫秒。“输入参数结构 / Input Schema”随语言切换，Schema及工具内容保留原文。无需数据库迁移，Docker更新前端镜像即可。
 - MCP 上游调用超时及响应超限分别返回 `mcp.upstream_timeout`（`timeout_seconds`）和 `mcp.upstream_response_too_large`（`max_response_kb`）。MCP 调试的提示与本次原始响应按请求语言显示具体原因及配置值；网关沿用 JSON-RPC `-32000`，在 `error.data` 中提供 `error_code`、`error_params`。直连调试和连接发现复用相同错误分类；调用审计保留可识别原因，失败后释放并发占用。使用时在 MCP 服务配置超时及最大响应，再从 MCP 调试调用对应 Tool；超时可检查上游响应速度或超时配置，响应超限可缩小返回结果或调整最大响应。无需数据库迁移；Docker 部署更新前后端镜像。
 - **English:** Upstream timeouts return `mcp.upstream_timeout` with `timeout_seconds`; oversized responses return `mcp.upstream_response_too_large` with `max_response_kb`. MCP Debug shows the specific reason and configured limit in the requested language. Gateway errors keep JSON-RPC code `-32000` and add `error_code` and `error_params` in `error.data`. Direct debugging and discovery share the classification; call audits record a recognizable reason and failed calls release concurrency slots. Configure the service limits, then call the Tool from MCP Debug. For timeouts, check upstream latency or the timeout setting; for oversized responses, reduce the result size or adjust the response limit. No database migration is required; update both Docker images.
 - 调用方使用 `MCP 网关凭证`，凭证限制可访问网关、IP、请求大小和并发数，不要求绑定 `ManagedAgent`。
@@ -1897,6 +1913,8 @@ flowchart TB
 - `agent-manager-sandbox-runtime:latest`
 
 它内置常见 Python 依赖，避免很多 skill 因为 `requests` 之类库缺失直接失败。
+
+保存已启用的本地 Docker 配置前，Backend 会检查 Docker 命令、服务连接和运行镜像，总检查预算为 3 秒。不可用时阻止保存，在策略配置“高级配置”显示具体原因并保留草稿；请按提示修复环境或选择远程服务。切换运行方式会清除 Sandbox 上次保存失败提示，并显示“未保存”、启用保存按钮；切回原方式也需点击保存确认，成功后显示“已保存”。检查依据是 Backend 的实际运行环境，宿主机安装 Docker 不会自动使 Backend 容器具备 Docker 能力。关闭 Sandbox 和保存远程模式不依赖本地 Docker。历史配置可正常读取，无需数据库迁移，Docker 部署更新应用镜像即可。实现和错误码见 [Sandbox 配置保存校验](sandbox-service-architecture.md#本地-docker-配置保存校验)。 系统状态同步返回 Docker 错误编码和参数，系统设置页复用保存错误的双语资源，切换语言即时更新；原状态消息字段保留兼容。
 
 ### 10.2 Remote backend
 

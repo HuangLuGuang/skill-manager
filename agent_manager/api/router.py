@@ -44,8 +44,10 @@ from agent_manager.core.policy_simulation import PolicySimulationRequest, simula
 from agent_manager.core.policy_warnings import get_policy_warnings
 from agent_manager.core.prompt_models import PromptStatus
 from agent_manager.core.sandbox import (
+    SANDBOX_DOCKER_ERRORS,
     SandboxConfig,
     SandboxConnectionTest,
+    sandbox_docker_error,
     sandbox_url_error,
     test_sandbox_connection,
     with_sandbox_reason_metadata,
@@ -705,6 +707,8 @@ class SystemStatusResponse(BaseModel):
     sandbox_runtime: str
     sandbox_target: str | None = None
     sandbox_status_message: str | None = None
+    sandbox_status_error_code: str | None = None
+    sandbox_status_error_params: dict[str, str] = Field(default_factory=dict)
     hooks_available: bool
     llm_enabled: bool
     llm_provider: str
@@ -952,6 +956,15 @@ def _sandbox_config_from_payload(body: SandboxConfigPayload, current: SandboxCon
 def update_sandbox_config(body: SandboxConfigPayload):
     current = SandboxConfig.load()
     config = _sandbox_config_from_payload(body, current)
+    # 仅启用本地 Docker 时校验运行能力，失败前不写配置，允许关闭或切换远程服务。
+    if config.enabled and config.runtime == "docker":
+        code = sandbox_docker_error(config)
+        if code:
+            zh_message, en_message = SANDBOX_DOCKER_ERRORS[code]
+            raise ApiError(
+                422, code, zh_message.format(image=config.image), en_message.format(image=config.image),
+                params={"image": config.image} if code == "sandbox.image_unavailable" else {},
+            )
     path = config.save()
     public = config.public_dict()
     public["config_path"] = str(path)
@@ -1039,6 +1052,8 @@ def get_system_status(mgr: AgentManager = Depends(get_manager)):
         sandbox_runtime=sandbox_config.runtime,
         sandbox_target=sandbox_status.target if sandbox_status else None,
         sandbox_status_message=sandbox_status.message if sandbox_status else "Sandbox 未启用",
+        sandbox_status_error_code=sandbox_status.error_code if sandbox_status else None,
+        sandbox_status_error_params=sandbox_status.error_params if sandbox_status else {},
         hooks_available=(Path(__file__).resolve().parent.parent / "hooks" / "agent_hook.py").exists(),
         llm_enabled=llm_config.enabled,
         llm_provider=llm_config.provider,
@@ -1768,7 +1783,7 @@ def _version_summary(
         else any(event.event_type == "skill_rescan_requested" for event in events)
     )
     rescanned = (
-        len(runs) > 1
+        sum(run.status != "REUSED" for run in runs) > 1
         or effective_processing_count > 1
         or effective_rescan_requested
     )

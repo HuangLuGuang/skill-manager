@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -97,3 +99,27 @@ def test_system_status_reports_sandbox_unavailable_when_probe_fails(tmp_path, mo
     assert payload["sandbox_available"] is False
     assert payload["sandbox_target"] == "http://sandbox:8194/run-code"
     assert payload["sandbox_status_message"].startswith("远程 Sandbox 连接失败")
+
+
+@pytest.mark.parametrize("code,params", [
+    ("sandbox.docker_command_unavailable", {}),
+    ("sandbox.docker_daemon_unavailable", {}),
+    ("sandbox.image_unavailable", {"image": "team/runtime:test"}),
+])
+def test_system_status_preserves_docker_error_metadata(tmp_path, monkeypatch, code, params):
+    from agent_manager.core import sandbox
+
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    config = SandboxConfig(enabled=True, runtime="docker", image="team/runtime:test")
+    monkeypatch.setattr(api_router.SandboxConfig, "load", classmethod(lambda cls: config))
+    monkeypatch.setattr(sandbox, "sandbox_docker_error", lambda *args, **kwargs: code)
+    app = FastAPI()
+    app.include_router(api_router.router, prefix="/api/v1")
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+
+    # 状态读取必须保留错误编码，英文页面才能复用保存错误的翻译。
+    payload = TestClient(app).get("/api/v1/system/status").json()
+    assert payload["sandbox_available"] is False
+    assert payload["sandbox_status_error_code"] == code
+    assert payload["sandbox_status_error_params"] == params
+    assert payload["sandbox_status_message"] == sandbox.SANDBOX_DOCKER_ERRORS[code][0].format(image=config.image)
