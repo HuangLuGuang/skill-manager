@@ -374,10 +374,10 @@ export const getLlmStatsOverview = (params = {}) => api.get('/v1/llm-stats/overv
 export const getLlmStatsDaily = (params = {}) => api.get('/v1/llm-stats/daily', { params })
 export const getLlmStatsByModel = (params = {}) => api.get('/v1/llm-stats/by-model', { params })
 export const getLlmStatsByUser = (params = {}) => api.get('/v1/llm-stats/by-user', { params })
-export const testPromptGuard = (data) => api.post('/v1/prompt-guard/test', data)
+export const testPromptGuard = (data) => api.post('/v1/prompt-guard/test', data, { timeout: 195000 })
 export const getPromptGuardConfig = () => api.get('/v1/prompt-guard/config')
 export const savePromptGuardConfig = (data) => api.put('/v1/prompt-guard/config', data)
-export const testPromptGuardModel = (data) => api.post('/v1/prompt-guard/model-test', data)
+export const testPromptGuardModel = (data) => api.post('/v1/prompt-guard/model-test', data, { timeout: 195000 })
 export const listPromptGuardRules = () => api.get('/v1/prompt-guard/rules')
 export const savePromptGuardRule = (id, data) => api.put(`/v1/prompt-guard/rules/${encodeURIComponent(id)}`, data)
 export const restorePromptGuardRule = (id) => api.delete(`/v1/prompt-guard/rules/${encodeURIComponent(id)}`)
@@ -498,3 +498,6 @@ export const previewSecurityRules = (id, body) => api.post(`${securityRulesPath(
 
 export const createPromptGuardRule = data => api.post("/v1/prompt-guard/rules", data)
 export const testNewPromptGuardRule = data => api.post("/v1/prompt-guard/rules/test", data)
+
+export const getPromptGuardCategories = () => api.get('/v1/prompt-guard/categories')
+export const getRsGuardCategories = () => api.get('/v1/prompt-guard/rsguard-categories')

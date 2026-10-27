@@ -277,18 +277,28 @@
           <a-form layout="vertical" :model="guardConfig">
             <a-row :gutter="16">
               <a-col :xs="24" :md="6"><a-form-item :label="t('promptGuard.enabled')"><a-switch v-model:checked="guardConfig.enabled" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" /></a-form-item></a-col>
-              <a-col :xs="24" :md="12"><a-form-item :label="t('promptGuard.model')" :validate-status="guardErrors.model ? 'error' : undefined" :help="guardErrors.model ? t(guardErrors.model) : undefined"><a-select v-model:value="guardConfig.model_id" :options="guardModelOptions" allow-clear show-search option-filter-prop="label" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" /></a-form-item></a-col>
+              <a-col :xs="24" :md="12"><a-form-item :label="t('promptGuard.defaultModel')" :validate-status="guardErrors.model ? 'error' : undefined" :help="guardErrors.model ? t(guardErrors.model) : undefined"><a-select v-model:value="guardConfig.model_id" :options="guardModelOptions" allow-clear show-search option-filter-prop="label" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" /></a-form-item></a-col>
               <a-col :xs="24" :md="6"><a-form-item :label="t('promptGuard.timeout')" :validate-status="guardErrors.timeout ? 'error' : undefined" :help="guardErrors.timeout ? t(guardErrors.timeout) : undefined"><a-input-number v-model:value="guardConfig.timeout_seconds" :step="1" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" style="width: 100%" /></a-form-item></a-col>
             </a-row>
+            <a-form-item :label="t('promptGuard.images.model')" :extra="t('promptGuard.images.help')">
+              <a-select v-model:value="guardConfig.image_model_id" :options="imageModelOptions" allow-clear :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" />
+            </a-form-item>
             <p class="muted">{{ t('promptGuard.scope') }}</p>
             <p class="muted">{{ t('promptGuard.failure') }}</p>
+            <section v-if="isRsGuard" class="rs-guard-settings">
+              <strong>{{ t('promptGuard.rsguard.title') }}</strong>
+              <p class="muted">{{ t('promptGuard.rsguard.help') }}</p>
+              <a-space wrap>
+                <a-checkbox v-for="category in rsGuardCategories" :key="category.id" :checked="!guardConfig.rsguard_disabled_categories.includes(category.id)" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" @change="event => toggleRsCategory(category.id, event.target.checked)">{{ t(`promptGuard.rsguard.categories.${category.id}`) }}</a-checkbox>
+              </a-space>
+            </section>
+            <PromptGuardCategories v-model="guardConfig.categories" :catalog="guardCategories" :model-options="genericGuardModelOptions" :semantic="!isRsGuard" :editable="hasAccess('privacy:update')" :disabled="guardConfigBusy || loading || guardConfigError" @busy="guardRuleBusy = $event" @changed="promptGuardResult = null" @dirty="guardRuleDirty = $event" />
             <a-space v-if="hasAccess('privacy:update')" wrap>
               <a-button :loading="guardConfigOperation === 'test'" :disabled="guardConfigBusy || loading || guardConfigError" @click="submitGuardConfig('test')">{{ t('promptGuard.testModel') }}</a-button>
               <a-button type="primary" :loading="guardConfigOperation === 'save'" :disabled="guardConfigBusy || loading || guardConfigError" @click="submitGuardConfig('save')">{{ t('promptGuard.save') }}</a-button>
             </a-space>
           </a-form>
-          <a-divider />
-          <PromptGuardRules :editable="hasAccess('privacy:update')" :disabled="guardConfigBusy || loading" @busy="guardRuleBusy = $event" @changed="promptGuardResult = null" />
+
           </a-tab-pane>
           <a-tab-pane key="test" :tab="t('promptGuard.testTab')" force-render>
           <a-alert v-if="guardConfigDirty" type="warning" show-icon :message="t('promptGuard.unsaved')" />
@@ -306,19 +316,31 @@
                 <div class="prompt-guard-panel-heading">
                   <label for="prompt-guard-content">{{ $t('legacy.1s33gfn') }}</label>
                   <a-space wrap>
-                    <a-dropdown :trigger="['click']" :disabled="testingPromptGuard">
-                      <a-button size="small" type="link" :disabled="testingPromptGuard" aria-haspopup="menu">{{ t('promptGuard.samples.fill') }} <DownOutlined /></a-button>
+                    <a-dropdown :trigger="['click']" :disabled="testingPromptGuard || imageReading">
+                      <a-button size="small" type="link" :disabled="testingPromptGuard || imageReading" aria-haspopup="menu">{{ t('promptGuard.samples.fill') }} <DownOutlined /></a-button>
                       <template #overlay>
                         <a-menu @click="({ key }) => fillPromptGuardSample(key)">
-                          <a-menu-item-group v-for="group in promptSampleGroups" :key="group.key" :title="t(`promptGuard.samples.${group.key}`)">
+                          <a-sub-menu v-for="group in promptSampleGroups" :key="group.key" :title="t(['normal', 'images'].includes(group.key) ? `promptGuard.samples.${group.key}` : `promptGuard.categories.${group.key}`)">
                             <a-menu-item v-for="key in group.items" :key="key">{{ t(`promptGuard.samples.items.${key}.label`) }}</a-menu-item>
-                          </a-menu-item-group>
+                          </a-sub-menu>
                         </a-menu>
                       </template>
                     </a-dropdown>
-                    <a-button size="small" type="text" :disabled="testingPromptGuard" @click="clearPromptGuardTest">{{ $t('legacy.9mbwb2') }}</a-button>
+                    <a-button size="small" type="text" :disabled="testingPromptGuard || imageReading" @click="clearPromptGuardTest">{{ $t('legacy.9mbwb2') }}</a-button>
                   </a-space>
                 </div>
+                <a-form-item :label="t('promptGuard.images.upload')" :extra="t('promptGuard.images.limits')">
+                  <input ref="imageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden @change="addPromptImages" />
+                  <a-button :disabled="testingPromptGuard || imageReading" @click="imageInput?.click()">{{ t('promptGuard.images.upload') }}</a-button>
+                  <div v-if="promptImages.length" class="guard-images">
+                    <div v-for="(item, index) in promptImages" :key="item.uid" class="guard-image-card">
+                      <a-image :src="item.url" :alt="item.name" :width="144" :height="96" style="object-fit: contain">
+                        <template #previewMask><span class="guard-image-preview"><ZoomInOutlined />{{ t('promptGuard.images.preview') }}</span></template>
+                      </a-image>
+                      <a-button type="text" size="small" :disabled="testingPromptGuard || imageReading" @click="promptImages.splice(index, 1); promptGuardResult = null">{{ t('promptGuard.images.remove', { number: index + 1 }) }}</a-button>
+                    </div>
+                  </div>
+                </a-form-item>
                 <a-form-item class="prompt-guard-input">
                   <a-textarea
                     id="prompt-guard-content"
@@ -329,7 +351,7 @@
                   />
                 </a-form-item>
                 <div class="prompt-guard-submit">
-                  <a-button v-if="hasAccess('privacy:test')" type="primary" :loading="testingPromptGuard" :disabled="guardConfigBusy || loading || guardConfigError || guardConfigDirty" @click="runPromptGuardTest">{{ $t("legacy.1rqbpwt") }}</a-button>
+                  <a-button v-if="hasAccess('privacy:test')" type="primary" :loading="testingPromptGuard" :disabled="guardConfigBusy || loading || guardConfigError || guardConfigDirty || imageReading" @click="runPromptGuardTest">{{ $t("legacy.1rqbpwt") }}</a-button>
                 </div>
               </a-form>
               <section class="prompt-guard-result" aria-live="polite" :aria-busy="testingPromptGuard">
@@ -345,24 +367,36 @@
                     </a-space>
                     <span class="muted">{{ t('promptGuard.findingCount', { count: promptGuardResult.findings_count || 0 }) }}</span>
                   </div>
-                  <a-empty v-if="!promptGuardResult.findings?.length" :description="t(promptGuardResult.error_code || promptGuardResult.llm_error_code ? 'promptGuard.noFindingsIncomplete' : 'promptGuard.noFindings')" />
+                  <a-empty v-if="!promptGuardResult.findings?.length" :description="t(promptGuardResult.error_code || promptGuardResult.llm_error_code ? 'promptGuard.noFindingsIncomplete' : promptGuardResult.llm_adapter === 'rsguard' ? 'promptGuard.rsguard.noEnabledFindings' : 'promptGuard.noFindings')" />
                   <article v-for="(item, index) in promptGuardResult.findings || []" :key="index" class="prompt-finding">
                     <div class="prompt-finding-heading">
-                      <strong>{{ item.rule_name || promptRuleLabel(item.rule) }}</strong>
+                      <strong>{{ item.adapter === 'rsguard' ? t(`promptGuard.rsguard.categories.${item.category}`) : item.rule_name || promptRuleLabel(item.rule) }}</strong>
                       <a-space wrap size="small">
                         <a-tag :color="promptRiskColor(item.severity)">{{ promptRiskLabel(item.severity) }}</a-tag>
-                        <a-tag>{{ t(item.detector === 'llm' ? 'promptGuard.ai' : 'promptGuard.rule') }}</a-tag>
+                        <a-tag>{{ t(item.adapter === 'rsguard' ? 'promptGuard.rsguard.title' : item.detector === 'llm' ? 'promptGuard.ai' : 'promptGuard.rule') }}</a-tag>
                       </a-space>
                     </div>
                     <dl class="prompt-finding-evidence">
-                      <dt>{{ t('promptGuard.findingReason') }}</dt>
+                      <template v-if="item.adapter !== 'rsguard'"><dt>{{ t('promptGuard.findingReason') }}</dt>
                       <dd>{{ item.detector === 'llm' || item.rule_name ? item.reason : t('promptGuard.ruleMatchReason', { rule: promptRuleLabel(item.rule) }) }}</dd>
-                      <dt>{{ t('promptGuard.matchedInput') }}</dt>
-                      <dd><pre class="prompt-evidence-text">{{ item.snippet }}</pre></dd>
+                      <dt>{{ t(item.adapter === 'vision' ? 'promptGuard.images.evidence' : 'promptGuard.matchedInput') }}</dt>
+                      <dd><span v-if="item.adapter === 'vision'">{{ t('promptGuard.images.number', { number: item.image_index + 1 }) }}</span><pre class="prompt-evidence-text">{{ item.adapter === 'vision' ? item.visual_evidence : item.snippet }}</pre></dd></template>
+                      <template v-else><dt>{{ t('promptGuard.rsguard.verdict') }}</dt><dd>{{ t(`promptGuard.rsguard.states.${item.safety}`) }}</dd></template>
+                      <template v-if="item.category"><dt>{{ t('promptGuard.categorySettings.category') }}</dt><dd>{{ t(item.adapter === 'rsguard' ? `promptGuard.rsguard.categories.${item.category}` : `promptGuard.categories.${item.category}`) }}</dd></template>
+                      <template v-if="item.model"><dt>{{ t('promptGuard.model') }}</dt><dd>{{ item.model }}</dd></template>
                       <dt>{{ t('promptGuard.contentSource') }}</dt>
                       <dd>{{ promptSourceLabel(item.source || item.role) }}</dd>
                     </dl>
                   </article>
+                  <template v-for="(review, reviewIndex) in promptGuardResult.llm_reviews || []" :key="reviewIndex">
+                    <a-descriptions v-for="verdict in review.verdicts || []" :key="verdict.message_index" size="small" :column="1" :title="t('promptGuard.rsguard.title')">
+                      <a-descriptions-item :label="t('promptGuard.model')">{{ review.model }}</a-descriptions-item>
+                      <a-descriptions-item :label="t('promptGuard.contentSource')">{{ promptSourceLabel(verdict.source) }} · {{ t('promptGuard.rsguard.message', { number: verdict.message_index + 1 }) }}</a-descriptions-item>
+                      <a-descriptions-item :label="t('promptGuard.rsguard.verdict')">{{ t(`promptGuard.rsguard.states.${verdict.safety}`) }}</a-descriptions-item>
+                      <a-descriptions-item :label="t('promptGuard.rsguard.rawLabels')">{{ verdict.raw_safety }} / {{ verdict.raw_categories }}</a-descriptions-item>
+                    </a-descriptions>
+                  </template>
+                  <a-alert v-if="promptGuardResult.image_status" type="info" :message="t('promptGuard.images.status') + ': ' + t(`promptGuard.images.states.${promptGuardResult.image_status}`)" />
                   <a-descriptions class="prompt-result-metadata" size="small" :column="{ xs: 1, sm: 2 }">
                     <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ promptGuardResult.duration_ms || 0 }} ms</a-descriptions-item>
                     <a-descriptions-item :label="t('promptGuard.status')">{{ te(`promptGuard.statuses.${promptGuardResult.llm_status}`) ? t(`promptGuard.statuses.${promptGuardResult.llm_status}`) : t('promptGuard.statuses.unknown') }}</a-descriptions-item>
@@ -530,6 +564,10 @@
         <a-form-item :label="$t('modelGateway.catalog.upstreamName')" required><a-input v-model:value="modelForm.upstream_name" /></a-form-item>
         <a-form-item :label="$t('modelGateway.catalog.gatewayName')" :extra="$t('modelGateway.catalog.gatewayNameHelp')"><a-input v-model:value="modelForm.name" :disabled="!!editingModelId" :placeholder="$t('modelGateway.catalog.gatewayNameAuto')" /></a-form-item>
         <a-form-item :label="$t('legacy.1m2bn1g')"><a-input v-model:value="modelForm.display_name" /></a-form-item>
+        <a-form-item :label="t('promptGuard.adapter.label')" :extra="t(`promptGuard.adapter.help.${modelForm.guard_adapter}`)">
+          <a-select v-model:value="modelForm.guard_adapter" :options="['generic', 'rsguard'].map(value => ({ value, label: t(`promptGuard.adapter.${value}`) }))" />
+        </a-form-item>
+        <a-form-item :label="t('promptGuard.images.capability')" :extra="t('promptGuard.images.capabilityHelp')"><a-switch v-model:checked="modelForm.supports_multimodal" /></a-form-item>
         <a-form-item :label="$t('legacy.wbvjnl')"><a-input-number v-model:value="modelForm.context_window" style="width: 100%" /></a-form-item>
         <a-form-item :label="$t('legacy.rvvikw')"><a-input-number v-model:value="modelForm.max_output_tokens" style="width: 100%" /></a-form-item>
         <a-space>
@@ -737,17 +775,22 @@
 </template>
 
 <script setup>
-import PromptGuardRules from '../components/PromptGuardRules.vue'
+import PromptGuardCategories from '../components/PromptGuardCategories.vue'
 import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
 import { can } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
-import { ApiOutlined, DeleteOutlined, DownOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RightOutlined, StarFilled } from '@ant-design/icons-vue'
+import { ApiOutlined, DeleteOutlined, DownOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RightOutlined, StarFilled, ZoomInOutlined } from '@ant-design/icons-vue'
+import imageNormal from '../assets/prompt-guard/normal.png?inline'
+import imageInjection from '../assets/prompt-guard/injection.png?inline'
+import imageSmallText from '../assets/prompt-guard/small-text-injection.png?inline'
+import imageFraud from '../assets/prompt-guard/fraud.png?inline'
+import imageFinancial from '../assets/prompt-guard/financial.png?inline'
 import dayjs from 'dayjs'
 import { useLocaleText } from '../i18n/useLocaleText'
 import { copyText, promptManualCopy } from '../utils/clipboard'
@@ -776,7 +819,7 @@ import {
   savePrivacyPolicy,
   setDefaultPrivacyPolicy,
   testPromptGuard,
-  getPromptGuardConfig,
+  getPromptGuardCategories, getRsGuardCategories, getPromptGuardConfig,
   savePromptGuardConfig,
   testPromptGuardModel,
   testModelProvider,
@@ -975,7 +1018,7 @@ const providerTestForm = reactive({ model: '' })
 const providerTestModelOptions = computed(() => models.value
   .filter(item => item.provider_id === providerUnderTest.value?.id && item.enabled)
   .map(item => ({ value: item.upstream_name || item.name })))
-const modelForm = reactive({ provider_id: null, name: '', upstream_name: '', display_name: '', enabled: true, context_window: null, max_output_tokens: null, is_default: false })
+const modelForm = reactive({ provider_id: null, name: '', upstream_name: '', display_name: '', guard_adapter: 'generic', supports_multimodal: false, enabled: true, context_window: null, max_output_tokens: null, is_default: false })
 const keyForm = reactive({
   name: '',
   allowed_models: [],
@@ -999,16 +1042,43 @@ const promptGuardForm = reactive({
 })
 const promptGuardResult = ref(null)
 const testingPromptGuard = ref(false)
-const guardConfig = reactive({ enabled: false, model_id: null, timeout_seconds: 15 })
+const guardConfig = reactive({ enabled: false, model_id: null, timeout_seconds: 180, image_model_id: null, categories: {}, rsguard_disabled_categories: [] })
+const guardCategories = ref([])
+const rsGuardCategories = ref([])
+const imageModelOptions = computed(() => guardModelOptions.value.filter(option => models.value.some(model => model.id === option.value && model.supports_multimodal && model.guard_adapter === 'generic')))
+const isRsGuard = computed(() => models.value.find(item => item.id === guardConfig.model_id)?.guard_adapter === 'rsguard')
+const genericGuardModelOptions = computed(() => guardModelOptions.value.filter(option => models.value.find(item => item.id === option.value)?.guard_adapter !== 'rsguard'))
+const toggleRsCategory = (key, enabled) => {
+  guardConfig.rsguard_disabled_categories = enabled ? guardConfig.rsguard_disabled_categories.filter(item => item !== key) : [...guardConfig.rsguard_disabled_categories, key]
+}
 const savedGuardConfig = ref(null)
 const guardConfigDirty = computed(() => savedGuardConfig.value !== null && (
   guardConfig.enabled !== savedGuardConfig.value.enabled ||
   (guardConfig.model_id ?? null) !== savedGuardConfig.value.model_id ||
-  guardConfig.timeout_seconds !== savedGuardConfig.value.timeout_seconds
+  guardConfig.timeout_seconds !== savedGuardConfig.value.timeout_seconds ||
+  (guardConfig.image_model_id ?? null) !== (savedGuardConfig.value.image_model_id ?? null) ||
+  JSON.stringify(guardConfig.categories) !== JSON.stringify(savedGuardConfig.value.categories) ||
+  JSON.stringify(guardConfig.rsguard_disabled_categories) !== JSON.stringify(savedGuardConfig.value.rsguard_disabled_categories || [])
 ))
-watch(() => [guardConfig.enabled, guardConfig.model_id, guardConfig.timeout_seconds], () => { promptGuardResult.value = null })
+watch(guardConfig, () => { promptGuardResult.value = null }, { deep: true })
 const guardConfigOperation = ref('')
 const guardRuleBusy = ref(false)
+const guardRuleDirty = ref(false)
+const guardHasUnsavedChanges = computed(() => activeTab.value === 'prompt-guard' && (guardConfigDirty.value || guardRuleDirty.value))
+const confirmGuardLeave = () => !guardHasUnsavedChanges.value || window.confirm(t('promptGuard.leaveConfirm'))
+onBeforeRouteLeave(confirmGuardLeave)
+onBeforeRouteUpdate((to, from) => to.meta.gatewayTab === from.meta.gatewayTab || confirmGuardLeave())
+const handleGuardBeforeUnload = event => {
+  if (!guardHasUnsavedChanges.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+watch(guardHasUnsavedChanges, dirty => {
+  if (dirty) window.addEventListener('beforeunload', handleGuardBeforeUnload)
+  else window.removeEventListener('beforeunload', handleGuardBeforeUnload)
+})
+onUnmounted(() => window.removeEventListener('beforeunload', handleGuardBeforeUnload))
+
 const guardConfigBusy = computed(() => Boolean(guardConfigOperation.value) || testingPromptGuard.value || guardRuleBusy.value)
 const guardConfigError = ref(false)
 const guardErrors = reactive({ model: '', timeout: '' })
@@ -1016,21 +1086,21 @@ const guardModelOptions = computed(() => models.value.filter(item => item.enable
 const guardErrorLabel = code => te(`promptGuard.errors.${String(code).split('.').pop()}`) ? t(`promptGuard.errors.${String(code).split('.').pop()}`) : t('promptGuard.testFailed')
 const submitGuardConfig = async operation => {
   if (guardConfigBusy.value) return
-  guardErrors.model = (guardConfig.enabled || operation === 'test') && !guardConfig.model_id ? 'promptGuard.modelRequired' : ''
-  guardErrors.timeout = Number.isInteger(guardConfig.timeout_seconds) && guardConfig.timeout_seconds >= 1 && guardConfig.timeout_seconds <= 120 ? '' : 'promptGuard.timeoutInvalid'
+  guardErrors.model = (guardConfig.enabled || operation === 'test') && !isRsGuard.value && guardCategories.value.some(group => { const config = guardConfig.categories[group.id]; return config?.enabled !== false && group.rules.some(rule => !config?.disabled_rules?.includes(rule)) && !config?.model_id && !guardConfig.model_id }) ? 'promptGuard.modelRequired' : ''
+  guardErrors.timeout = Number.isInteger(guardConfig.timeout_seconds) && guardConfig.timeout_seconds >= 1 && guardConfig.timeout_seconds <= 180 ? '' : 'promptGuard.timeoutInvalid'
   if (guardErrors.model || guardErrors.timeout) return
   guardConfigOperation.value = operation
   try {
     const payload = { ...guardConfig, model_id: guardConfig.model_id ?? null }
     if (operation === 'save') {
       const saved = await savePromptGuardConfig(payload)
-      savedGuardConfig.value = { ...saved }
+      savedGuardConfig.value = JSON.parse(JSON.stringify(saved))
       Object.assign(guardConfig, saved)
       promptGuardResult.value = null
       message.success(t('promptGuard.saved'))
     } else {
       const result = await testPromptGuardModel(payload)
-      if (result.llm_status === 'completed') message.success(t('promptGuard.modelReady'))
+      if (['completed', 'skipped_categories_disabled'].includes(result.llm_status)) message.success(t(result.llm_status === 'completed' ? 'promptGuard.modelReady' : 'promptGuard.statuses.skipped_categories_disabled'))
       else message.error(guardErrorLabel(result.llm_error_code))
     }
   } catch (error) {
@@ -1108,10 +1178,35 @@ const syncPolicyRuleRows = () => {
   }))
 }
 
+const promptImages = ref([])
+const imageInput = ref(null)
+const imageReading = ref(false)
+const addPromptImages = async event => {
+  if (testingPromptGuard.value || imageReading.value) return
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  if (promptImages.value.length + files.length > 3 || files.some(file => file.size > 2 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type))) {
+    message.warning(t('promptGuard.images.limits'))
+    return
+  }
+  imageReading.value = true
+  try {
+    const items = await Promise.all(files.map((file, index) => new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve({ uid: `${Date.now()}-${index}`, name: file.name, url: reader.result })
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })))
+    promptImages.value.push(...items)
+    promptGuardResult.value = null
+  } catch {
+    message.error(t('promptGuard.images.readFailed'))
+  } finally { imageReading.value = false }
+}
 const runPromptGuardTest = async () => {
-  if (guardConfigBusy.value || loading.value || guardConfigError.value || guardConfigDirty.value) return
+  if (testingPromptGuard.value || imageReading.value || guardConfigBusy.value || loading.value || guardConfigError.value || guardConfigDirty.value) return
   const content = promptGuardForm.content.trim()
-  if (!content) {
+  if (!content && !promptImages.value.length) {
     message.warning(phrase('legacy.1rxbcfo'))
     return
   }
@@ -1120,7 +1215,7 @@ const runPromptGuardTest = async () => {
   try {
     promptGuardResult.value = await testPromptGuard({
       mode: promptGuardForm.mode,
-      messages: [{ role: 'user', content }],
+      messages: [{ role: 'user', content: promptImages.value.length ? [{ type: 'text', text: content }, ...promptImages.value.map(item => ({ type: 'image_url', image_url: { url: item.url } }))] : content }],
     })
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.tz7iqk'))
@@ -1130,16 +1225,30 @@ const runPromptGuardTest = async () => {
 }
 
 const promptSampleGroups = [
-  { key: 'attacks', items: ['roleplay', 'override', 'systemLeak', 'secrets', 'privilege', 'encoded'] },
+  { key: 'images', items: ['imageNormal', 'imageInjection', 'imageSmallText', 'imageFraud', 'imageFinancial'] },
+  { key: 'injection', items: ['roleplay', 'override', 'encoded', 'memory'] },
+  { key: 'privacy', items: ['systemLeak', 'secrets'] },
+  { key: 'access', items: ['privilege'] },
+  { key: 'content', items: ['harmful'] },
+  { key: 'discrimination', items: ['hiring'] },
+  { key: 'business', items: ['fakeReviews', 'collusion'] },
+  { key: 'resources', items: ['unboundedCalls'] },
+  { key: 'professional', items: ['diagnosis', 'investment'] },
+  { key: 'facts', items: ['fabrication'] },
   { key: 'normal', items: ['writing', 'security', 'fiction'] },
 ]
+const promptSampleImages = { imageNormal, imageInjection, imageSmallText, imageFraud, imageFinancial }
 const fillPromptGuardSample = key => {
-  if (testingPromptGuard.value) return
+  if (testingPromptGuard.value || imageReading.value) return
   promptGuardForm.content = t(`promptGuard.samples.items.${key}.content`)
+  promptImages.value = promptSampleImages[key]
+    ? [{ uid: key, name: t(`promptGuard.samples.items.${key}.label`), url: promptSampleImages[key] }]
+    : []
   promptGuardResult.value = null
 }
 
 const clearPromptGuardTest = () => {
+  promptImages.value = []
   promptGuardForm.content = ''
   promptGuardResult.value = null
 }
@@ -1167,7 +1276,7 @@ const loadAll = async () => {
       if (sequence === loadSequence) groups.value = data
       return
     }
-    const [providerRes, modelRes, keyRes, groupRes, policyRes, statRes, mappingRes, guardRes] = await Promise.all([
+    const [providerRes, modelRes, keyRes, groupRes, policyRes, statRes, mappingRes, guardRes, guardCategoryRes, rsCategoryRes] = await Promise.all([
       ['providers', 'prompt-guard'].includes(tab) && can('providers:view') ? listModelProviders() : Promise.resolve([]),
       ['providers', 'keys', 'prompt-guard'].includes(tab) && can('models:view') ? listModelEndpoints() : Promise.resolve([]),
       tab === 'keys' && can('credentials:view') ? listLlmApiKeys() : Promise.resolve([]),
@@ -1176,10 +1285,14 @@ const loadAll = async () => {
       showGatewayStats.value && can('privacy_audit:view') ? getPrivacyStats() : Promise.resolve({}),
       tab === 'audit' && can('privacy_audit:raw') ? listPrivacyMappings({ page: mappingQuery.page, page_size: mappingQuery.page_size, q: mappingQuery.q || undefined }) : Promise.resolve({}),
       tab === 'prompt-guard' ? getPromptGuardConfig() : Promise.resolve(null),
+      tab === 'prompt-guard' ? getPromptGuardCategories() : Promise.resolve([]),
+      tab === 'prompt-guard' ? getRsGuardCategories() : Promise.resolve([]),
     ])
     if (sequence !== loadSequence) return
+    guardCategories.value = guardCategoryRes
+    rsGuardCategories.value = rsCategoryRes
     if (guardRes) {
-      savedGuardConfig.value = { ...guardRes }
+      savedGuardConfig.value = JSON.parse(JSON.stringify(guardRes))
       Object.assign(guardConfig, guardRes)
     }
     providers.value = providerRes
@@ -1368,6 +1481,8 @@ const openModel = (record = null, providerId = null) => {
     provider_id: record?.provider_id || providerId || providers.value[0]?.id || null,
     name: record?.name || '',
     display_name: record?.display_name || '',
+    guard_adapter: record?.guard_adapter || 'generic',
+    supports_multimodal: record?.supports_multimodal ?? false,
     upstream_name: record?.upstream_name || record?.name || '',
     enabled: record?.enabled ?? true,
     context_window: record?.context_window || null,
@@ -1627,6 +1742,11 @@ onUnmounted(() => { loadSequence++ })
 </script>
 
 <style scoped>
+.guard-images { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 8px; }
+.guard-image-card { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 6px; border: 1px solid #e5e9f0; border-radius: 10px; background: #fafbfd; }
+.guard-image-card :deep(.ant-image) { overflow: hidden; border-radius: 6px; background: #fff; }
+.guard-image-card :deep(.ant-image-mask) { background: rgba(15, 23, 42, 0.18); }
+.guard-image-preview { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 16px; background: rgba(15, 23, 42, 0.78); font-size: 12px; white-space: nowrap; }
 .provider-header-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .provider-header-row > .ant-input, .provider-header-row > .ant-input-affix-wrapper { flex: 1 1 160px; min-width: 0; }
 .prompt-result-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
