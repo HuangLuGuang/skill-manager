@@ -315,7 +315,7 @@ button:focus-visible, .timeline-records:focus-visible { outline: 2px solid #245f
 .session-timeline { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .muted { color: #667085; font-size: 13px; }
 summary { cursor: pointer; width: fit-content; }
-.source-tabs { display: flex; gap: 16px; flex-shrink: 0; }
+.source-tabs { display: flex; flex-wrap: wrap; gap: 0 16px; flex-shrink: 0; max-width: 100%; }
 .source-tabs button { padding: 8px 0 9px; border: 0; border-bottom: 2px solid transparent; background: none; cursor: pointer; color: #667085; font-size: 13px; }
 .source-tabs button[aria-pressed=true] { color: #245fe5; border-bottom-color: #245fe5; font-weight: 600; }
 .source-tabs span { background: #f3f5f8; padding: 1px 6px; border-radius: 4px; font-size: 12px; margin-left: 5px; }
@@ -343,7 +343,7 @@ select { border: 1px solid #d9d9d9; border-radius: 6px; background: white; paddi
   .session-meta { display: none; }
   .timeline-search { width: 100%; margin: 0 0 6px; }
   .timeline-toolbar { gap: 4px; margin-top: 2px; }
-  .source-tabs { gap: 12px; }
+  .source-tabs { gap: 0 12px; }
 }
 @media(pointer: coarse) { button, select, summary { min-height: 44px; } select { font-size: 16px; } }
 </style>

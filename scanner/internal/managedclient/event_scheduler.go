@@ -2,6 +2,7 @@ package managedclient
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -10,6 +11,17 @@ import (
 
 const eventWakeFile = "events-wake"
 const eventRepairInterval = 30 * time.Second
+
+func watchEventWake(watcher *fsnotify.Watcher, path string) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	if err = file.Close(); err != nil {
+		return err
+	}
+	return watcher.Add(path)
+}
 
 func eventUploadDelay(store *Store, server string) time.Duration {
 	var pending bool
@@ -34,11 +46,14 @@ func eventUploadDelay(store *Store, server string) time.Duration {
 func runEventUploader(ctx context.Context, api API, store *Store) {
 	var changes <-chan fsnotify.Event
 	var errors <-chan error
-	if watcher, err := fsnotify.NewWatcher(); err == nil {
+	wakePath := filepath.Join(store.root, eventWakeFile)
+	watcher, err := fsnotify.NewWatcher()
+	watching := false
+	if err == nil {
 		defer watcher.Close()
-		if err := watcher.Add(store.root); err == nil {
-			changes, errors = watcher.Events, watcher.Errors
-		}
+		changes, errors = watcher.Events, watcher.Errors
+		// Watching the directory also wakes kqueue for every database and health write.
+		watching = watchEventWake(watcher, wakePath) == nil
 	}
 	// The durable queue is authoritative; the timer repairs missed filesystem hints.
 	timer := time.NewTimer(0)
@@ -55,6 +70,10 @@ func runEventUploader(ctx context.Context, api API, store *Store) {
 			if filepath.Base(event.Name) != eventWakeFile {
 				continue
 			}
+			if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+				_ = watcher.Remove(wakePath)
+				watching = false
+			}
 		case _, ok := <-errors:
 			if !ok {
 				errors = nil
@@ -63,6 +82,9 @@ func runEventUploader(ctx context.Context, api API, store *Store) {
 		}
 		if ctx.Err() != nil {
 			return
+		}
+		if watcher != nil && !watching {
+			watching = watchEventWake(watcher, wakePath) == nil
 		}
 		request, cancel := context.WithTimeout(ctx, 30*time.Second)
 		_ = flushEvents(request, api, store)

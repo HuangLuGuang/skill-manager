@@ -3,7 +3,7 @@ import { localizeApiError } from '../i18n/errors.js'
 import { policySettingsMessages } from '../i18n/policySettings.js'
 
 export const integerLimits = {
-  llm: { timeout_seconds: [5, 180], max_files: [1, 20], max_manifest_chars: [2000, 50000], max_file_chars: [500, 20000] },
+  llm: { timeout_seconds: [5, 600], max_files: [1, 20], max_manifest_chars: [2000, 50000], max_file_chars: [500, 20000] },
   sandbox: { timeout_seconds: [1, 300], pids_limit: [1, 1024] },
 }
 

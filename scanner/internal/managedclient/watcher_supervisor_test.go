@@ -15,13 +15,41 @@ type testSkillSource struct {
 	errors     chan error
 	closed     atomic.Bool
 	refreshErr error
+	refreshes  atomic.Int32
 }
 
-func (s *testSkillSource) Changes() <-chan []string              { return s.changes }
-func (s *testSkillSource) Errors() <-chan error                  { return s.errors }
-func (s *testSkillSource) Refresh(string, *Store) error          { return s.refreshErr }
+func (s *testSkillSource) Changes() <-chan []string { return s.changes }
+func (s *testSkillSource) Errors() <-chan error     { return s.errors }
+func (s *testSkillSource) Refresh(string, *Store) error {
+	s.refreshes.Add(1)
+	return s.refreshErr
+}
 func (s *testSkillSource) SuppressRoots([]string, time.Duration) {}
 func (s *testSkillSource) Close() error                          { s.closed.Store(true); return nil }
+
+func TestHealthyWatcherRefreshesOnlyOnRequest(t *testing.T) {
+	home, store, _, _ := observedFixture(t)
+	source := &testSkillSource{changes: make(chan []string, 1), errors: make(chan error, 1)}
+	monitor, stop := startSkillMonitor(context.Background(), home, store, 10*time.Millisecond, func() (skillWatchSource, error) { return source, nil })
+	defer stop()
+	select {
+	case <-monitor.Changes():
+	case <-time.After(time.Second):
+		t.Fatal("watcher did not start")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := source.refreshes.Load(); got != 1 {
+		t.Fatalf("healthy source repeatedly refreshed: %d", got)
+	}
+	monitor.Refresh(home, store)
+	deadline := time.Now().Add(time.Second)
+	for source.refreshes.Load() == 1 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := source.refreshes.Load(); got != 2 {
+		t.Fatalf("explicit refresh not delivered: %d", got)
+	}
+}
 
 func TestWatcherFailuresDoNotStopDaemonAndRecover(t *testing.T) {
 	home, store, _, _ := observedFixture(t)
@@ -87,5 +115,43 @@ func TestWatcherFailuresDoNotStopDaemonAndRecover(t *testing.T) {
 	case <-hookStopped:
 		t.Fatal("watcher failure stopped Hook")
 	default:
+	}
+}
+
+func TestWatcherRuntimeFailureImmediateRecoveryAndBackoff(t *testing.T) {
+	home, store, _, _ := observedFixture(t)
+	sources := make(chan *testSkillSource, 10)
+	monitor, stop := startSkillMonitor(context.Background(), home, store, time.Second, func() (skillWatchSource, error) {
+		s := &testSkillSource{changes: make(chan []string, 1), errors: make(chan error, 1)}
+		sources <- s
+		return s, nil
+	})
+	defer stop()
+	first := <-sources
+	select {
+	case <-monitor.Changes():
+	case <-time.After(time.Second):
+		t.Fatal("startup")
+	}
+	first.errors <- errors.New("bad file descriptor")
+	var second *testSkillSource
+	select {
+	case second = <-sources:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("first runtime failure waited for retry interval")
+	}
+	second.errors <- errors.New("repeated failure")
+	select {
+	case <-sources:
+		t.Fatal("persistent errors cause immediate restart loop")
+	case <-time.After(150 * time.Millisecond):
+	}
+	select {
+	case <-sources:
+	case <-time.After(2 * time.Second):
+		t.Fatal("backoff did not recover")
+	}
+	if !first.closed.Load() || !second.closed.Load() {
+		t.Fatal("failed watchers leaked")
 	}
 }

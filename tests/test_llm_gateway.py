@@ -1488,12 +1488,12 @@ def test_create_privacy_policy_without_group_does_not_update_default(tmp_path, m
     assert "CN_PERSON" not in default_policy["entity_types"]
     assert "US_SSN" not in default_policy["entity_types"]
 
-    blocked_bind = client.post(
+    bound = client.post(
         "/v1/groups",
         json={"name": "default-policy-group", "user_ids": [], "privacy_policy_id": default_policy["id"]},
     )
-    assert blocked_bind.status_code == 400
-    assert "系统默认隐私策略不能绑定用户组" in blocked_bind.json()["detail"]
+    assert bound.status_code == 200
+    assert bound.json()["privacy_policy_id"] == default_policy["id"]
 
     created = client.post(
         "/v1/privacy-policies",
@@ -1526,6 +1526,117 @@ def test_create_privacy_policy_without_group_does_not_update_default(tmp_path, m
         assert db.query(models.PrivacyPolicy).count() == 1
     finally:
         db.close()
+
+
+@pytest.fixture
+def privacy_client(tmp_path, monkeypatch):
+    from backend.routers import access_tokens
+    client, token, factory = _client(tmp_path, monkeypatch)
+    client.app.include_router(access_tokens.router, prefix="/v1")
+    with factory() as db:
+        admin = models.User(username="privacy-admin", hashed_password="x", role="super_admin")
+        db.add(admin)
+        db.commit()
+        db.refresh(admin)
+        db.expunge(admin)
+    client.app.dependency_overrides[auth.get_current_admin_user] = lambda: admin
+    client.app.dependency_overrides[auth.get_current_active_user] = lambda: admin
+    return client, token, factory
+
+
+def test_privacy_selection_migration_preserves_legacy_default_and_is_idempotent(tmp_path):
+    from backend.privacy_policy_migration import migrate_privacy_policy_selection
+    engine = create_engine(f"sqlite:///{tmp_path / 'legacy-policy.db'}")
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE access_tokens (id INTEGER PRIMARY KEY, name TEXT)")
+        conn.exec_driver_sql("CREATE TABLE privacy_policies (id INTEGER PRIMARY KEY, group_id INTEGER)")
+        conn.exec_driver_sql("CREATE TABLE system_configs (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        conn.exec_driver_sql("INSERT INTO access_tokens VALUES (1, 'existing')")
+        conn.exec_driver_sql("INSERT INTO privacy_policies VALUES (1, 1), (2, NULL), (3, NULL)")
+    migrate_privacy_policy_selection(engine)
+    migrate_privacy_policy_selection(engine)
+    with engine.begin() as conn:
+        assert conn.exec_driver_sql("SELECT value FROM system_configs").scalar() == "2"
+        assert conn.exec_driver_sql("SELECT name, privacy_policy_id FROM access_tokens").one() == ("existing", None)
+        conn.exec_driver_sql("UPDATE system_configs SET value='1'")
+    migrate_privacy_policy_selection(engine)
+    with engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT value FROM system_configs").scalar() == "1"
+    engine.dispose()
+
+
+def test_explicit_default_is_independent_of_group_and_name(privacy_client):
+    client, _, factory = privacy_client
+    original = client.get("/v1/privacy-policies").json()[0]
+    created = client.post("/v1/privacy-policies", json={"name": original["name"], "entity_types": ["EMAIL_ADDRESS"]})
+    assert created.status_code == 200
+    selected = created.json()["id"]
+    group = client.post("/v1/groups", json={"name": "policy-group", "user_ids": [], "privacy_policy_id": selected})
+    assert group.status_code == 200
+    assert client.put(f"/v1/privacy-policies/{selected}/default").status_code == 200
+    rows = client.get("/v1/privacy-policies").json()
+    assert [row["id"] for row in rows if row["is_default"]] == [selected]
+    with factory() as db:
+        assert llm_gateway._get_default_policy(db).id == selected
+        assert db.get(models.SystemConfig, "privacy.default_policy_id").value == str(selected)
+    assert client.delete(f"/v1/privacy-policies/{selected}").status_code == 400
+    assert client.put("/v1/privacy-policies/99999/default").status_code == 404
+    assert client.put(f"/v1/privacy-policies/{original['id']}/default").status_code == 200
+    assert client.delete(f"/v1/privacy-policies/{selected}").status_code == 400  # Group still references it.
+
+
+def test_credential_policy_binding_validation_and_gateway_retention(privacy_client):
+    client, _, factory = privacy_client
+    policy = client.post("/v1/privacy-policies", json={"name": "long-retention", "entity_types": ["EMAIL_ADDRESS"], "mapping_ttl_days": 30}).json()
+    body = {"name": "explicit-policy", "token_type": "model_gateway", "privacy_policy_id": policy["id"]}
+    created = client.post("/v1/access/tokens", json=body)
+    assert created.status_code == 200
+    record = created.json()["record"]
+    assert record["privacy_policy_id"] == policy["id"]
+    assert any(row["id"] == policy["id"] for row in client.get("/v1/access/tokens/privacy-policies").json())
+    response = client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {created.json()['token']}"}, json={"model": "mock-model", "messages": [{"role": "user", "content": "jane@example.com"}]})
+    assert response.status_code == 200
+    with factory() as db:
+        trace = db.query(models.LlmPipelineTrace).filter_by(stage="meta").one()
+        assert 29 < (trace.expires_at - trace.created_at).total_seconds() / 86400 <= 30
+    denied = client.delete(f"/v1/privacy-policies/{policy['id']}")
+    assert denied.status_code == 409
+    assert denied.json()["error_code"] == "privacy.policy_in_use"
+    invalid = client.put(f"/v1/access/tokens/{record['id']}", json={"privacy_policy_id": 99999})
+    assert invalid.status_code == 404
+    with factory() as db:
+        assert db.get(models.AccessToken, record["id"]).privacy_policy_id == policy["id"]
+    cleared = client.put(f"/v1/access/tokens/{record['id']}", json={"privacy_policy_id": None})
+    assert cleared.status_code == 200 and cleared.json()["privacy_policy_id"] is None
+    assert client.delete(f"/v1/privacy-policies/{policy['id']}").status_code == 200
+    assert client.post("/v1/access/tokens", json={**body, "privacy_policy_id": 99999}).status_code == 404
+    assert client.post("/v1/access/tokens", json={**body, "token_type": "scanner"}).status_code == 400
+
+
+def test_policy_selection_precedence_preserves_automatic_behavior(privacy_client):
+    from types import SimpleNamespace
+    client, _, factory = privacy_client
+    client.get("/v1/privacy-policies")
+    with factory() as db:
+        default = llm_gateway._get_default_policy(db)
+        group = models.UserGroup(name="priority-group")
+        db.add(group)
+        db.flush()
+        group_policy = models.PrivacyPolicy(name="group-policy", group_id=group.id, entity_types_json="[]")
+        explicit = models.PrivacyPolicy(name="credential-policy", entity_types_json="[]", enabled=False)
+        db.add_all([group_policy, explicit])
+        db.commit()
+        key = SimpleNamespace(group_id=group.id, user_id=None, privacy_policy_id=explicit.id)
+        assert llm_gateway._resolve_policy(db, key).id == explicit.id
+        key.privacy_policy_id = None
+        assert llm_gateway._resolve_policy(db, key).id == group_policy.id
+        key.group_id = None
+        assert llm_gateway._resolve_policy(db, key).id == default.id
+        user = db.query(models.User).filter_by(username="privacy-admin").one()
+        db.add(models.UserGroupMember(user_id=user.id, group_id=group.id))
+        db.commit()
+        key.user_id = user.id
+        assert llm_gateway._resolve_policy(db, key).id == group_policy.id
 
 
 def test_agent_access_token_with_model_chat_can_use_agent_default_model(tmp_path, monkeypatch):

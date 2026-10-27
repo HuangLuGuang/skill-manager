@@ -208,6 +208,7 @@ def _issue_agent_runtime_credential(
         issued_by_client_token_id=client_token.id,
         user_id=owner_id,
         group_id=client_token.group_id,
+        privacy_policy_id=client_token.privacy_policy_id,
         allowed_models_json=_dump([model_name]),
         allowed_mcp_gateways_json=_dump(gateways),
         allowed_ips_json=client_token.allowed_ips_json,
@@ -1570,6 +1571,7 @@ def manual_model_credential(client_id: str, body: schemas.ClientManualModelCrede
             bound_agent_id=agent.agent_id, issued_by_client_token_id=token.id, scopes_json=_dump(["model:chat"]),
             allowed_models_json=_dump([body.model]), allowed_ips_json=token.allowed_ips_json,
             expires_at=token.expires_at, user_id=token.user_id, group_id=token.group_id,
+            privacy_policy_id=token.privacy_policy_id,
             max_body_kb=token.max_body_kb, max_concurrent_requests=token.max_concurrent_requests,
             prompt_guard_mode=policy["prompt_guard"]["mode"], prompt_guard_llm_review=policy["prompt_guard"]["llm_review"],
             enable_compression=policy["compression"]["enabled"], compression_level=policy["compression"]["level"], created_by=f"client:{client_id}")

@@ -313,16 +313,13 @@ func runManagedLogWorker(ctx context.Context, home string, plan logRunPlan, enab
 	if err != nil {
 		return err
 	}
-	var lastWrite time.Time
 	return upload.Run(ctx, s, c, upload.WorkerOptions{
 		Roots: plan.roots,
 		Since: since, Interval: 2 * time.Second, HeartbeatInterval: 30 * time.Second, DiscoveryInterval: 30 * time.Second,
-		IntakeEnabled: enabled.Load,
-		IntakeVersion: plan.currentVersion,
+		StatusInterval: 5 * time.Second,
+		IntakeEnabled:  enabled.Load,
+		IntakeVersion:  plan.currentVersion,
 		StatusObserver: func(status localstore.Status) error {
-			if time.Since(lastWrite) < 5*time.Second {
-				return nil
-			}
 			code := "aidr_log_running"
 			if status.RuntimeCollectionEnabled != nil && !*status.RuntimeCollectionEnabled {
 				code = "aidr_log_draining"
@@ -333,7 +330,6 @@ func runManagedLogWorker(ctx context.Context, home string, plan logRunPlan, enab
 			if err := writeDesktopJSON(filepath.Join(plan.state, "log-status.json"), map[string]any{"version": 1, "client_id": plan.device, "policy_version": status.RuntimePolicyVersion, "enabled": status.RuntimeCollectionEnabled, "code": code, "reported_at": time.Now().UTC().Format(time.RFC3339Nano), "state": status}); err != nil {
 				return errors.New("aidr_log_status_unwritable")
 			}
-			lastWrite = time.Now()
 			return nil
 		},
 	})

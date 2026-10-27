@@ -96,7 +96,7 @@ class LLMConfig(BaseModel):
     api_base: str = "https://api.deepseek.com"
     api_key: Optional[str] = None
     model: str = "deepseek-chat"
-    timeout_seconds: float = 30.0
+    timeout_seconds: float = 180.0
     max_files: int = 6
     max_file_chars: int = 3000
     max_manifest_chars: int = 12000

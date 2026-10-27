@@ -227,6 +227,8 @@ app.include_router(clients.router, prefix=settings.API_PREFIX)
 app.include_router(dashboard.router, prefix=settings.API_PREFIX)
 app.include_router(aidr.router, prefix=settings.API_PREFIX)
 app.include_router(aidr.global_tool_router, prefix=settings.API_PREFIX)
+app.include_router(aidr.global_risk_router, prefix=settings.API_PREFIX)
+app.include_router(aidr.security_router, prefix=settings.API_PREFIX)
 app.include_router(aidr_enforcement.router, prefix=settings.API_PREFIX)
 app.include_router(external_ai_gateways.router, prefix=settings.API_PREFIX)
 app.include_router(external_ai_gateways.runtime_router, prefix=settings.API_PREFIX)
@@ -287,9 +289,14 @@ def ensure_sqlite_schema() -> None:
     Base.metadata.create_all(bind=engine)
     from .aidr_migrations import upgrade_aidr_schema
     upgrade_aidr_schema(engine)
+    from .aidr_risk import RiskFinding
+    for index in RiskFinding.__table__.indexes:
+        index.create(bind=engine, checkfirst=True)
     from .aidr_tool_policy_scope import initialize_global_policy
     with SessionLocal() as policy_db:
         initialize_global_policy(policy_db)
+        from .aidr_risk import initialize_global_detection
+        initialize_global_detection(policy_db)
         policy_db.commit()
     from .iam import initialize as initialize_iam, migrate as migrate_iam
     migrate_iam(engine)
@@ -588,6 +595,7 @@ def ensure_sqlite_schema() -> None:
         mcp_audit_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mcp_call_audits)").fetchall()}
         mcp_audit_additive_columns = {
             "approval_request_id": "VARCHAR(64)",
+            "token_name": "VARCHAR(128)",
         }
         for column_name, column_type in mcp_audit_additive_columns.items():
             if mcp_audit_columns and column_name not in mcp_audit_columns:
@@ -702,16 +710,25 @@ def ensure_sqlite_schema() -> None:
 
     from .agent_mcp import migrate_agent_mcp_scope
     migrate_agent_mcp_scope(engine)
+    from .privacy_policy_migration import migrate_privacy_policy_selection
+    migrate_privacy_policy_selection(engine)
 
     # Headroom 压缩字段 migration
     from backend.migrate_compression import migrate as migrate_compression
     migrate_compression()
+
+    from .access_token_migration import migrate_access_token_ids
+    migrate_access_token_ids(engine)
+    for index in models.McpCallAudit.__table__.indexes:
+        index.create(bind=engine, checkfirst=True)
 
 
 validate_security_settings(settings)
 initialize_signing_identity(allow_create=not settings.ENFORCE_SECURE_STARTUP)
 ensure_audit_signing_key()
 ensure_sqlite_schema()
+with SessionLocal() as privacy_db:
+    llm_gateway._get_default_policy(privacy_db)
 with SessionLocal() as identity_db:
     if clients.backfill_client_inventory_identities(identity_db):
         identity_db.commit()

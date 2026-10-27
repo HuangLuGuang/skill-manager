@@ -124,7 +124,7 @@ window.aidrProducts = [
       "host_enablement": false
     },
     "block": true,
-    "approval": false,
+    "approval": true,
     "evidence": "local-source-and-log-sample",
     "docs": [
       "https://www.codebuddy.cn/docs/workbuddy/Plugins"

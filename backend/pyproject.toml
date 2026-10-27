@@ -26,6 +26,7 @@ dependencies = [
     "PyYAML",
     "tree-sitter>=0.25,<0.26",
     "tree-sitter-bash>=0.25,<0.26",
+    "regex>=2026.2.28",
 ]
 
 [tool.uv]

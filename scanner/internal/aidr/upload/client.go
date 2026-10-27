@@ -199,12 +199,12 @@ func (c *Client) SendOne(ctx context.Context, s *localstore.Store) (result Resul
 	if err = c.Bind(ctx, s); err != nil {
 		return result, err
 	}
-	stream, err := s.StreamID(ctx)
-	if err != nil {
-		return result, err
-	}
 	b, err := s.Prepare(ctx, 500, 1<<20)
 	if err != nil || b == nil {
+		return result, err
+	}
+	stream, err := s.StreamID(ctx)
+	if err != nil {
 		return result, err
 	}
 	data, result := c.post(ctx, "events:batch", b.Payload, map[string]string{"Idempotency-Key": b.ID, "X-AIDR-Stream-ID": stream})

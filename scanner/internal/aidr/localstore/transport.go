@@ -53,12 +53,8 @@ func (s *Store) BindDestinationWithLegacy(ctx context.Context, identity, legacyI
 	}
 	defer tx.Rollback()
 	var prior, version string
-	err = tx.QueryRowContext(ctx, `SELECT value FROM metadata WHERE key='destination'`).Scan(&prior)
+	err = tx.QueryRowContext(ctx, `SELECT value,COALESCE((SELECT value FROM metadata WHERE key='destination_version'),'') FROM metadata WHERE key='destination'`).Scan(&prior, &version)
 	if err == nil {
-		e := tx.QueryRowContext(ctx, `SELECT value FROM metadata WHERE key='destination_version'`).Scan(&version)
-		if e != nil && !errors.Is(e, sql.ErrNoRows) {
-			return e
-		}
 		if version == "" {
 			if legacyIdentity == "" {
 				return ErrLegacyDestination

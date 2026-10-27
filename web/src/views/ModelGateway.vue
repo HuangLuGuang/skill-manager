@@ -232,8 +232,8 @@
           <a-alert
             type="info"
             show-icon
-            :message="$t('legacy.1lerf2o')"
-            :description="$t('legacy.4d029z')"
+            :message="$t('modelGateway.privacySelectionTitle')"
+            :description="$t('modelGateway.privacySelectionHelp')"
             style="margin-bottom: 16px"
           />
           <a-table :data-source="policies" :columns="policyColumns" row-key="id" :loading="loading" size="small">
@@ -241,9 +241,8 @@
               <template v-if="column.key === 'name'">
                 <a-space>
                   <span>{{ policyDisplayName(record) }}</span>
-                  <a-tag v-if="record.is_default" color="blue">{{ $t("legacy.1jmrycz") }}</a-tag>
-                  <a-tag v-else-if="record.group_id" color="purple">{{ $t("legacy.vj12xa") }}</a-tag>
-                  <a-tag v-else>{{ $t("legacy.ofub6j") }}</a-tag>
+                  <a-tag v-if="record.is_default" color="blue">{{ $t('modelGateway.systemDefault') }}</a-tag>
+                  <a-tag v-if="record.group_id" color="purple">{{ $t("legacy.vj12xa") }}</a-tag>
                 </a-space>
               </template>
               <template v-else-if="column.key === 'entity_types'">
@@ -260,6 +259,7 @@
               <template v-else-if="column.key === 'action'">
                 <a-space>
                   <a-button v-if="hasAccess('privacy:update')" type="link" @click="openPolicy(record)">{{ $t("legacy.qreyeg") }}</a-button>
+                  <a-button v-if="hasAccess('privacy:update') && !record.is_default" type="link" :loading="defaultPolicyUpdating === record.id" :disabled="defaultPolicyUpdating !== null" @click="makeDefaultPolicy(record)">{{ $t('modelGateway.setDefaultPolicy') }}</a-button>
                   <a-popconfirm v-if="hasAccess('privacy:delete') && (!record.is_default)" :title="$t('legacy.1g0wpcn')" @confirm="handleDeletePolicy(record)">
                     <a-button type="link" danger>{{ $t("legacy.1t2vi4h") }}</a-button>
                   </a-popconfirm>
@@ -271,7 +271,28 @@
       </section>
 
       <section v-if="activeTab === 'prompt-guard'" class="prompt-guard-workbench">
-          <p class="prompt-guard-hint">{{ $t('legacy.nizzaf') }}</p>
+          <a-alert v-if="guardConfigError" type="error" :message="t('promptGuard.loadFailed')" show-icon />
+        <a-tabs v-model:active-key="guardTab">
+          <a-tab-pane key="settings" :tab="t('promptGuard.settingsTab')" force-render>
+          <a-form layout="vertical" :model="guardConfig">
+            <a-row :gutter="16">
+              <a-col :xs="24" :md="6"><a-form-item :label="t('promptGuard.enabled')"><a-switch v-model:checked="guardConfig.enabled" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" /></a-form-item></a-col>
+              <a-col :xs="24" :md="12"><a-form-item :label="t('promptGuard.model')" :validate-status="guardErrors.model ? 'error' : undefined" :help="guardErrors.model ? t(guardErrors.model) : undefined"><a-select v-model:value="guardConfig.model_id" :options="guardModelOptions" allow-clear show-search option-filter-prop="label" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" /></a-form-item></a-col>
+              <a-col :xs="24" :md="6"><a-form-item :label="t('promptGuard.timeout')" :validate-status="guardErrors.timeout ? 'error' : undefined" :help="guardErrors.timeout ? t(guardErrors.timeout) : undefined"><a-input-number v-model:value="guardConfig.timeout_seconds" :step="1" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" style="width: 100%" /></a-form-item></a-col>
+            </a-row>
+            <p class="muted">{{ t('promptGuard.scope') }}</p>
+            <p class="muted">{{ t('promptGuard.failure') }}</p>
+            <a-space v-if="hasAccess('privacy:update')" wrap>
+              <a-button :loading="guardConfigOperation === 'test'" :disabled="guardConfigBusy || loading || guardConfigError" @click="submitGuardConfig('test')">{{ t('promptGuard.testModel') }}</a-button>
+              <a-button type="primary" :loading="guardConfigOperation === 'save'" :disabled="guardConfigBusy || loading || guardConfigError" @click="submitGuardConfig('save')">{{ t('promptGuard.save') }}</a-button>
+            </a-space>
+          </a-form>
+          <a-divider />
+          <PromptGuardRules :editable="hasAccess('privacy:update')" :disabled="guardConfigBusy || loading" @busy="guardRuleBusy = $event" @changed="promptGuardResult = null" />
+          </a-tab-pane>
+          <a-tab-pane key="test" :tab="t('promptGuard.testTab')" force-render>
+          <a-alert v-if="guardConfigDirty" type="warning" show-icon :message="t('promptGuard.unsaved')" />
+          <p v-else class="prompt-guard-hint">{{ t('promptGuard.testHint') }}</p>
           <div class="prompt-guard-mode">
                   <span>{{ $t('legacy.1uw63aw') }}</span>
                   <a-radio-group v-model:value="promptGuardForm.mode" :disabled="testingPromptGuard" button-style="solid">
@@ -285,7 +306,16 @@
                 <div class="prompt-guard-panel-heading">
                   <label for="prompt-guard-content">{{ $t('legacy.1s33gfn') }}</label>
                   <a-space wrap>
-                    <a-button size="small" type="link" :disabled="testingPromptGuard" @click="fillPromptGuardSample">{{ $t('legacy.1ckue96') }}</a-button>
+                    <a-dropdown :trigger="['click']" :disabled="testingPromptGuard">
+                      <a-button size="small" type="link" :disabled="testingPromptGuard" aria-haspopup="menu">{{ t('promptGuard.samples.fill') }} <DownOutlined /></a-button>
+                      <template #overlay>
+                        <a-menu @click="({ key }) => fillPromptGuardSample(key)">
+                          <a-menu-item-group v-for="group in promptSampleGroups" :key="group.key" :title="t(`promptGuard.samples.${group.key}`)">
+                            <a-menu-item v-for="key in group.items" :key="key">{{ t(`promptGuard.samples.items.${key}.label`) }}</a-menu-item>
+                          </a-menu-item-group>
+                        </a-menu>
+                      </template>
+                    </a-dropdown>
                     <a-button size="small" type="text" :disabled="testingPromptGuard" @click="clearPromptGuardTest">{{ $t('legacy.9mbwb2') }}</a-button>
                   </a-space>
                 </div>
@@ -299,7 +329,7 @@
                   />
                 </a-form-item>
                 <div class="prompt-guard-submit">
-                  <a-button v-if="hasAccess('privacy:test')" type="primary" :loading="testingPromptGuard" :disabled="testingPromptGuard" @click="runPromptGuardTest">{{ $t("legacy.1rqbpwt") }}</a-button>
+                  <a-button v-if="hasAccess('privacy:test')" type="primary" :loading="testingPromptGuard" :disabled="guardConfigBusy || loading || guardConfigError || guardConfigDirty" @click="runPromptGuardTest">{{ $t("legacy.1rqbpwt") }}</a-button>
                 </div>
               </a-form>
               <section class="prompt-guard-result" aria-live="polite" :aria-busy="testingPromptGuard">
@@ -308,40 +338,46 @@
                 <a-skeleton v-if="testingPromptGuard" active :paragraph="{ rows: 5 }" />
                 <a-empty v-else-if="!promptGuardResult" :description="$t('legacy.airzfg')" class="prompt-guard-empty" />
                 <template v-else>
-                  <a-descriptions size="small" bordered :column="1">
-                    <a-descriptions-item :label="$t('legacy.hm077g')">
-                      <a-tag :color="promptRiskColor(promptGuardResult.risk_level)">{{ promptRiskLabel(promptGuardResult.risk_level) }}</a-tag>
-                    </a-descriptions-item>
-                    <a-descriptions-item :label="$t('legacy.16syihm')">
+                  <div class="prompt-result-summary">
+                    <a-space wrap>
                       <a-tag :color="promptActionColor(promptGuardResult.action)">{{ promptActionLabel(promptGuardResult.action) }}</a-tag>
-                    </a-descriptions-item>
-                    <a-descriptions-item :label="$t('legacy.l6iuzr')">{{ promptGuardResult.findings_count || 0 }}</a-descriptions-item>
+                      <a-tag :color="promptRiskColor(promptGuardResult.risk_level)">{{ promptRiskLabel(promptGuardResult.risk_level) }}</a-tag>
+                    </a-space>
+                    <span class="muted">{{ t('promptGuard.findingCount', { count: promptGuardResult.findings_count || 0 }) }}</span>
+                  </div>
+                  <a-empty v-if="!promptGuardResult.findings?.length" :description="t(promptGuardResult.error_code || promptGuardResult.llm_error_code ? 'promptGuard.noFindingsIncomplete' : 'promptGuard.noFindings')" />
+                  <article v-for="(item, index) in promptGuardResult.findings || []" :key="index" class="prompt-finding">
+                    <div class="prompt-finding-heading">
+                      <strong>{{ item.rule_name || promptRuleLabel(item.rule) }}</strong>
+                      <a-space wrap size="small">
+                        <a-tag :color="promptRiskColor(item.severity)">{{ promptRiskLabel(item.severity) }}</a-tag>
+                        <a-tag>{{ t(item.detector === 'llm' ? 'promptGuard.ai' : 'promptGuard.rule') }}</a-tag>
+                      </a-space>
+                    </div>
+                    <dl class="prompt-finding-evidence">
+                      <dt>{{ t('promptGuard.findingReason') }}</dt>
+                      <dd>{{ item.detector === 'llm' || item.rule_name ? item.reason : t('promptGuard.ruleMatchReason', { rule: promptRuleLabel(item.rule) }) }}</dd>
+                      <dt>{{ t('promptGuard.matchedInput') }}</dt>
+                      <dd><pre class="prompt-evidence-text">{{ item.snippet }}</pre></dd>
+                      <dt>{{ t('promptGuard.contentSource') }}</dt>
+                      <dd>{{ promptSourceLabel(item.source || item.role) }}</dd>
+                    </dl>
+                  </article>
+                  <a-descriptions class="prompt-result-metadata" size="small" :column="{ xs: 1, sm: 2 }">
                     <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ promptGuardResult.duration_ms || 0 }} ms</a-descriptions-item>
+                    <a-descriptions-item :label="t('promptGuard.status')">{{ te(`promptGuard.statuses.${promptGuardResult.llm_status}`) ? t(`promptGuard.statuses.${promptGuardResult.llm_status}`) : t('promptGuard.statuses.unknown') }}</a-descriptions-item>
+                    <a-descriptions-item v-if="promptGuardResult.llm_model" :label="t('promptGuard.model')">{{ promptGuardResult.llm_model }}</a-descriptions-item>
+                    <a-descriptions-item v-if="promptGuardResult.llm_review_used" :label="t('promptGuard.duration')">{{ promptGuardResult.llm_duration_ms }} ms</a-descriptions-item>
+                    <a-descriptions-item v-if="promptGuardResult.llm_usage" :label="t('promptGuard.usage')">{{ promptGuardResult.llm_usage.total_tokens ?? '-' }}</a-descriptions-item>
+                    <a-descriptions-item v-if="promptGuardResult.llm_error_code" :label="t('promptGuard.error')">{{ guardErrorLabel(promptGuardResult.llm_error_code) }}</a-descriptions-item>
+                    <a-descriptions-item v-if="promptGuardResult.error_code" :label="t('promptGuard.error')">{{ guardErrorLabel(promptGuardResult.error_code) }}</a-descriptions-item>
                   </a-descriptions>
-                  <a-list
-                    style="margin-top: 16px"
-                    :data-source="promptGuardResult.findings || []"
-                    :locale="{ emptyText: $t('legacy.1utty0t') }"
-                    bordered
-                  >
-                    <template #renderItem="{ item }">
-                      <a-list-item>
-                        <a-space direction="vertical" size="small" style="width: 100%">
-                          <a-space wrap>
-                            <a-tag :color="promptRiskColor(item.severity)">{{ promptRiskLabel(item.severity) }}</a-tag>
-                            <a-typography-text strong>{{ promptRuleLabel(item.rule) }}</a-typography-text>
-                            <a-tag>{{ item.role }}</a-tag>
-                          </a-space>
-                          <span class="muted">{{ item.reason }}</span>
-                          <a-typography-paragraph code class="prompt-snippet">{{ item.snippet }}</a-typography-paragraph>
-                        </a-space>
-                      </a-list-item>
-                    </template>
-                  </a-list>
                 </template>
                 </div>
               </section>
           </div>
+          </a-tab-pane>
+        </a-tabs>
       </section>
 
       <section v-if="activeTab === 'audit'">
@@ -587,7 +623,7 @@
           <a-select :disabled="!hasAccess('privacy:view') || !groupOptionsLoaded" :loading="groupOptionsLoading" v-model:value="groupForm.privacy_policy_id" allow-clear :placeholder="$t('legacy.lvqpcd')">
             <a-select-option v-for="item in unboundOrCurrentPolicies" :key="item.id" :value="item.id">{{ policyDisplayName(item) }}</a-select-option>
           </a-select>
-          <div class="muted policy-binding-hint">{{ $t("legacy.1xj70s1") }}</div>
+          <div class="muted policy-binding-hint">{{ $t('modelGateway.groupPrivacyHelp') }}</div>
         </a-form-item>
         <a-form-item><a-checkbox v-model:checked="groupForm.is_active">{{ $t("legacy.5pm2ma") }}</a-checkbox></a-form-item>
       </a-form>
@@ -602,7 +638,7 @@
           <a-select v-model:value="groupPolicyForm.privacy_policy_id" allow-clear :placeholder="$t('legacy.lvqpcd')">
             <a-select-option v-for="item in unboundOrCurrentBindingPolicies" :key="item.id" :value="item.id">{{ policyDisplayName(item) }}</a-select-option>
           </a-select>
-          <div class="muted policy-binding-hint">{{ $t("legacy.1xj70s1") }}</div>
+          <div class="muted policy-binding-hint">{{ $t('modelGateway.groupPrivacyHelp') }}</div>
         </a-form-item>
       </a-form>
     </a-modal>
@@ -616,11 +652,11 @@
         </a-form-item>
         <a-form-item>
           <template #label>
-            <a-tooltip :title="$t('legacy.12zgrwo')">
+            <a-tooltip :title="$t('modelGateway.groupPrivacyHelp')">
               <span>{{ $t("legacy.19kaip8") }}</span>
             </a-tooltip>
           </template>
-          <a-select v-model:value="policyForm.group_id" allow-clear :disabled="policyForm.is_default" :placeholder="$t('legacy.1794y90')">
+          <a-select v-model:value="policyForm.group_id" allow-clear :placeholder="$t('legacy.1794y90')">
             <a-select-option v-for="item in groups" :key="item.id" :value="item.id">{{ item.name }}</a-select-option>
           </a-select>
         </a-form-item>
@@ -656,8 +692,8 @@
           <a-col :span="8">
             <a-form-item>
               <template #label>
-                <a-tooltip :title="$t('legacy.1suq9gf')">
-                  <span>{{ $t("legacy.f2d0q2") }}</span>
+                <a-tooltip :title="$t('modelGateway.dataRetentionHelp')">
+                  <span>{{ $t('modelGateway.dataRetentionDays') }}</span>
                 </a-tooltip>
               </template>
               <a-input-number v-model:value="policyForm.mapping_ttl_days" :min="1" :max="365" style="width: 100%" />
@@ -701,6 +737,7 @@
 </template>
 
 <script setup>
+import PromptGuardRules from '../components/PromptGuardRules.vue'
 import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
 import { can } from '../access'
@@ -737,7 +774,11 @@ import {
   listPrivacyPolicies,
   revokeLlmApiKey,
   savePrivacyPolicy,
+  setDefaultPrivacyPolicy,
   testPromptGuard,
+  getPromptGuardConfig,
+  savePromptGuardConfig,
+  testPromptGuardModel,
   testModelProvider,
   updateGroup,
   updateLlmApiKey,
@@ -747,11 +788,16 @@ import {
 
 const route = useRoute()
 const router = useRouter()
-const { t } = useI18n()
+const guardTab = computed({
+  get: () => route.query.guardTab === 'test' ? 'test' : 'settings',
+  set: value => router.push({ query: { ...route.query, guardTab: value } }),
+})
+const { t, te } = useI18n()
 const { isEnglish, text } = useLocaleText()
 const activeTab = ref(route.meta.gatewayTab || 'providers')
 const loading = ref(false)
 const submitting = ref(false)
+const defaultPolicyUpdating = ref(null)
 const mappingLoading = ref(false)
 const providers = ref([])
 const expandedProviders = reactive(new Set())
@@ -898,7 +944,7 @@ const policyColumns = computed(() => [
   { title: 'Group ID', dataIndex: 'group_id', width: 100 },
   { title: text('实体类型', 'Entity Types'), key: 'entity_types' },
   { title: text('开关', 'Enabled'), key: 'flags', width: 280 },
-  { title: text('操作', 'Actions'), key: 'action', width: 90 },
+  { title: text('操作', 'Actions'), key: 'action', width: 240 },
 ])
 
 const providerVisible = ref(false)
@@ -922,7 +968,7 @@ const editingGroupId = ref(null)
 const selectedGroup = ref(null)
 const policyRuleRows = ref([])
 
-const providerForm = reactive({ name: '', base_url: '', api_format: 'openai', api_key: '', auth_type: 'bearer', custom_headers: [], clear_api_key: false, enabled: true, timeout_seconds: 60 })
+const providerForm = reactive({ name: '', base_url: '', api_format: 'openai', api_key: '', auth_type: 'bearer', custom_headers: [], clear_api_key: false, enabled: true, timeout_seconds: 180 })
 const providerHeaderErrorIndex = ref(null)
 const providerHeaderError = computed(() => providerHeaderErrorIndex.value === null ? '' : t('modelGateway.provider.headerError', { index: providerHeaderErrorIndex.value }))
 const providerTestForm = reactive({ model: '' })
@@ -953,6 +999,44 @@ const promptGuardForm = reactive({
 })
 const promptGuardResult = ref(null)
 const testingPromptGuard = ref(false)
+const guardConfig = reactive({ enabled: false, model_id: null, timeout_seconds: 15 })
+const savedGuardConfig = ref(null)
+const guardConfigDirty = computed(() => savedGuardConfig.value !== null && (
+  guardConfig.enabled !== savedGuardConfig.value.enabled ||
+  (guardConfig.model_id ?? null) !== savedGuardConfig.value.model_id ||
+  guardConfig.timeout_seconds !== savedGuardConfig.value.timeout_seconds
+))
+watch(() => [guardConfig.enabled, guardConfig.model_id, guardConfig.timeout_seconds], () => { promptGuardResult.value = null })
+const guardConfigOperation = ref('')
+const guardRuleBusy = ref(false)
+const guardConfigBusy = computed(() => Boolean(guardConfigOperation.value) || testingPromptGuard.value || guardRuleBusy.value)
+const guardConfigError = ref(false)
+const guardErrors = reactive({ model: '', timeout: '' })
+const guardModelOptions = computed(() => models.value.filter(item => item.enabled && providers.value.some(provider => provider.id === item.provider_id && provider.enabled)).map(item => ({ value: item.id, label: `${providers.value.find(provider => provider.id === item.provider_id)?.name} / ${item.display_name || item.name}` })))
+const guardErrorLabel = code => te(`promptGuard.errors.${String(code).split('.').pop()}`) ? t(`promptGuard.errors.${String(code).split('.').pop()}`) : t('promptGuard.testFailed')
+const submitGuardConfig = async operation => {
+  if (guardConfigBusy.value) return
+  guardErrors.model = (guardConfig.enabled || operation === 'test') && !guardConfig.model_id ? 'promptGuard.modelRequired' : ''
+  guardErrors.timeout = Number.isInteger(guardConfig.timeout_seconds) && guardConfig.timeout_seconds >= 1 && guardConfig.timeout_seconds <= 120 ? '' : 'promptGuard.timeoutInvalid'
+  if (guardErrors.model || guardErrors.timeout) return
+  guardConfigOperation.value = operation
+  try {
+    const payload = { ...guardConfig, model_id: guardConfig.model_id ?? null }
+    if (operation === 'save') {
+      const saved = await savePromptGuardConfig(payload)
+      savedGuardConfig.value = { ...saved }
+      Object.assign(guardConfig, saved)
+      promptGuardResult.value = null
+      message.success(t('promptGuard.saved'))
+    } else {
+      const result = await testPromptGuardModel(payload)
+      if (result.llm_status === 'completed') message.success(t('promptGuard.modelReady'))
+      else message.error(guardErrorLabel(result.llm_error_code))
+    }
+  } catch (error) {
+    message.error(error.response?.data?.detail || t(operation === 'save' ? 'promptGuard.saveFailed' : 'promptGuard.testFailed'))
+  } finally { guardConfigOperation.value = '' }
+}
 watch(() => [promptGuardForm.content, promptGuardForm.mode], () => { promptGuardResult.value = null })
 const mappingPagination = computed(() => ({
   current: mappingQuery.page,
@@ -963,15 +1047,15 @@ const mappingPagination = computed(() => ({
 }))
 
 const unboundOrCurrentPolicies = computed(() =>
-  policies.value.filter(item => !item.is_default && (!item.group_id || item.id === groupForm.privacy_policy_id)),
+  policies.value.filter(item => !item.group_id || item.id === groupForm.privacy_policy_id),
 )
 const unboundOrCurrentBindingPolicies = computed(() =>
-  policies.value.filter(item => !item.is_default && (!item.group_id || item.id === groupPolicyForm.privacy_policy_id)),
+  policies.value.filter(item => !item.group_id || item.id === groupPolicyForm.privacy_policy_id),
 )
-const pageTitle = computed(() => activeTab.value === 'prompt-guard' ? phrase('legacy.1yae1mb') : activeTab.value === 'providers' ? t('modelGateway.catalog.title') : activeTab.value === 'users-groups' ? t('iam.navigation.groups') : phrase('legacy.15en1a5'))
+const pageTitle = computed(() => activeTab.value === 'prompt-guard' ? t('promptGuard.title') : activeTab.value === 'providers' ? t('modelGateway.catalog.title') : activeTab.value === 'users-groups' ? t('iam.navigation.groups') : phrase('legacy.15en1a5'))
 const pageSubtitle = computed(() =>
   activeTab.value === 'prompt-guard'
-    ? phrase('legacy.1n68ot2')
+    ? t('promptGuard.subtitle')
     : activeTab.value === 'providers'
     ? t('modelGateway.catalog.subtitle')
     : activeTab.value === 'users-groups'
@@ -981,9 +1065,7 @@ const pageSubtitle = computed(() =>
 const showGatewayStats = computed(() => !['providers', 'users-groups', 'prompt-guard'].includes(activeTab.value))
 const groupNameMap = computed(() => new Map(groups.value.map(item => [item.id, item.name])))
 const policyDisplayName = (policy) => {
-  if (policy?.is_default && policy?.name === '默认隐私策略') return text('默认隐私策略', 'Default Privacy Policy')
-  if (policy?.name !== '默认隐私策略') return policy?.name || '-'
-  return `${groupNameMap.value.get(policy.group_id) || text('用户组', 'Group')} ${text('隐私策略', 'Privacy Policy')}`
+  return policy?.name || '-'
 }
 const groupPolicyName = (group) => {
   if (!group?.privacy_policy_id) return text('系统默认策略', 'System Default Policy')
@@ -1000,8 +1082,9 @@ const promptGuardLabel = (value) => ({ off: phrase('legacy.g0fanx'), log: phrase
 const promptGuardColor = (value) => ({ off: 'default', log: 'blue', warn: 'orange', block: 'red' }[value] || 'default')
 const promptRiskLabel = (value) => ({ none: phrase('legacy.41lnsu'), LOW: phrase('legacy.qy3yng'), MEDIUM: phrase('legacy.pakbe9'), HIGH: phrase('legacy.197bn2e') }[value] || value || '-')
 const promptRiskColor = (value) => ({ none: 'green', LOW: 'blue', MEDIUM: 'orange', HIGH: 'red' }[value] || 'default')
-const promptActionLabel = (value) => ({ off: phrase('legacy.1tylsuy'), record: phrase('legacy.4drpun'), warn: phrase('legacy.gjwe4z'), block: phrase('legacy.1fsazit'), pass: phrase('legacy.iivj4n') }[value] || value || '-')
-const promptActionColor = (value) => ({ off: 'default', record: 'blue', warn: 'orange', block: 'red', pass: 'green' }[value] || 'default')
+const promptActionLabel = (value) => ({ error: t('promptGuard.error'), off: phrase('legacy.1tylsuy'), record: phrase('legacy.4drpun'), warn: phrase('legacy.gjwe4z'), block: phrase('legacy.1fsazit'), pass: phrase('legacy.iivj4n') }[value] || value || '-')
+const promptActionColor = (value) => ({ error: 'orange', off: 'default', record: 'blue', warn: 'orange', block: 'red', pass: 'green' }[value] || 'default')
+const promptSourceLabel = value => te(`promptGuard.contentSources.${value}`) ? t(`promptGuard.contentSources.${value}`) : value || '-'
 const promptRuleLabel = (value) => ({
   prompt_injection: phrase('legacy.v4iti5'),
   system_prompt_leak: phrase('legacy.1y1bb3m'),
@@ -1011,7 +1094,7 @@ const promptRuleLabel = (value) => ({
   safety_bypass: phrase('legacy.171ciix'),
   role_override: phrase('legacy.1g7b5m'),
   tool_output_instruction: phrase('legacy.rq72tw'),
-}[value] || value)
+}[value] || (te(`promptGuard.rules.${value}`) ? t(`promptGuard.rules.${value}`) : value))
 const compactId = (value, head = 10, tail = 8) => {
   if (!value || value.length <= head + tail + 3) return value || ''
   return `${value.slice(0, head)}...${value.slice(-tail)}`
@@ -1026,7 +1109,7 @@ const syncPolicyRuleRows = () => {
 }
 
 const runPromptGuardTest = async () => {
-  if (testingPromptGuard.value) return
+  if (guardConfigBusy.value || loading.value || guardConfigError.value || guardConfigDirty.value) return
   const content = promptGuardForm.content.trim()
   if (!content) {
     message.warning(phrase('legacy.1rxbcfo'))
@@ -1046,9 +1129,13 @@ const runPromptGuardTest = async () => {
   }
 }
 
-const fillPromptGuardSample = () => {
-  promptGuardForm.content = phrase('legacy.e12uf')
-  promptGuardForm.mode = 'block'
+const promptSampleGroups = [
+  { key: 'attacks', items: ['roleplay', 'override', 'systemLeak', 'secrets', 'privilege', 'encoded'] },
+  { key: 'normal', items: ['writing', 'security', 'fiction'] },
+]
+const fillPromptGuardSample = key => {
+  if (testingPromptGuard.value) return
+  promptGuardForm.content = t(`promptGuard.samples.items.${key}.content`)
   promptGuardResult.value = null
 }
 
@@ -1073,22 +1160,28 @@ const loadAll = async () => {
   groupOptionsLoading.value = false
   groupOptionsError.value = false
   loading.value = true
+  guardConfigError.value = false
   try {
     if (tab === 'users-groups') {
       const data = can('groups:view') ? await listGroups() : []
       if (sequence === loadSequence) groups.value = data
       return
     }
-    const [providerRes, modelRes, keyRes, groupRes, policyRes, statRes, mappingRes] = await Promise.all([
-      tab === 'providers' && can('providers:view') ? listModelProviders() : Promise.resolve([]),
-      ['providers', 'keys'].includes(tab) && can('models:view') ? listModelEndpoints() : Promise.resolve([]),
+    const [providerRes, modelRes, keyRes, groupRes, policyRes, statRes, mappingRes, guardRes] = await Promise.all([
+      ['providers', 'prompt-guard'].includes(tab) && can('providers:view') ? listModelProviders() : Promise.resolve([]),
+      ['providers', 'keys', 'prompt-guard'].includes(tab) && can('models:view') ? listModelEndpoints() : Promise.resolve([]),
       tab === 'keys' && can('credentials:view') ? listLlmApiKeys() : Promise.resolve([]),
       ['policy-bindings', 'policies'].includes(tab) && can('groups:view') ? listGroups() : Promise.resolve([]),
       ['policy-bindings', 'policies'].includes(tab) && can('privacy:view') ? listPrivacyPolicies() : Promise.resolve([]),
       showGatewayStats.value && can('privacy_audit:view') ? getPrivacyStats() : Promise.resolve({}),
       tab === 'audit' && can('privacy_audit:raw') ? listPrivacyMappings({ page: mappingQuery.page, page_size: mappingQuery.page_size, q: mappingQuery.q || undefined }) : Promise.resolve({}),
+      tab === 'prompt-guard' ? getPromptGuardConfig() : Promise.resolve(null),
     ])
     if (sequence !== loadSequence) return
+    if (guardRes) {
+      savedGuardConfig.value = { ...guardRes }
+      Object.assign(guardConfig, guardRes)
+    }
     providers.value = providerRes
     models.value = modelRes
     apiKeys.value = keyRes
@@ -1099,6 +1192,7 @@ const loadAll = async () => {
     mappingTotal.value = mappingRes.total || 0
   } catch (error) {
     if (sequence !== loadSequence) return
+    if (tab === 'prompt-guard') guardConfigError.value = true
     message.error(error.response?.data?.detail || phrase('legacy.1fqwvn2'))
   } finally {
     if (sequence === loadSequence) loading.value = false
@@ -1117,7 +1211,7 @@ const openProvider = (record = null) => {
     custom_headers: (record?.custom_headers || []).map(header => ({ name: header.name, value: '', configured: header.configured, originalName: header.name })),
     clear_api_key: false,
     enabled: record?.enabled ?? true,
-    timeout_seconds: record?.timeout_seconds || 60,
+    timeout_seconds: record?.timeout_seconds || 180,
   })
   providerVisible.value = true
 }
@@ -1459,6 +1553,19 @@ const handleDeletePolicy = async (record) => {
   }
 }
 
+const makeDefaultPolicy = async (record) => {
+  if (defaultPolicyUpdating.value !== null) return
+  defaultPolicyUpdating.value = record.id
+  try {
+    await setDefaultPrivacyPolicy(record.id)
+    await loadAll()
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('modelGateway.defaultPolicyFailed'))
+  } finally {
+    defaultPolicyUpdating.value = null
+  }
+}
+
 const loadMappings = async () => {
   if (activeTab.value !== 'audit' || !can('privacy_audit:raw')) return
   mappingLoading.value = true
@@ -1522,6 +1629,15 @@ onUnmounted(() => { loadSequence++ })
 <style scoped>
 .provider-header-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .provider-header-row > .ant-input, .provider-header-row > .ant-input-affix-wrapper { flex: 1 1 160px; min-width: 0; }
+.prompt-result-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.prompt-finding { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+.prompt-finding-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: #f1f5f9; }
+.prompt-finding-evidence { display: grid; grid-template-columns: minmax(80px, auto) minmax(0, 1fr); gap: 12px 16px; margin: 0; padding: 16px; }
+.prompt-finding-evidence dt { color: #64748b; }
+.prompt-finding-evidence dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.prompt-evidence-text { margin: 0; padding: 10px 12px; border-left: 3px solid #94a3b8; background: #f8fafc; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; }
+.prompt-result-metadata { border-top: 1px solid #e2e8f0; padding-top: 16px; margin-top: 16px; }
+@media (max-width: 560px) { .prompt-finding-evidence { grid-template-columns: minmax(0, 1fr); gap: 6px; } .prompt-finding-evidence dd { margin-bottom: 8px; } }
 .prompt-guard-hint { margin: 0 0 20px; color: #64748b; font-size: 13px; line-height: 1.7; }
 .prompt-guard-mode { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
 .prompt-guard-mode > span { font-weight: 500; }

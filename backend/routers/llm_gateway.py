@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import ipaddress
 import json
@@ -12,8 +13,10 @@ from base64 import b64decode, b64encode, urlsafe_b64encode
 from binascii import Error as Base64Error
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
+import regex
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -22,7 +25,9 @@ from sqlalchemy import func, or_, update
 from sqlalchemy.orm import Session, object_session
 from sqlalchemy.exc import IntegrityError
 
-from .. import auth, models, schemas
+from .. import auth, models, schemas, iam
+from ..prompt_guard import (CONFIG_KEY, EXTRA_RULES, PromptGuardConfig, SemanticVerdict, SEMANTIC_PROMPT,
+                            RULE_KEY_PREFIX, SPECIAL_RULES, PromptRuleConfig, PromptRuleTest)
 from ..anthropic_compat import (
     anthropic_stream_event_to_openai,
     anthropic_to_openai_request,
@@ -261,6 +266,8 @@ PROMPT_GUARD_RULES = [
     ("safety_bypass", "MEDIUM", "要求绕过安全限制或审计", r"(?i)(bypass|disable|turn off|ignore).{0,30}(safety|policy|guardrail|audit|filter|moderation)|(绕过|关闭|禁用|跳过|规避).{0,20}(安全|策略|审计|过滤|限制|风控|防护|检测)"),
     ("role_override", "MEDIUM", "要求模型切换为不受限制的角色", r"(?i)(developer mode|dan mode|jailbreak|act as).{0,40}(no restrictions?|unfiltered|ignore)|(开发者模式|越狱模式|无限制模式|DAN模式|扮演).{0,24}(无视规则|不受限制|绕过限制|没有限制)"),
     ("tool_output_instruction", "MEDIUM", "工具返回内容夹带新的执行指令", r"(?i)(tool output|observation|retrieved content).{0,80}(ignore|follow these instructions|system prompt)|(工具返回|检索内容|网页内容|文档内容|搜索结果).{0,40}(忽略|执行以下|遵循以下|按以下指令|新的系统指令)"),
+] + EXTRA_RULES + [
+    ("metadata_access", "HIGH", "访问云元数据地址", r"(?i)https?://(?:\[[0-9a-f:]+\]|[^\s/<>\[\]（）\"']+)(?:/[^\s<>\[\]（）\"']*)?"),
 ]
 RISK_ORDER = {"none": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
 COMMON_CN_SURNAMES = (
@@ -385,10 +392,25 @@ def _message_content_sources(messages: list[dict[str, Any]], metadata: dict[str,
     return result
 
 
-def _direct_prompt_rule_match(rule_id: str, pattern: str, text: str):
-    compiled = re.compile(pattern)
+def _direct_prompt_rule_match(rule_id: str, pattern: str, text: str, *, deadline=None):
+    compiled = regex.compile(pattern, regex.VERSION0)
     position = 0
-    while (match := compiled.search(text, position)) is not None:
+    while position <= len(text):
+        remaining = min(0.05, deadline - time.perf_counter()) if deadline else 0.05
+        if remaining <= 0:
+            raise TimeoutError("Prompt rule budget exhausted")
+        match = compiled.search(text, position, timeout=remaining)
+        if match is None:
+            break
+        if rule_id == "metadata_access":
+            try:
+                hostname = (urlsplit(match.group().rstrip('),.;')).hostname or '').lower()
+            except ValueError:
+                position = match.end()
+                continue
+            if hostname not in {"169.254.169.254", "metadata.google.internal", "fd00:ec2::254"}:
+                position = match.end()
+                continue
         if rule_id == "tool_abuse" and match.groupdict().get("command_action"):
             # A negated execution statement is diagnostic text. Other matches
             # in the same output, including sensitive paths, remain eligible.
@@ -399,8 +421,8 @@ def _direct_prompt_rule_match(rule_id: str, pattern: str, text: str):
     return None
 
 
-def _prompt_rule_match(rule_id: str, pattern: str, text: str):
-    direct = _direct_prompt_rule_match(rule_id, pattern, text)
+def _prompt_rule_match(rule_id: str, pattern: str, text: str, *, rules=None, deadline=None):
+    direct = _direct_prompt_rule_match(rule_id, pattern, text, deadline=deadline)
     if direct or rule_id != "encoded_instruction":
         return direct
     # A long path, digest or ordinary encoded data is not an instruction.
@@ -417,20 +439,40 @@ def _prompt_rule_match(rule_id: str, pattern: str, text: str):
             decoded = raw.decode("utf-8")
         except (ValueError, Base64Error, UnicodeError):
             continue
-        if any(_direct_prompt_rule_match(other_id, other_pattern, decoded)
-               for other_id, _, _, other_pattern in PROMPT_GUARD_RULES):
+        if any(_direct_prompt_rule_match(other_id, other_pattern, decoded, deadline=deadline)
+               for other_id, _, _, other_pattern in (PROMPT_GUARD_RULES if rules is None else rules)):
             return candidate
     return None
 
 
-def _scan_prompt_security(
+def _prompt_rule_severity(rule_id, severity, text):
+    if rule_id in {item[0] for item in EXTRA_RULES} and re.fullmatch(
+        r"(?is)(?:(?:请)?(?:分析|检测|评估|解释|识别).{0,16}(?:提示词|样本|攻击|文本).{0,6}|(?:please )?(?:analyze|explain|classify) (?:this |the )?(?:attack|prompt|text))[:：]\s*[“\"「].+[”\"」][。.!！?？]?", text.strip()
+    ):
+        # Quoted analysis stays eligible for semantic review without a rule-only block.
+        return "MEDIUM"
+    if rule_id == "encoded_instruction" and re.search(r"(?:解码).{0,12}(?:执行|运行)|(?i:decode.{0,12}(?:execute|run))", text):
+        return "HIGH"
+    return severity
+
+
+def _scan_prompt_security_rules(
     messages: list[dict[str, Any]],
     *,
     mode: str,
     llm_review: bool = False,
     sources: list[str] | None = None,
+    rule_settings: dict | None = None,
+    selected_rule: str | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
+    deadline = started + 0.5
+    rule_settings = rule_settings or {}
+    rules = [(rule_id, rule_settings.get(rule_id, {}).get("severity", severity), reason,
+              rule_settings.get(rule_id, {}).get("pattern") or pattern)
+             for rule_id, severity, reason, pattern in _prompt_rule_definitions(rule_settings)
+             if rule_settings.get(rule_id, {}).get("enabled", True)]
+    scan_rules = [item for item in rules if selected_rule is None or item[0] == selected_rule]
     findings: list[dict[str, Any]] = []
     max_risk = "none"
     if mode != "off":
@@ -438,43 +480,89 @@ def _scan_prompt_security(
             text = _text_from_message_content(message.get("content"))
             if not text:
                 continue
-            for rule_id, severity, reason, pattern in PROMPT_GUARD_RULES:
-                match = _prompt_rule_match(rule_id, pattern, text)
+            for rule_id, severity, reason, pattern in scan_rules:
+                match = _prompt_rule_match(rule_id, pattern, text, rules=rules, deadline=deadline)
                 if not match:
                     continue
+                if rule_id not in rule_settings:
+                    severity = _prompt_rule_severity(rule_id, severity, text)
                 if RISK_ORDER[severity] > RISK_ORDER[max_risk]:
                     max_risk = severity
                 start, end = match.span()
                 snippet = text[max(0, start - 30): min(len(text), end + 30)]
                 findings.append({
                     "rule": rule_id,
+                    "rule_name": rule_settings.get(rule_id, {}).get("name"),
                     "severity": severity,
                     "reason": reason,
                     "role": message.get("role") or "unknown",
                     "source": sources[index] if sources and index < len(sources) else (message.get("role") or "unknown"),
                     "message_index": index,
                     "snippet": snippet[:240],
+                    "rule_config": {"severity": next(item[1] for item in rules if item[0] == rule_id), "pattern": pattern},
                 })
         combined = "\n".join(_text_from_message_content(message.get("content")) for message in messages)
         existing_rules = {item["rule"] for item in findings}
-        for rule_id, severity, reason, pattern in PROMPT_GUARD_RULES:
+        for rule_id, severity, reason, pattern in scan_rules:
             if rule_id in existing_rules:
                 continue
-            match = _prompt_rule_match(rule_id, pattern, combined)
+            match = _prompt_rule_match(rule_id, pattern, combined, rules=rules, deadline=deadline)
             if not match:
                 continue
+            if rule_id not in rule_settings:
+                severity = _prompt_rule_severity(rule_id, severity, combined)
             if RISK_ORDER[severity] > RISK_ORDER[max_risk]:
                 max_risk = severity
             start, end = match.span()
             findings.append({
                 "rule": rule_id,
+                "rule_name": rule_settings.get(rule_id, {}).get("name"),
                 "severity": severity,
                 "reason": f"跨消息组合命中：{reason}",
                 "role": "combined",
                 "source": "mixed",
                 "message_index": None,
                 "snippet": combined[max(0, start - 30): min(len(combined), end + 30)][:240],
+                "rule_config": {"severity": next(item[1] for item in rules if item[0] == rule_id), "pattern": pattern},
             })
+    action, blocked = _prompt_security_action(mode, findings)
+    return {
+        "enabled": mode != "off",
+        "mode": mode,
+        "llm_review_enabled": bool(llm_review),
+        "llm_review_used": False,
+        "risk_level": max_risk,
+        "action": action,
+        "blocked": blocked,
+        "findings": findings[:20],
+        "findings_count": len(findings),
+        "sources": sources or [],
+        "rules_status": "disabled" if mode == "off" else "completed",
+        "rule_overrides": rule_settings,
+        "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+    }
+
+
+def _scan_prompt_security(messages, *, mode, llm_review=False, sources=None, rule_settings=None, selected_rule=None):
+    started = time.perf_counter()
+    try:
+        return _scan_prompt_security_rules(messages, mode=mode, llm_review=llm_review,
+                                           sources=sources, rule_settings=rule_settings, selected_rule=selected_rule)
+    except TimeoutError:
+        result = _scan_prompt_security_rules([], mode="off", llm_review=llm_review, sources=sources, rule_settings=rule_settings)
+        result.update(enabled=mode != "off", mode=mode, rules_status="failed", error_code="prompt_guard.rule_timeout",
+                      action="error" if mode == "block" else ("warn" if mode == "warn" else "record"),
+                      duration_ms=round((time.perf_counter() - started) * 1000, 2))
+        return result
+
+
+def _prompt_rule_settings(db):
+    rows = db.query(models.SystemConfig).filter(models.SystemConfig.key.startswith(RULE_KEY_PREFIX)).all()
+    return {row.key[len(RULE_KEY_PREFIX):]: PromptRuleConfig.model_validate_json(row.value).model_dump() for row in rows}
+
+
+def _prompt_security_action(mode, findings):
+    max_risk = max((item["severity"] for item in findings), key=RISK_ORDER.get, default="none")
     action = "off"
     blocked = False
     if mode == "log":
@@ -488,19 +576,105 @@ def _scan_prompt_security(
         )
         blocked = max_risk == "HIGH" or untrusted_medium
         action = "block" if blocked else ("warn" if findings else "pass")
-    return {
-        "enabled": mode != "off",
-        "mode": mode,
-        "llm_review_enabled": bool(llm_review),
-        "llm_review_used": False,
-        "risk_level": max_risk,
-        "action": action,
-        "blocked": blocked,
-        "findings": findings[:20],
-        "findings_count": len(findings),
-        "sources": sources or [],
-        "duration_ms": round((time.perf_counter() - started) * 1000, 2),
-    }
+    return action, blocked
+
+
+def _prompt_guard_config(db):
+    row = db.get(models.SystemConfig, CONFIG_KEY)
+    return PromptGuardConfig.model_validate_json(row.value) if row else PromptGuardConfig()
+
+
+def _prompt_guard_model(db, model_id):
+    model = db.get(models.ModelEndpoint, model_id) if model_id else None
+    provider = db.get(models.ModelProvider, model.provider_id) if model else None
+    if not model or not model.enabled or not provider or not provider.enabled:
+        raise ApiError(422, "prompt_guard.model_unavailable", "请选择已启用的检测模型和供应商", "Select an enabled detection model and provider")
+    return model
+
+
+async def _evaluate_prompt_security(db, messages, *, mode, sources, locale="zh-CN", config=None, policy=None):
+    started = time.perf_counter()
+    config = config or await run_db(db, _prompt_guard_config, db)
+    rule_settings = await run_db(db, _prompt_rule_settings, db)
+    result = await run_sync(_scan_prompt_security, messages, mode=mode, sources=sources, rule_settings=rule_settings)
+    result.update(llm_review_enabled=config.enabled, llm_review_used=False,
+                  llm_status="disabled", llm_duration_ms=0, llm_model=None)
+    if result["rules_status"] == "failed":
+        result["llm_status"] = "skipped_rule_failure"
+        return result
+    if mode == "off" or not config.enabled:
+        return result
+    if result["blocked"]:
+        result["llm_status"] = "skipped_blocked"
+        return result
+    lease = None
+    ai_started = time.perf_counter()
+    try:
+        async with asyncio.timeout(config.timeout_seconds):
+            # Bound the full input, never silently classify a truncated conversation.
+            if len(json.dumps(messages, ensure_ascii=False)) > 60000:
+                raise ApiError(422, "prompt_guard.input_too_large", "检测内容超出长度限制", "Detection input exceeds the length limit")
+            model = await run_db(db, _prompt_guard_model, db, config.model_id)
+            result["llm_model"] = model.name
+            result["llm_model_id"] = model.id
+            # Use the same entity recognizer as the privacy pipeline, without storing mappings.
+            entity_types = set(DEFAULT_ENTITY_TYPES)
+            entity_rules = None
+            if policy is not None:
+                entity_types.update(_normalize_entity_types(_json_loads(policy.entity_types_json, [])))
+                entity_rules = _effective_entity_rules(policy.entity_rules_json)
+            def review_messages():
+                data = []
+                for index, msg in enumerate(messages):
+                    content = _text_from_message_content(msg.get("content"))
+                    entities = _detect_entities(content, entity_types, entity_rules)
+                    for entity in sorted(entities, key=lambda item: item["start"], reverse=True):
+                        content = content[:entity["start"]] + f"<{entity['entity_type']}>" + content[entity["end"]:]
+                    data.append({"role": msg.get("role", "user"), "source": sources[index], "content": content})
+                return data
+            data = await run_sync(review_messages)
+            lease = await run_sync(acquire_lease, "prompt_guard", "platform", "review", 8,
+                                   ttl_seconds=config.timeout_seconds + 5, bind=db.get_bind())
+            result["llm_review_used"] = True
+            reply = await _call_upstream(db, model, {
+                "model": model.name, "stream": False,
+                "max_tokens": min(model.max_output_tokens or 2000, 2000),
+                "messages": [{"role": "system", "content": SEMANTIC_PROMPT + f"\nReason language: {locale}"},
+                             {"role": "user", "content": json.dumps(data, ensure_ascii=False)}],
+            }, timeout_seconds=max(0.01, config.timeout_seconds - (time.perf_counter() - ai_started)), prompt_guard_review=True)
+            result["llm_usage"] = reply.get("usage") or {}
+            verdict = SemanticVerdict.model_validate_json(reply["choices"][0]["message"]["content"])
+            findings = []
+            for finding in verdict.findings:
+                index = finding.message_index
+                if index >= len(data) or finding.evidence not in data[index]["content"]:
+                    raise ValueError("Invalid evidence")
+                findings.append({"rule": finding.category, "severity": finding.severity,
+                                 "reason": finding.reason, "snippet": finding.evidence,
+                                 "message_index": index, "role": data[index]["role"],
+                                 "source": sources[index], "detector": "llm"})
+            all_findings = result["findings"] + findings
+            result["risk_level"] = max([result["risk_level"], *[f["severity"] for f in findings]], key=RISK_ORDER.get)
+            result["action"], result["blocked"] = _prompt_security_action(mode, all_findings)
+            result["findings"] = all_findings
+            result["findings_count"] += len(findings)
+            result["llm_status"] = "completed"
+    except (TimeoutError, httpx.TimeoutException):
+        result.update(llm_status="failed", llm_error_code="prompt_guard.timeout")
+    except LeaseLimitExceeded:
+        result.update(llm_status="failed", llm_error_code="prompt_guard.busy")
+    except (ValueError, KeyError, IndexError, TypeError):
+        result.update(llm_status="failed", llm_error_code="prompt_guard.invalid_response")
+    except (HTTPException, httpx.HTTPError) as exc:
+        result.update(llm_status="failed", llm_error_code=getattr(exc, "code", "prompt_guard.upstream_failed"))
+    finally:
+        if lease:
+            await run_sync(release_lease, lease, bind=db.get_bind())
+        result["duration_ms"] = round((time.perf_counter() - started) * 1000, 2)
+        result["llm_duration_ms"] = round((time.perf_counter() - ai_started) * 1000, 2)
+    if result["llm_status"] == "failed":
+        result["action"] = "error" if mode == "block" else ("warn" if mode == "warn" else "record")
+    return result
 
 
 def _mask_secret(value: str | None) -> str | None:
@@ -744,8 +918,6 @@ def _bind_group_policy(db: Session, group_id: int, policy_id: int | None) -> Non
     policy = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.id == policy_id).first()
     if not policy:
         raise HTTPException(status_code=404, detail="隐私策略不存在")
-    if policy.id == _get_default_policy(db).id:
-        raise HTTPException(status_code=400, detail="系统默认隐私策略不能绑定用户组")
     if policy.group_id is not None and policy.group_id != group_id:
         raise HTTPException(status_code=400, detail="隐私策略已绑定其他用户组")
     db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.group_id == group_id).update({"group_id": None})
@@ -753,8 +925,14 @@ def _bind_group_policy(db: Session, group_id: int, policy_id: int | None) -> Non
 
 
 def _get_default_policy(db: Session) -> models.PrivacyPolicy:
-    policy = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.group_id.is_(None)).first()
+    config = db.get(models.SystemConfig, "privacy.default_policy_id")
+    if config:
+        return db.get(models.PrivacyPolicy, int(config.value))
+    # Preserve the legacy default once; later selection uses the persisted ID.
+    policy = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.group_id.is_(None)).order_by(models.PrivacyPolicy.id).first()
     if policy:
+        db.add(models.SystemConfig(key="privacy.default_policy_id", value=str(policy.id)))
+        db.commit()
         return policy
     policy = models.PrivacyPolicy(
         name="默认隐私策略",
@@ -770,12 +948,19 @@ def _get_default_policy(db: Session) -> models.PrivacyPolicy:
         dp_min_count=5,
     )
     db.add(policy)
+    db.flush()
+    db.add(models.SystemConfig(key="privacy.default_policy_id", value=str(policy.id)))
     db.commit()
     db.refresh(policy)
     return policy
 
 
 def _resolve_policy(db: Session, key) -> models.PrivacyPolicy:
+    if getattr(key, "privacy_policy_id", None) is not None:
+        policy = db.get(models.PrivacyPolicy, key.privacy_policy_id)
+        if policy is None:
+            raise ApiError(409, "privacy.policy_not_found", "凭证绑定的隐私策略不存在", "The credential's privacy policy does not exist")
+        return policy
     candidate_group_ids: list[int] = []
     if key.group_id is not None:
         candidate_group_ids.append(key.group_id)
@@ -1427,8 +1612,11 @@ def _prepare_upstream(db, model, payload):
 async def _call_upstream(
     db: Session, model: models.ModelEndpoint, payload: dict[str, Any],
     timeout_seconds: float | None = None,
+    *, prompt_guard_review: bool = False,
 ) -> dict[str, Any]:
     provider, url, upstream_payload, headers = await run_db(db, _prepare_upstream, db, model, payload)
+    if prompt_guard_review:
+        headers["x-agent-manager-prompt-review"] = "1"
     # Skill 分析传入剩余总预算，其他调用继续使用供应商超时。
     timeout = (
         provider.timeout_seconds if timeout_seconds is None
@@ -1981,6 +2169,7 @@ def _record_prompt_guard_block(
     request_duration_ms: float,
     trace_context: dict[str, str | None] | None = None,
 ) -> None:
+    failed = prompt_security.get("action") == "error"
     owner_meta = _key_owner_meta(db, key)
     db.add(
         models.LlmRequestAudit(
@@ -1993,11 +2182,11 @@ def _record_prompt_guard_block(
             **_audit_identity_fields(key),
             **(skill_assessment or GatewaySkillAssessment()).audit_fields(),
             model=model_name,
-            traffic_type="prompt_blocked",
+            traffic_type="prompt_guard_error" if failed else "prompt_blocked",
             detected_counts_json="{}",
             prompt_guard_result_json=_json_dumps(prompt_security),
-            status="blocked",
-            error="Prompt 防护阻断高风险请求",
+            status="error" if failed else "blocked",
+            error=(prompt_security.get("error_code") or prompt_security.get("llm_error_code")) if failed else "Prompt 防护阻断高风险请求",
             request_duration_ms=round(request_duration_ms, 2),
             upstream_duration_ms=0.0,
             platform_duration_ms=round(request_duration_ms, 2),
@@ -2047,8 +2236,8 @@ def _record_prompt_guard_block(
         prompt_security=prompt_security,
         duration_ms=request_duration_ms,
         upstream_duration_ms=0.0,
-        error="prompt_security_blocked",
-        blocked=True,
+        error=(prompt_security.get("error_code") or prompt_security.get("llm_error_code")) if failed else "prompt_security_blocked",
+        blocked=not failed,
     )
 
 
@@ -2412,11 +2601,165 @@ async def delete_model(
 @admin_router.post("/prompt-guard/test")
 async def test_prompt_guard(
     body: schemas.PromptGuardTestRequest,
+    request: Request,
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
     messages = [_strip_undefined_values(message.model_dump()) for message in body.messages]
     sources = _message_content_sources(messages, {})
-    return _scan_prompt_security(messages, mode=body.mode, llm_review=body.llm_review, sources=sources)
+    return await _evaluate_prompt_security(db, messages, mode=body.mode, sources=sources, locale=request_locale(request))
+
+
+@admin_router.get("/prompt-guard/config")
+async def get_prompt_guard_config(db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    return _prompt_guard_config(db).model_dump()
+
+
+def _prompt_rule_definitions(settings):
+    return PROMPT_GUARD_RULES + [(key, value["severity"], value.get("description") or value["name"], value["pattern"])
+                                 for key, value in settings.items() if key.startswith("custom_")]
+
+
+def _prompt_rule_definition(rule_id, db=None):
+    definitions = _prompt_rule_definitions(_prompt_rule_settings(db)) if db is not None else PROMPT_GUARD_RULES
+    rule = next((item for item in definitions if item[0] == rule_id), None)
+    if rule is None:
+        raise ApiError(404, "prompt_guard.rule_not_found", "检测规则不存在", "Detection rule not found")
+    return rule
+
+
+def _validate_prompt_rule(rule_id, config):
+    if rule_id.startswith("custom_"):
+        if not config.name or not config.name.strip() or config.pattern is None:
+            raise ApiError(422, "prompt_guard.rule_fields_required", "自定义规则需要名称和表达式", "Custom rules require a name and pattern")
+    elif config.name is not None or config.description:
+        raise ApiError(422, "prompt_guard.rule_metadata_fixed", "内置规则名称和描述不可修改", "Built-in rule names and descriptions cannot be edited")
+    if config.pattern is None:
+        return
+    if rule_id in SPECIAL_RULES:
+        raise ApiError(422, "prompt_guard.rule_pattern_fixed", "此规则包含专用检测逻辑，不能修改表达式", "This rule uses dedicated detection logic; its pattern cannot be edited")
+    pattern = config.pattern
+    if not pattern.strip():
+        raise ApiError(422, "prompt_guard.rule_pattern_invalid", "正则表达式不能为空白", "The pattern cannot be blank")
+    if pattern.count("(") > 64 or any(int(n) > 1000 for quantifier in re.findall(r"\{\d+(?:,\d*)?\}", pattern) for n in re.findall(r"\d+", quantifier)):
+        raise ApiError(422, "prompt_guard.rule_pattern_limit", "表达式最多包含 64 个左括号，量词数值不得超过 1000", "Patterns allow at most 64 opening parentheses and quantifier values up to 1000")
+    try:
+        re.compile(pattern)
+        regex.compile(pattern, regex.VERSION0)
+    except (re.error, regex.error, OverflowError, RecursionError):
+        raise ApiError(422, "prompt_guard.rule_pattern_invalid", "正则表达式语法无效", "Invalid regular expression syntax") from None
+
+
+def _prompt_rules_view(db):
+    overrides = _prompt_rule_settings(db)
+    return [{"id": rule_id, "custom": rule_id.startswith("custom_"),
+             "name": overrides.get(rule_id, {}).get("name"), "description": overrides.get(rule_id, {}).get("description", ""), "enabled": overrides.get(rule_id, {}).get("enabled", True),
+             "severity": overrides.get(rule_id, {}).get("severity", severity),
+             "pattern": overrides.get(rule_id, {}).get("pattern") or pattern,
+             "pattern_editable": rule_id not in SPECIAL_RULES,
+             "modified": rule_id in overrides,
+             "defaults": {"enabled": True, "severity": severity, "pattern": pattern}}
+            for rule_id, severity, _, pattern in _prompt_rule_definitions(overrides)]
+
+
+@admin_router.get("/prompt-guard/rules")
+async def list_prompt_rules(db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    return _prompt_rules_view(db)
+
+
+@admin_router.post("/prompt-guard/rules")
+async def create_prompt_rule(body: PromptRuleConfig, request: Request,
+                             db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, "privacy:update")
+    rule_id = "custom_" + uuid.uuid4().hex
+    _validate_prompt_rule(rule_id, body)
+    db.add(models.SystemConfig(key=RULE_KEY_PREFIX + rule_id, value=body.model_dump_json()))
+    iam.audit(db, request, user, "privacy", "create", RULE_KEY_PREFIX + rule_id, after=body.model_dump())
+    iam.commit(db)
+    return next(item for item in _prompt_rules_view(db) if item["id"] == rule_id)
+
+
+@admin_router.post("/prompt-guard/rules/test")
+async def test_new_prompt_rule(body: PromptRuleTest, db: Session = Depends(get_db),
+                               user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, "privacy:update")
+    _validate_prompt_rule("custom_draft", body.config)
+    overrides = _prompt_rule_settings(db)
+    overrides["custom_draft"] = body.config.model_dump()
+    return await run_sync(_scan_prompt_security, [{"role": body.source, "content": body.text}],
+                          mode=body.mode, sources=[body.source], rule_settings=overrides, selected_rule="custom_draft")
+
+
+@admin_router.put("/prompt-guard/rules/{rule_id}")
+async def save_prompt_rule(rule_id: str, body: PromptRuleConfig, request: Request,
+                           db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, "privacy:update")
+    _prompt_rule_definition(rule_id, db)
+    _validate_prompt_rule(rule_id, body)
+    row = db.get(models.SystemConfig, RULE_KEY_PREFIX + rule_id)
+    before = json.loads(row.value) if row else None
+    if row is None:
+        row = models.SystemConfig(key=RULE_KEY_PREFIX + rule_id)
+        db.add(row)
+    row.value = body.model_dump_json()
+    iam.audit(db, request, user, "privacy", "update", RULE_KEY_PREFIX + rule_id, before=before, after=body.model_dump())
+    iam.commit(db)
+    return next(item for item in _prompt_rules_view(db) if item["id"] == rule_id)
+
+
+@admin_router.delete("/prompt-guard/rules/{rule_id}")
+async def restore_prompt_rule(rule_id: str, request: Request, db: Session = Depends(get_db),
+                              user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, "privacy:update")
+    definition = _prompt_rule_definition(rule_id, db)
+    row = db.get(models.SystemConfig, RULE_KEY_PREFIX + rule_id)
+    before = json.loads(row.value) if row else None
+    if row:
+        db.delete(row)
+    iam.audit(db, request, user, "privacy", "delete" if rule_id.startswith("custom_") else "update", RULE_KEY_PREFIX + rule_id, before=before,
+              after=None if rule_id.startswith("custom_") else {"enabled": True, "severity": definition[1], "pattern": definition[3], "modified": False})
+    iam.commit(db)
+    return {"id": rule_id, "deleted": True} if rule_id.startswith("custom_") else next(item for item in _prompt_rules_view(db) if item["id"] == rule_id)
+
+
+@admin_router.post("/prompt-guard/rules/{rule_id}/test")
+async def test_prompt_rule(rule_id: str, body: PromptRuleTest, db: Session = Depends(get_db),
+                           user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, "privacy:update")
+    _prompt_rule_definition(rule_id, db)
+    _validate_prompt_rule(rule_id, body.config)
+    overrides = _prompt_rule_settings(db)
+    overrides[rule_id] = body.config.model_dump()
+    # Only the selected rule reports findings; decoding still uses the effective rule set.
+    result = await run_sync(_scan_prompt_security, [{"role": body.source, "content": body.text}],
+                            mode=body.mode, sources=[body.source], rule_settings=overrides, selected_rule=rule_id)
+    return result
+
+
+@admin_router.put("/prompt-guard/config")
+async def save_prompt_guard_config(body: PromptGuardConfig, request: Request,
+                                   db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, "privacy:update")
+    before = _prompt_guard_config(db).model_dump()
+    if body.enabled or (body.model_id is not None and body.model_id != before["model_id"]):
+        _prompt_guard_model(db, body.model_id)
+    row = db.get(models.SystemConfig, CONFIG_KEY)
+    if row is None:
+        row = models.SystemConfig(key=CONFIG_KEY)
+        db.add(row)
+    row.value = body.model_dump_json()
+    iam.audit(db, request, user, "privacy", "update", CONFIG_KEY, before=before, after=body.model_dump())
+    iam.commit(db)
+    return body.model_dump()
+
+
+@admin_router.post("/prompt-guard/model-test")
+async def test_prompt_guard_model(body: PromptGuardConfig, request: Request,
+                                  db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, "privacy:update")
+    config = body.model_copy(update={"enabled": True})
+    return await _evaluate_prompt_security(db, [{"role": "user", "content": "Hello, please introduce yourself."}],
+                                          mode="log", sources=["user"], locale=request_locale(request), config=config)
 
 
 @admin_router.get("/llm-api-keys", response_model=list[schemas.LlmApiKeyResponse])
@@ -2530,10 +2873,6 @@ async def upsert_privacy_policy(
     if row is None:
         row = models.PrivacyPolicy(group_id=body.group_id, entity_types_json="[]", name=body.name)
         db.add(row)
-    if row.id == default_policy.id and body.group_id is not None:
-        raise HTTPException(status_code=400, detail="系统默认隐私策略不能绑定用户组")
-    if body.name.strip() == "默认隐私策略" and row.id != default_policy.id:
-        raise HTTPException(status_code=400, detail="隐私策略名称已存在，请使用其他名称")
     data = body.model_dump()
     data.pop("id", None)
     entity_types = _normalize_entity_types(data.pop("entity_types") or DEFAULT_ENTITY_TYPES)
@@ -2551,6 +2890,22 @@ async def upsert_privacy_policy(
     return _policy_response(row, default_policy_id=default_policy.id)
 
 
+@admin_router.put("/privacy-policies/{policy_id}/default")
+async def set_default_privacy_policy(
+    policy_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    row = db.get(models.PrivacyPolicy, policy_id)
+    if row is None:
+        raise ApiError(404, "privacy.policy_not_found", "隐私策略不存在", "Privacy policy not found")
+    _get_default_policy(db)
+    config = db.get(models.SystemConfig, "privacy.default_policy_id")
+    config.value = str(row.id)
+    db.commit()
+    return _policy_response(row, default_policy_id=row.id)
+
+
 @admin_router.delete("/privacy-policies/{policy_id}")
 async def delete_privacy_policy(
     policy_id: int,
@@ -2564,6 +2919,8 @@ async def delete_privacy_policy(
         raise HTTPException(status_code=400, detail="默认隐私策略不能删除")
     if row.group_id is not None:
         raise HTTPException(status_code=400, detail="隐私策略已绑定用户组，请先解绑")
+    if db.query(models.AccessToken.id).filter(models.AccessToken.privacy_policy_id == row.id).first():
+        raise ApiError(409, "privacy.policy_in_use", "隐私策略已绑定凭证，请先更改凭证的策略", "Privacy policy is assigned to credentials; change their policy first")
     db.delete(row)
     db.commit()
     return {"status": "deleted"}
@@ -3364,6 +3721,8 @@ async def _chat_completions_impl(
     authorization: str | None,
     db: Session,
 ) -> dict[str, Any]:
+    if request.headers.get("x-agent-manager-prompt-review"):
+        raise ApiError(503, "prompt_guard.recursive_route", "检测模型不能通过本平台网关递归调用", "The detection model cannot route recursively through this gateway")
     def authenticate():
         key = _resolve_api_key(db, authorization, request)
         db.commit()
@@ -3429,7 +3788,8 @@ async def _chat_completions_with_key(
         await run_db(db, prepare_trace)
         result = await _execute_chat_completions_with_key(payload, response, key, db,
                                                          request_id=request_id, gateway_context=context,
-                                                         request_started_at=request_started_at)
+                                                         request_started_at=request_started_at,
+                                                         locale=request_locale(request) if request else "zh-CN")
     except BaseException:
         await run_db(db, record_unfinished, "gateway.request_interrupted")
         raise
@@ -3459,11 +3819,19 @@ async def _execute_chat_completions_with_key(
     request_id: str,
     gateway_context: dict,
     request_started_at: float,
+    locale: str = "zh-CN",
 ) -> dict[str, Any]:
+    messages = [_strip_undefined_values(message.model_dump()) for message in payload.messages]
+    policy = await run_db(db, _resolve_policy, db, key)
+    prompt_security = await _evaluate_prompt_security(
+        db, messages, mode=_prompt_guard_mode(key),
+        sources=_message_content_sources(messages, payload.metadata), policy=policy, locale=locale,
+    )
     execute = await run_db(
         db, _prepare_chat_completions, payload, response, key, db,
         request_id=request_id, gateway_context=gateway_context,
         request_started_at=request_started_at,
+        prompt_security=prompt_security,
     )
     return await execute()
 
@@ -3477,6 +3845,7 @@ def _prepare_chat_completions(
     request_id: str,
     gateway_context: dict,
     request_started_at: float,
+    prompt_security: dict[str, Any],
 ) -> dict[str, Any]:
     model = _resolve_model(db, payload.model, key)
     policy = _resolve_policy(db, key)
@@ -3512,14 +3881,7 @@ def _prepare_chat_completions(
     bypass_pii = requested_bypass or not privacy_enabled
 
     original_messages = [_strip_undefined_values(message.model_dump()) for message in payload.messages]
-    content_sources = _message_content_sources(original_messages, payload.metadata)
-    prompt_security = _scan_prompt_security(
-        original_messages,
-        mode=_prompt_guard_mode(key),
-        llm_review=bool(getattr(key, "prompt_guard_llm_review", False)),
-        sources=content_sources,
-    )
-    if prompt_security["blocked"]:
+    if prompt_security["blocked"] or prompt_security["action"] == "error":
         _record_prompt_guard_block(
             db,
             request_id=request_id,
@@ -3537,6 +3899,9 @@ def _prepare_chat_completions(
             trace_context=trace_context,
         )
         response.headers["x-request-id"] = request_id
+        if prompt_security["action"] == "error":
+            raise ApiError(503, prompt_security.get("error_code") or prompt_security["llm_error_code"], "Prompt 检测未完成，请稍后重试", "Prompt detection did not complete; please retry later",
+                           headers={"x-request-id": request_id, "x-prompt-guard": "error"})
         response.headers["x-prompt-guard"] = "block"
         raise HTTPException(status_code=403, detail="Prompt 防护阻断高风险请求，请在链路追踪中查看命中规则")
     active_mappings = db.query(models.PseudonymMapping).filter(

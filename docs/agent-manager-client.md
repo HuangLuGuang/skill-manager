@@ -1694,3 +1694,33 @@ English: ZIP uploads, Scanner submissions, and network ZIP imports unpack only t
 “客户端配置 → Skill 治理”提供“使用审计 / Usage audit”和“分类处置 / Classification actions”两个子标签。默认进入使用审计，无审计查看权限时进入分类处置。使用审计配置后台异步核对和告警；分类处置配置按 Skill 状态执行的动作。两个子标签分别预览并保存，切换保留未保存草稿。内容与脱敏保留采集范围、脱敏、大小限制和保留期限。使用审计与内容脱敏可分别继承全局，既有配置按原继承状态兼容；复用原有接口和审计策略下发协议。
 
 **Client settings → Skill governance** separates Usage audit from Classification actions. Each section previews and saves independently. Usage audit checks asynchronously and reports or alerts; classification rules define actions for Skill states. Content/redaction manages capture, redaction, size limits and retention. Usage audit and content/redaction inherit independently while preserving existing policy choices and reusing existing delivery protocols.
+
+### 日志与客户端空闲开销 / Log and client idle overhead
+
+已发现但暂时缺失的日志源保留游标和覆盖状态，按目录重扫周期（默认 30 秒）复验；文件恢复后重新加入采集。每次复验检查全部父目录和文件本身，复用本次文件属性结果。日志通知按原采集轮次有界读取（默认每 2 秒，最多 256 条、最多等待 5 毫秒）；通知错误或溢出恢复轮询。文件变化、读取失败及策略变化继续触发正常读取。
+
+Discovered missing sources retain their cursors and coverage and are revalidated at the directory rescan interval (30 seconds by default). Revalidation checks every parent and the file, reusing that pass's metadata. Notifications are consumed at the existing collection cadence (normally every two seconds), bounded to 256 notifications and five milliseconds per round. Notification errors or overflow restore polling. File changes, read failures and policy changes retain the normal read path.
+
+完全未变化的批次不重复递增源版本或生成审计记录。事件、关联、游标或覆盖变化时，读取调度标记和检查点在同一事务提交；仅调度变化按读取批次合并提交，提交前核对源版本。中断后未提交标记会再次复验。待读取源查询预取每批最多 32 个检查点，游标和覆盖编码合计不超过 1 MiB；超过预算单独查询，预取值只消费一次，源提交、清理和关闭时失效。
+
+Unchanged batches avoid redundant revisions and audit records. Read-scheduling markers commit with changed events, links, cursors or coverage; scheduling-only changes are batched with source-revision checks. Uncommitted markers cause revalidation after interruption. Ready queries prefetch up to 32 checkpoints within a combined 1 MiB encoded cursor/coverage budget. Larger entries use individual queries. Prefetched values are consumed once and invalidated on source commit, pruning or close.
+
+已完成读取的缓存仅在文件身份、权限、大小、修改时间、变更时间及读取参数保持一致时复用，不保留事件正文。TeleAgent 同时检查数据库 WAL，并要求分页快照完整校验；无法取得可靠变更时间时正常读取。剩余执行时间不进入已完成读取的缓存键，未完成读取仍受本轮预算约束。
+
+Completed reads are reused only while file identity, permissions, size, modification/change times and read parameters match; the cache retains no event bodies. TeleAgent also checks its WAL and requires a fully validated paginated snapshot. Systems without reliable change-time metadata continue reading. Remaining execution time is excluded from completed-read keys, while incomplete reads remain subject to the current budget.
+
+日志状态的 5 秒上报节流在统计查询之前执行，首次立即上报。日志统计使用同一只读事务，Hook 状态及运行时、上传目标配置合并查询。日志与 Hook 队列优先重发冻结批次；空日志队列不创建冻结事务或读取发送所需的 stream ID，不缓存空状态。Hook IPC 使用向量写入，保留原协议、身份验证、超时和短写处理。
+
+Log status applies its five-second throttle before querying counts, with an immediate first report. Log statistics share one read transaction; Hook status and runtime/upload-target reads are consolidated. Log and Hook queues prioritize frozen batches. Empty log queues skip freezing transactions and sending-only stream-ID reads without caching emptiness. Hook IPC uses vectored writes with the existing protocol, authentication, deadlines and short-write handling.
+
+日志库使用 8 MiB SQLite 页缓存预算及历史清理、来源和缺失统计索引，按需增加内存占用。旧库先释放已持久确认正文并回收空间，再建维护索引；索引事务因容量不足失败时回滚，使用不强制索引的查询继续采集和处理队列，下一次打开重试。未确认数据、冻结批次、游标、配额、WAL 和同步持久化等级不变。
+
+The log store uses an 8 MiB SQLite page-cache budget and maintenance indexes, increasing memory use on demand. Upgrades release durably acknowledged bodies and reclaim space before building indexes. Capacity failures roll back index creation and use queries without mandatory index hints; the next open retries. Unacknowledged data, frozen batches, cursors, quotas, WAL and synchronous durability remain unchanged.
+
+私有配置每次仍校验权限与文件身份，在支持变更时间的系统上复用未变化文件字节，绑定配置只读取一次并统一规范化。相同同步错误不重复写入，恢复和其他任务的成功时间继续记录。守护进程健康检查保持每秒执行，持续健康时间由原子同步写盘的健康文件提供，失败与恢复仍写数据库。普通事件上传只监听 `events-wake` 文件，删除或重命名后重新创建监听，保留 30 秒持久队列补偿检查；采集、心跳、上传和健康检查周期保持。
+
+Private configuration reads still validate permissions and file identity, reusing unchanged bytes where change-time metadata is available and normalizing binding configuration from one read. Repeated identical sync errors avoid writes; recovery and other tasks' success timestamps remain recorded. Daemon health checks run every second, with successful health timestamps provided by the atomically replaced, synchronized health file; failures and recovery remain in the database. Ordinary-event uploads watch only `events-wake`, recreating its watch after removal or rename and retaining the 30-second durable-queue repair check. Collection, heartbeat, upload and health-check intervals remain unchanged.
+
+Skill 监听保留配置根目录的直接父目录监听，用于发现同名目录替换；父目录不存在时监听最近的现存祖先，无关路径事件不触发扫描。目录删除、重命名及携带明确路径的异步路径消失错误，复用 300 毫秒事件合并窗口重新注册受影响根目录并请求补偿扫描。无法确认监听完整性的错误立即重建监听器；连续失败按 1、2、4 秒递增退避，最长 30 秒，恢复后请求补偿扫描。健康监听器不启动周期重试定时器。
+
+Skill monitoring retains the direct parent watch of each configured root to detect replacement at the same path; if the parent is absent, it watches the nearest existing ancestor. Unrelated paths do not trigger scans. Directory removal, rename, and asynchronous missing-path errors with an identifiable path use the existing 300 ms coalescing window to re-register affected roots and request a compensating scan. Errors that leave watch integrity uncertain trigger an immediate rebuild; repeated failures back off from 1 to 2 to 4 seconds, capped at 30 seconds, with a compensating scan after recovery. Healthy monitors have no periodic retry timer.

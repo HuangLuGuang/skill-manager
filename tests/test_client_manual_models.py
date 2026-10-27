@@ -40,6 +40,13 @@ URL = '/api/v1/clients/manual-host/manual-model/credential'
 
 def test_manual_issue_is_scoped_idempotent_and_preserves_configuration(tmp_path):
     client, headers, body, parent_id = setup_client(tmp_path)
+    db = next(client.app.dependency_overrides[get_db]())
+    policy = models.PrivacyPolicy(name='manual-privacy', entity_types_json='[]')
+    db.add(policy)
+    db.commit()
+    policy_id = policy.id
+    db.close()
+    assert client.put(f'/api/v1/access/tokens/{parent_id}', json={'privacy_policy_id': policy_id}).status_code == 200
     response = client.post(URL, headers=headers, json=body)
     assert response.status_code == 200, response.text
     result = response.json()
@@ -50,6 +57,7 @@ def test_manual_issue_is_scoped_idempotent_and_preserves_configuration(tmp_path)
     key = db.get(models.AccessToken, result['credential_id'])
     assert key.token_hash == _hash_token(result['token'])
     assert key.issued_by_client_token_id == parent_id
+    assert key.privacy_policy_id == policy_id
     assert json.loads(key.scopes_json) == ['model:chat']
     assert json.loads(key.allowed_models_json) == ['team-chat']
     local = db.query(models.ClientAgent).filter_by(local_agent_id='custom-one').one()

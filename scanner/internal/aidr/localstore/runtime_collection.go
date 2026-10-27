@@ -2,8 +2,6 @@ package localstore
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"strconv"
 	"time"
 )
@@ -19,29 +17,26 @@ func (s *Store) SetRuntimeCollection(ctx context.Context, enabled bool) error {
 func (s *Store) SetRuntimeTarget(ctx context.Context, enabled bool, version string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var previous, resumeText string
-	err := s.db.QueryRowContext(ctx, `SELECT value FROM metadata WHERE key='runtime_collection_enabled'`).Scan(&previous)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	var previous, resumeText, previousVersion string
+	var hasEnabled, hasResume bool
+	err := s.db.QueryRowContext(ctx, `SELECT
+ COALESCE((SELECT value FROM metadata WHERE key='runtime_collection_enabled'),''),
+ COALESCE((SELECT value FROM metadata WHERE key='runtime_collection_resume_at'),''),
+ COALESCE((SELECT value FROM metadata WHERE key='runtime_policy_version'),''),
+ EXISTS(SELECT 1 FROM metadata WHERE key='runtime_collection_enabled'),
+ EXISTS(SELECT 1 FROM metadata WHERE key='runtime_collection_resume_at')`).Scan(&previous, &resumeText, &previousVersion, &hasEnabled, &hasResume)
+	if err != nil {
 		return err
 	}
-	if err == nil && previous != "true" && previous != "false" {
+	if hasEnabled && previous != "true" && previous != "false" {
 		return ErrInvalid
 	}
-	err = s.db.QueryRowContext(ctx, `SELECT value FROM metadata WHERE key='runtime_collection_resume_at'`).Scan(&resumeText)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
 	var resume time.Time
-	if err == nil {
+	if hasResume {
 		resume, err = time.Parse(time.RFC3339Nano, resumeText)
 		if err != nil {
 			return ErrInvalid
 		}
-	}
-	var previousVersion string
-	err = s.db.QueryRowContext(ctx, `SELECT value FROM metadata WHERE key='runtime_policy_version'`).Scan(&previousVersion)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
 	}
 	if previous == strconv.FormatBool(enabled) && previousVersion == version {
 		s.runtimeResumeAt = resume

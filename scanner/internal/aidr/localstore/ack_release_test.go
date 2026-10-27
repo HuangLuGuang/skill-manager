@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -88,7 +89,10 @@ func TestLegacyACKReleasePreservesObservationMetadata(t *testing.T) {
 	src := source(t, timedLines(1, at))
 	cp := collect(t, s, src)
 	// Recreate a pre-upgrade ACK: only the confirmed archive remains locally.
-	if _, err := s.db.Exec(`UPDATE logical_events SET acked_ns=?; UPDATE coverage_history SET acked_ns=?; DELETE FROM outbox; DELETE FROM metadata WHERE key='ack_payload_release_version'; ALTER TABLE logical_events DROP COLUMN source_id; ALTER TABLE logical_events DROP COLUMN observed_at`, time.Now().UnixNano(), time.Now().UnixNano()); err != nil {
+	if _, err := s.db.Exec(`DROP INDEX logical_events_release; DROP INDEX coverage_release; DROP INDEX evidence_release`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE logical_events SET acked_ns=?; UPDATE coverage_history SET acked_ns=?; DELETE FROM outbox; DELETE FROM metadata WHERE key='ack_payload_release_version'; DROP INDEX logical_events_retention_source; CREATE INDEX logical_events_source ON logical_events(json_extract(payload,'$.source_id')); ALTER TABLE logical_events DROP COLUMN source_id; ALTER TABLE logical_events DROP COLUMN observed_at`, time.Now().UnixNano(), time.Now().UnixNano()); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
@@ -103,5 +107,34 @@ func TestLegacyACKReleasePreservesObservationMetadata(t *testing.T) {
 	got, _ := s.Checkpoint(testContext, src.ID)
 	if got.Cursor.Offset != cp.Cursor.Offset || got.Revision != cp.Revision {
 		t.Fatal("migration changed checkpoint")
+	}
+}
+
+func TestRetentionQueriesUseIndexes(t *testing.T) {
+	s := openStore(t, tempDir(t), DefaultLimits())
+	for _, query := range []string{
+		`SELECT max(revision) FROM sources`,
+		`SELECT id,coalesce(observed_at,json_extract(payload,'$.observed_at')) FROM logical_events WHERE acked_ns IS NOT NULL AND acked_ns<1`,
+		`DELETE FROM sources WHERE NOT EXISTS(SELECT 1 FROM coverage_history WHERE source_id=sources.id) AND NOT EXISTS(SELECT 1 FROM logical_events WHERE CAST(coalesce(source_id,json_extract(payload,'$.source_id')) AS TEXT)=sources.id)`,
+	} {
+		rows, err := s.db.Query("EXPLAIN QUERY PLAN " + query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var id, parent, unused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(detail, "SCAN logical_events") || strings.Contains(detail, "SCAN coverage_history") || (strings.Contains(detail, "sources") && !strings.Contains(detail, "USING") && strings.HasPrefix(query, "SELECT max")) {
+				t.Errorf("history scan remains: %s", detail)
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }

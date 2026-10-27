@@ -293,16 +293,9 @@ func (s *Store) Status(ctx context.Context) (StoreStatus, error) {
 			status.ControlCode = "aidr_hook_policy_ready"
 		}
 	}
-	err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM hook_events),CAST(COALESCE((SELECT seq FROM sqlite_sequence WHERE name='hook_events'),0) AS TEXT),COALESCE((SELECT value FROM hook_meta WHERE key='audit_policy_after'),'0')`).Scan(&status.Queued, &status.LastSequence, &status.AppliedAfter)
-	if err == nil {
-		err = s.db.QueryRowContext(ctx, `SELECT COALESCE((SELECT value FROM hook_meta WHERE key='last_event_ack_at'),'')`).Scan(&status.LastAcknowledgedAt)
-	}
-	if err == nil {
-		err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM hook_suppressed_receipts WHERE seen_at>=?`, time.Now().Add(-48*time.Hour).Unix()).Scan(&status.Suppressed)
-	}
-	if err == nil {
-		err = s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM hook_events)+(SELECT count(*) FROM hook_attempt_reports WHERE acked=0)+(SELECT count(*) FROM hook_attempts WHERE state='pending')`).Scan(&status.PendingUploads)
-	}
+	var pendingAttempts int
+	err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM hook_events),CAST(COALESCE((SELECT seq FROM sqlite_sequence WHERE name='hook_events'),0) AS TEXT),COALESCE((SELECT value FROM hook_meta WHERE key='audit_policy_after'),'0'),COALESCE((SELECT value FROM hook_meta WHERE key='last_event_ack_at'),''),(SELECT count(*) FROM hook_suppressed_receipts WHERE seen_at>=?),(SELECT count(*) FROM hook_attempt_reports WHERE acked=0)+(SELECT count(*) FROM hook_attempts WHERE state='pending')`, time.Now().Add(-48*time.Hour).Unix()).Scan(&status.Queued, &status.LastSequence, &status.AppliedAfter, &status.LastAcknowledgedAt, &status.Suppressed, &pendingAttempts)
+	status.PendingUploads = status.Queued + pendingAttempts
 	return status, err
 }
 
@@ -454,12 +447,18 @@ func (s *Store) Prepare(ctx context.Context) (*Batch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	b := &Batch{}
-	err := s.db.QueryRowContext(ctx, `SELECT count,digest,payload FROM hook_frozen WHERE singleton=1`).Scan(&b.Count, &b.Digest, &b.Payload)
-	if err == nil {
-		return b, nil
+	var frozen bool
+	err := s.db.QueryRowContext(ctx, `SELECT 1 AS frozen,count,digest,payload FROM hook_frozen WHERE singleton=1
+ UNION ALL SELECT 0,0,'',X'' WHERE EXISTS(SELECT 1 FROM hook_events)
+ ORDER BY frozen DESC LIMIT 1`).Scan(&frozen, &b.Count, &b.Digest, &b.Payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if err != nil {
 		return nil, err
+	}
+	if frozen {
+		return b, nil
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT seq,payload FROM hook_events ORDER BY seq LIMIT 100`)
 	if err != nil {

@@ -8,9 +8,10 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
+from typing import Literal
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from jsonschema import ValidationError, validate
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -1156,14 +1157,56 @@ async def delete_gateway(gateway_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-@admin_router.get("/audit", response_model=list[schemas.McpCallAuditResponse])
-async def list_audit(limit: int = 100, db: Session = Depends(get_db)):
-    rows = db.query(models.McpCallAudit).order_by(models.McpCallAudit.id.desc()).limit(min(max(limit, 1), 500)).all()
-    return [
+@admin_router.get("/audit", response_model=schemas.McpCallAuditListResponse)
+async def list_audit(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    request_id: str | None = None,
+    target: str | None = None,
+    token_name: str | None = None,
+    status: Literal['success', 'denied', 'error', 'running'] | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+    sort_by: Literal['created_at', 'duration_ms'] = 'created_at',
+    sort_order: Literal['asc', 'desc'] = 'desc',
+    db: Session = Depends(get_db),
+):
+    query = db.query(models.McpCallAudit, models.AccessToken.name, models.AccessToken.id).outerjoin(
+        models.AccessToken, models.AccessToken.id == models.McpCallAudit.token_id
+    )
+    if request_id and request_id.strip():
+        query = query.filter(models.McpCallAudit.request_id.contains(request_id.strip(), autoescape=True))
+    if target and target.strip():
+        query = query.filter(or_(*[
+            column.contains(target.strip(), autoescape=True) for column in (
+                models.McpCallAudit.gateway_slug, models.McpCallAudit.server_slug, models.McpCallAudit.tool_name,
+            )
+        ]))
+    if token_name and token_name.strip():
+        query = query.filter(func.coalesce(models.McpCallAudit.token_name, models.AccessToken.name).contains(
+            token_name.strip(), autoescape=True,
+        ))
+    if status:
+        query = query.filter(models.McpCallAudit.status == status)
+    if created_from:
+        if created_from.tzinfo:
+            created_from = created_from.astimezone(timezone.utc).replace(tzinfo=None)
+        query = query.filter(models.McpCallAudit.created_at >= created_from)
+    if created_to:
+        if created_to.tzinfo:
+            created_to = created_to.astimezone(timezone.utc).replace(tzinfo=None)
+        query = query.filter(models.McpCallAudit.created_at <= created_to)
+    total = query.count()
+    column = getattr(models.McpCallAudit, sort_by)
+    order = (column.asc(), models.McpCallAudit.id.asc()) if sort_order == 'asc' else (column.desc(), models.McpCallAudit.id.desc())
+    rows = query.order_by(*order).offset((page - 1) * page_size).limit(page_size).all()
+    items = [
         schemas.McpCallAuditResponse(
             id=row.id,
             request_id=row.request_id,
             token_id=row.token_id,
+            token_name=row.token_name if row.token_name is not None else current_name,
+            token_exists=current_id is not None,
             gateway_slug=row.gateway_slug,
             server_slug=row.server_slug,
             tool_name=row.tool_name,
@@ -1174,8 +1217,9 @@ async def list_audit(limit: int = 100, db: Session = Depends(get_db)):
             error=row.error,
             created_at=row.created_at,
         )
-        for row in rows
+        for row, current_name, current_id in rows
     ]
+    return schemas.McpCallAuditListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 @admin_router.post("/debug/upstream")
@@ -1267,6 +1311,7 @@ def _record_denied_call(
         models.McpCallAudit(
             request_id=uuid.uuid4().hex,
             token_id=token.id,
+            token_name=token.name,
             bound_agent_id=token.bound_agent_id if token.token_type == "agent_runtime" else None,
             gateway_slug=gateway_slug,
             server_slug=server_slug[:128] if server_slug else None,
@@ -1789,6 +1834,7 @@ def _prepare_gateway_invocation(
     audit = models.McpCallAudit(
         request_id=uuid.uuid4().hex,
         token_id=token.id,
+        token_name=token.name,
         bound_agent_id=token.bound_agent_id if token.token_type == "agent_runtime" else None,
         gateway_slug=gateway.slug,
         server_slug=server.slug,

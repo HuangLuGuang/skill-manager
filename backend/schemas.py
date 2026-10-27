@@ -433,6 +433,7 @@ class AgentAssetSkill(BaseModel):
 
 
 class AgentAssetInstance(BaseModel):
+    risk_products: list[str] = Field(default_factory=list)
     asset_inventory: ClientAssetInventory | None = None
     client_id: str
     client_name: str
@@ -458,6 +459,7 @@ class AgentAssetInstance(BaseModel):
 
 
 class AgentRiskScope(BaseModel):
+    detection_status: str = 'pending'
     open_count: int = 0
     client_id: str
     client_name: str
@@ -468,6 +470,8 @@ class AgentRiskScope(BaseModel):
 
 
 class AgentRiskSummary(BaseModel):
+    detection_disabled: int = 0
+    detection_pending: int = 0
     open_count: int = 0
     status: str
     high: int = 0
@@ -521,6 +525,7 @@ class AgentAssetListResponse(BaseModel):
 
 
 class AccessTokenCreate(BaseModel):
+    privacy_policy_id: Optional[int] = Field(default=None, gt=0)
     platform_id: Optional[str] = Field(default=None, max_length=64)
     allowed_department_ids: list[str] = Field(default_factory=list)
     name: str
@@ -547,6 +552,7 @@ class AccessTokenCreate(BaseModel):
 
 
 class AccessTokenUpdate(BaseModel):
+    privacy_policy_id: Optional[int] = Field(default=None, gt=0)
     allowed_department_ids: Optional[list[str]] = None
     name: Optional[str] = None
     bound_agent_id: Optional[str] = None
@@ -572,6 +578,7 @@ class AccessTokenUpdate(BaseModel):
 
 
 class AccessTokenResponse(BaseModel):
+    privacy_policy_id: Optional[int] = None
     platform_id: Optional[str] = None
     allowed_department_ids: list[str] = Field(default_factory=list)
     id: int
@@ -740,6 +747,8 @@ class McpCallAuditResponse(BaseModel):
     id: int
     request_id: str
     token_id: int
+    token_name: Optional[str] = None
+    token_exists: bool
     gateway_slug: str
     server_slug: Optional[str] = None
     tool_name: Optional[str] = None
@@ -749,6 +758,13 @@ class McpCallAuditResponse(BaseModel):
     duration_ms: float
     error: Optional[str] = None
     created_at: datetime
+
+
+class McpCallAuditListResponse(BaseModel):
+    items: list[McpCallAuditResponse]
+    total: int
+    page: int
+    page_size: int
 
 
 class McpUpstreamDebugRequest(BaseModel):
@@ -1194,7 +1210,7 @@ class ModelProviderCreate(BaseModel):
     api_format: str = Field(default="openai", pattern="^(openai|anthropic|responses_api)$")
     api_key: Optional[str] = None
     enabled: bool = True
-    timeout_seconds: int = Field(default=60, ge=1, le=600)
+    timeout_seconds: int = Field(default=180, ge=1, le=600)
 
 
 class ModelProviderUpdate(BaseModel):

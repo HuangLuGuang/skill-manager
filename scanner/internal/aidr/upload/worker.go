@@ -20,6 +20,8 @@ type WorkerOptions struct {
 	Interval          time.Duration
 	HeartbeatInterval time.Duration
 	DiscoveryInterval time.Duration
+	// Zero reports every intake round; positive intervals also throttle the query.
+	StatusInterval time.Duration
 	// Observer receives codes and counts, never raw logs or credentials.
 	Observer       func(localstore.Status)
 	StatusObserver func(localstore.Status) error
@@ -32,7 +34,7 @@ type WorkerOptions struct {
 // Run is explicitly invoked and owns no service installation. Source discovery,
 // intake and upload each have bounded work; network failures retain the outbox.
 func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) error {
-	if len(o.Roots) < 1 || len(o.Roots) > 64 || o.Interval < time.Second || o.Interval > time.Minute || o.HeartbeatInterval < time.Second || o.HeartbeatInterval > time.Minute || o.DiscoveryInterval < time.Second || o.DiscoveryInterval > 5*time.Minute {
+	if len(o.Roots) < 1 || len(o.Roots) > 64 || o.Interval < time.Second || o.Interval > time.Minute || o.HeartbeatInterval < time.Second || o.HeartbeatInterval > time.Minute || o.DiscoveryInterval < time.Second || o.DiscoveryInterval > 5*time.Minute || o.StatusInterval < 0 {
 		return errors.New("aidr_upload_worker_options_invalid")
 	}
 	seenRoots := map[Root]bool{}
@@ -57,7 +59,7 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 	c.policySupported = s.Policy().Version != "0"
 	var nextPolicy time.Time
 	var discovery []Discovery
-	var nextHeartbeat, nextUpload time.Time
+	var nextHeartbeat, nextUpload, nextStatus time.Time
 	heartbeatCode := ""
 	capabilities := map[string]Capability{}
 	crawlers := map[int]*localstore.Crawler{}
@@ -71,6 +73,7 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 				return err
 			}
 			crawler.RescanInterval = o.DiscoveryInterval
+			_ = crawler.WatchChanges()
 			crawlers[i] = crawler
 			defer crawler.Close()
 		}
@@ -179,7 +182,11 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 						if budget.Duration <= 0 {
 							break
 						}
-						checkpoint, err := s.Collect(ctx, src, budget, o.Since)
+						collect := s.Collect
+						if crawler != nil {
+							collect = crawler.Collect
+						}
+						checkpoint, err := collect(ctx, src, budget, o.Since)
 						if err != nil {
 							if ctx.Err() != nil {
 								return ctx.Err()
@@ -196,21 +203,17 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 							}
 							return err
 						}
-						if crawler != nil {
-							readOffset := agentlog.ReadOffset(src, checkpoint.Cursor)
-							if checkpoint.Cursor.ContextRepair != nil {
-								readOffset = checkpoint.Cursor.ContextRepair.Offset
-							}
-							if err = crawler.ReadDone(ctx, src, readOffset); err != nil {
-								return err
-							}
-						}
 						{
 							state := "available"
 							if checkpoint.Coverage.Status != "complete" {
 								state = "unavailable"
 							}
 							capabilities[src.ID] = Capability{Agent: src.Agent, Version: checkpoint.Cursor.AgentVersion, Status: state, ParserStatus: parserStatus(checkpoint.Coverage), ParserVersion: agentlog.ParserVersion}
+						}
+					}
+					if crawler != nil {
+						if err := crawler.FlushReadProgress(ctx); err != nil {
+							return err
 						}
 					}
 				}
@@ -228,7 +231,7 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 			heartbeatCode = result.Code
 			nextHeartbeat = time.Now().Add(o.HeartbeatInterval)
 		}
-		if o.Observer != nil || o.StatusObserver != nil {
+		if (o.Observer != nil || o.StatusObserver != nil) && !time.Now().Before(nextStatus) {
 			status, err := s.Status(ctx)
 			if err != nil {
 				return err
@@ -247,6 +250,7 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 					return err
 				}
 			}
+			nextStatus = time.Now().Add(o.StatusInterval)
 		}
 		select {
 		case <-ctx.Done():

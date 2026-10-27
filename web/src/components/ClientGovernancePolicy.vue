@@ -1,26 +1,26 @@
 <template>
   <a-modal :open="open" :title="t(clientId ? 'clientPolicy.settings' : 'clientPolicy.globalSettings')" width="820px" class="client-governance-modal" :style="{ top: '24px', paddingBottom: 0, margin: '0 auto' }" :closable="!modalBusy" :mask-closable="!modalBusy" :keyboard="!modalBusy" :z-index="1010" @cancel="close">
     <nav class="settings-navigation" :aria-label="t('clientPolicy.navigation')">
-      <button v-for="section in settingsSections" :key="section" type="button" :disabled="modalBusy || !!impact" :aria-pressed="settingsSection === section" @click="settingsSection = section">{{ t(`clientPolicy.${section === 'audit' ? 'content' : section}`) }}</button>
+      <button v-for="section in settingsSections" :key="section" type="button" :disabled="modalBusy || !!impact" :aria-pressed="settingsSection === section" @click="settingsSection = section">{{ section === 'risk' ? t('securityRules.title') : t(`clientPolicy.${section === 'audit' ? 'content' : section}`) }}</button>
     </nav>
     <a-tabs v-show="settingsSection === 'skills'" v-model:active-key="skillSection" size="small" :aria-label="t('clientPolicy.skills')">
       <a-tab-pane v-if="can('settings:view')" key="usage" :tab="t('clientPolicy.usageAudit')" :disabled="modalBusy || !!impact" />
       <a-tab-pane v-if="can('clients:view')" key="classification" :tab="t('clientPolicy.classification')" :disabled="modalBusy || !!impact" />
     </a-tabs>
-    <AidrRedactionSettings v-if="open && auditVisited && can('settings:view')" v-show="settingsSection === 'audit'" :key="clientId" ref="auditSettings" :client-id="clientId" external-actions />
-    <AidrRedactionSettings v-if="open && skillsVisited && can('settings:view')" v-show="settingsSection === 'skills' && skillSection === 'usage'" :key="clientId" ref="skillAuditSettings" :client-id="clientId" section="skill" @saved="emit('saved')" />
+    <AidrRedactionSettings v-if="open && auditVisited && can('settings:view')" v-show="settingsSection === 'audit'" :key="clientId" ref="auditSettings" :client-id="clientId" embedded external-actions />
+    <AidrRedactionSettings v-if="open && skillsVisited && can('settings:view')" v-show="settingsSection === 'skills' && skillSection === 'usage'" :key="clientId" ref="skillAuditSettings" :client-id="clientId" embedded section="skill" @saved="emit('saved')" />
     <ClientDiscoveryConfig v-if="open && discoveryVisited && can('clients:view')" v-show="settingsSection === 'discovery'" :key="clientId" ref="discoverySettings" :client-id="clientId" @saved="emit('saved')" />
+    <ClientSecurityRules v-if="open && riskVisited" v-show="settingsSection === 'risk'" :key="clientId" ref="riskSettings" :client-id="clientId" @saved="emit('saved')" @global="emit('global-risk')" />
     <a-spin v-if="can('clients:view')" v-show="activeTab === 'integration'" :spinning="loading">
-      <p v-if="!clientId">{{ t('clientGovernance.defaults') }}</p>
       <a-alert v-if="policyError" type="error" show-icon :message="t('clientGovernance.policyLoadFailed')" :description="policyError"><template #action><a-button :disabled="loading" @click="load">{{ t('clientGovernance.retryLoad') }}</a-button></template></a-alert>
       <a-alert v-if="gatewayError" type="warning" show-icon :message="t('clientGovernance.gatewayLoadFailed')" :description="gatewayError"><template #action><a-button :disabled="loading" @click="load">{{ t('clientGovernance.retryLoad') }}</a-button></template></a-alert>
       <template v-if="policy">
         <a-alert v-if="!editable && !gatewayError && !policyError" type="warning" :message="t(policy.supported ? 'clientGovernance.readonly' : 'clientGovernance.upgrade')" />
         <a-alert v-if="!impact && clientId && policy.advanced_supported === false" type="warning" show-icon :message="t('clientGovernance.capabilityAvailable')" />
         <a-form v-if="!impact" layout="vertical" class="policy-form">
-          <p class="settings-description">{{ t(`clientPolicy.${settingsSection}Hint`) }} {{ t(settingsSection === 'skills' ? 'clientPolicy.classificationHelp' : 'clientPolicy.settingsHint') }}</p>
+          <p v-if="settingsSection === 'skills'" class="settings-description">{{ t('clientPolicy.classificationHelp') }}</p>
           <section v-show="settingsSection === 'desktop'" class="policy-group">
-            <header class="group-heading"><h3>{{ t('clientGovernance.desktop.title') }}</h3><p>{{ t('clientGovernance.desktop.description') }}</p></header>
+            <p class="settings-description">{{ t('clientGovernance.desktop.description') }}</p>
             <a-alert v-if="clientId" :type="policy.desktop_menu_sync_status === 'synced' ? 'success' : 'info'" show-icon :message="t(`clientGovernance.desktop.${policy.desktop_menu_sync_status || 'unsupported'}`)" :description="t('clientGovernance.desktop.syncHint')" />
             <p v-if="clientId && policy.desktop_menu_reported_at">{{ t('clientGovernance.desktop.reportedAt') }}: {{ new Date(policy.desktop_menu_reported_at + (/[Z+]/.test(policy.desktop_menu_reported_at) ? '' : 'Z')).toLocaleString() }}</p>
             <a-button v-if="clientId" :disabled="!editable || busy" @click="desktopMenus = {}">{{ t('clientGovernance.desktop.reset') }}</a-button>
@@ -36,30 +36,25 @@
             </div>
           </section>
           <section v-show="settingsSection === 'runtime'" class="policy-group">
-            <header class="group-heading"><h3>{{ t('clientGovernance.runtime.title') }}</h3><p>{{ t('clientGovernance.runtime.description') }}</p></header>
             <details v-if="clientId && open && activeTab === 'integration'" class="runtime-status"><summary>{{ t('clientPolicy.statusDetails') }}</summary><ClientProtectionStatus :client-id="clientId" /></details>
             <a-checkbox v-if="clientId && policy.runtime_channels_protocol === 3" v-model:checked="inheritRuntime" :disabled="!editable || busy">{{ t('clientGovernance.inherit') }}</a-checkbox>
             <p v-else-if="clientId">{{ t('clientGovernance.runtime.inherited') }}</p>
             <div class="group-rules">
-              <a-form-item :label="t('clientGovernance.runtime.enabled')"><a-switch v-model:checked="runtimeGovernance.enabled" :disabled="runtimeDisabled" /></a-form-item>
-              <a-form-item v-if="policy.runtime_channels_protocol === 3" :label="t('clientGovernance.runtime.channels')">
+              <a-form-item :label="t('clientGovernance.runtime.enabled')" :tooltip="t('clientGovernance.runtime.pauseHint')"><a-switch v-model:checked="runtimeGovernance.enabled" :disabled="runtimeDisabled" /></a-form-item>
+              <a-form-item v-if="policy.runtime_channels_protocol === 3" :label="t('clientGovernance.runtime.channels')" :tooltip="t('clientGovernance.runtime.channelHint')">
                 <a-space wrap><a-checkbox v-for="name in ['logs', 'hooks', 'system']" :key="name" v-model:checked="runtimeGovernance.channels[name]" :disabled="runtimeDisabled">{{ t(`clientGovernance.runtime.channel_${name}`) }}</a-checkbox></a-space>
-                <p class="effective">{{ t('clientGovernance.runtime.channelHint') }}</p>
               </a-form-item>
-              <a-form-item v-for="channel in ['hooks', 'system']" :key="channel" :label="t(`clientGovernance.runtime.mode_${channel}`)">
+              <a-form-item v-for="channel in ['hooks', 'system']" :key="channel" :label="t(`clientGovernance.runtime.mode_${channel}`)" :tooltip="t(`clientGovernance.runtime.mode_${channel}_hint`)">
                 <a-select :value="runtimeGovernance.modes?.[channel] || 'legacy'" :disabled="runtimeDisabled" @change="value => setMode(channel, value)">
                   <a-select-option v-if="!runtimeGovernance.modes?.[channel]" value="legacy">{{ t('clientGovernance.runtime.mode_legacy') }}</a-select-option>
                   <a-select-option v-for="mode in ['audit','intercept']" :key="mode" :value="mode">{{ t(`clientGovernance.runtime.mode_${mode}`) }}</a-select-option>
                 </a-select>
-                <p class="effective">{{ t(`clientGovernance.runtime.mode_${channel}_hint`) }}</p>
               </a-form-item>
-              <a-form-item :label="t('clientGovernance.runtime.logSources')">
+              <a-form-item :label="t('clientGovernance.runtime.logSources')" :tooltip="t('clientGovernance.runtime.productHint')">
                 <a-select :value="selectedProductGroups(runtimeGovernance.log_sources || ['claude', 'codex'])" mode="multiple" :disabled="runtimeDisabled" @change="setLogProducts"><a-select-option v-for="product in logSourceOptions" :key="product.id" :value="product.id">{{ product.name }}</a-select-option></a-select>
-                <p class="effective">{{ t('clientGovernance.runtime.productHint') }}</p>
               </a-form-item>
-              <a-form-item :label="t('clientGovernance.runtime.userEnrollment')">
+              <a-form-item :label="t('clientGovernance.runtime.userEnrollment')" :tooltip="t('clientGovernance.runtime.userEnrollmentHint')">
                 <a-switch v-model:checked="runtimeGovernance.allow_user_enrollment" :disabled="runtimeDisabled" />
-                <p class="effective">{{ t('clientGovernance.runtime.userEnrollmentHint') }}</p>
               </a-form-item>
               <a-form-item :label="t('clientGovernance.runtime.hosts')">
                 <a-select :value="selectedProductGroups(runtimeGovernance.hosts)" mode="multiple" :disabled="runtimeDisabled" @change="setHookProducts"><a-select-option v-for="product in hookProductOptions" :key="product.id" :value="product.id" :disabled="!product.entries.some(hookEntryEligible)">{{ product.name }}</a-select-option></a-select>
@@ -80,7 +75,6 @@
                 </div>
               </details>
             </div>
-            <p class="effective">{{ t('clientGovernance.runtime.pauseHint') }}</p>
             <a-alert v-if="runtimeGovernance.access_mode === 'managed'" type="warning" show-icon :message="t('clientGovernance.runtime.managedHint')" />
           </section>
           <section v-show="settingsSection === 'models'" class="policy-group">
@@ -131,7 +125,6 @@
             <div class="effective">{{ t('clientGovernance.effective', { action: promptLabel(policy.prompt_guard) }) }}</div>
             <div v-if="inheritPrompt" class="effective">{{ t('clientGovernance.prompt.defaultValue', { value: promptLabel(policy.prompt_guard_default) }) }}</div>
           </section>
-          <h3 v-if="settingsSection === 'skills'">{{ t('clientPolicy.classification') }}</h3>
           <section v-for="group in groups" v-show="settingsSection === 'skills'" :key="group.key" class="policy-group">
             <header class="group-heading">
               <h3>{{ t(`clientGovernance.groups.${group.key}.title`) }}</h3>
@@ -236,6 +229,7 @@
         <a-button v-if="activeTab === 'integration' && policy && (settingsSection !== 'skills' || impact)" type="primary" :loading="busy" :disabled="!editable || busy || !!impact?.incompatible_clients?.length" @click="impact ? save() : preview()">{{ t(impact ? 'clientGovernance.confirm' : 'clientGovernance.preview') }}</a-button>
         <a-button v-if="activeTab === 'audit' && auditSettings?.editable" type="primary" :loading="auditSettings.busy" :disabled="!auditSettings.canReview" @click="auditSettings.review()">{{ t('aidr.redactionSettings.save') }}</a-button>
         <a-button v-if="activeTab === 'discovery' && can('clients:update')" type="primary" :loading="discoverySettings?.busy" :disabled="!discoverySettings?.canSave" @click="discoverySettings.save()">{{ t('clientDiscovery.save') }}</a-button>
+        <a-button v-if="activeTab === 'risk' && riskSettings?.editable" type="primary" :loading="riskSettings.busy" :disabled="!riskSettings.canSave" @click="riskSettings.save()">{{ t('aidrRisk.save') }}</a-button>
       </div>
     </template>
   </a-modal>
@@ -244,6 +238,7 @@
 <script setup>
 import products from '../aidr-products.json'
 import { expandProductSelection, groupProductEntries, productGroupId, selectedProductGroups } from '../aidr-product-groups'
+import ClientSecurityRules from './ClientSecurityRules.vue'
 import { computed, ref, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AidrRedactionSettings from './AidrRedactionSettings.vue'
@@ -253,12 +248,14 @@ import { message } from 'ant-design-vue'
 import { can } from '../access'
 import { getClientGovernance, listExternalAiGateways, previewClientGovernance, saveClientGovernance } from '../api'
 const props = defineProps({ open: Boolean, clientId: { type: String, default: '' }, initialTab: { type: String, default: 'integration' } })
-const emit = defineEmits(['update:open', 'saved'])
+const emit = defineEmits(['update:open', 'saved', 'global-risk'])
 const { t } = useI18n()
 const settingsSection = ref('runtime')
 const skillSection = ref('usage')
-const activeTab = computed(() => settingsSection.value === 'skills' && skillSection.value === 'usage' ? 'skillAudit' : ['audit', 'discovery'].includes(settingsSection.value) ? settingsSection.value : 'integration')
-const settingsSections = computed(() => [...(can('clients:view') ? ['runtime', 'models', 'discovery', 'skills', 'desktop'] : can('settings:view') ? ['skills'] : []), ...(can('settings:view') ? ['audit'] : [])])
+const activeTab = computed(() => settingsSection.value === 'skills' && skillSection.value === 'usage' ? 'skillAudit' : ['audit', 'discovery', 'risk'].includes(settingsSection.value) ? settingsSection.value : 'integration')
+const settingsSections = computed(() => [...(can('clients:view') ? ['runtime', 'models', 'discovery', 'skills', 'desktop'] : can('settings:view') ? ['skills'] : []), ...(can('settings:view') ? ['audit'] : []), ...(can('clients:view') || can('settings:view') ? ['risk'] : [])])
+const riskVisited = ref(false)
+const riskSettings = ref(null)
 const auditVisited = ref(false)
 const skillsVisited = ref(false)
 const skillAuditSettings = ref(null)
@@ -278,7 +275,7 @@ function setDesktopMenu(menu, value) {
 }
 const policy = ref(null), rules = ref({}), impact = ref(null), loading = ref(false), busy = ref(false)
 const auditSettings = ref(null)
-const modalBusy = computed(() => loading.value || busy.value || auditSettings.value?.busy || auditSettings.value?.reviewOpen || discoverySettings.value?.busy || skillAuditSettings.value?.busy || skillAuditSettings.value?.reviewOpen)
+const modalBusy = computed(() => loading.value || busy.value || riskSettings.value?.busy || auditSettings.value?.busy || auditSettings.value?.reviewOpen || discoverySettings.value?.busy || skillAuditSettings.value?.busy || skillAuditSettings.value?.reviewOpen)
 function close() { if (!modalBusy.value) emit('update:open', false) }
 const promptGuard = ref({ mode: 'log', llm_review: false }), inheritPrompt = ref(false)
 const compression = ref({ enabled: false, level: 'auto' }), inheritCompression = ref(false)
@@ -411,7 +408,8 @@ async function load() {
   finally { if (sequence === loadSequence) loading.value = false }
 }
 watch(() => [props.open, props.clientId, props.initialTab], () => {
-  settingsSection.value = can('settings:view') && (props.initialTab === 'audit' || !can('clients:view')) ? 'audit' : props.initialTab === 'discovery' ? 'discovery' : 'runtime'
+  settingsSection.value = props.initialTab === 'risk' ? 'risk' : can('settings:view') && (props.initialTab === 'audit' || !can('clients:view')) ? 'audit' : props.initialTab === 'discovery' ? 'discovery' : 'runtime'
+  riskVisited.value = settingsSection.value === 'risk'
   auditVisited.value = settingsSection.value === 'audit'
   discoveryVisited.value = settingsSection.value === 'discovery'
   skillsVisited.value = settingsSection.value === 'skills'
@@ -419,6 +417,7 @@ watch(() => [props.open, props.clientId, props.initialTab], () => {
   load()
 }, { immediate: true })
 watch(settingsSection, section => {
+  if (section === 'risk') riskVisited.value = true
   if (section === 'audit') auditVisited.value = true
   if (section === 'discovery') discoveryVisited.value = true
   if (section === 'skills') skillsVisited.value = true
@@ -485,36 +484,41 @@ async function save() {
 :global(.client-governance-modal .ant-modal-body) { min-height: 0; overflow-y: auto; }
 :global(.client-governance-modal .ant-modal-header),
 :global(.client-governance-modal .ant-modal-footer) { flex-shrink: 0; }
-.policy-form { margin-top: 16px; display: grid; gap: 16px; padding: 2px 6px 2px 2px; }
-.settings-navigation { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 16px; background: #f1f4f9; border-radius: 8px; }
-.settings-navigation button { flex: 1; min-width: 0; padding: 10px 12px; border: 0; border-radius: 6px; background: transparent; color: #596b83; font: inherit; cursor: pointer; }
+.policy-form { margin-top: 8px; display: grid; gap: 12px; padding: 2px 6px 2px 2px; }
+.settings-navigation { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 8px; background: #f1f4f9; border-radius: 8px; }
+.settings-navigation button { flex: 1; min-width: 0; padding: 8px 10px; border: 0; border-radius: 6px; background: transparent; color: #596b83; font: inherit; cursor: pointer; }
 .settings-navigation button[aria-pressed=true] { background: #fff; color: #285bc4; font-weight: 600; box-shadow: 0 1px 4px #223c6114; }
 .settings-navigation button:focus-visible { outline: 2px solid #3265df; outline-offset: 2px; }
 .settings-navigation button:disabled { cursor: default; opacity: .65; }
-.settings-description { margin: 0; color: #66768c; font-size: 13px; line-height: 1.6; }
-.runtime-advanced { grid-column: 1 / -1; border-top: 1px solid #e6eaf0; padding-top: 16px; }
+.settings-description { margin: 0 0 8px; color: #66768c; font-size: 13px; line-height: 1.6; }
+.runtime-advanced { grid-column: 1 / -1; border-top: 1px solid #e6eaf0; padding-top: 12px; }
 .runtime-advanced summary { cursor: pointer; color: #445971; font-weight: 500; }
 .runtime-advanced .group-rules { padding-top: 12px; }
-.runtime-status { margin-bottom: 16px; }
+.runtime-status { margin-bottom: 8px; }
 .runtime-status summary { cursor: pointer; color: #526987; font-size: 13px; margin-bottom: 10px; }
-.policy-group { border: 1px solid #e6eaf0; border-radius: 8px; padding: 16px; }
+.policy-group { border: 1px solid #e6eaf0; border-radius: 8px; padding: 12px; }
 .policy-group-disabled { background: #fafafa; color: #8c8c8c; }
 .policy-group-disabled .group-heading p,
 .policy-group-disabled .effective { color: #a3a3a3; }
 .prompt-impact { max-height: 160px; overflow-y: auto; padding-left: 20px; overflow-wrap: anywhere; }
-.group-heading { margin-bottom: 14px; }
+.group-heading { margin-bottom: 8px; }
 .group-heading h3 { margin: 0; font-size: 15px; font-weight: 600; }
 .group-heading p { margin: 4px 0 0; color: #777; font-size: 12px; line-height: 1.5; }
-.group-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
+.group-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
 .rule-field { min-width: 0; scroll-margin: 20px; }
 .priority-rule { grid-column: 1 / -1; }
 .priority-label { margin-left: 8px; color: #ad5925; background: #fff7e8; border-radius: 4px; padding: 0 6px; font-size: 12px; white-space: nowrap; }
+.policy-form .policy-group > .ant-checkbox-wrapper { margin-bottom: 8px; }
 .policy-form :deep(.ant-form-item) { margin-bottom: 0; min-width: 0; }
 .policy-form :deep(.ant-form-item-label > label) { height: auto; flex-wrap: wrap; }
 .scan-followup { display: block; width: 100%; margin-top: 8px; padding: 8px 10px; border: 0; border-radius: 4px; background: #f5f8ff; color: #4c6075; text-align: start; font: inherit; font-size: 12px; line-height: 1.5; cursor: pointer; overflow-wrap: anywhere; }
 .scan-followup span { color: #1677ff; margin-left: 6px; }
 .scan-followup:focus-visible { outline: 2px solid #1677ff; outline-offset: 2px; }
-@media (max-width: 600px) { .group-rules { grid-template-columns: minmax(0, 1fr); } .settings-navigation button { flex-basis: 45%; overflow-wrap: anywhere; } }
+@media (max-width: 600px) {
+  .group-rules { grid-template-columns: minmax(0, 1fr); }
+  .settings-navigation { flex-wrap: nowrap; overflow-x: auto; }
+  .settings-navigation button { flex: 0 0 auto; white-space: nowrap; }
+}
 .recheck-help { margin-top: 12px; padding: 10px 12px; border-radius: 6px; background: #f5f7fa; color: #596975; }
 .recheck-help summary, .skill-reason summary { cursor: pointer; font-size: 12px; line-height: 1.6; }
 .recheck-help summary span, .skill-reason summary span { margin-left: 8px; color: #1677ff; }

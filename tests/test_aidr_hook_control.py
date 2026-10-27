@@ -35,6 +35,10 @@ def test_client_attempt_receipt_exact_scope_durable_replay_and_terminal_gate(con
     detail=client.get(ROOT+f"/hook-approvals/{row['id']}").json()
     assert detail["client_report"]["record"]==body and detail["client_report"]["evidence_type"]=="client_report"
     assert detail["approval"]["recorded_state"]=="pending"  # Client evidence does not rewrite platform history.
+    assert detail["approval"]["state"] == "timed_out"
+    listed = next(x for x in client.get(ROOT+"/hook-approvals").json()["items"] if x["id"] == row["id"])
+    assert listed == detail["approval"]
+    assert int(listed["expires_at"]) > time.time()
     assert decision(client,row,"allow").status_code==409
     altered={**body,"code":"aidr_hook_approval_cancelled"}
     assert client.post(ROOT+"/hook-attempt-reports",json=altered,headers=HEADERS).status_code==409
@@ -73,6 +77,7 @@ def test_twenty_concurrent_terminal_receipts_keep_exact_identity(control):
         detail = client.get(ROOT + f"/hook-approvals/{body['approval_id']}").json()
         assert detail["client_report"]["record"] == body
         assert detail["approval"]["recorded_state"] == "pending"
+        assert detail["approval"]["state"] == "timed_out"
 
     with ThreadPoolExecutor(max_workers=20) as pool:
         list(pool.map(report, bodies))

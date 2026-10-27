@@ -283,6 +283,7 @@ def _validate_subject_bindings(
 
 def _access_token_response(row: models.AccessToken, token: str | None = None) -> schemas.AccessTokenResponse:
     return schemas.AccessTokenResponse(
+        privacy_policy_id=row.privacy_policy_id,
         platform_id=row.platform_id,
         allowed_department_ids=_json_loads(row.allowed_department_ids_json, []),
         id=row.id,
@@ -538,14 +539,40 @@ def verify_plain_token(row: models.AccessToken, plain: str) -> bool:
 @router.get("", response_model=schemas.AccessTokenListResponse)
 async def list_access_tokens(
     token_type: str | None = None,
+    token_id: int | None = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
     query = db.query(models.AccessToken)
+    if token_id is not None:
+        query = query.filter(models.AccessToken.id == token_id)
     if token_type:
         query = query.filter(models.AccessToken.token_type == token_type)
     rows = query.order_by(models.AccessToken.id.desc()).all()
     return schemas.AccessTokenListResponse(items=[_access_token_response(row) for row in rows])
+
+
+def _validate_privacy_policy(db, policy_id, token_type, scopes, agent_issuance):
+    if policy_id is None:
+        return
+    if "model:chat" not in scopes and not (token_type == "client" and agent_issuance):
+        raise ApiError(400, "privacy.model_access_required", "仅模型调用或代发模型凭证可指定隐私策略", "Privacy policies require model access or delegated model credentials")
+    if db.get(models.PrivacyPolicy, policy_id) is None:
+        raise ApiError(404, "privacy.policy_not_found", "隐私策略不存在", "Privacy policy not found")
+
+
+@router.get("/privacy-policies")
+async def credential_privacy_policies(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    from .. import iam
+    if not iam.permission_codes(db, current_user) & {"credentials:view", "credentials:create", "credentials:update"}:
+        iam.check(db, current_user, "credentials:view")
+    from .llm_gateway import _get_default_policy
+    default = _get_default_policy(db)
+    return [{"id": row.id, "name": row.name, "is_default": row.id == default.id}
+            for row in db.query(models.PrivacyPolicy).order_by(models.PrivacyPolicy.id).all()]
 
 
 @router.post("", response_model=schemas.AccessTokenCreateResponse)
@@ -563,6 +590,7 @@ async def create_access_token(
     _validate_agent_credential_issuance(body.token_type, body.allow_agent_credential_issuance)
     _validate_manual_credential_export(body.token_type, body.allow_agent_credential_issuance, body.allow_manual_credential_export)
     scopes = _normalize_scopes(body.token_type, body.scopes)
+    _validate_privacy_policy(db, body.privacy_policy_id, body.token_type, scopes, body.allow_agent_credential_issuance)
     allowed_mcp_gateways = _validate_subject_bindings(
         db,
         token_type=body.token_type,
@@ -577,6 +605,7 @@ async def create_access_token(
         raise ApiError(404, "group.not_found", "用户组不存在", "User group not found")
     plain = _new_token()
     row = models.AccessToken(
+        privacy_policy_id=body.privacy_policy_id,
         platform_id=body.platform_id,
         allowed_department_ids_json=_json_dumps(list(dict.fromkeys(body.allowed_department_ids))),
         name=body.name.strip(),
@@ -690,6 +719,10 @@ async def update_access_token(
     ) if authorization_changed else next_allowed_mcp_gateways
     scopes = next_scopes
     next_agent_issuance = bool(data.get("allow_agent_credential_issuance", row.allow_agent_credential_issuance))
+    policy_id = data.get("privacy_policy_id", row.privacy_policy_id)
+    if "model:chat" not in scopes and not (row.token_type == "client" and next_agent_issuance) and "privacy_policy_id" not in data:
+        data["privacy_policy_id"] = policy_id = None
+    _validate_privacy_policy(db, policy_id, row.token_type, scopes, next_agent_issuance)
     if not next_agent_issuance and "allow_manual_credential_export" not in data:
         data["allow_manual_credential_export"] = False
     _validate_manual_credential_export(row.token_type, next_agent_issuance, data.get("allow_manual_credential_export", row.allow_manual_credential_export))

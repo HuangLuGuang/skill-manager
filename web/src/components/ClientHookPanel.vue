@@ -182,7 +182,7 @@
       <a-button :loading="detailLoading" :disabled="detailLoading || deciding" @click="openDetail(detailId)">{{ t('aidr.hooks.retry') }}</a-button>
       <template v-if="detail && !detailError">
         <p>{{ t('aidr.hooks.evidenceNote') }}</p>
-        <p>{{ t('aidr.hooks.state') }}: {{ stateLabel(detail.approval.state) }} · {{ t('aidr.hooks.recordedState') }}: {{ stateLabel(detail.approval.recorded_state) }}</p>
+        <p>{{ t('aidr.hooks.state') }}: {{ stateLabel(detail.approval.state) }}</p>
         <p>{{ t('aidr.hooks.expires') }}: {{ stamp(detail.approval.expires_at) }}</p>
         <a-alert type="info" :message="t('aidr.hooks.clientReport')" show-icon>
           <template #description>
@@ -283,11 +283,11 @@ const matchHookEvent = (input, option) => option.value.toLowerCase().includes(in
 function selectHookEvent(value) { eventFilters.value.hook_event = value; applyEventFilters() }
 const detailOpen = ref(false), detailLoading = ref(false), detailId = ref(''), detail = ref(null), now = ref(Date.now())
 const decisions = ['allow', 'deny', 'ask']
-const states = ['pending', 'approved', 'denied', 'revoked', 'expired']
+const states = ['pending', 'approved', 'denied', 'revoked', 'expired', 'timed_out']
 const stateLabel = value => t(`aidr.hooks.${states.includes(value) ? value : 'unknown'}`)
 const canEdit = computed(() => !!policy.value?.can_edit && can('clients:update'))
 const actionAllowed = computed(() => !!policy.value?.can_edit && can('clients:execute') && !!detail.value?.evidence && !detail.value?.client_report && !detailLoading.value && !detailError.value && ['pending', 'approved'].includes(detail.value?.approval.state) && Number(detail.value?.approval.expires_at) * 1000 > now.value)
-const availableActions = computed(() => detail.value?.approval.state === 'approved' ? [{ value: 'revoke', label: 'revoke' }] : [{ value: 'allow', label: 'approve' }, { value: 'deny', label: 'reject' }])
+const availableActions = computed(() => detail.value?.approval.state === 'approved' ? [{ value: 'revoke', label: 'revoke' }] : detail.value?.approval.state === 'pending' ? [{ value: 'allow', label: 'approve' }, { value: 'deny', label: 'reject' }] : [])
 const columns = computed(() => ['created', 'agent', 'session', 'state', 'expires', 'details'].map(key => ({ key, title: t(`aidr.hooks.${key}`), width: { created: 135, agent: 95, session: 215, state: 150, expires: 135, details: 90 }[key], fixed: key === 'created' ? 'left' : key === 'details' ? 'right' : undefined })))
 const scopeFields = [['agent', 'agent'], ['tool', 'tool'], ['session', 'session_id'], ['turn', 'turn_id'], ['call', 'native_call_id'], ['user', 'user_scope'], ['receiver', 'receiver_instance'], ['inputDigest', 'input_digest'], ['attempt', 'attempt_nonce'], ['revision', 'policy_revision'], ['execution', 'execution_point']]
 const shortId = value => !value ? t('aidr.hooks.unknown') : value.length > 28 ? `${value.slice(0, 15)}…${value.slice(-9)}` : value

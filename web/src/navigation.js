@@ -51,7 +51,7 @@ export const navigationItems = [
       { key: '/model-gateway/providers', label: 'modelGateway.catalog.title', icon: 'api' },
       { key: '/model-gateway/policy-bindings', label: '组策略绑定', icon: 'team' },
       { key: '/model-gateway/policies', label: '隐私策略', icon: 'setting' },
-      { key: '/model-gateway/prompt-guard', label: 'Prompt 防护测试', icon: 'safety' },
+      { key: '/model-gateway/prompt-guard', label: 'promptGuard.title', icon: 'safety' },
       { key: '/model-gateway/skill-alerts', label: 'skillAlerts.menu', icon: 'safety' },
       { key: '/model-gateway/audit', label: '隐私审计', icon: 'audit' },
       { key: '/model-gateway/stats', label: 'Token 压缩统计', icon: 'barChart' },

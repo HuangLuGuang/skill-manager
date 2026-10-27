@@ -40,7 +40,7 @@ def test_non_object_configuration_is_rejected(client, monkeypatch, path, value):
 
 
 @pytest.mark.parametrize("group,field,values", [
-    ("llm", "timeout_seconds", [None, 0, -1, 30.6, 181, "30", True]),
+    ("llm", "timeout_seconds", [None, 0, -1, 4, 30.6, 601, "30", True]),
     ("llm", "max_files", [None, 0, -1, 1.5, 21]),
     ("llm", "max_manifest_chars", [1999, 50001, 2000.5]),
     ("llm", "max_file_chars", [499, 20001, 500.5]),
@@ -75,7 +75,9 @@ def test_invalid_values_have_localized_field_errors(client, group, field, values
 
 @pytest.mark.parametrize("group,payload", [
     ("llm", {"timeout_seconds": 5, "max_files": 1, "max_manifest_chars": 2000, "max_file_chars": 500}),
-    ("llm", {"timeout_seconds": 180, "max_files": 20, "max_manifest_chars": 50000, "max_file_chars": 20000}),
+    ("llm", {"timeout_seconds": 180}),
+    ("llm", {"timeout_seconds": 181}),
+    ("llm", {"timeout_seconds": 600, "max_files": 20, "max_manifest_chars": 50000, "max_file_chars": 20000}),
     ("sandbox", {"runtime": "docker", "timeout_seconds": 1, "pids_limit": 1, "memory_limit": "6m", "cpu_limit": "0.01"}),
     ("sandbox", {"runtime": "docker", "timeout_seconds": 300, "pids_limit": 1024, "memory_limit": "64G", "cpu_limit": "64"}),
     ("sandbox", {"runtime": "docker", "cpu_limit": "2.50", "image": "registry.local:5000/team/runtime:v1"}),

@@ -185,7 +185,9 @@ def _asset_instance(
     agent: models.ClientAgent,
     skills: list[models.ClientSkillInstall],
 ) -> schemas.AgentAssetInstance:
+    from backend.aidr_risk import risk_products
     return schemas.AgentAssetInstance(
+        risk_products=risk_products(agent.agent_type),
         client_id=client.client_id,
         client_name=client.name,
         hostname=client.hostname,

@@ -182,7 +182,7 @@
                   <div class="field-hint"><router-link to="/model-gateway/models">{{ t('policySettings.modelHint') }}</router-link></div>
                 </a-form-item>
                 <div class="form-grid">
-                  <a-form-item :label="t('policySettings.timeout')" v-bind="fieldProps('llm.timeout_seconds')"><ConfigIntegerInput :id="'advanced-llm.timeout_seconds'" v-model:value="llmForm.timeout_seconds" :min="5" :max="180" :step="1" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item :label="t('policySettings.timeout')" v-bind="fieldProps('llm.timeout_seconds')"><ConfigIntegerInput :id="'advanced-llm.timeout_seconds'" v-model:value="llmForm.timeout_seconds" :min="5" :max="600" :step="1" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
                   <a-form-item :label="t('policySettings.maxFiles')" v-bind="fieldProps('llm.max_files')"><ConfigIntegerInput :id="'advanced-llm.max_files'" v-model:value="llmForm.max_files" :min="1" :max="20" :step="1" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
                   <a-form-item :label="t('policySettings.maxManifestChars')" v-bind="fieldProps('llm.max_manifest_chars')"><ConfigIntegerInput :id="'advanced-llm.max_manifest_chars'" v-model:value="llmForm.max_manifest_chars" :min="2000" :max="50000" :step="1000" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
                   <a-form-item :label="t('policySettings.maxFileChars')" v-bind="fieldProps('llm.max_file_chars')"><ConfigIntegerInput :id="'advanced-llm.max_file_chars'" v-model:value="llmForm.max_file_chars" :min="500" :max="20000" :step="500" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
@@ -302,7 +302,7 @@ const formState = reactive({
   risk_classification: { ...defaultRiskClassification },
 })
 const llmForm = reactive({
-  enabled: false, model: '', timeout_seconds: 30,
+  enabled: false, model: '', timeout_seconds: 180,
   max_files: 6, max_file_chars: 3000, max_manifest_chars: 12000,
 })
 const sandboxForm = reactive({
@@ -470,7 +470,7 @@ const applyPolicy = policy => {
 const applyLlmConfig = (llm) => {
   llmForm.enabled = llm?.enabled ?? false
   llmForm.model = llm?.model || ''
-  llmForm.timeout_seconds = llm?.timeout_seconds ?? 30
+  llmForm.timeout_seconds = llm?.timeout_seconds ?? 180
   llmForm.max_files = llm?.max_files ?? 6
   llmForm.max_file_chars = llm?.max_file_chars ?? 3000
   llmForm.max_manifest_chars = llm?.max_manifest_chars ?? 12000

@@ -18,6 +18,27 @@ INDEXES = (
 )
 
 
+def test_startup_adds_mcp_audit_name_without_rewriting_history(tmp_path):
+    db_path = tmp_path / "mcp-upgrade.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    models.Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("ALTER TABLE mcp_call_audits DROP COLUMN token_name")
+        conn.exec_driver_sql("DROP INDEX ix_mcp_call_audits_created_id")
+        conn.exec_driver_sql("DROP INDEX ix_mcp_call_audits_duration_id")
+        conn.exec_driver_sql(
+            "INSERT INTO mcp_call_audits (request_id, token_id, gateway_slug, status, duration_ms, created_at) "
+            "VALUES ('historical-call', 25, 'example', 'success', 1, CURRENT_TIMESTAMP)"
+        )
+    startup_twice(tmp_path, db_path)
+    with engine.connect() as conn:
+        row = conn.exec_driver_sql("SELECT token_id, token_name FROM mcp_call_audits").one()
+        assert row == (25, None)
+        indexes = {item['name'] for item in inspect(conn).get_indexes('mcp_call_audits')}
+        assert {'ix_mcp_call_audits_created_id', 'ix_mcp_call_audits_duration_id'} <= indexes
+    engine.dispose()
+
+
 def seed_records(engine, prefix):
     with engine.begin() as conn:
         for number, value in enumerate(("shared-value", "shared-value", None)):

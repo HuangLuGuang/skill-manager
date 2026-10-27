@@ -78,7 +78,14 @@ func LoadConfig(home string) (Config, error) {
 	if err != nil {
 		return config, err
 	}
-	err = json.Unmarshal(body, &config)
+	return ParseConfig(body)
+}
+
+// ParseConfig normalizes the same configuration whether read from disk or from
+// an already validated private file.
+func ParseConfig(body []byte) (Config, error) {
+	var config Config
+	err := json.Unmarshal(body, &config)
 	if err == nil {
 		config.syncActiveConnection()
 	}
