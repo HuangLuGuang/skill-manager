@@ -498,11 +498,35 @@ AI receives text with recognized default and policy-specific privacy entities ma
 
 ### 检测规则配置
 
+防护设置按 9 个分类组织：提示注入与记忆投毒、隐私与机密泄露、权限与边界绕过、有害内容、歧视与排斥、商业滥用、资源与调用链滥用、医疗与金融风险、事实与信息完整性。分类开关同时控制本类文本匹配规则和 AI 判定，分类内 31 个 AI 判定项可逐项启停。AI 判定项开关只影响语义检测；文本规则仍使用各自开关。自定义文本规则归入创建时选中的分类，历史未分类规则归入提示注入类。
+
+分类模型留空时继承默认模型；使用相同模型的分类合并为一次调用，多个不同模型顺序调用并共享总超时预算。只有有启用判定项的分类才调用模型；全部关闭时记录 `skipped_categories_disabled`。每次结果保留分类配置、各模型调用状态及发现项的模型来源。部分模型失败时保留已完成发现项，阻断模式拒绝请求，告警/记录模式按原有失败策略处理。
+
+新增类别识别输入意图，不替代鉴权、记忆删除验证、资源限制或事实核查。明确攻击/有害生成可判高风险；歧视性断言、诊疗替代、投资保证或待核验前提可判中等风险，允许后续以纠正前提和风险说明安全回答。政治分歧、历史求证、正常讨论不自动视为攻击。模型返回未知类别、关闭的判定项或无效证据时记录格式失败；严重度大小写统一为稳定枚举。
+
+**Category configuration:** Nine categories organize text rules and 31 individually switchable AI checks. Disabling a category stops both its text rules and semantic checks. Individual AI switches do not disable text rules. New custom text rules belong to the selected category; historical uncategorized custom rules use Injection. A category model inherits the default when empty. Checks sharing a model are batched into one call; different models run sequentially within one total timeout budget. All checks disabled yields `skipped_categories_disabled`. Results retain configuration, per-model statuses and finding provenance. Partial failures retain successful findings and apply the existing failure policy.
+
+These checks classify intent rather than verifying permissions, memory erasure, resource isolation or factual truth. Biased assertions, professional risks and uncertain premises can receive MEDIUM for safe correction; disagreement, historical inquiry and ordinary discussion are not inherently attacks. Unknown/disabled rule codes or invalid evidence fail validation; severity casing is normalized.
+
 防护测试以结论摘要和命中卡片展示结果：风险类型、命中原因、原始输入片段及内容来源。AI 状态、模型、耗时和异常保留在结果详情中。命中输入为本次检测证据，不是模型生成回答。
+
+歧视、商业滥用、资源滥用、医疗金融风险及事实完整性分类提供 7 条默认关闭的内置文本规则，分别检查明确的性别排斥、伪造交易评价、秘密串通定价、无限调用且取消资源上限、替代就医开药、保证收益并借款全仓、捏造来源冒充真实新闻。管理员可逐条开启、修改表达式或恢复默认；恢复默认会重新关闭这 7 条规则。分类关闭时，即使单条规则已启用也不执行。AI 判定项的默认状态不受影响。
+
+这些文本规则只匹配有限的中英文直接请求表达，不承担完整语义识别或事实核验。前置背景、改写、否定、引用和跨句表达可能造成漏报或误报；建议结合正常业务样本验证后开启，并保留 AI 上下文判定。
+
+Seven opt-in text rules cover explicit gender exclusion, fake transactions/reviews, secret price fixing, unbounded tool calls, replacing medical care with prescriptions, guaranteed returns with borrowed all-in investment, and fabricated sources presented as real news. They are disabled by default; restoring defaults disables them again. Category switches also gate these rules. AI check defaults remain unchanged. These narrow Chinese/English patterns do not establish intent or verify facts; paraphrases, background context, negation and quotation can produce misses or false positives. Validate against normal business inputs before enabling them.
+
+“填入示例”按 9 个检测分类提供子菜单，另含正常场景，共 18 个示例。选择示例后填入当前界面语言的文本并清空旧结果，保留检测模式；点击“开始检测”后才执行检测，使用已保存的分类开关与模型配置。
+
+“Insert example” offers submenus for the nine detection categories plus normal scenarios, with 18 examples in total. Selecting an example fills text in the current interface language and clears previous results while preserving the detection mode. Detection runs only after clicking the start button and uses the saved category switches and model settings.
 
 Protection tests show an outcome summary and finding cards with risk type, reason, matched input and content source. Detection details retain AI status, model, timing and errors. Matched input is evidence from the inspected messages, not a generated model response.
 
 “Prompt 防护”使用“防护设置”和“防护测试”两个 Tab，当前 Tab 保存在 URL 的 `guardTab` 查询参数中。切换保留页面内配置草稿及测试文本；刷新读取已保存配置。AI 配置未保存时禁止综合测试，配置保存或规则变更后清空旧测试结果。
+
+文本匹配规则表格支持直接启停，操作立即保存，失败保留原状态；只读用户查看状态。AI、分类配置或规则编辑草稿未保存时，离开页面需确认；刷新或关闭浏览器使用浏览器原生提示。同页两个 Tab 切换保留草稿，不触发离开提示。
+
+Text-rule table switches save immediately and retain their previous state on failure; read-only users see status labels. Unsaved AI settings, category settings or rule-editor drafts trigger confirmation when leaving the page and the browser's native warning when refreshing or closing it. Switching between the two Prompt Guard tabs preserves drafts without a leave warning.
 
 “防护设置 / 检测规则”列出内置及自定义规则的名称、严重度、启用状态及配置来源。具有 `privacy:update` 权限的用户可编辑单条规则，保存后应用于后续测试和网关请求；仅有 `privacy:test` 权限的用户可以查看。启用状态、严重度和普通文本规则的正则表达式可以修改。保存过的规则配置命中使用所选严重度；恢复内置规则后重新采用原有上下文严重度判定。
 
