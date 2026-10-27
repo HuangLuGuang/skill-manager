@@ -1245,6 +1245,7 @@ class ModelProviderTestRequest(BaseModel):
 
 
 class ModelEndpointCreate(BaseModel):
+    supports_multimodal: bool = False
     guard_adapter: Literal["generic", "rsguard"] = "generic"
     provider_id: int
     name: Optional[str] = Field(default=None, max_length=128)
@@ -1257,6 +1258,7 @@ class ModelEndpointCreate(BaseModel):
 
 
 class ModelEndpointUpdate(BaseModel):
+    supports_multimodal: bool = False
     guard_adapter: Literal["generic", "rsguard"] = "generic"
     provider_id: Optional[int] = None
     name: Optional[str] = None
@@ -1269,6 +1271,7 @@ class ModelEndpointUpdate(BaseModel):
 
 
 class ModelEndpointResponse(BaseModel):
+    supports_multimodal: bool = False
     guard_adapter: Literal["generic", "rsguard"] = "generic"
     id: int
     provider_id: int

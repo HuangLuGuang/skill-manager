@@ -877,3 +877,17 @@ MCP 源码、动态和多轮红队任务从已启用的网关模型中选择评�
 `/api/v1/agent-security/worker/tasks/{task_id}/evaluator/v1/chat/completions`；
 Backend 校验任务所有者、租约、所选模型、预算和并发后复用模型网关隐私链路。供应商密钥不下发给 Worker。
 MCP 服务调用证据与模型推断分开保存，真实工具响应并不自动证明模型给出的漏洞判断成立。
+
+### 图片 Prompt 防护
+
+防护测试的“填入示例 → 图片检测”提供正常营业时间、提示注入、小字提示注入、贷款欺诈和保本收益承诺五张合成图片。选择后替换测试文字及附件，点击图片缩略图可放大预览、缩放及旋转，也可删除后再检测；选择纯文字示例会清除图片附件。示例不自动发起检测。
+
+**Image examples:** Protection Test → Insert example → Image detection includes five synthetic images: opening hours, prompt injection, small-text prompt injection, loan fraud and guaranteed returns. Selecting an example replaces the test text and attachments without running detection. Click an uploaded or example thumbnail to open a larger preview with zoom and rotation controls. Text-only examples clear image attachments.
+
+模型配置中的“支持多模态”标记图片输入能力，实际能力需用图片请求验证。后台启动自动为已有模型添加该字段，默认关闭。Prompt 防护可单独选择图片检测模型，要求支持图片的通用模型，复用供应商协议转换；文字检测模型和瑞数文字分类保持原有行为。图片检测使用通用 AI 分类、判定项及风险等级配置，图片与文字检测共享总超时。
+
+测试页支持最多 3 张 PNG/JPEG/WebP，每张 2 MB，可搭配文字或仅上传图片。网关沿用 Chat Completions 的 `image_url.url`，第一版只接受 Base64 data URL；图片网址或不支持的格式明确失败。调用凭据的请求体大小限制仍生效（Base64 大于原始文件），需按实际图文请求调整。图片原始像素不自动脱敏，会发送给图片检测供应商；文字仍使用原有脱敏。
+
+规则已阻断则跳过图片；AI 或防护关闭则不检查。需要检测图片而未配置可用模型、输出格式错误、超时等按现有失败策略处理，阻断模式拒绝，告警/记录模式放行并记录失败。`image_status` 区分无图片、未启用、跳过、完成和失败；图片发现项保存图片序号、模型视觉证据描述和风险，不伪装成已核验的文字原文子串。Prompt 检测结果不保存图片 Base64。图片不会在服务器本地执行 OCR 或下载远程地址。文档隐藏文本不在本阶段范围。
+
+**Image detection:** Mark a model as supporting multimodal input and select a generic image detector using the existing provider protocol adapter in Prompt Guard. Images use the generic enabled checks and configured risk levels within the shared timeout. Up to three inline Base64 PNG/JPEG/WebP images of 2 MB each are accepted; remote image URLs fail explicitly. Credential body-size limits still apply. Image pixels are sent to the selected provider without automatic redaction. Results distinguish completion, failure and skipping, and retain image indices and model-described visual evidence, without embedding image bytes in guard results. Existing failure policies apply. Hidden document text extraction is outside this implementation.
