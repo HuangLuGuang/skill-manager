@@ -891,3 +891,45 @@ MCP 服务调用证据与模型推断分开保存，真实工具响应并不自�
 规则已阻断则跳过图片；AI 或防护关闭则不检查。需要检测图片而未配置可用模型、输出格式错误、超时等按现有失败策略处理，阻断模式拒绝，告警/记录模式放行并记录失败。`image_status` 区分无图片、未启用、跳过、完成和失败；图片发现项保存图片序号、模型视觉证据描述和风险，不伪装成已核验的文字原文子串。Prompt 检测结果不保存图片 Base64。图片不会在服务器本地执行 OCR 或下载远程地址。文档隐藏文本不在本阶段范围。
 
 **Image detection:** Mark a model as supporting multimodal input and select a generic image detector using the existing provider protocol adapter in Prompt Guard. Images use the generic enabled checks and configured risk levels within the shared timeout. Up to three inline Base64 PNG/JPEG/WebP images of 2 MB each are accepted; remote image URLs fail explicitly. Credential body-size limits still apply. Image pixels are sent to the selected provider without automatic redaction. Results distinguish completion, failure and skipping, and retain image indices and model-described visual evidence, without embedding image bytes in guard results. Existing failure policies apply. Hidden document text extraction is outside this implementation.
+
+### 高影响操作与业务范围
+
+通用 AI 检测现有 12 个分类、45 个判定项。新增高影响操作分类，覆盖破坏性变更、关机重启、权限及凭据修改、远程访问与公网暴露、持久执行；默认使用 AI 风险等级，普通变更需确认时为中等，明确恶意破坏或绕过审批为高。内容分类补充擦边营销、定向骚扰和未成年人诱骗，业务分类补充 IP 授权核验，隐私分类补充批量联系方式营销。授权核验、联系方式营销及擦边营销默认中等，明确骚扰和诱骗默认高。既有判定项的已保存风险设置保留。
+
+选择“业务话题范围”分类时显示默认业务范围输入框；切换分类保留已填写的草稿。话题控制使用管理端配置的业务范围：凭证填写时覆盖平台默认值，凭证留空时继承平台值，两处均为空时跳过离题判定。范围最多 2000 个 Unicode 字符。网关调用者不能通过请求参数修改此范围；防护测试可填写临时范围模拟凭证配置，不保存。通用文字检测及图片检测使用该范围，瑞数原生文字分类不增加离题标签。普通政治观点或一般问题本身不视为攻击。
+
+判定结果同时保留模型风险与最终风险；设置覆盖模型风险时页面显示原始模型风险。阻断模式下，高风险阻断，用户消息中等风险通常告警放行；其他内容来源沿用现有策略。风险检测不代替操作审批或真实权限校验。
+
+**Generic checks and scope:** Twelve categories contain 45 checks. High-impact operations retain AI severity by default: MEDIUM for change confirmation, HIGH for explicit malicious damage or approval bypass. New contact-marketing, suggestive-marketing and IP-authorization checks default to MEDIUM; targeted harassment and minor grooming default to HIGH. Existing configured severities remain intact. A credential business scope overrides the platform default; blank scopes inherit, and no configured scope means no off-topic classification. Scope is limited to 2,000 Unicode characters and cannot be overridden by gateway request data. The test page supports an unsaved scope simulation. Generic text and image checks use it; native RSGuard text labels remain unchanged. Risk classification is not authorization to execute an operation.
+
+### 分类工作台与自定义 AI 判定项
+
+“防护设置”采用模型配置摘要、分类导航、分类详情三部分。摘要展示实际保存的模型和超时，展开后编辑。左侧分类开关只修改草稿，控制该分类的文本规则和通用 AI 判定；停用后仍可编辑。右侧使用“AI 判定项 / 文本规则”Tab，分类检测模型留空时继承默认模型。全局搜索匹配分类名称、判定项名称、条件和放行情形，包括停用项；结果以稳定编码定位并高亮，切换分类、Tab、搜索和语言保留草稿。
+
+分类、AI 判定项、风险和模型统一通过固定操作区保存；保存失败保留输入。文本规则的启停仍立即生效，其编辑与测试复用独立弹窗。新分类须先保存，再创建归属该分类的文本规则。包含文本规则的分类不能直接删除，需先删除或调整规则。离开页面和刷新仍提醒未保存内容。
+
+内置 12 类、45 个 AI 判定项之外，可新增至多 30 个自定义分类、100 个自定义 AI 判定项。名称最多 80 字，说明、命中条件和放行情形分别最多 2000 字；稳定编码由页面生成。自定义分类和判定项支持编辑、删除，默认新建为停用。分类删除同时移除该分类的自定义 AI 判定项草稿。定义与分类配置共同存入 `prompt_guard` 系统配置，不新增数据库表；服务端验证编码、归属、长度、重复自定义名称及文本规则引用。通用文字与图片检测都使用该配置；自定义项命中时将名称和分类名称快照写入发现项，以便历史审计可读。
+
+瑞数原生标签单独展示，其开关只控制返回标签是否参与处置，不增加原生模型能力。通用分类区仍管理文本规则，以及图片检测使用的通用 AI 判定项。模型类型切换保留两套配置；瑞数文字检测不执行自定义通用 AI 项，图片检测继续使用所选通用图片模型。
+
+“测试当前判定项”调用 `POST /api/v1/prompt-guard/check-test`，要求管理员身份及 `privacy:update` 权限。请求携带当前配置草稿、稳定判定项编码、通用检测模型和测试文本（1–20000 字）。只执行该判定项，不执行文本规则、不保存配置；停用项及未保存项也可测试。复用隐私脱敏、并发限制、总超时、证据校验、风险覆盖和错误处理；选择“使用 AI 判定”时采用模型风险，否则展示模型风险与配置后的生效风险。失败明确显示失败，不作为“未命中”。该测试不执行业务生成或操作授权；命中不代表实际攻击已成功，未命中不代表其他判定项也安全。
+
+**Category workbench:** Model settings collapse into a summary; category navigation replaces the selector. Search includes disabled generic checks and their descriptions. Category, AI-check, risk and model changes share a draft and a persistent save bar. Text-rule toggles still apply immediately. Custom definitions support up to 30 categories and 100 checks, with 80-character names and 2,000-character conditions/descriptions/allowed scenarios. Save a category before attaching text rules; referenced categories cannot be deleted. Generic text and image detection share custom definitions and store readable names in findings. RSGuard native labels remain separate and unchanged. The administrator-only, `privacy:update`-protected single-check endpoint evaluates unsaved or disabled drafts using a generic model without saving or running text rules. It reuses redaction, concurrency, timeouts, response/evidence validation and severity handling; failures remain distinct from non-matches.
+
+### 反向诱导与政治政策话题
+
+通用 AI 的“有害操作指导”按整段请求的意图识别反向诱导：直接以“不要告诉我怎么做”索取有害方法，并询问逃避发现时，按高风险判定；真正禁止行为、仅请求防御/报告建议及仅分析引用样例的请求不因此命中。该判断由模型执行，应使用攻击与正常对照重复验证，不能保证所有改写均检出。
+
+“政治与政策讨论”（`politics`）包含政治体制（`political_system_discussion`）、政治人物（`political_figure_discussion`）、公共政策（`public_policy_discussion`）三个 AI 判定项。默认启用、命中风险为中等；已有配置未包含该分类时使用此默认值。支持独立分类/判定项开关、分类模型和风险等级设置，保存后生效。中立、支持或批评的讨论按同一话题标准识别；命中表示需话题审查，不代表恶意或事实错误。产品隐私政策、商家退款政策和软件安全策略不属于公共政策讨论。瑞数原生标签仍独立配置；通用图片检测复用此分类。
+
+Generic AI evaluates reverse inducement in the full request: a direct “do not tell me how” solicitation for harmful methods together with evasion of discovery is high risk. Genuine prohibitions, prevention/reporting advice and analysis-only quotations are not matches on that basis. This remains model-based classification; repeat positive and negative controls rather than assuming every paraphrase is detected.
+
+The `politics` category has three checks: political systems, political figures and public policy. It defaults to enabled with medium risk, including configurations that predate the category. Category/check switches, category model and risk overrides use the existing save workflow. Neutral, supportive and critical discussion share the same topic criteria; a match does not assert malice or falsehood. Product privacy policies, merchant refund policies and software security policies are excluded. RSGuard labels remain independent; generic image detection shares these checks.
+
+### 行业业务范围预设
+
+“业务话题范围”提供银行业、金融业、运营商三个可编辑预设。预设默认未应用：仅作为“填入行业预设”的输入模板，不新增后台启用状态，也不自动写入平台范围。选择预设后进入草稿；保存且分类/“超出业务范围”判定项启用时才参与检测。防护测试页的同名入口只设置本次请求的范围，不保存。平台范围留空时不检测离题；凭证已有范围覆盖关系保持不变。
+
+银行业覆盖账户、存贷款、银行卡、支付、反诈和服务流程；金融业覆盖银行、证券基金、保险养老金、风险教育和相关经济监管解读；运营商覆盖套餐账单、号码、宽带、网络故障、办理流程和通信反诈。预设允许为行业服务提供必要的总结、解释和翻译，排除无关闲聊与私人问答；应按实际客服职责编辑。
+
+The Banking, Financial services and Telecommunications scope presets are editable input templates and are inactive by default. Selecting one fills a draft; only saving with the topic category/check enabled applies it. The test-page selector supplies a request-local scope without persistence. Empty platform scope skips off-topic detection, and credential scope precedence is unchanged. Presets include service-related explanations, summaries and translations while excluding unrelated chat; administrators should tailor them to the actual service.

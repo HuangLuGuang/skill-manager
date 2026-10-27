@@ -316,6 +316,9 @@
                 <div class="field-hint">{{ $t('credentials.rawPermissionsHint') }}</div>
               </a-form-item>
 
+              <a-form-item v-if="form.scopes.includes('model:chat')" :label="t('promptGuard.topicScope.credentialLabel')" :extra="t('promptGuard.topicScope.credentialHelp')" :validate-status="Array.from(form.prompt_guard_business_scope).length > 2000 ? 'error' : undefined" :help="Array.from(form.prompt_guard_business_scope).length > 2000 ? t('promptGuard.topicScope.invalid') : undefined">
+                <a-textarea v-model:value="form.prompt_guard_business_scope" :rows="3" />
+              </a-form-item>
               <template v-if="!editingRecord">
               <template v-if="form.scopes.includes('model:chat')">
                 <div class="advanced-subtitle">{{ $t('credentials.modelProtection') }}</div>
@@ -524,6 +527,7 @@ const form = reactive({
   enable_compression: false,
   compression_level: 'auto',
   prompt_guard_mode: 'log',
+  prompt_guard_business_scope: '',
   prompt_guard_llm_review: false,
   allow_agent_credential_issuance: false,
   allow_manual_credential_export: false,
@@ -751,6 +755,7 @@ const resetForm = (tokenType, defaults = {}) => {
     enable_compression: false,
     compression_level: 'auto',
     prompt_guard_mode: 'log',
+    prompt_guard_business_scope: '',
     prompt_guard_llm_review: false,
     allow_agent_credential_issuance: false,
     allow_manual_credential_export: false,
@@ -782,7 +787,7 @@ const selectScenario = (scenarioId, defaults = {}) => {
   createStage.value = 'config'
 }
 
-const permissionFields = ['scopes', 'allowed_models', 'allowed_mcp_gateways', 'allow_agent_credential_issuance', 'allow_manual_credential_export', 'privacy_policy_id']
+const permissionFields = ['scopes', 'allowed_models', 'allowed_mcp_gateways', 'allow_agent_credential_issuance', 'allow_manual_credential_export', 'privacy_policy_id', 'prompt_guard_business_scope']
 const openEdit = record => {
   if (creating.value || record.status === 'revoked') return
   if (record.token_type === 'openapi') {
@@ -792,7 +797,7 @@ const openEdit = record => {
   openCreate(record)
   editingRecord.value = { ...record }
   for (const field of permissionFields) {
-    form[field] = field === 'privacy_policy_id' ? record[field] || 0 : Array.isArray(record[field]) ? [...record[field]] : record[field]
+    form[field] = field === 'prompt_guard_business_scope' ? record[field] || '' : field === 'privacy_policy_id' ? record[field] || 0 : Array.isArray(record[field]) ? [...record[field]] : record[field]
   }
   form.agent_preset = Object.entries(agentScopePresets).find(([, scopes]) => sameScopes(form.scopes, scopes))?.[0] || 'custom'
   advancedSections.value = ['advanced']
@@ -897,6 +902,7 @@ const openCreateFromQuery = async () => {
 }
 const handleCreate = async () => {
   if (creating.value) return
+  if (Array.from(form.prompt_guard_business_scope || '').length > 2000) return message.warning(t('promptGuard.topicScope.invalid'))
   if (editingRecord.value) return savePermissions()
   if (!form.name.trim()) {
     message.warning(t('credentials.nameRequired'))
