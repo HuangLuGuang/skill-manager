@@ -73,6 +73,10 @@
         <a-input v-model:value="gatewayEndpoint" placeholder="http://localhost:8001/mcp/test" @change="resetConnection">
           <template #addonBefore>Endpoint</template>
         </a-input>
+        <a-form-item style="margin-top: 16px" :validate-status="gatewayTimeoutError ? 'error' : undefined" :help="gatewayTimeoutError ? t('mcpDebug.connectionTimeoutInvalid') : undefined">
+          <template #label><span>{{ t('mcpDebug.connectionTimeoutLabel') }}</span><a-tooltip :title="t('mcpDebug.connectionTimeoutHelp')"><QuestionCircleOutlined tabindex="0" :aria-label="t('mcpDebug.connectionTimeoutHelp')" style="margin-left: 6px" /></a-tooltip></template>
+          <a-input-number ref="gatewayTimeoutInput" v-model:value="gatewayTimeoutSeconds" :step="1" :aria-label="t('mcpDebug.connectionTimeoutLabel')" :aria-invalid="gatewayTimeoutError" @update:value="gatewayTimeoutChecked = true; resetConnection()" />
+        </a-form-item>
       </a-form>
 
       <a-space wrap style="margin-top: 16px">
@@ -169,7 +173,7 @@
               </a-space>
             </a-form>
             <a-collapse style="margin-top: 16px">
-              <a-collapse-panel key="schema" header="Input Schema"><pre>{{ pretty(selectedTool.inputSchema || {}) }}</pre></a-collapse-panel>
+              <a-collapse-panel key="schema" :header="t('mcpDebug.inputSchema')"><pre>{{ pretty(selectedTool.inputSchema || {}) }}</pre></a-collapse-panel>
               <a-collapse-panel v-if="callResult" key="result" :header="$t('legacy.uqgcyu')"><pre>{{ pretty(callResult) }}</pre></a-collapse-panel>
             </a-collapse>
           </template>
@@ -183,11 +187,11 @@
       <a-collapse v-else>
         <a-collapse-panel v-for="item in history" :key="item.key">
           <template #header>
-            <a-space><a-tag :color="item.ok ? 'green' : 'red'">{{ item.ok ? $t('legacy.1rraohc') : $t('legacy.12db3qz') }}</a-tag><span>{{ item.method }}</span><span class="muted">{{ item.duration }} ms · {{ item.time }}</span></a-space>
+            <a-space wrap><a-tag :color="item.ok ? 'green' : 'red'">{{ item.ok ? $t('legacy.1rraohc') : $t('legacy.12db3qz') }}</a-tag><span>{{ item.method }}</span><span class="muted">{{ formatDebugDuration(item.duration, t) }} · {{ item.time }}</span></a-space>
           </template>
           <a-row :gutter="16">
             <a-col :xs="24" :lg="12"><div class="json-title">Request</div><pre>{{ pretty(item.request) }}</pre></a-col>
-            <a-col :xs="24" :lg="12"><div class="json-title">Response</div><pre>{{ pretty(item.response) }}</pre></a-col>
+            <a-col :xs="24" :lg="12"><div class="json-title">Response</div><pre>{{ pretty(localizeDebugResponse(item.response, t)) }}</pre></a-col>
           </a-row>
         </a-collapse-panel>
       </a-collapse>
@@ -201,7 +205,7 @@
 import { getCurrentLocale, translateLegacy as phrase, translateText as text } from '../i18n'
 import { localizeApiError } from '../i18n/errors'
 
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
@@ -209,6 +213,7 @@ import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { debugMcpUpstream, listMcpGateways, listMcpServers } from '../api'
 import { copyText, promptManualCopy } from '../utils/clipboard'
 import { validateServiceEndpoint } from '../utils/serviceEndpoint'
+import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, validConnectionTimeout } from '../utils/mcpDebug'
 
 const { t } = useI18n()
 const targetMode = ref('service')
@@ -232,6 +237,11 @@ const gatewayTokenError = computed(() => {
   return /^[\x21-\x7e]+$/u.test(gatewayToken.value) ? '' : 'mcpDebug.gatewayCredentialInvalid'
 })
 const gatewayEndpoint = ref('')
+const gatewayTimeoutSeconds = ref(30)
+const gatewayTimeoutInput = ref(null)
+const gatewayTimeoutChecked = ref(false)
+const gatewayTimeoutError = computed(() => gatewayTimeoutChecked.value && !validConnectionTimeout(gatewayTimeoutSeconds.value))
+let connectionAttempt = null
 const connected = ref(false)
 const connecting = ref(false)
 const pinging = ref(false)
@@ -301,6 +311,10 @@ const resetArguments = () => {
 watch(selectedToolName, resetArguments)
 
 const resetConnection = () => {
+  // 配置变化后取消旧连接，避免旧结果覆盖当前目标。
+  connectionAttempt?.cancel()
+  connectionAttempt = null
+  connecting.value = false
   connected.value = false
   protocolVersion.value = ''
   tools.value = []
@@ -350,7 +364,7 @@ const serviceRequest = async (method, params) => {
   }
 }
 
-const gatewayRequest = async (method, params = {}, notification = false) => {
+const gatewayRequest = async (method, params = {}, notification = false, attempt) => {
   const requestId = notification ? undefined : ++requestSequence
   const payload = { jsonrpc: '2.0', ...(requestId === undefined ? {} : { id: requestId }), method, params }
   const started = performance.now()
@@ -358,6 +372,7 @@ const gatewayRequest = async (method, params = {}, notification = false) => {
   let ok = false
   try {
     const response = await fetch(gatewayEndpoint.value.trim(), {
+      signal: attempt?.signal,
       method: 'POST',
       headers: {
         Authorization: `Bearer ${gatewayToken.value.trim()}`,
@@ -381,8 +396,17 @@ const gatewayRequest = async (method, params = {}, notification = false) => {
     ok = true
     return responseData
   } catch (error) {
-    responseData ||= { error: error.message }
-    throw error
+    const reason = error?.message || String(error)
+    // 浏览器错误采用统一响应字段，原始异常与本次超时保存在参数中。
+    if (attempt?.signal.aborted && attempt.signal.reason === 'timeout') {
+      responseData = { error_code: 'mcp.debug.connection_timeout', error_params: { reason, timeout_seconds: attempt.seconds } }
+    } else if (error instanceof TypeError) {
+      responseData = { error_code: 'mcp.debug.network_failed', error_params: { reason } }
+    } else {
+      responseData ||= { error: reason }
+      throw error
+    }
+    throw new Error(localizeDebugResponse(responseData, t).detail)
   } finally {
     addHistory(method, payload, responseData, ok, Math.round(performance.now() - started))
   }
@@ -417,21 +441,36 @@ const connect = async () => {
       gatewayTokenInput.value?.focus()
       return
     }
+    gatewayTimeoutChecked.value = true
+    if (gatewayTimeoutError.value) {
+      gatewayTimeoutInput.value?.focus()
+      return
+    }
     if (!gatewaySlug.value || !gatewayEndpoint.value.trim()) return message.warning(phrase('legacy.1wfq6rv'))
   }
-  connecting.value = true
   resetConnection()
+  const isGateway = targetMode.value === 'gateway'
+  // 初始化、通知与发现共用一次预算，Tool 调用保持独立。
+  const attempt = createConnectionAttempt(isGateway ? gatewayTimeoutSeconds.value : undefined)
+  connectionAttempt = attempt
+  connecting.value = true
   try {
-    if (targetMode.value === 'gateway') {
+    if (isGateway) {
       const initialized = await gatewayRequest('initialize', {
         protocolVersion: '2025-11-25',
         capabilities: {},
         clientInfo: { name: 'agent-manager-debugger', version: '0.1.0' },
-      })
+      }, false, attempt)
+      attempt.signal.throwIfAborted()
       protocolVersion.value = initialized?.result?.protocolVersion || '2025-11-25'
-      await gatewayRequest('notifications/initialized', {}, true)
+      await gatewayRequest('notifications/initialized', {}, true, attempt)
+      attempt.signal.throwIfAborted()
     }
-    const listed = await request('tools/list')
+    const listed = isGateway
+      ? await gatewayRequest('tools/list', {}, false, attempt)
+      : await serviceRequest('tools/list')
+    if (connectionAttempt !== attempt) return
+    attempt.signal.throwIfAborted()
     tools.value = listed?.result?.tools || []
     selectedToolName.value = tools.value[0]?.name
     connected.value = true
@@ -440,9 +479,15 @@ const connect = async () => {
       `Connected. Discovered ${tools.value.length} Tools.`,
     ))
   } catch (error) {
-    message.error(error.response?.data?.detail || error.message || phrase('legacy.1pcchg2'))
+    if (connectionAttempt === attempt) {
+      message.error(error.response?.data?.detail || error.message || phrase('legacy.1pcchg2'))
+    }
   } finally {
-    connecting.value = false
+    attempt.dispose()
+    if (connectionAttempt === attempt) {
+      connectionAttempt = null
+      connecting.value = false
+    }
   }
 }
 
@@ -513,6 +558,8 @@ const copyClientConfig = async () => {
     promptManualCopy(configText, t('clipboard.manualCopyPrompt'))
   }
 }
+
+onUnmounted(resetConnection)
 
 onMounted(async () => {
   try {

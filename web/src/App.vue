@@ -73,7 +73,7 @@
         <a-layout-content ref="mainContent" class="app-content" :inert="narrowNavigation && !navigationCollapsed">
           <LicenseBanner />
           <!-- 响应式文案页面在切换语言时保留未保存输入和校验错误。 -->
-          <router-view :key="['/policy', '/license'].includes(route.path) ? route.path : locale" />
+          <router-view :key="['/policy', '/license', '/mcp-governance/debug'].includes(route.path) ? route.path : locale" />
         </a-layout-content>
       </a-layout>
 
