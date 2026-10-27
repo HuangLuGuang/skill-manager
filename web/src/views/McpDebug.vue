@@ -115,11 +115,22 @@
                 <template #label>
                   <a-space size="small">
                     <span>{{ field.schema.title || field.name }}</span>
+                    <a-tooltip v-if="field.kind === 'const'" :title="t('mcpDebug.constantValueHelp')">
+                      <QuestionCircleOutlined />
+                    </a-tooltip>
                     <a-tag v-if="!field.required">{{ $t("legacy.zflkxh") }}</a-tag>
                   </a-space>
                 </template>
+                <a-textarea
+                  v-if="field.kind === 'const'"
+                  :value="pretty(field.schema.const)"
+                  :aria-label="field.schema.title || field.name"
+                  :auto-size="{ minRows: 1, maxRows: 6 }"
+                  readonly
+                  class="code-input constant-value"
+                />
                 <a-select
-                  v-if="field.kind === 'enum'"
+                  v-else-if="field.kind === 'enum'"
                   v-model:value="argumentValues[field.name]"
                   allow-clear
                   :placeholder="field.schema.description || text(`请选择 ${field.name}`, `Select ${field.name}`)"
@@ -264,7 +275,8 @@ const toolFields = computed(() => {
   const required = new Set(schema.required || [])
   return Object.entries(schema.properties || {}).map(([name, fieldSchema]) => {
     let kind = 'string'
-    if (Array.isArray(fieldSchema.enum)) kind = 'enum'
+    if (Object.prototype.hasOwnProperty.call(fieldSchema, 'const')) kind = 'const'
+    else if (Array.isArray(fieldSchema.enum)) kind = 'enum'
     else if (fieldSchema.type === 'boolean') kind = 'boolean'
     else if (fieldSchema.type === 'number' || fieldSchema.type === 'integer') kind = 'number'
     else if (fieldSchema.type === 'array' && ['string', 'number', 'integer'].includes(fieldSchema.items?.type)) kind = 'array'
@@ -287,6 +299,8 @@ const serviceSecretHint = computed(() => {
 const pretty = value => JSON.stringify(value, null, 2)
 
 const exampleValue = schema => {
+  // const 是固定值约束，优先于 default，且允许 false、null 等值。
+  if (Object.prototype.hasOwnProperty.call(schema || {}, 'const')) return schema.const
   if (Object.prototype.hasOwnProperty.call(schema || {}, 'default')) return schema.default
   if (schema?.type === 'boolean') return false
   if (schema?.type === 'integer' || schema?.type === 'number') return 0
@@ -299,7 +313,7 @@ const resetArguments = () => {
   const complex = {}
   toolFields.value.forEach(field => {
     const hasDefault = Object.prototype.hasOwnProperty.call(field.schema, 'default')
-    if (!hasDefault && !field.required) return
+    if (field.kind !== 'const' && !hasDefault && !field.required) return
     const value = exampleValue(field.schema)
     if (field.kind === 'complex') complex[field.name] = pretty(value)
     else values[field.name] = value
@@ -504,6 +518,11 @@ const callTool = async () => {
   const args = {}
   try {
     for (const field of toolFields.value) {
+      // 固定值按原始 JSON 提交，避免空值判断或输入转换改变约束值。
+      if (field.kind === 'const') {
+        args[field.name] = field.schema.const
+        continue
+      }
       let value = field.kind === 'complex' ? complexArgumentTexts.value[field.name] : argumentValues.value[field.name]
       const empty = value === undefined || value === null || value === '' || (Array.isArray(value) && !value.length)
       if (empty) {
@@ -575,6 +594,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.constant-value { background: #f5f5f5; }
 .tool-list :deep(.ant-list-item) { cursor: pointer; padding: 12px; border-radius: 6px; }
 .tool-list :deep(.ant-list-item:hover), .tool-list :deep(.ant-list-item.selected) { background: #f0f5ff; }
 .tool-title { font-size: 16px; font-weight: 600; }

@@ -124,3 +124,78 @@ test('server and successful responses retain their original fields', () => {
     assert.equal(localizeDebugResponse(response, () => assert.fail('unexpected translation')), response)
   }
 })
+
+// 执行真实参数初始化及调用逻辑，只验证 Schema 到请求的契约，不挂载 UI。
+const parameterFieldsSource = source.slice(source.indexOf('const toolFields ='), source.indexOf('\nconst connectionLabel ='))
+const parameterDefaultsSource = source.slice(source.indexOf('const exampleValue ='), source.indexOf('\nwatch(selectedToolName'))
+const toolCallSource = source.slice(source.indexOf('const callTool ='), source.indexOf('\nconst copyClientConfig ='))
+const makeToolCall = schema => {
+  const sent = []
+  const warnings = []
+  const run = new Function('selectedTool', 'computed', 'request', 'message', 'text', 'phrase', `
+    const calling = { value: false }
+    const argumentValues = { value: {} }
+    const complexArgumentTexts = { value: {} }
+    const callResult = { value: null }
+    const pretty = value => JSON.stringify(value, null, 2)
+    ${parameterFieldsSource}
+    ${parameterDefaultsSource}
+    ${toolCallSource}
+    return { resetArguments, callTool, argumentValues, complexArgumentTexts, toolFields }
+  `)(
+    { value: { name: 'test_tool', inputSchema: schema } },
+    getter => ({ get value() { return getter() } }),
+    async (method, params) => { sent.push({ method, params }); return { result: {} } },
+    { warning: value => warnings.push(value), success: () => {}, error: assert.fail },
+    chinese => chinese, key => key,
+  )
+  run.resetArguments()
+  return { ...run, sent, warnings }
+}
+
+for (const value of [true, false, 0, '', null, 'fixed', [], [1, '2'], {}, { nested: [false, null] }]) {
+  for (const required of [true, false]) {
+    test(`const ${JSON.stringify(value)} survives initialization, reset and submission; required=${required}`, async () => {
+      const form = makeToolCall({
+        type: 'object',
+        properties: { confirm: { const: value, default: 'different', enum: ['different'] } },
+        required: required ? ['confirm'] : [],
+      })
+      assert.deepEqual(form.argumentValues.value.confirm, value)
+      assert.equal(form.toolFields.value[0].kind, 'const')
+      form.argumentValues.value.confirm = 'changed draft'
+      await form.callTool()
+      assert.deepEqual(form.sent[0], { method: 'tools/call', params: { name: 'test_tool', arguments: { confirm: value } } })
+      assert.deepEqual(form.warnings, [])
+      form.resetArguments()
+      assert.deepEqual(form.argumentValues.value.confirm, value)
+    })
+  }
+}
+
+test('ordinary arguments retain defaults, required checks and array/JSON conversion', async () => {
+  const form = makeToolCall({
+    type: 'object',
+    properties: {
+      confirm: { type: 'boolean', const: true },
+      name: { type: 'string' },
+      enabled: { type: 'boolean', default: false },
+      numbers: { type: 'array', items: { type: 'integer' } },
+      config: { type: 'object' },
+      optional: { type: 'string' },
+    },
+    required: ['confirm', 'name', 'numbers', 'config'],
+  })
+  await form.callTool()
+  assert.equal(form.sent.length, 0)
+  assert.equal(form.warnings.length, 1)
+  form.argumentValues.value.name = 'record'
+  form.argumentValues.value.numbers = ['1', '2']
+  form.complexArgumentTexts.value.config = '{"key":true}'
+  await form.callTool()
+  assert.deepEqual(form.sent[0].params.arguments, { confirm: true, name: 'record', enabled: false, numbers: [1, 2], config: { key: true } })
+  form.argumentValues.value.numbers = ['invalid']
+  await form.callTool()
+  assert.equal(form.sent.length, 1)
+  assert.equal(form.warnings.length, 2)
+})

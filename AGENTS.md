@@ -304,3 +304,5 @@ make sandbox-runtime-build
 - MCP Server 编辑时鉴权留空，保存前测试按 server_id 复用已保存凭证，Endpoint 的查询参数、路径或地址变化均与保存后发现一致；地址变化且复用非空已存凭证时通过 `iam.check` 校验 `mcp:update`，在调用上游前拒绝无编辑权限的请求；显式测试凭证仅用于本次请求，测试不写回配置。独立临时测试使用请求自身凭证。
 
 - MCP 上游超时及响应超限通过 `_upstream_limit_error` 分类，使用 `mcp.upstream_timeout` / `mcp.upstream_response_too_large` 和配置参数；超限使用 `McpResponseTooLargeError` 携带上限。网关保持 JSON-RPC `-32000`，稳定编码与参数放 `error.data`，按请求语言返回原因；MCP 调试发送当前语言并复用 `web/src/i18n/errors.js`，原始响应保留。直连调试、连接发现与调用审计复用分类，失败后释放并发租约。
+
+- MCP 调试参数按 JSON Schema 的 const 优先初始化和只读展示，重置及提交保留原始 JSON 值与类型，可选固定参数同样发送；固定值说明复用 mcpDebug.constantValueHelp 双语资源。
