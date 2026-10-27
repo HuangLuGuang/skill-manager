@@ -312,6 +312,7 @@ def _access_token_response(row: models.AccessToken, token: str | None = None) ->
         enable_compression=row.enable_compression,
         compression_level=row.compression_level,
         prompt_guard_mode=getattr(row, "prompt_guard_mode", "off"),
+        prompt_guard_business_scope=getattr(row, "prompt_guard_business_scope", ""),
         prompt_guard_llm_review=getattr(row, "prompt_guard_llm_review", False),
         created_by=row.created_by,
         created_at=row.created_at,
@@ -638,6 +639,7 @@ async def create_access_token(
         enable_compression=body.enable_compression,
         compression_level=body.compression_level,
         prompt_guard_mode=body.prompt_guard_mode,
+        prompt_guard_business_scope=body.prompt_guard_business_scope,
         prompt_guard_llm_review=body.prompt_guard_llm_review,
         created_by=current_user.username,
     )

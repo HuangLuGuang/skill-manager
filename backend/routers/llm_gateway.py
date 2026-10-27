@@ -26,9 +26,9 @@ from sqlalchemy.orm import Session, object_session
 from sqlalchemy.exc import IntegrityError
 
 from .. import auth, models, schemas, iam
-from ..prompt_guard import (CONFIG_KEY, EXTRA_RULES, OPTIONAL_RULES, DEFAULT_DISABLED_RULES, PromptGuardConfig, SemanticVerdict,
+from ..prompt_guard import (CONFIG_KEY, EXTRA_RULES, OPTIONAL_RULES, DEFAULT_DISABLED_RULES, PromptGuardConfig, PromptCheckTest, SemanticVerdict,
                             RULE_KEY_PREFIX, SPECIAL_RULES, PromptRuleConfig, PromptRuleTest,
-                            CATEGORIES, SEMANTIC_RULES, RULE_CATEGORIES, rule_category, semantic_prompt,
+                            RULE_CATEGORIES, rule_category, semantic_prompt, semantic_scope_prompt,
                             RSGUARD_CATEGORIES, parse_rsguard_response)
 from ..prompt_guard_images import collect_images, ImageVerdict
 from ..anthropic_compat import (
@@ -547,7 +547,7 @@ def _scan_prompt_security_rules(
         "sources": sources or [],
         "rules_status": "disabled" if mode == "off" else "completed",
         "rule_overrides": rule_settings,
-        "category_config": {key: guard_config.category_config(key).model_dump() for key in CATEGORIES},
+        "category_config": {key: guard_config.category_config(key).model_dump() for key in guard_config.category_ids()},
         "duration_ms": round((time.perf_counter() - started) * 1000, 2),
     }
 
@@ -641,7 +641,7 @@ quoted examples and defensive analysis are not inherently malicious. Do not inve
 Return ONLY JSON {"findings": []}. Each finding must contain category (an enabled rule code),
 severity (HIGH, MEDIUM or LOW), image_index (zero-based attachment index), evidence
 (a short visual description or visible text), and reason. Only report findings attributable to an image.
-""" + "\n".join(f"{rule}: {SEMANTIC_RULES[rule][1]}" for rule in rules) + f"\nReason language: {locale}"
+""" + semantic_scope_prompt(config.business_scope if "off_topic" in rules else "") + "\n" + "\n".join(f"{rule}: {config.semantic_rules()[rule][1]}" for rule in rules) + f"\nReason language: {locale}"
     content = [{"type": "text", "text": json.dumps({"messages": data, "image_message_indices": [i["message_index"] for i in images]}, ensure_ascii=False)}]
     content.extend({"type": "image_url", "image_url": {"url": i["url"]}} for i in images)
     reply = await _call_upstream(db, model, {"model": model.name, "stream": False,
@@ -659,8 +659,8 @@ severity (HIGH, MEDIUM or LOW), image_index (zero-based attachment index), evide
         if finding.category not in rules or finding.image_index >= len(images):
             raise ValueError("Invalid image finding")
         index = images[finding.image_index]["message_index"]
-        severity = config.category_config(RULE_CATEGORIES[finding.category]).rule_severities[finding.category]
-        findings.append({"rule": finding.category, "category": RULE_CATEGORIES[finding.category],
+        severity = config.category_config(config.semantic_rules()[finding.category][0]).rule_severities[finding.category]
+        findings.append({"rule": finding.category, **config.finding_metadata(finding.category), "category": config.semantic_rules()[finding.category][0],
             "severity": finding.severity if severity == "AI" else severity, "model_severity": finding.severity,
             "reason": finding.reason, "visual_evidence": finding.evidence, "image_index": finding.image_index,
             "message_index": index, "role": data[index]["role"], "source": data[index]["source"],
@@ -673,10 +673,15 @@ severity (HIGH, MEDIUM or LOW), image_index (zero-based attachment index), evide
     result["image_status"] = "completed"
 
 
-async def _evaluate_prompt_security(db, messages, *, mode, sources, locale="zh-CN", config=None, policy=None):
+async def _evaluate_prompt_security(db, messages, *, mode, sources, locale="zh-CN", config=None, policy=None, business_scope="", semantic_only=False):
     started = time.perf_counter()
     config = config or await run_db(db, _prompt_guard_config, db)
+    if business_scope.strip():
+        config = config.model_copy(update={"business_scope": business_scope.strip()})
     rule_settings = await run_db(db, _prompt_rule_settings, db)
+    if semantic_only:
+        rule_settings = {key: {**rule_settings.get(key, {}), "enabled": False}
+                         for key, *_ in _prompt_rule_definitions(rule_settings)}
     result = await run_sync(_scan_prompt_security, messages, mode=mode, sources=sources, rule_settings=rule_settings, guard_config=config)
     result.update(llm_review_enabled=config.enabled, llm_review_used=False,
                   llm_status="disabled", llm_duration_ms=0, llm_model=None)
@@ -730,7 +735,7 @@ async def _evaluate_prompt_security(db, messages, *, mode, sources, locale="zh-C
                                    ttl_seconds=config.timeout_seconds + 5, bind=db.get_bind())
             result["llm_usage"] = {}
             for model_id, rules in batches.items():
-                review = {"model_id": model_id, "adapter": adapter, "rules": rules, "categories": rules if adapter == "rsguard" else list(dict.fromkeys(RULE_CATEGORIES[r] for r in rules)), "status": "running"}
+                review = {"model_id": model_id, "adapter": adapter, "rules": rules, "categories": rules if adapter == "rsguard" else list(dict.fromkeys(config.semantic_rules()[r][0] for r in rules)), "status": "running"}
                 result["llm_reviews"].append(review)
                 model = await run_db(db, _prompt_guard_model, db, model_id)
                 review["model"] = model.name
@@ -772,7 +777,7 @@ async def _evaluate_prompt_security(db, messages, *, mode, sources, locale="zh-C
                 reply = await _call_upstream(db, model, {
                     "model": model.name, "stream": False,
                     "max_tokens": model.max_output_tokens or 2000,
-                    "messages": [{"role": "system", "content": semantic_prompt(rules) + f"\nReason language: {locale}"},
+                    "messages": [{"role": "system", "content": semantic_prompt(rules, config.business_scope, config.semantic_rules()) + f"\nReason language: {locale}"},
                                  {"role": "user", "content": json.dumps(data, ensure_ascii=False)}],
                 }, timeout_seconds=max(0.01, config.timeout_seconds - (time.perf_counter() - ai_started)), prompt_guard_review=True)
                 review["usage"] = reply.get("usage") or {}
@@ -786,8 +791,8 @@ async def _evaluate_prompt_security(db, messages, *, mode, sources, locale="zh-C
                     index = finding.message_index
                     if finding.category not in rules or index >= len(data) or finding.evidence not in data[index]["content"]:
                         raise ValueError("Invalid rule or evidence")
-                    severity = config.category_config(RULE_CATEGORIES[finding.category]).rule_severities[finding.category]
-                    findings.append({"rule": finding.category, "category": RULE_CATEGORIES[finding.category],
+                    severity = config.category_config(config.semantic_rules()[finding.category][0]).rule_severities[finding.category]
+                    findings.append({"rule": finding.category, **config.finding_metadata(finding.category), "category": config.semantic_rules()[finding.category][0],
                                      "severity": finding.severity if severity == "AI" else severity,
                                      "model_severity": finding.severity, "reason": finding.reason, "snippet": finding.evidence,
                                      "message_index": index, "role": data[index]["role"],
@@ -933,6 +938,7 @@ def _api_key_response(row: models.LlmApiKey, token: str | None = None) -> schema
         enable_compression=getattr(row, "enable_compression", False),
         compression_level=getattr(row, "compression_level", "auto"),
         prompt_guard_mode=getattr(row, "prompt_guard_mode", "off"),
+        prompt_guard_business_scope=getattr(row, "prompt_guard_business_scope", ""),
         prompt_guard_llm_review=getattr(row, "prompt_guard_llm_review", False),
         created_at=row.created_at,
         last_used_at=row.last_used_at,
@@ -2760,19 +2766,50 @@ async def test_prompt_guard(
 ):
     messages = [_strip_undefined_values(message.model_dump()) for message in body.messages]
     sources = _message_content_sources(messages, {})
-    return await _evaluate_prompt_security(db, messages, mode=body.mode, sources=sources, locale=request_locale(request))
+    return await _evaluate_prompt_security(db, messages, mode=body.mode, sources=sources, locale=request_locale(request), business_scope=body.business_scope)
 
 
 @admin_router.get("/prompt-guard/config")
 async def get_prompt_guard_config(db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     config = _prompt_guard_config(db)
-    return {**config.model_dump(), "categories": {key: config.category_config(key).model_dump() for key in CATEGORIES}}
+    return {**config.model_dump(), "categories": {key: config.category_config(key).model_dump() for key in config.category_ids()}}
 
 
 @admin_router.get("/prompt-guard/categories")
-async def list_prompt_categories(user=Depends(auth.get_current_admin_user)):
-    return [{"id": category, "rules": [rule for rule, (group, _) in SEMANTIC_RULES.items() if group == category]}
-            for category in CATEGORIES]
+async def list_prompt_categories(db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    config = _prompt_guard_config(db)
+    return [{"id": category, "rules": [rule for rule, (group, _) in config.semantic_rules().items() if group == category],
+             "custom": category in config.custom_categories,
+             **(config.custom_categories[category].model_dump() if category in config.custom_categories else {})}
+            for category in config.category_ids()]
+
+
+@admin_router.post("/prompt-guard/check-test")
+async def test_prompt_check(body: PromptCheckTest, request: Request,
+                            db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    iam.check(db, user, "privacy:update")
+    config = body.config.model_copy(deep=True)
+    catalog = config.semantic_rules()
+    if body.rule_id not in catalog:
+        raise ApiError(422, "prompt_guard.check_not_found", "判定项不存在", "AI check not found")
+    if not body.text.strip():
+        raise ApiError(422, "prompt_guard.rule_test_text", "请输入测试内容", "Enter test text")
+    if body.rule_id == "off_topic" and not config.business_scope.strip():
+        raise ApiError(422, "prompt_guard.scope_required", "请先填写业务范围", "Enter a business scope first")
+    model = _prompt_guard_model(db, body.model_id)
+    if model.guard_adapter != "generic":
+        raise ApiError(422, "prompt_guard.category_model_adapter", "单项测试需使用通用模型", "Single-check testing requires a generic model")
+    config.enabled = True
+    config.model_id = model.id
+    config.image_model_id = None
+    for category in config.category_ids():
+        settings = config.category_config(category)
+        settings.enabled = category == catalog[body.rule_id][0]
+        settings.model_id = model.id
+        settings.disabled_rules = [rule for rule, (group, _) in catalog.items() if group == category and rule != body.rule_id]
+        config.categories[category] = settings
+    return await _evaluate_prompt_security(db, [{"role": "user", "content": body.text}], mode="log",
+                                          sources=["user"], locale=request_locale(request), config=config, semantic_only=True)
 
 
 @admin_router.get("/prompt-guard/rsguard-categories")
@@ -2793,7 +2830,9 @@ def _prompt_rule_definition(rule_id, db=None):
     return rule
 
 
-def _validate_prompt_rule(rule_id, config):
+def _validate_prompt_rule(rule_id, config, db=None):
+    if db is not None and config.category is not None and config.category not in _prompt_guard_config(db).category_ids():
+        raise ApiError(422, "prompt_guard.category_not_found", "请先保存所属分类", "Save the category first")
     if rule_id.startswith("custom_"):
         if not config.name or not config.name.strip() or config.pattern is None:
             raise ApiError(422, "prompt_guard.rule_fields_required", "自定义规则需要名称和表达式", "Custom rules require a name and pattern")
@@ -2839,7 +2878,7 @@ async def create_prompt_rule(body: PromptRuleConfig, request: Request,
                              db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     iam.check(db, user, "privacy:update")
     rule_id = "custom_" + uuid.uuid4().hex
-    _validate_prompt_rule(rule_id, body)
+    _validate_prompt_rule(rule_id, body, db)
     db.add(models.SystemConfig(key=RULE_KEY_PREFIX + rule_id, value=body.model_dump_json()))
     iam.audit(db, request, user, "privacy", "create", RULE_KEY_PREFIX + rule_id, after=body.model_dump())
     iam.commit(db)
@@ -2850,7 +2889,7 @@ async def create_prompt_rule(body: PromptRuleConfig, request: Request,
 async def test_new_prompt_rule(body: PromptRuleTest, db: Session = Depends(get_db),
                                user=Depends(auth.get_current_admin_user)):
     iam.check(db, user, "privacy:update")
-    _validate_prompt_rule("custom_draft", body.config)
+    _validate_prompt_rule("custom_draft", body.config, db)
     overrides = _prompt_rule_settings(db)
     overrides["custom_draft"] = body.config.model_dump()
     return await run_sync(_scan_prompt_security, [{"role": body.source, "content": body.text}],
@@ -2862,7 +2901,7 @@ async def save_prompt_rule(rule_id: str, body: PromptRuleConfig, request: Reques
                            db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     iam.check(db, user, "privacy:update")
     _prompt_rule_definition(rule_id, db)
-    _validate_prompt_rule(rule_id, body)
+    _validate_prompt_rule(rule_id, body, db)
     row = db.get(models.SystemConfig, RULE_KEY_PREFIX + rule_id)
     before = json.loads(row.value) if row else None
     if row is None:
@@ -2894,7 +2933,7 @@ async def test_prompt_rule(rule_id: str, body: PromptRuleTest, db: Session = Dep
                            user=Depends(auth.get_current_admin_user)):
     iam.check(db, user, "privacy:update")
     _prompt_rule_definition(rule_id, db)
-    _validate_prompt_rule(rule_id, body.config)
+    _validate_prompt_rule(rule_id, body.config, db)
     overrides = _prompt_rule_settings(db)
     overrides[rule_id] = body.config.model_dump()
     # Only the selected rule reports findings; decoding still uses the effective rule set.
@@ -2911,6 +2950,9 @@ async def save_prompt_guard_config(body: PromptGuardConfig, request: Request,
     if body.model_id is not None and body.model_id != before["model_id"]:
         _prompt_guard_model(db, body.model_id)
     previous = PromptGuardConfig.model_validate(before)
+    settings = _prompt_rule_settings(db)
+    if any(rule_category(key, settings) not in body.category_ids() for key in settings):
+        raise ApiError(422, "prompt_guard.category_in_use", "分类仍有文本规则，请先删除或调整规则", "Category still contains text rules; remove or move them first")
     for category, value in body.categories.items():
         if value.model_id is not None and value.model_id != previous.category_config(category).model_id:
             _prompt_guard_model(db, value.model_id)
@@ -4001,6 +4043,7 @@ async def _execute_chat_completions_with_key(
     prompt_security = await _evaluate_prompt_security(
         db, messages, mode=_prompt_guard_mode(key),
         sources=_message_content_sources(messages, payload.metadata), policy=policy, locale=locale,
+        business_scope=getattr(key, "prompt_guard_business_scope", "") or "",
     )
     execute = await run_db(
         db, _prepare_chat_completions, payload, response, key, db,

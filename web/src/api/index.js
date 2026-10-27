@@ -501,3 +501,5 @@ export const testNewPromptGuardRule = data => api.post("/v1/prompt-guard/rules/t
 
 export const getPromptGuardCategories = () => api.get('/v1/prompt-guard/categories')
 export const getRsGuardCategories = () => api.get('/v1/prompt-guard/rsguard-categories')
+
+export const testPromptGuardCheck = data => api.post('/v1/prompt-guard/check-test', data, { timeout: 195000 })

@@ -525,6 +525,7 @@ class AgentAssetListResponse(BaseModel):
 
 
 class AccessTokenCreate(BaseModel):
+    prompt_guard_business_scope: str = Field(default="", max_length=2000)
     privacy_policy_id: Optional[int] = Field(default=None, gt=0)
     platform_id: Optional[str] = Field(default=None, max_length=64)
     allowed_department_ids: list[str] = Field(default_factory=list)
@@ -552,6 +553,7 @@ class AccessTokenCreate(BaseModel):
 
 
 class AccessTokenUpdate(BaseModel):
+    prompt_guard_business_scope: str = Field(default="", max_length=2000)
     privacy_policy_id: Optional[int] = Field(default=None, gt=0)
     allowed_department_ids: Optional[list[str]] = None
     name: Optional[str] = None
@@ -578,6 +580,7 @@ class AccessTokenUpdate(BaseModel):
 
 
 class AccessTokenResponse(BaseModel):
+    prompt_guard_business_scope: str = ""
     privacy_policy_id: Optional[int] = None
     platform_id: Optional[str] = None
     allowed_department_ids: list[str] = Field(default_factory=list)
@@ -1288,6 +1291,7 @@ class ModelEndpointResponse(BaseModel):
 
 
 class LlmApiKeyCreate(BaseModel):
+    prompt_guard_business_scope: str = Field(default="", max_length=2000)
     name: str
     allowed_models: list[str] = []
     expires_at: Optional[datetime] = None
@@ -1300,6 +1304,7 @@ class LlmApiKeyCreate(BaseModel):
 
 
 class LlmApiKeyUpdate(BaseModel):
+    prompt_guard_business_scope: str = Field(default="", max_length=2000)
     name: Optional[str] = None
     user_id: Optional[int] = None
     group_id: Optional[int] = None
@@ -1315,6 +1320,7 @@ class LlmApiKeyUpdate(BaseModel):
 
 
 class LlmApiKeyResponse(BaseModel):
+    prompt_guard_business_scope: str = ""
     id: int
     name: str
     key_prefix: str
@@ -1498,6 +1504,7 @@ class AnthropicMessagesRequest(BaseModel):
 
 
 class PromptGuardTestRequest(BaseModel):
+    business_scope: str = Field(default="", max_length=2000)
     mode: str = Field(default="log", pattern="^(off|log|warn|block)$")
     messages: list[ChatMessage]
     llm_review: bool = False

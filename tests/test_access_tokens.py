@@ -122,6 +122,7 @@ def test_create_access_token_returns_plaintext_once_and_lists_masked_record(tmp_
         "/api/v1/access/tokens",
         json={
             "name": "risk-agent-runtime",
+            "prompt_guard_business_scope": "banking",
             "token_type": "agent_runtime",
             "bound_agent_id": "risk-agent",
             "scopes": ["runtime:can-load"],
@@ -136,11 +137,16 @@ def test_create_access_token_returns_plaintext_once_and_lists_masked_record(tmp_
     assert body["record"]["bound_agent_id"] == "risk-agent"
     assert body["record"]["scopes"] == ["runtime:can-load"]
     assert body["record"]["prompt_guard_mode"] == "log"
+    assert body["record"]["prompt_guard_business_scope"] == "banking"
 
     listed = client.get("/api/v1/access/tokens")
     assert listed.status_code == 200
     rows = listed.json()["items"]
     assert len(rows) == 1
+    assert rows[0]["prompt_guard_business_scope"] == "banking"
+    updated = client.put(f"/api/v1/access/tokens/{body['record']['id']}", json={"prompt_guard_business_scope": "insurance"})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["prompt_guard_business_scope"] == "insurance"
     assert rows[0]["token"] is None
     assert rows[0]["token_hash"] is None
     assert rows[0]["token_prefix"] == body["record"]["token_prefix"]

@@ -128,6 +128,7 @@ class ModelEndpoint(Base):
 
 
 class LlmApiKey(Base):
+    prompt_guard_business_scope = Column(Text, default="", server_default="", nullable=False)
     __tablename__ = "llm_api_keys"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -151,6 +152,7 @@ class LlmApiKey(Base):
 
 
 class AccessToken(Base):
+    prompt_guard_business_scope = Column(Text, default="", server_default="", nullable=False)
     __tablename__ = "access_tokens"
     __table_args__ = {"sqlite_autoincrement": True}
     platform_id = Column(String(64), index=True, nullable=True)
