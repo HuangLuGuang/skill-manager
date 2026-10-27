@@ -8,7 +8,7 @@
     </div>
     <p class="rules-hint">{{ t('promptGuard.ruleEditor.hint') }}</p>
     <a-alert v-if="loadFailed" type="error" :message="t('promptGuard.ruleEditor.loadFailed')" show-icon />
-    <a-table size="small" row-key="id" :columns="columns" :data-source="visibleRules" :loading="loading" :scroll="{ x: 650 }" :pagination="{ pageSize: 10, showSizeChanger: false }">
+    <a-table size="small" row-key="id" :columns="columns" :data-source="visibleRules" :loading="loading" :scroll="{ x: 650 }" :pagination="{ pageSize: 10, showSizeChanger: false, hideOnSinglePage: true }">
       <template v-if="category && !loading && !loadFailed" #emptyText>
         {{ t('promptGuard.ruleEditor.categoryEmpty') }}
       </template>

@@ -282,7 +282,14 @@
             </a-row>
             <p class="muted">{{ t('promptGuard.scope') }}</p>
             <p class="muted">{{ t('promptGuard.failure') }}</p>
-            <PromptGuardCategories v-model="guardConfig.categories" :catalog="guardCategories" :model-options="guardModelOptions" :editable="hasAccess('privacy:update')" :disabled="guardConfigBusy || loading || guardConfigError" @busy="guardRuleBusy = $event" @changed="promptGuardResult = null" @dirty="guardRuleDirty = $event" />
+            <section v-if="isRsGuard" class="rs-guard-settings">
+              <strong>{{ t('promptGuard.rsguard.title') }}</strong>
+              <p class="muted">{{ t('promptGuard.rsguard.help') }}</p>
+              <a-space wrap>
+                <a-checkbox v-for="category in rsGuardCategories" :key="category.id" :checked="!guardConfig.rsguard_disabled_categories.includes(category.id)" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" @change="event => toggleRsCategory(category.id, event.target.checked)">{{ t(`promptGuard.rsguard.categories.${category.id}`) }}</a-checkbox>
+              </a-space>
+            </section>
+            <PromptGuardCategories v-model="guardConfig.categories" :catalog="guardCategories" :model-options="genericGuardModelOptions" :semantic="!isRsGuard" :editable="hasAccess('privacy:update')" :disabled="guardConfigBusy || loading || guardConfigError" @busy="guardRuleBusy = $event" @changed="promptGuardResult = null" @dirty="guardRuleDirty = $event" />
             <a-space v-if="hasAccess('privacy:update')" wrap>
               <a-button :loading="guardConfigOperation === 'test'" :disabled="guardConfigBusy || loading || guardConfigError" @click="submitGuardConfig('test')">{{ t('promptGuard.testModel') }}</a-button>
               <a-button type="primary" :loading="guardConfigOperation === 'save'" :disabled="guardConfigBusy || loading || guardConfigError" @click="submitGuardConfig('save')">{{ t('promptGuard.save') }}</a-button>
@@ -345,26 +352,35 @@
                     </a-space>
                     <span class="muted">{{ t('promptGuard.findingCount', { count: promptGuardResult.findings_count || 0 }) }}</span>
                   </div>
-                  <a-empty v-if="!promptGuardResult.findings?.length" :description="t(promptGuardResult.error_code || promptGuardResult.llm_error_code ? 'promptGuard.noFindingsIncomplete' : 'promptGuard.noFindings')" />
+                  <a-empty v-if="!promptGuardResult.findings?.length" :description="t(promptGuardResult.error_code || promptGuardResult.llm_error_code ? 'promptGuard.noFindingsIncomplete' : promptGuardResult.llm_adapter === 'rsguard' ? 'promptGuard.rsguard.noEnabledFindings' : 'promptGuard.noFindings')" />
                   <article v-for="(item, index) in promptGuardResult.findings || []" :key="index" class="prompt-finding">
                     <div class="prompt-finding-heading">
-                      <strong>{{ item.rule_name || promptRuleLabel(item.rule) }}</strong>
+                      <strong>{{ item.adapter === 'rsguard' ? t(`promptGuard.rsguard.categories.${item.category}`) : item.rule_name || promptRuleLabel(item.rule) }}</strong>
                       <a-space wrap size="small">
                         <a-tag :color="promptRiskColor(item.severity)">{{ promptRiskLabel(item.severity) }}</a-tag>
-                        <a-tag>{{ t(item.detector === 'llm' ? 'promptGuard.ai' : 'promptGuard.rule') }}</a-tag>
+                        <a-tag>{{ t(item.adapter === 'rsguard' ? 'promptGuard.rsguard.title' : item.detector === 'llm' ? 'promptGuard.ai' : 'promptGuard.rule') }}</a-tag>
                       </a-space>
                     </div>
                     <dl class="prompt-finding-evidence">
-                      <dt>{{ t('promptGuard.findingReason') }}</dt>
+                      <template v-if="item.adapter !== 'rsguard'"><dt>{{ t('promptGuard.findingReason') }}</dt>
                       <dd>{{ item.detector === 'llm' || item.rule_name ? item.reason : t('promptGuard.ruleMatchReason', { rule: promptRuleLabel(item.rule) }) }}</dd>
                       <dt>{{ t('promptGuard.matchedInput') }}</dt>
-                      <dd><pre class="prompt-evidence-text">{{ item.snippet }}</pre></dd>
-                      <template v-if="item.category"><dt>{{ t('promptGuard.categorySettings.category') }}</dt><dd>{{ t(`promptGuard.categories.${item.category}`) }}</dd></template>
+                      <dd><pre class="prompt-evidence-text">{{ item.snippet }}</pre></dd></template>
+                      <template v-else><dt>{{ t('promptGuard.rsguard.verdict') }}</dt><dd>{{ t(`promptGuard.rsguard.states.${item.safety}`) }}</dd></template>
+                      <template v-if="item.category"><dt>{{ t('promptGuard.categorySettings.category') }}</dt><dd>{{ t(item.adapter === 'rsguard' ? `promptGuard.rsguard.categories.${item.category}` : `promptGuard.categories.${item.category}`) }}</dd></template>
                       <template v-if="item.model"><dt>{{ t('promptGuard.model') }}</dt><dd>{{ item.model }}</dd></template>
                       <dt>{{ t('promptGuard.contentSource') }}</dt>
                       <dd>{{ promptSourceLabel(item.source || item.role) }}</dd>
                     </dl>
                   </article>
+                  <template v-for="(review, reviewIndex) in promptGuardResult.llm_reviews || []" :key="reviewIndex">
+                    <a-descriptions v-for="verdict in review.verdicts || []" :key="verdict.message_index" size="small" :column="1" :title="t('promptGuard.rsguard.title')">
+                      <a-descriptions-item :label="t('promptGuard.model')">{{ review.model }}</a-descriptions-item>
+                      <a-descriptions-item :label="t('promptGuard.contentSource')">{{ promptSourceLabel(verdict.source) }} · {{ t('promptGuard.rsguard.message', { number: verdict.message_index + 1 }) }}</a-descriptions-item>
+                      <a-descriptions-item :label="t('promptGuard.rsguard.verdict')">{{ t(`promptGuard.rsguard.states.${verdict.safety}`) }}</a-descriptions-item>
+                      <a-descriptions-item :label="t('promptGuard.rsguard.rawLabels')">{{ verdict.raw_safety }} / {{ verdict.raw_categories }}</a-descriptions-item>
+                    </a-descriptions>
+                  </template>
                   <a-descriptions class="prompt-result-metadata" size="small" :column="{ xs: 1, sm: 2 }">
                     <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ promptGuardResult.duration_ms || 0 }} ms</a-descriptions-item>
                     <a-descriptions-item :label="t('promptGuard.status')">{{ te(`promptGuard.statuses.${promptGuardResult.llm_status}`) ? t(`promptGuard.statuses.${promptGuardResult.llm_status}`) : t('promptGuard.statuses.unknown') }}</a-descriptions-item>
@@ -532,6 +548,9 @@
         <a-form-item :label="$t('modelGateway.catalog.upstreamName')" required><a-input v-model:value="modelForm.upstream_name" /></a-form-item>
         <a-form-item :label="$t('modelGateway.catalog.gatewayName')" :extra="$t('modelGateway.catalog.gatewayNameHelp')"><a-input v-model:value="modelForm.name" :disabled="!!editingModelId" :placeholder="$t('modelGateway.catalog.gatewayNameAuto')" /></a-form-item>
         <a-form-item :label="$t('legacy.1m2bn1g')"><a-input v-model:value="modelForm.display_name" /></a-form-item>
+        <a-form-item :label="t('promptGuard.adapter.label')" :extra="t(`promptGuard.adapter.help.${modelForm.guard_adapter}`)">
+          <a-select v-model:value="modelForm.guard_adapter" :options="['generic', 'rsguard'].map(value => ({ value, label: t(`promptGuard.adapter.${value}`) }))" />
+        </a-form-item>
         <a-form-item :label="$t('legacy.wbvjnl')"><a-input-number v-model:value="modelForm.context_window" style="width: 100%" /></a-form-item>
         <a-form-item :label="$t('legacy.rvvikw')"><a-input-number v-model:value="modelForm.max_output_tokens" style="width: 100%" /></a-form-item>
         <a-space>
@@ -778,7 +797,7 @@ import {
   savePrivacyPolicy,
   setDefaultPrivacyPolicy,
   testPromptGuard,
-  getPromptGuardCategories, getPromptGuardConfig,
+  getPromptGuardCategories, getRsGuardCategories, getPromptGuardConfig,
   savePromptGuardConfig,
   testPromptGuardModel,
   testModelProvider,
@@ -977,7 +996,7 @@ const providerTestForm = reactive({ model: '' })
 const providerTestModelOptions = computed(() => models.value
   .filter(item => item.provider_id === providerUnderTest.value?.id && item.enabled)
   .map(item => ({ value: item.upstream_name || item.name })))
-const modelForm = reactive({ provider_id: null, name: '', upstream_name: '', display_name: '', enabled: true, context_window: null, max_output_tokens: null, is_default: false })
+const modelForm = reactive({ provider_id: null, name: '', upstream_name: '', display_name: '', guard_adapter: 'generic', enabled: true, context_window: null, max_output_tokens: null, is_default: false })
 const keyForm = reactive({
   name: '',
   allowed_models: [],
@@ -1001,14 +1020,21 @@ const promptGuardForm = reactive({
 })
 const promptGuardResult = ref(null)
 const testingPromptGuard = ref(false)
-const guardConfig = reactive({ enabled: false, model_id: null, timeout_seconds: 15, categories: {} })
+const guardConfig = reactive({ enabled: false, model_id: null, timeout_seconds: 180, categories: {}, rsguard_disabled_categories: [] })
 const guardCategories = ref([])
+const rsGuardCategories = ref([])
+const isRsGuard = computed(() => models.value.find(item => item.id === guardConfig.model_id)?.guard_adapter === 'rsguard')
+const genericGuardModelOptions = computed(() => guardModelOptions.value.filter(option => models.value.find(item => item.id === option.value)?.guard_adapter !== 'rsguard'))
+const toggleRsCategory = (key, enabled) => {
+  guardConfig.rsguard_disabled_categories = enabled ? guardConfig.rsguard_disabled_categories.filter(item => item !== key) : [...guardConfig.rsguard_disabled_categories, key]
+}
 const savedGuardConfig = ref(null)
 const guardConfigDirty = computed(() => savedGuardConfig.value !== null && (
   guardConfig.enabled !== savedGuardConfig.value.enabled ||
   (guardConfig.model_id ?? null) !== savedGuardConfig.value.model_id ||
   guardConfig.timeout_seconds !== savedGuardConfig.value.timeout_seconds ||
-  JSON.stringify(guardConfig.categories) !== JSON.stringify(savedGuardConfig.value.categories)
+  JSON.stringify(guardConfig.categories) !== JSON.stringify(savedGuardConfig.value.categories) ||
+  JSON.stringify(guardConfig.rsguard_disabled_categories) !== JSON.stringify(savedGuardConfig.value.rsguard_disabled_categories || [])
 ))
 watch(guardConfig, () => { promptGuardResult.value = null }, { deep: true })
 const guardConfigOperation = ref('')
@@ -1036,8 +1062,8 @@ const guardModelOptions = computed(() => models.value.filter(item => item.enable
 const guardErrorLabel = code => te(`promptGuard.errors.${String(code).split('.').pop()}`) ? t(`promptGuard.errors.${String(code).split('.').pop()}`) : t('promptGuard.testFailed')
 const submitGuardConfig = async operation => {
   if (guardConfigBusy.value) return
-  guardErrors.model = (guardConfig.enabled || operation === 'test') && guardCategories.value.some(group => { const config = guardConfig.categories[group.id]; return config?.enabled !== false && group.rules.some(rule => !config?.disabled_rules?.includes(rule)) && !config?.model_id && !guardConfig.model_id }) ? 'promptGuard.modelRequired' : ''
-  guardErrors.timeout = Number.isInteger(guardConfig.timeout_seconds) && guardConfig.timeout_seconds >= 1 && guardConfig.timeout_seconds <= 120 ? '' : 'promptGuard.timeoutInvalid'
+  guardErrors.model = (guardConfig.enabled || operation === 'test') && !isRsGuard.value && guardCategories.value.some(group => { const config = guardConfig.categories[group.id]; return config?.enabled !== false && group.rules.some(rule => !config?.disabled_rules?.includes(rule)) && !config?.model_id && !guardConfig.model_id }) ? 'promptGuard.modelRequired' : ''
+  guardErrors.timeout = Number.isInteger(guardConfig.timeout_seconds) && guardConfig.timeout_seconds >= 1 && guardConfig.timeout_seconds <= 180 ? '' : 'promptGuard.timeoutInvalid'
   if (guardErrors.model || guardErrors.timeout) return
   guardConfigOperation.value = operation
   try {
@@ -1195,7 +1221,7 @@ const loadAll = async () => {
       if (sequence === loadSequence) groups.value = data
       return
     }
-    const [providerRes, modelRes, keyRes, groupRes, policyRes, statRes, mappingRes, guardRes, guardCategoryRes] = await Promise.all([
+    const [providerRes, modelRes, keyRes, groupRes, policyRes, statRes, mappingRes, guardRes, guardCategoryRes, rsCategoryRes] = await Promise.all([
       ['providers', 'prompt-guard'].includes(tab) && can('providers:view') ? listModelProviders() : Promise.resolve([]),
       ['providers', 'keys', 'prompt-guard'].includes(tab) && can('models:view') ? listModelEndpoints() : Promise.resolve([]),
       tab === 'keys' && can('credentials:view') ? listLlmApiKeys() : Promise.resolve([]),
@@ -1205,9 +1231,11 @@ const loadAll = async () => {
       tab === 'audit' && can('privacy_audit:raw') ? listPrivacyMappings({ page: mappingQuery.page, page_size: mappingQuery.page_size, q: mappingQuery.q || undefined }) : Promise.resolve({}),
       tab === 'prompt-guard' ? getPromptGuardConfig() : Promise.resolve(null),
       tab === 'prompt-guard' ? getPromptGuardCategories() : Promise.resolve([]),
+      tab === 'prompt-guard' ? getRsGuardCategories() : Promise.resolve([]),
     ])
     if (sequence !== loadSequence) return
     guardCategories.value = guardCategoryRes
+    rsGuardCategories.value = rsCategoryRes
     if (guardRes) {
       savedGuardConfig.value = JSON.parse(JSON.stringify(guardRes))
       Object.assign(guardConfig, guardRes)
@@ -1398,6 +1426,7 @@ const openModel = (record = null, providerId = null) => {
     provider_id: record?.provider_id || providerId || providers.value[0]?.id || null,
     name: record?.name || '',
     display_name: record?.display_name || '',
+    guard_adapter: record?.guard_adapter || 'generic',
     upstream_name: record?.upstream_name || record?.name || '',
     enabled: record?.enabled ?? true,
     context_window: record?.context_window || null,

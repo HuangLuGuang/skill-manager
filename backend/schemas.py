@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
 from .client_assets import ClientAssetInventory
@@ -1245,6 +1245,7 @@ class ModelProviderTestRequest(BaseModel):
 
 
 class ModelEndpointCreate(BaseModel):
+    guard_adapter: Literal["generic", "rsguard"] = "generic"
     provider_id: int
     name: Optional[str] = Field(default=None, max_length=128)
     upstream_name: Optional[str] = Field(default=None, max_length=128)
@@ -1256,6 +1257,7 @@ class ModelEndpointCreate(BaseModel):
 
 
 class ModelEndpointUpdate(BaseModel):
+    guard_adapter: Literal["generic", "rsguard"] = "generic"
     provider_id: Optional[int] = None
     name: Optional[str] = None
     upstream_name: Optional[str] = Field(default=None, max_length=128)
@@ -1267,6 +1269,7 @@ class ModelEndpointUpdate(BaseModel):
 
 
 class ModelEndpointResponse(BaseModel):
+    guard_adapter: Literal["generic", "rsguard"] = "generic"
     id: int
     provider_id: int
     provider_name: Optional[str] = None
