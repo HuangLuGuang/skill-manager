@@ -277,18 +277,18 @@
           <a-form layout="vertical" :model="guardConfig">
             <a-row :gutter="16">
               <a-col :xs="24" :md="6"><a-form-item :label="t('promptGuard.enabled')"><a-switch v-model:checked="guardConfig.enabled" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" /></a-form-item></a-col>
-              <a-col :xs="24" :md="12"><a-form-item :label="t('promptGuard.model')" :validate-status="guardErrors.model ? 'error' : undefined" :help="guardErrors.model ? t(guardErrors.model) : undefined"><a-select v-model:value="guardConfig.model_id" :options="guardModelOptions" allow-clear show-search option-filter-prop="label" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" /></a-form-item></a-col>
+              <a-col :xs="24" :md="12"><a-form-item :label="t('promptGuard.defaultModel')" :validate-status="guardErrors.model ? 'error' : undefined" :help="guardErrors.model ? t(guardErrors.model) : undefined"><a-select v-model:value="guardConfig.model_id" :options="guardModelOptions" allow-clear show-search option-filter-prop="label" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" /></a-form-item></a-col>
               <a-col :xs="24" :md="6"><a-form-item :label="t('promptGuard.timeout')" :validate-status="guardErrors.timeout ? 'error' : undefined" :help="guardErrors.timeout ? t(guardErrors.timeout) : undefined"><a-input-number v-model:value="guardConfig.timeout_seconds" :step="1" :disabled="guardConfigBusy || loading || guardConfigError || !hasAccess('privacy:update')" style="width: 100%" /></a-form-item></a-col>
             </a-row>
             <p class="muted">{{ t('promptGuard.scope') }}</p>
             <p class="muted">{{ t('promptGuard.failure') }}</p>
+            <PromptGuardCategories v-model="guardConfig.categories" :catalog="guardCategories" :model-options="guardModelOptions" :editable="hasAccess('privacy:update')" :disabled="guardConfigBusy || loading || guardConfigError" @busy="guardRuleBusy = $event" @changed="promptGuardResult = null" @dirty="guardRuleDirty = $event" />
             <a-space v-if="hasAccess('privacy:update')" wrap>
               <a-button :loading="guardConfigOperation === 'test'" :disabled="guardConfigBusy || loading || guardConfigError" @click="submitGuardConfig('test')">{{ t('promptGuard.testModel') }}</a-button>
               <a-button type="primary" :loading="guardConfigOperation === 'save'" :disabled="guardConfigBusy || loading || guardConfigError" @click="submitGuardConfig('save')">{{ t('promptGuard.save') }}</a-button>
             </a-space>
           </a-form>
-          <a-divider />
-          <PromptGuardRules :editable="hasAccess('privacy:update')" :disabled="guardConfigBusy || loading" @busy="guardRuleBusy = $event" @changed="promptGuardResult = null" />
+
           </a-tab-pane>
           <a-tab-pane key="test" :tab="t('promptGuard.testTab')" force-render>
           <a-alert v-if="guardConfigDirty" type="warning" show-icon :message="t('promptGuard.unsaved')" />
@@ -310,9 +310,9 @@
                       <a-button size="small" type="link" :disabled="testingPromptGuard" aria-haspopup="menu">{{ t('promptGuard.samples.fill') }} <DownOutlined /></a-button>
                       <template #overlay>
                         <a-menu @click="({ key }) => fillPromptGuardSample(key)">
-                          <a-menu-item-group v-for="group in promptSampleGroups" :key="group.key" :title="t(`promptGuard.samples.${group.key}`)">
+                          <a-sub-menu v-for="group in promptSampleGroups" :key="group.key" :title="t(group.key === 'normal' ? 'promptGuard.samples.normal' : `promptGuard.categories.${group.key}`)">
                             <a-menu-item v-for="key in group.items" :key="key">{{ t(`promptGuard.samples.items.${key}.label`) }}</a-menu-item>
-                          </a-menu-item-group>
+                          </a-sub-menu>
                         </a-menu>
                       </template>
                     </a-dropdown>
@@ -359,6 +359,8 @@
                       <dd>{{ item.detector === 'llm' || item.rule_name ? item.reason : t('promptGuard.ruleMatchReason', { rule: promptRuleLabel(item.rule) }) }}</dd>
                       <dt>{{ t('promptGuard.matchedInput') }}</dt>
                       <dd><pre class="prompt-evidence-text">{{ item.snippet }}</pre></dd>
+                      <template v-if="item.category"><dt>{{ t('promptGuard.categorySettings.category') }}</dt><dd>{{ t(`promptGuard.categories.${item.category}`) }}</dd></template>
+                      <template v-if="item.model"><dt>{{ t('promptGuard.model') }}</dt><dd>{{ item.model }}</dd></template>
                       <dt>{{ t('promptGuard.contentSource') }}</dt>
                       <dd>{{ promptSourceLabel(item.source || item.role) }}</dd>
                     </dl>
@@ -737,14 +739,14 @@
 </template>
 
 <script setup>
-import PromptGuardRules from '../components/PromptGuardRules.vue'
+import PromptGuardCategories from '../components/PromptGuardCategories.vue'
 import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
 import { can } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 import { ApiOutlined, DeleteOutlined, DownOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RightOutlined, StarFilled } from '@ant-design/icons-vue'
@@ -776,7 +778,7 @@ import {
   savePrivacyPolicy,
   setDefaultPrivacyPolicy,
   testPromptGuard,
-  getPromptGuardConfig,
+  getPromptGuardCategories, getPromptGuardConfig,
   savePromptGuardConfig,
   testPromptGuardModel,
   testModelProvider,
@@ -999,16 +1001,34 @@ const promptGuardForm = reactive({
 })
 const promptGuardResult = ref(null)
 const testingPromptGuard = ref(false)
-const guardConfig = reactive({ enabled: false, model_id: null, timeout_seconds: 15 })
+const guardConfig = reactive({ enabled: false, model_id: null, timeout_seconds: 15, categories: {} })
+const guardCategories = ref([])
 const savedGuardConfig = ref(null)
 const guardConfigDirty = computed(() => savedGuardConfig.value !== null && (
   guardConfig.enabled !== savedGuardConfig.value.enabled ||
   (guardConfig.model_id ?? null) !== savedGuardConfig.value.model_id ||
-  guardConfig.timeout_seconds !== savedGuardConfig.value.timeout_seconds
+  guardConfig.timeout_seconds !== savedGuardConfig.value.timeout_seconds ||
+  JSON.stringify(guardConfig.categories) !== JSON.stringify(savedGuardConfig.value.categories)
 ))
-watch(() => [guardConfig.enabled, guardConfig.model_id, guardConfig.timeout_seconds], () => { promptGuardResult.value = null })
+watch(guardConfig, () => { promptGuardResult.value = null }, { deep: true })
 const guardConfigOperation = ref('')
 const guardRuleBusy = ref(false)
+const guardRuleDirty = ref(false)
+const guardHasUnsavedChanges = computed(() => activeTab.value === 'prompt-guard' && (guardConfigDirty.value || guardRuleDirty.value))
+const confirmGuardLeave = () => !guardHasUnsavedChanges.value || window.confirm(t('promptGuard.leaveConfirm'))
+onBeforeRouteLeave(confirmGuardLeave)
+onBeforeRouteUpdate((to, from) => to.meta.gatewayTab === from.meta.gatewayTab || confirmGuardLeave())
+const handleGuardBeforeUnload = event => {
+  if (!guardHasUnsavedChanges.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+watch(guardHasUnsavedChanges, dirty => {
+  if (dirty) window.addEventListener('beforeunload', handleGuardBeforeUnload)
+  else window.removeEventListener('beforeunload', handleGuardBeforeUnload)
+})
+onUnmounted(() => window.removeEventListener('beforeunload', handleGuardBeforeUnload))
+
 const guardConfigBusy = computed(() => Boolean(guardConfigOperation.value) || testingPromptGuard.value || guardRuleBusy.value)
 const guardConfigError = ref(false)
 const guardErrors = reactive({ model: '', timeout: '' })
@@ -1016,7 +1036,7 @@ const guardModelOptions = computed(() => models.value.filter(item => item.enable
 const guardErrorLabel = code => te(`promptGuard.errors.${String(code).split('.').pop()}`) ? t(`promptGuard.errors.${String(code).split('.').pop()}`) : t('promptGuard.testFailed')
 const submitGuardConfig = async operation => {
   if (guardConfigBusy.value) return
-  guardErrors.model = (guardConfig.enabled || operation === 'test') && !guardConfig.model_id ? 'promptGuard.modelRequired' : ''
+  guardErrors.model = (guardConfig.enabled || operation === 'test') && guardCategories.value.some(group => { const config = guardConfig.categories[group.id]; return config?.enabled !== false && group.rules.some(rule => !config?.disabled_rules?.includes(rule)) && !config?.model_id && !guardConfig.model_id }) ? 'promptGuard.modelRequired' : ''
   guardErrors.timeout = Number.isInteger(guardConfig.timeout_seconds) && guardConfig.timeout_seconds >= 1 && guardConfig.timeout_seconds <= 120 ? '' : 'promptGuard.timeoutInvalid'
   if (guardErrors.model || guardErrors.timeout) return
   guardConfigOperation.value = operation
@@ -1024,13 +1044,13 @@ const submitGuardConfig = async operation => {
     const payload = { ...guardConfig, model_id: guardConfig.model_id ?? null }
     if (operation === 'save') {
       const saved = await savePromptGuardConfig(payload)
-      savedGuardConfig.value = { ...saved }
+      savedGuardConfig.value = JSON.parse(JSON.stringify(saved))
       Object.assign(guardConfig, saved)
       promptGuardResult.value = null
       message.success(t('promptGuard.saved'))
     } else {
       const result = await testPromptGuardModel(payload)
-      if (result.llm_status === 'completed') message.success(t('promptGuard.modelReady'))
+      if (['completed', 'skipped_categories_disabled'].includes(result.llm_status)) message.success(t(result.llm_status === 'completed' ? 'promptGuard.modelReady' : 'promptGuard.statuses.skipped_categories_disabled'))
       else message.error(guardErrorLabel(result.llm_error_code))
     }
   } catch (error) {
@@ -1130,7 +1150,15 @@ const runPromptGuardTest = async () => {
 }
 
 const promptSampleGroups = [
-  { key: 'attacks', items: ['roleplay', 'override', 'systemLeak', 'secrets', 'privilege', 'encoded'] },
+  { key: 'injection', items: ['roleplay', 'override', 'encoded', 'memory'] },
+  { key: 'privacy', items: ['systemLeak', 'secrets'] },
+  { key: 'access', items: ['privilege'] },
+  { key: 'content', items: ['harmful'] },
+  { key: 'discrimination', items: ['hiring'] },
+  { key: 'business', items: ['fakeReviews', 'collusion'] },
+  { key: 'resources', items: ['unboundedCalls'] },
+  { key: 'professional', items: ['diagnosis', 'investment'] },
+  { key: 'facts', items: ['fabrication'] },
   { key: 'normal', items: ['writing', 'security', 'fiction'] },
 ]
 const fillPromptGuardSample = key => {
@@ -1167,7 +1195,7 @@ const loadAll = async () => {
       if (sequence === loadSequence) groups.value = data
       return
     }
-    const [providerRes, modelRes, keyRes, groupRes, policyRes, statRes, mappingRes, guardRes] = await Promise.all([
+    const [providerRes, modelRes, keyRes, groupRes, policyRes, statRes, mappingRes, guardRes, guardCategoryRes] = await Promise.all([
       ['providers', 'prompt-guard'].includes(tab) && can('providers:view') ? listModelProviders() : Promise.resolve([]),
       ['providers', 'keys', 'prompt-guard'].includes(tab) && can('models:view') ? listModelEndpoints() : Promise.resolve([]),
       tab === 'keys' && can('credentials:view') ? listLlmApiKeys() : Promise.resolve([]),
@@ -1176,10 +1204,12 @@ const loadAll = async () => {
       showGatewayStats.value && can('privacy_audit:view') ? getPrivacyStats() : Promise.resolve({}),
       tab === 'audit' && can('privacy_audit:raw') ? listPrivacyMappings({ page: mappingQuery.page, page_size: mappingQuery.page_size, q: mappingQuery.q || undefined }) : Promise.resolve({}),
       tab === 'prompt-guard' ? getPromptGuardConfig() : Promise.resolve(null),
+      tab === 'prompt-guard' ? getPromptGuardCategories() : Promise.resolve([]),
     ])
     if (sequence !== loadSequence) return
+    guardCategories.value = guardCategoryRes
     if (guardRes) {
-      savedGuardConfig.value = { ...guardRes }
+      savedGuardConfig.value = JSON.parse(JSON.stringify(guardRes))
       Object.assign(guardConfig, guardRes)
     }
     providers.value = providerRes
