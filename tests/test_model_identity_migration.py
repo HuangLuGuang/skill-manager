@@ -16,10 +16,11 @@ def test_model_identity_migration_preserves_names_and_is_idempotent(tmp_path, mo
     migrate_compression.migrate()
     migrate_compression.migrate()
     with engine.begin() as conn:
+        assert conn.exec_driver_sql("SELECT guard_adapter FROM model_endpoints").scalar_one() == "generic"
         assert conn.exec_driver_sql("SELECT name, upstream_name FROM model_endpoints").one() == ("glm-original", "glm-original")
-        conn.exec_driver_sql("INSERT INTO model_endpoints VALUES (2, 2, 'other/glm-original', 'glm-original')")
+        conn.exec_driver_sql("INSERT INTO model_endpoints (id, provider_id, name, upstream_name) VALUES (2, 2, 'other/glm-original', 'glm-original')")
     with pytest.raises(IntegrityError), engine.begin() as conn:
-        conn.exec_driver_sql("INSERT INTO model_endpoints VALUES (3, 2, 'duplicate', 'glm-original')")
+        conn.exec_driver_sql("INSERT INTO model_endpoints (id, provider_id, name, upstream_name) VALUES (3, 2, 'duplicate', 'glm-original')")
 
 
 def test_model_provider_migration_removes_legacy_required_compression_column(tmp_path, monkeypatch):

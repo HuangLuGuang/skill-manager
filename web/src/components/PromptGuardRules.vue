@@ -3,16 +3,19 @@
     <div class="rules-heading">
       <strong>{{ t('promptGuard.ruleEditor.title') }}</strong>
       <a-space wrap>
-      <a-button v-if="editable" size="small" type="primary" :disabled="loading || loadFailed || disabled || Boolean(operation)" @click="openRule({ custom: true, enabled: true, severity: 'HIGH', pattern: '', name: '', description: '', pattern_editable: true })">{{ t('promptGuard.ruleEditor.add') }}</a-button>
+      <a-button v-if="editable" size="small" type="primary" :disabled="loading || loadFailed || disabled || Boolean(operation)" @click="openRule({ custom: true, enabled: true, severity: 'HIGH', pattern: '', name: '', description: '', pattern_editable: true, category })">{{ t('promptGuard.ruleEditor.add') }}</a-button>
       <a-button size="small" :loading="loading" :disabled="loading || disabled || Boolean(operation)" @click="loadRules">{{ t('promptGuard.ruleEditor.refresh') }}</a-button></a-space>
     </div>
     <p class="rules-hint">{{ t('promptGuard.ruleEditor.hint') }}</p>
     <a-alert v-if="loadFailed" type="error" :message="t('promptGuard.ruleEditor.loadFailed')" show-icon />
-    <a-table size="small" row-key="id" :columns="columns" :data-source="rules" :loading="loading" :scroll="{ x: 650 }" :pagination="{ pageSize: 10, showSizeChanger: false }">
+    <a-table size="small" row-key="id" :columns="columns" :data-source="visibleRules" :loading="loading" :scroll="{ x: 650 }" :pagination="{ pageSize: 10, showSizeChanger: false, hideOnSinglePage: true }">
+      <template v-if="category && !loading && !loadFailed" #emptyText>
+        {{ t('promptGuard.ruleEditor.categoryEmpty') }}
+      </template>
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'name'"><span class="rule-name">{{ ruleName(record) }}</span></template>
         <template v-else-if="column.key === 'severity'">{{ t(`promptGuard.ruleEditor.severityValues.${record.severity}`) }}</template>
-        <template v-else-if="column.key === 'enabled'"><a-tag :color="record.enabled ? 'green' : 'default'">{{ t(record.enabled ? 'promptGuard.ruleEditor.enabled' : 'promptGuard.ruleEditor.disabled') }}</a-tag></template>
+        <template v-else-if="column.key === 'enabled'"><a-switch v-if="editable" :checked="record.enabled" :checked-children="t('promptGuard.ruleEditor.enabled')" :un-checked-children="t('promptGuard.ruleEditor.disabled')" :aria-label="ruleName(record)" :loading="operation === `toggle:${record.id}`" :disabled="disabled || loading || Boolean(operation)" @change="value => toggleEnabled(record, value)" /><a-tag v-else :color="record.enabled ? 'green' : 'default'">{{ t(record.enabled ? 'promptGuard.ruleEditor.enabled' : 'promptGuard.ruleEditor.disabled') }}</a-tag></template>
         <template v-else-if="column.key === 'modified'">{{ t(record.custom ? 'promptGuard.ruleEditor.customRule' : (record.modified ? 'promptGuard.ruleEditor.custom' : 'promptGuard.ruleEditor.builtin')) }}</template>
         <template v-else-if="column.key === 'actions'"><a-button type="link" size="small" :disabled="disabled || loading || Boolean(operation)" @click="openRule(record)">{{ t(editable ? 'promptGuard.ruleEditor.edit' : 'promptGuard.ruleEditor.view') }}</a-button></template>
       </template>
@@ -34,6 +37,7 @@
         <p class="rules-hint">{{ t('promptGuard.ruleEditor.severityHelp') }}</p>
         <a-alert v-if="editorError" type="error" :message="editorError" show-icon />
         <template v-if="editable">
+          <p class="rules-hint">{{ t('promptGuard.ruleEditor.testHelp') }}</p>
           <a-form-item :label="t('promptGuard.ruleEditor.testText')"><a-textarea v-model:value="testText" :rows="3" :disabled="disabled || Boolean(operation)" /></a-form-item>
           <a-row :gutter="16">
             <a-col :span="12"><a-form-item :label="t('promptGuard.ruleEditor.mode')"><a-select v-model:value="testMode" :options="modeOptions" :disabled="disabled || Boolean(operation)" /></a-form-item></a-col>
@@ -66,17 +70,20 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 import { createPromptGuardRule, testNewPromptGuardRule, listPromptGuardRules, savePromptGuardRule, restorePromptGuardRule, testPromptGuardRule } from '../api'
 
-const props = defineProps({ editable: Boolean, disabled: Boolean })
-const emit = defineEmits(['changed', 'busy'])
+const props = defineProps({ editable: Boolean, disabled: Boolean, category: { type: String, default: '' } })
+const emit = defineEmits(['changed', 'busy', 'dirty'])
 const { t, te } = useI18n()
 const rules = ref([]), loading = ref(false), loadFailed = ref(false)
+const visibleRules = computed(() => props.category ? rules.value.filter(rule => rule.category === props.category) : rules.value)
 const visible = ref(false), selected = ref(null), operation = ref('')
 const draft = reactive({ enabled: true, severity: 'HIGH', pattern: '', name: '', description: '' })
+const savedDraft = ref('')
+watch(() => visible.value && JSON.stringify(draft) !== savedDraft.value, value => emit('dirty', value))
 const testText = ref(''), testMode = ref('block'), testSource = ref('user'), testResult = ref(null)
 const editorErrorCode = ref(''), editorErrorDetail = ref(''), attempted = ref(false)
 const errorLabel = code => te(`promptGuard.errors.${String(code).split('.').pop()}`) ? t(`promptGuard.errors.${String(code).split('.').pop()}`) : t('promptGuard.ruleEditor.failed')
@@ -109,6 +116,7 @@ const loadRules = async () => {
 const openRule = rule => {
   selected.value = rule
   Object.assign(draft, { enabled: rule.enabled, severity: rule.severity, pattern: rule.pattern, name: rule.name || '', description: rule.description || '' })
+  savedDraft.value = JSON.stringify(draft)
   testText.value = ''
   testResult.value = null
   editorErrorCode.value = ''
@@ -117,6 +125,24 @@ const openRule = rule => {
   visible.value = true
 }
 const closeRule = () => { if (!operation.value) visible.value = false }
+const toggleEnabled = async (rule, enabled) => {
+  if (operation.value || loading.value || props.disabled || !props.editable) return
+  operation.value = `toggle:${rule.id}`
+  emit('busy', true)
+  try {
+    const config = { enabled, severity: rule.severity, pattern: rule.pattern_editable ? rule.pattern : null }
+    if (rule.custom) Object.assign(config, { name: rule.name, description: rule.description, category: rule.category })
+    const updated = await savePromptGuardRule(rule.id, config)
+    rules.value = rules.value.map(item => item.id === updated.id ? updated : item)
+    emit('changed')
+    message.success(t('promptGuard.saved'))
+  } catch (error) {
+    message.error(error.response?.data?.error_code ? errorLabel(error.response.data.error_code) : t('promptGuard.ruleEditor.failed'))
+  } finally {
+    operation.value = ''
+    emit('busy', false)
+  }
+}
 const submit = async action => {
   if (operation.value || props.disabled || !props.editable) return
   attempted.value = !['restore', 'delete'].includes(action)
@@ -131,7 +157,7 @@ const submit = async action => {
   editorErrorDetail.value = ''
   try {
     const config = { enabled: draft.enabled, severity: draft.severity, pattern: selected.value.pattern_editable ? draft.pattern : null }
-    if (selected.value.custom) Object.assign(config, { name: draft.name, description: draft.description })
+    if (selected.value.custom) Object.assign(config, { name: draft.name, description: draft.description, category: selected.value.category || props.category || 'injection' })
     if (action === 'test') {
       const payload = { config, text: testText.value, mode: testMode.value, source: testSource.value }
       testResult.value = selected.value.id ? await testPromptGuardRule(selected.value.id, payload) : await testNewPromptGuardRule(payload)
@@ -154,6 +180,7 @@ const submit = async action => {
   }
 }
 onMounted(loadRules)
+onUnmounted(() => emit('dirty', false))
 </script>
 
 <style scoped>

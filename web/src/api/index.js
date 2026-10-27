@@ -498,3 +498,6 @@ export const previewSecurityRules = (id, body) => api.post(`${securityRulesPath(
 
 export const createPromptGuardRule = data => api.post("/v1/prompt-guard/rules", data)
 export const testNewPromptGuardRule = data => api.post("/v1/prompt-guard/rules/test", data)
+
+export const getPromptGuardCategories = () => api.get('/v1/prompt-guard/categories')
+export const getRsGuardCategories = () => api.get('/v1/prompt-guard/rsguard-categories')
