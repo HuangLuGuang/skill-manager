@@ -1783,7 +1783,7 @@ def _version_summary(
         else any(event.event_type == "skill_rescan_requested" for event in events)
     )
     rescanned = (
-        len(runs) > 1
+        sum(run.status != "REUSED" for run in runs) > 1
         or effective_processing_count > 1
         or effective_rescan_requested
     )

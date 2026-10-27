@@ -302,3 +302,9 @@ make sandbox-runtime-build
 - MCP Server 编辑时鉴权留空，保存前测试按 server_id 复用已保存凭证，Endpoint 的查询参数、路径或地址变化均与保存后发现一致；地址变化且复用非空已存凭证时通过 `iam.check` 校验 `mcp:update`，在调用上游前拒绝无编辑权限的请求；显式测试凭证仅用于本次请求，测试不写回配置。独立临时测试使用请求自身凭证。
 
 - MCP 上游超时及响应超限通过 `_upstream_limit_error` 分类，使用 `mcp.upstream_timeout` / `mcp.upstream_response_too_large` 和配置参数；超限使用 `McpResponseTooLargeError` 携带上限。网关保持 JSON-RPC `-32000`，稳定编码与参数放 `error.data`，按请求语言返回原因；MCP 调试发送当前语言并复用 `web/src/i18n/errors.js`，原始响应保留。直连调试、连接发现与调用审计复用分类，失败后释放并发租约。
+
+- 同版本结果复用通过 `Registry.record_scan_reuse` 在同一连接的 SQLite 事务中重读当前状态，仅更新复用元数据，独立插入终态 REUSED 记录及报告；失败一起回滚，保留最新生命周期决定，进行中任务沿用现有记录。实际重扫完成后清除复用标记，版本摘要按实际扫描记录判断重新检测。
+
+- Skill 详情检测记录首列展示可复制的 `scan_run_id`，语义双语键为 `skillVersions.scanRunId`；来源列沿用 `reused_from_scan_run_id`，无来源留空，窄屏支持横向滚动。
+
+- Skill 详情基础信息的结果复用使用 `skillDetail.notReused` / `skillDetail.reused` 显示“未复用 / 已复用”，来源关联集中展示于版本检测记录。

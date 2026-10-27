@@ -128,12 +128,9 @@
           <div class="basic-field">
             <dt>{{ $t('decisionFlow.resultReuse') }}</dt>
             <dd>
-              <a-space wrap>
-                <a-tag :color="detail?.scan_reused ? 'green' : 'default'">
-                  {{ $t(detail?.scan_reused === true ? 'decisionFlow.reusedResult' : detail?.scan_reused === false ? 'skillDetail.notReused' : 'decisionFlow.unrecorded') }}
-                </a-tag>
-                <span v-if="detail?.reused_from_skill_id">{{ $t('skillDetail.reusedFrom', { id: detail.reused_from_skill_id }) }}</span>
-              </a-space>
+              <a-tag :color="detail?.scan_reused ? 'green' : 'default'">
+                {{ $t(detail?.scan_reused === true ? 'skillDetail.reused' : detail?.scan_reused === false ? 'skillDetail.notReused' : 'decisionFlow.unrecorded') }}
+              </a-tag>
             </dd>
           </div>
           <div class="basic-field">
@@ -1088,7 +1085,7 @@
       v-model:open="scanRunsOpen"
       :title="$t('skillVersions.scanRuns')"
       :footer="null"
-      width="900px"
+      width="1200px"
     >
       <a-table
         :data-source="scanRuns"
@@ -1096,8 +1093,17 @@
         rowKey="scan_run_id"
         :loading="loadingScanRuns"
         :pagination="false"
+        :scroll="{ x: 1140 }"
         size="small"
-      />
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'scanRunId'">
+            <a-typography-text :copyable="{ text: record.scan_run_id }" style="word-break: break-all">
+              {{ record.scan_run_id }}
+            </a-typography-text>
+          </template>
+        </template>
+      </a-table>
     </a-modal>
 
     <a-drawer
@@ -1353,7 +1359,9 @@ const versionColumns = computed(() => [
   { title: t('skillVersions.scannedAt'), dataIndex: 'last_scanned_at', key: 'scannedAt', width: 190, customRender: ({ text: value }) => formatDateTime(value) },
   { title: t('skillVersions.actions'), key: 'actions', width: 330 },
 ])
+// 本条编号与来源编号并列，便于追溯被复用的检测结果。
 const scanRunColumns = computed(() => [
+  { title: t('skillVersions.scanRunId'), dataIndex: 'scan_run_id', key: 'scanRunId', width: 270 },
   { title: t('skillVersions.runStatus'), dataIndex: 'status', key: 'status', width: 120 },
   { title: t('skillVersions.startedAt'), dataIndex: 'started_at', key: 'startedAt', width: 190, customRender: ({ text: value }) => formatDateTime(value) },
   { title: t('skillVersions.finishedAt'), dataIndex: 'finished_at', key: 'finishedAt', width: 190, customRender: ({ text: value }) => formatDateTime(value) },
