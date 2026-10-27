@@ -273,10 +273,9 @@ const toolFields = computed(() => {
   })
 })
 const connectionLabel = computed(() => connected.value
-  ? text(
-    `已连接${protocolVersion.value ? ` · ${protocolVersion.value}` : ''}`,
-    `Connected${protocolVersion.value ? ` · ${protocolVersion.value}` : ''}`,
-  )
+  ? (protocolVersion.value
+    ? t('mcpDebug.connectedWithProtocol', { version: protocolVersion.value })
+    : t('mcpDebug.connected'))
   : phrase('legacy.1x8ir3o'))
 const serviceSecretHint = computed(() => {
   if (!selectedServer.value) return phrase('legacy.1k1jpui')

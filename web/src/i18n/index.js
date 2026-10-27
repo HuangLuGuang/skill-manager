@@ -111,6 +111,8 @@ export const i18n = createI18n({
       scannerGuide: scannerGuideMessages['zh-CN'],
       difyRuntime: difyRuntimeMessages['zh-CN'],
       mcpDebug: {
+        connected: '已连接',
+        connectedWithProtocol: '已连接 · 协议版本：{version}',
         connectionTimeoutLabel: '连接超时（秒）',
         connectionTimeoutHelp: '默认30秒，范围1–300秒。初始化、通知和工具发现共用此连接总预算。Tool调用采用独立超时。',
         connectionTimeoutInvalid: '请输入1–300之间的整数秒数。',
@@ -1314,6 +1316,8 @@ export const i18n = createI18n({
       scannerGuide: scannerGuideMessages['en-US'],
       difyRuntime: difyRuntimeMessages['en-US'],
       mcpDebug: {
+        connected: 'Connected',
+        connectedWithProtocol: 'Connected · Protocol version: {version}',
         connectionTimeoutLabel: 'Connection timeout (seconds)',
         connectionTimeoutHelp: 'Default: 30 seconds. Range: 1–300 seconds. Initialization, notification and Tool discovery share this connection budget. Tool calls use a separate timeout.',
         connectionTimeoutInvalid: 'Enter a whole number of seconds between 1 and 300.',
