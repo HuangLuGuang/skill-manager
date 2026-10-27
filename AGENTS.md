@@ -96,6 +96,7 @@ make sandbox-runtime-build
 
 ## 后端注意事项
 
+- MCP Server 发现按 `nextCursor` 在同一 Session 及协商协议内读取全页，全部成功后统一保存；失败保留工具快照。初始化与分页共用超时及累计响应预算，100页/10000工具上限与游标错误使用 `mcp.discovery.*` 双语资源。回归见 `tests/test_mcp_discovery_pagination.py`。
 - API 路由主要在 `agent_manager/api/router.py`。
 - 核心扫描流程在 `agent_manager/core/vetting.py`。
 - LLM 调用封装在 `agent_manager/core/llm.py`，需要兼容 OpenAI-compatible API（DeepSeek 属于其中一种供应商）。

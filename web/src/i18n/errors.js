@@ -2,6 +2,26 @@ import { formatMcpFieldError } from './mcpServerForm.js'
 import { scanScheduleMessages } from './scanSchedule.js'
 import { skillAuditReview } from './skill-audit-review.js'
 const errorMessages = {
+  'mcp.discovery.invalid_page': {
+    'zh-CN': 'MCP 工具发现失败：上游工具列表格式无效',
+    'en-US': 'MCP tool discovery failed: invalid upstream tool list',
+  },
+  'mcp.discovery.invalid_cursor': {
+    'zh-CN': 'MCP 工具发现失败：上游分页游标格式无效',
+    'en-US': 'MCP tool discovery failed: invalid upstream pagination cursor',
+  },
+  'mcp.discovery.repeated_cursor': {
+    'zh-CN': 'MCP 工具发现失败：上游返回重复分页游标',
+    'en-US': 'MCP tool discovery failed: repeated upstream pagination cursor',
+  },
+  'mcp.discovery.page_limit': {
+    'zh-CN': 'MCP 工具发现超过 {limit} 页上限',
+    'en-US': 'MCP tool discovery exceeds the {limit}-page limit',
+  },
+  'mcp.discovery.tool_limit': {
+    'zh-CN': 'MCP 工具发现超过 {limit} 个工具上限',
+    'en-US': 'MCP tool discovery exceeds the {limit}-tool limit',
+  },
   'mcp.upstream_timeout': {
     'zh-CN': '上游 MCP 调用超时（配置超时：{timeout_seconds} 秒）',
     'en-US': 'Upstream MCP call timed out (configured timeout: {timeout_seconds} seconds)',
