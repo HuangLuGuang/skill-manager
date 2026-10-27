@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import ipaddress
 import json
@@ -410,6 +411,8 @@ def _upstream_connection_error(
     exc: Exception, *, timeout_seconds: int, debug: bool = False,
 ) -> ApiError:
     """将 HTTP 客户端固定说明结构化，避免中文界面混入英文提示。"""
+    if isinstance(exc, ApiError):
+        return exc
     limit_error = _upstream_limit_error(exc, timeout_seconds)
     if limit_error is not None:
         return limit_error
@@ -480,11 +483,13 @@ async def _post_upstream(
     protocol_version: str = MCP_PROTOCOL_VERSION,
     *,
     client: httpx.AsyncClient | None = None,
+    response_budget: dict[str, int] | None = None,
 ) -> tuple[dict, str | None]:
     if client is None:
         async with httpx.AsyncClient(timeout=server.timeout_seconds, follow_redirects=False,
                                      trust_env=not bool(getattr(server, "_scan_resolved_ips", None))) as owned:
-            return await _post_upstream(server, payload, session_id, protocol_version, client=owned)
+            return await _post_upstream(server, payload, session_id, protocol_version,
+                                        client=owned, response_budget=response_budget)
     resolved = await run_in_threadpool(_validate_resolved_endpoint, server.endpoint)
     scan_addresses = getattr(server, "_scan_resolved_ips", None)
     if scan_addresses is not None and set(resolved) != set(scan_addresses):
@@ -510,6 +515,11 @@ async def _post_upstream(
     async with client.stream("POST", endpoint, json=payload, headers=headers, extensions=extensions) as response:
         content = bytearray()
         async for chunk in response.aiter_bytes():
+            # 分页发现累计计算所有响应，避免每翻一页重置资源预算。
+            if response_budget is not None:
+                response_budget["remaining"] -= len(chunk)
+                if response_budget["remaining"] < 0:
+                    raise McpResponseTooLargeError(max_bytes // 1024)
             content.extend(chunk)
             if len(content) > max_bytes:
                 raise McpResponseTooLargeError(max_bytes // 1024)
@@ -522,15 +532,46 @@ async def _post_upstream(
     return _parse_upstream_response(buffered, payload.get("id")), buffered.headers.get("Mcp-Session-Id") or session_id
 
 
-async def _call_upstream(server: models.McpServer, method: str, params: dict) -> dict:
+async def _call_upstream(
+    server: models.McpServer, method: str, params: dict, *, paginate_tools: bool = False,
+) -> dict:
     # Reuse TCP within one protocol exchange; sessions and credentials remain
     # scoped to this invocation, and every step still validates the destination.
     async with httpx.AsyncClient(timeout=server.timeout_seconds, follow_redirects=False,
                                  trust_env=not bool(getattr(server, "_scan_resolved_ips", None))) as client:
-        return await _exchange_upstream(server, method, params, client)
+        if not paginate_tools:
+            return await _exchange_upstream(server, method, params, client)
+        # 初始化、分页及响应处理共用总超时，超时取消后由上下文释放连接。
+        started = time.monotonic()
+        try:
+            result = await asyncio.wait_for(
+                _exchange_upstream(server, method, params, client, paginate_tools=True),
+                timeout=server.timeout_seconds,
+            )
+        except asyncio.TimeoutError as exc:
+            raise httpx.ReadTimeout("MCP discovery timed out") from exc
+        # 同步 JSON 处理期间无法调度取消，完成后仍核对总预算。
+        if time.monotonic() - started >= server.timeout_seconds:
+            raise httpx.ReadTimeout("MCP discovery timed out")
+        return result
 
 
-async def _exchange_upstream(server, method, params, client):
+def _discovery_error(reason: str, **params: int) -> ApiError:
+    messages = {
+        "invalid_page": ("MCP 工具发现失败：上游工具列表格式无效", "MCP tool discovery failed: invalid upstream tool list"),
+        "invalid_cursor": ("MCP 工具发现失败：上游分页游标格式无效", "MCP tool discovery failed: invalid upstream pagination cursor"),
+        "repeated_cursor": ("MCP 工具发现失败：上游返回重复分页游标", "MCP tool discovery failed: repeated upstream pagination cursor"),
+        "page_limit": ("MCP 工具发现超过 {limit} 页上限", "MCP tool discovery exceeds the {limit}-page limit"),
+        "tool_limit": ("MCP 工具发现超过 {limit} 个工具上限", "MCP tool discovery exceeds the {limit}-tool limit"),
+    }
+    zh, en = messages[reason]
+    return ApiError(502, f"mcp.discovery.{reason}", zh.format(**params), en.format(**params), params=params)
+
+
+async def _exchange_upstream(server, method, params, client, *, paginate_tools=False):
+    post_options = {"client": client}
+    if paginate_tools:
+        post_options["response_budget"] = {"remaining": server.max_response_kb * 1024}
     request_id = uuid.uuid4().hex
     initialized, session_id = await _post_upstream(
         server,
@@ -544,28 +585,53 @@ async def _exchange_upstream(server, method, params, client):
                 "clientInfo": {"name": "agent-manager", "version": "0.1.0"},
             },
         },
-        client=client,
+        **post_options,
     )
     if initialized.get("error"):
         return initialized
     protocol_version = initialized.get("result", {}).get("protocolVersion", MCP_PROTOCOL_VERSION)
     if protocol_version not in SUPPORTED_MCP_PROTOCOL_VERSIONS:
         raise ValueError(f"上游 MCP 返回不支持的协议版本: {protocol_version}")
-    await _post_upstream(
+    _, session_id = await _post_upstream(
         server,
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         session_id,
         protocol_version,
-        client=client,
+        **post_options,
     )
-    result, _ = await _post_upstream(
-        server,
-        {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params},
-        session_id,
-        protocol_version,
-        client=client,
-    )
-    return result
+    tools = []
+    cursors = set()
+    for page in range(100 if paginate_tools else 1):
+        result, session_id = await _post_upstream(
+            server,
+            {"jsonrpc": "2.0", "id": uuid.uuid4().hex, "method": method, "params": params},
+            session_id,
+            protocol_version,
+            **post_options,
+        )
+        if not paginate_tools or result.get("error"):
+            return result
+        data = result.get("result")
+        if (not isinstance(data, dict) or not isinstance(data.get("tools"), list)
+                or any(not isinstance(tool, dict) for tool in data["tools"])):
+            raise _discovery_error("invalid_page")
+        tools.extend(data["tools"])
+        if len(tools) > 10000:
+            raise _discovery_error("tool_limit", limit=10000)
+        cursor = data.get("nextCursor")
+        if cursor is None or cursor == "":
+            # 全部分页成功后交给既有事务统一写入，失败保留原快照。
+            data["tools"] = tools
+            data.pop("nextCursor", None)
+            return result
+        if not isinstance(cursor, str):
+            raise _discovery_error("invalid_cursor")
+        if cursor in cursors:
+            raise _discovery_error("repeated_cursor")
+        if page == 99:
+            raise _discovery_error("page_limit", limit=100)
+        cursors.add(cursor)
+        params = {**params, "cursor": cursor}
 
 
 @admin_router.get("/servers/options")
@@ -662,7 +728,7 @@ async def discover_server(server_id: int, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(status_code=404, detail="MCP Server 不存在")
     try:
-        response = await _call_upstream(row, "tools/list", {})
+        response = await _call_upstream(row, "tools/list", {}, paginate_tools=True)
         if response.get("error"):
             raise ValueError(response["error"].get("message", "上游 MCP 返回错误"))
         tools = response.get("result", {}).get("tools", [])

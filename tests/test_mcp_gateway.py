@@ -177,7 +177,7 @@ def _client(tmp_path, monkeypatch):
     testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
 
-    async def fake_call(server, method, params):
+    async def fake_call(server, method, params, **_kwargs):
         if method == "tools/list":
             return {
                 "jsonrpc": "2.0",
@@ -341,7 +341,7 @@ def test_edit_connection_uses_same_credentials_before_and_after_save(
     }).json()
     calls = []
 
-    async def authenticated_call(target, method, params):
+    async def authenticated_call(target, method, params, **_kwargs):
         # 用真实请求入口验证测试与发现使用同一凭证，避免仅断言临时对象。
         secret = mcp_gateway._unprotect_secret(target.authorization_value)
         calls.append((target.endpoint, secret))
@@ -997,7 +997,7 @@ def test_mcp_http_failure_is_localized(tmp_path, monkeypatch, operation, locale)
         "slug": "failure", "name": "Failure", "endpoint": "https://mcp.example.com/mcp",
     }).json()
 
-    async def fail_call(*_args):
+    async def fail_call(*_args, **_kwargs):
         response = httpx.Response(405, request=httpx.Request("POST", server["endpoint"]))
         response.raise_for_status()
 
@@ -1233,7 +1233,7 @@ def test_server_health_recovers_after_authentication_failure(tmp_path, monkeypat
     server = client.get("/api/v1/mcp/servers").json()[0]
     path = f"/api/v1/mcp/servers/{server['id']}"
 
-    async def authenticated_call(target, _method, _params):
+    async def authenticated_call(target, _method, _params, **_kwargs):
         if mcp_gateway._unprotect_secret(target.authorization_value) != "Bearer upstream-secret":
             httpx.Response(401, request=httpx.Request("POST", target.endpoint)).raise_for_status()
         return {"result": {"tools": [{"name": "search", "inputSchema": {"type": "object"}}]}}
@@ -1376,7 +1376,7 @@ def test_admin_reports_upstream_limits(tmp_path, monkeypatch, locale, timeout, o
         "timeout_seconds": 4,
     }).json()
 
-    async def failing_call(server, method, params):
+    async def failing_call(server, method, params, **_kwargs):
         if timeout:
             raise httpx.ReadTimeout("")
         # 使用真实流式读取边界产生超限异常。
