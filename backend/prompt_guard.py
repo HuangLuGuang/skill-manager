@@ -1,6 +1,7 @@
 """Platform Prompt Guard configuration and structured semantic verdicts."""
 
 from typing import Literal
+import re
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
 
@@ -46,8 +47,38 @@ SEMANTIC_RULES = {
     "factual_verification": ("facts", "Requests built on a potentially unsupported historical, scientific or business-event premise require source verification. Use MEDIUM and explain uncertainty when verification is needed. Political disagreement, historical questions and challenges to official narratives are not inherently malicious. Do not declare a claim false solely from uncertain memory."),
 }
 CATEGORIES = list(dict.fromkeys(group for group, _ in SEMANTIC_RULES.values()))
+DEFAULT_RULE_SEVERITIES = {
+    rule: "MEDIUM" if group in {"discrimination", "professional", "facts"} else "HIGH"
+    for rule, (group, _) in SEMANTIC_RULES.items()
+}
 RULE_CATEGORIES = {key: group for key, (group, _) in SEMANTIC_RULES.items()}
 RULE_CATEGORIES.update(constraint_override="injection", internal_instructions="privacy", data_instruction="injection", tool_abuse="access")
+
+RSGUARD_CATEGORIES = {
+    "political": "Politically Sensitive Topics", "violent": "Violent",
+    "illegal": "Non-violent Illegal Acts", "sexual": "Sexual Content",
+    "pii": "PII Content", "self_harm": "Suicide & Self-Harm",
+    "unethical": "Unethical Acts", "copyright": "Copyright Violations",
+    "jailbreak": "Jailbreak", "injection": "Prompt Injection",
+}
+RSGUARD_ALIASES = {value.casefold(): key for key, value in RSGUARD_CATEGORIES.items()}
+RSGUARD_ALIASES.update({"pii": "pii", "sexual content or sexual acts": "sexual"})
+
+
+def parse_rsguard_response(content):
+    match = re.fullmatch(r"\s*Safety\s*:\s*([A-Za-z]+)\s*\r?\n\s*Categories\s*:\s*(.*?)\s*", content, re.I | re.S)
+    if not match:
+        raise ValueError("Invalid RSGuard response")
+    safety = match[1].lower()
+    if safety == "controverial":
+        safety = "controversial"
+    if safety not in {"safe", "unsafe", "controversial"}:
+        raise ValueError("Unknown RSGuard safety")
+    raw_categories = match[2].strip()
+    categories = [] if raw_categories.casefold() == "none" else [RSGUARD_ALIASES[label.strip().casefold()] for label in re.split(r"[,;\n]+", raw_categories)]
+    if (safety == "safe") != (not categories):
+        raise ValueError("Inconsistent RSGuard verdict")
+    return {"safety": safety, "categories": list(dict.fromkeys(categories)), "raw_safety": match[1], "raw_categories": raw_categories}
 
 
 class DetectionCategoryConfig(BaseModel):
@@ -55,6 +86,7 @@ class DetectionCategoryConfig(BaseModel):
     enabled: bool = True
     model_id: int | None = Field(default=None, gt=0)
     disabled_rules: list[Literal[tuple(SEMANTIC_RULES)]] = Field(default_factory=list)
+    rule_severities: dict[Literal[tuple(SEMANTIC_RULES)], Literal["LOW", "MEDIUM", "HIGH", "AI"]] = Field(default_factory=dict)
 
 
 class PromptRuleConfig(BaseModel):
@@ -79,18 +111,23 @@ class PromptGuardConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     enabled: bool = False
     model_id: int | None = Field(default=None, gt=0)
-    timeout_seconds: int = Field(default=15, ge=1, le=120)
+    timeout_seconds: int = Field(default=180, ge=1, le=180)
     categories: dict[CategoryId, DetectionCategoryConfig] = Field(default_factory=dict)
+    rsguard_disabled_categories: list[Literal[tuple(RSGUARD_CATEGORIES)]] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_category_rules(self):
         for category, config in self.categories.items():
             if any(RULE_CATEGORIES[rule] != category for rule in config.disabled_rules):
                 raise ValueError("Disabled rule must belong to its category")
+            if any(RULE_CATEGORIES[rule] != category for rule in config.rule_severities):
+                raise ValueError("Rule severity must belong to its category")
         return self
 
     def category_config(self, category):
-        return self.categories.get(category, DetectionCategoryConfig())
+        config = self.categories.get(category, DetectionCategoryConfig())
+        defaults = {rule: DEFAULT_RULE_SEVERITIES[rule] for rule, (group, _) in SEMANTIC_RULES.items() if group == category}
+        return config.model_copy(update={"rule_severities": {**defaults, **config.rule_severities}})
 
     def model_rules(self):
         batches = {}

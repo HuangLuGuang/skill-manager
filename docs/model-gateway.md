@@ -134,9 +134,9 @@ Discovery, connection tests, streaming and non-streaming requests share these se
 页面以供应商分组展示一个列表，头部提供凭据配置、获取模型和添加模型入口。模型列表默认收起，点击模型数量展开后显示模型名称、上下文大小、
 默认标记、启用开关、编辑和逐模型测试操作。自定义添加可填写模型名称、上下文窗口、输出限制和默认模型。
 默认模型及其所属供应商分别显示“默认模型”和“默认供应商”标识；列表收起时也展示默认模型名称。默认供应商由默认模型归属确定。
-模型按“供应商 + 上游模型名”判重，不同供应商可以添加同名模型；发现列表中的“已添加”仅指当前供应商。每条配置另有全局唯一的网关调用名称：第一次添加时默认沿用上游模型名，重名时自动生成供应商前缀，也可以在创建时填写。创建后调用名称固定，编辑上游模型名或供应商不会改变凭证和配置中的调用绑定。
+模型按“供应商 + 上游模型名”判重，不同供应商可以添加同名模型；发现列表中的“已添加”仅指当前供应商。每条配置另有全局唯一的模型调用标识：第一次添加时默认沿用上游模型名，重名时自动生成供应商前缀，也可以在创建时填写。创建后调用名称固定，编辑上游模型名或供应商不会改变凭证和配置中的调用绑定。
 
-凭证可用模型、文档助手、Skill 扫描策略、智能体默认模型、客户端模型切换、MCP/Agent 安全扫描及 Dify 意图分析均使用网关调用名称；选择器同时显示供应商、上游模型和调用名称。网关 `/v1/models` 返回调用名称，转发到上游时改用上游模型名，响应、用量及审计保持网关调用名称。
+凭证可用模型、文档助手、Skill 扫描策略、智能体默认模型、客户端模型切换、MCP/Agent 安全扫描及 Dify 意图分析均使用模型调用标识；选择器同时显示供应商、上游模型和调用名称。网关 `/v1/models` 返回调用名称，转发到上游时改用上游模型名，响应、用量及审计保持模型调用标识。
 
 统一凭证中心按供应商分组展示已添加到网关的模型，支持按供应商或模型名称搜索；同一张凭证对每个上游模型名只能选择一个供应商，不同名称的模型可跨供应商选择。列表加载 Agent 和模型名称；创建配置按所选场景补充所需选项，同页复用已加载结果，点击刷新重新读取。MCP 网关选项仅在配置包含 MCP 能力时加载。供应商下尚未添加的模型需先在“供应商与模型”中添加。
 
@@ -229,7 +229,7 @@ Trace 阶段：
 - Claude Code：设置 `ANTHROPIC_BASE_URL=http://127.0.0.1`、`ANTHROPIC_AUTH_TOKEN=amat_xxx`，并把 Claude Code 使用的模型名设置为管理台登记的模型名。
 - Codex：在 `~/.codex/config.toml` 配置自定义 `model_provider`，`base_url` 使用 `http://127.0.0.1/v1`，`wire_api = "responses"`。桌面客户端“模型切换”可以自动完成该配置。
 
-Codex 的网关配置需要 `web_search = "disabled"` 和 `[features] image_generation = false`：当前网关提供本地 function/custom/namespace 工具调用转换，不执行供应商侧的网页搜索和图片生成。客户端模型切换会写入这些配置并保留其他配置及备份。Claude Code 使用 `ANTHROPIC_MODEL` 指定已授权的网关调用名称；若使用不同档位的辅助模型，也需要把相应 `ANTHROPIC_DEFAULT_*_MODEL` 指向已授权的网关名称。
+Codex 的网关配置需要 `web_search = "disabled"` 和 `[features] image_generation = false`：当前网关提供本地 function/custom/namespace 工具调用转换，不执行供应商侧的网页搜索和图片生成。客户端模型切换会写入这些配置并保留其他配置及备份。Claude Code 使用 `ANTHROPIC_MODEL` 指定已授权的模型调用标识；若使用不同档位的辅助模型，也需要把相应 `ANTHROPIC_DEFAULT_*_MODEL` 指向已授权的网关名称。
 
 **English:** For Codex, set `web_search = "disabled"` and `image_generation = false` under `[features]`; these server-side tools are not implemented by the gateway. Managed model switching writes these settings while preserving other settings and backing up the config. Local function/custom/namespace tools remain supported. Claude Code must use authorized gateway model names, including any configured auxiliary model tiers.
 
@@ -477,7 +477,7 @@ Client-issued model-switching credentials are managed through **Client policies*
 
 ### 测试方式
 
-管理台 `模型网关 / Prompt 防护` 同时提供平台 AI 配置和测试入口。管理员选择已启用供应商下的检测模型，设置 1–120 秒总超时（默认 15 秒），测试连接与结果格式后保存。平台 AI 默认关闭；启用后，所有经过内置网关且 Prompt 防护未关闭的请求均使用该配置，包括客户端请求。客户端页面及原有策略保持不变，本版本的运行时 AI 执行由平台开关决定。
+管理台 `模型网关 / Prompt 防护` 同时提供平台 AI 配置和测试入口。管理员选择已启用供应商下的检测模型，设置 1–180 秒总超时（默认 180 秒），测试连接与结果格式后保存。平台 AI 默认关闭；启用后，所有经过内置网关且 Prompt 防护未关闭的请求均使用该配置，包括客户端请求。客户端页面及原有策略保持不变，本版本的运行时 AI 执行由平台开关决定。
 
 测试台使用已保存的平台配置，与真实网关共用规则及语义检测流程。规则已在当前模式下阻断时跳过 AI，其余请求（包括规则零命中）进入语义检测。仅记录和告警模式照常检测但不因风险阻断。平台 AI 启用后，测试和业务请求均可能产生额外模型用量；“测试模型”仅验证当前草稿中的模型连通性及结果格式，不保存配置、不证明检出率。
 
@@ -485,7 +485,7 @@ Client-issued model-switching credentials are managed through **Client policies*
 
 AI 超时、模型停用、并发已满、返回格式或证据无效时明确记录失败：阻断模式拒绝业务请求并返回稳定错误编码和 HTTP 503；仅记录和告警模式保留失败记录后放行。失败不产生恶意判定。检测调用复用供应商协议、凭据、自定义 Header 及超时；内部检测请求回流到本平台网关时拒绝递归调用。
 
-The platform AI switch is off by default. Configure an existing detection model and a 1–120 second total AI timeout (default 15 seconds) under **Model Gateway / Prompt Guard**. When enabled, it applies to all built-in gateway requests with Prompt Guard on, including client requests. The test console uses the same saved configuration and detection pipeline. Requests already blocked by rules skip AI; all others, including rule misses, receive semantic detection. Model tests use the configuration draft without saving it.
+The platform AI switch is off by default. Configure an existing detection model and a 1–180 second total AI timeout (default 180 seconds) under **Model Gateway / Prompt Guard**. When enabled, it applies to all built-in gateway requests with Prompt Guard on, including client requests. The test console uses the same saved configuration and detection pipeline. Requests already blocked by rules skip AI; all others, including rule misses, receive semantic detection. Model tests use the configuration draft without saving it.
 
 AI receives text with recognized default and policy-specific privacy entities masked. Images and audio are outside this version's semantic coverage. Inputs exceeding 60,000 serialized characters fail explicitly. A database lease limits AI concurrency to eight requests. On AI failure, Block mode returns HTTP 503 without classifying the request as malicious; Log and Warn modes allow the request and preserve the failure. Model usage, duration, model identity and failure codes are recorded. Internal review requests cannot recursively route through this gateway.
 
@@ -502,9 +502,23 @@ AI receives text with recognized default and policy-specific privacy entities ma
 
 分类模型留空时继承默认模型；使用相同模型的分类合并为一次调用，多个不同模型顺序调用并共享总超时预算。只有有启用判定项的分类才调用模型；全部关闭时记录 `skipped_categories_disabled`。每次结果保留分类配置、各模型调用状态及发现项的模型来源。部分模型失败时保留已完成发现项，阻断模式拒绝请求，告警/记录模式按原有失败策略处理。
 
+每个通用 AI 判定项可设置命中严重度（高、中等、低、使用 AI 判定），保存后有效 AI 命中使用该等级参与风险汇总和检测模式处置。未配置的判定项默认：歧视与排斥、医疗与金融风险、事实与信息完整性为中等，其余分类为高；显式设置保留。选择“使用 AI 判定”时采用模型返回等级。结果中的 `severity` 为实际使用等级，`model_severity` 保留模型原始等级；本次配置快照保留 `rule_severities`。分类和判定项的启停仍控制检测范围。瑞数分类沿用原有严重度映射。
+
+通用 AI 检测请求的输出额度使用所选模型配置中的“最大输出 Token”；留空时默认 2000。可在模型配置中调整，包含分类单独选择的模型。推理模型需为推理和最终结构化结果预留足够额度；提高额度后仍受检测总超时限制。
+
 新增类别识别输入意图，不替代鉴权、记忆删除验证、资源限制或事实核查。明确攻击/有害生成可判高风险；歧视性断言、诊疗替代、投资保证或待核验前提可判中等风险，允许后续以纠正前提和风险说明安全回答。政治分歧、历史求证、正常讨论不自动视为攻击。模型返回未知类别、关闭的判定项或无效证据时记录格式失败；严重度大小写统一为稳定枚举。
 
 **Category configuration:** Nine categories organize text rules and 31 individually switchable AI checks. Disabling a category stops both its text rules and semantic checks. Individual AI switches do not disable text rules. New custom text rules belong to the selected category; historical uncategorized custom rules use Injection. A category model inherits the default when empty. Checks sharing a model are batched into one call; different models run sequentially within one total timeout budget. All checks disabled yields `skipped_categories_disabled`. Results retain configuration, per-model statuses and finding provenance. Partial failures retain successful findings and apply the existing failure policy.
+
+**瑞数内容合规模型：** 在模型编辑中将“模型类型”设为“瑞数内容合规模型”，供应商使用 OpenAI 兼容协议及对应 Base URL、鉴权，填写实际上游模型名（如 `rsguard:v1`）。既有模型自动保留 `generic` 适配方式；后台启动自动补齐数据库列，不修改已有模型和凭据。在 Prompt 防护的默认检测模型中选择瑞数模型后，显示瑞数原生 10 类；通用模型仍显示原有 9 类和 31 个判定项。瑞数类别开关与通用分类配置分别保存，切换不互相转换。通用分类的独立模型只能使用通用适配方式；瑞数模式不调用这些独立模型。下方文本规则分类独立保留，原有分类开关继续控制文本规则。
+
+瑞数适配器逐条将脱敏后的非空消息作为一条 user 消息送检，不添加通用 AI 判定提示词、不做跨消息语义判定。各次调用与预处理共享总超时预算。接口解析 `Safety` 和 `Categories` 文本：Safe 无发现项，Unsafe 对已启用类别生成 HIGH，Controversial 对已启用类别生成 MEDIUM 且仅告警（仅记录模式仍只记录）。类别关闭只过滤平台发现项与处置，不改变上游分类范围；原始状态和标签仍保留。未知类别、未知状态、格式错误或 Unsafe/Controversial 缺少类别均视为检测失败，沿用当前模式的失败策略，不按安全处理。
+
+标签兼容 `PII` / `PII Content`、`Sexual Content or Sexual Acts` / `Sexual Content`；状态兼容已提供的 `controverial` 拼写并统一为 `controversial`。多标签支持逗号、分号或换行分隔，原始标签不改写。测试结果逐条展示实际模型、来源、状态及原始标签；模型未返回解释或定位片段时不生成此类证据。`llm_reviews` 保留本次适配方式、启用类别及原始判定，历史记录不按当前所选模型重新解释。脱敏可能影响 PII 类别检出，PII 防护仍结合已有隐私检测。
+
+**RSGuard adapter:** Set Model type to RSGuard compliance model and use an OpenAI-compatible provider with the actual upstream model name. Existing models migrate to `generic`. Choosing RSGuard as the default detection model shows its ten native categories; choosing a generic model shows the existing taxonomy. Both configurations persist independently. Generic category overrides must use generic models and are not called in RSGuard mode. Text-rule category switches continue to apply independently.
+
+Each nonempty masked message is classified separately as one user message, without a generic instruction prompt or cross-message interpretation, within one shared timeout. Safe produces no finding; enabled Unsafe labels produce HIGH findings; Controversial produces MEDIUM warnings, including for tool content (Log mode remains record-only). Disabled labels remain in original verdicts but do not affect actions. Invalid, unknown or inconsistent verdicts fail detection under the existing failure policy. Verified aliases normalize PII and sexual-content labels; comma, semicolon and newline delimit multiple labels. Results retain model, adapter, enabled categories and original labels without inventing reasons or evidence spans. PII masking can reduce upstream PII detection.
 
 These checks classify intent rather than verifying permissions, memory erasure, resource isolation or factual truth. Biased assertions, professional risks and uncertain premises can receive MEDIUM for safe correction; disagreement, historical inquiry and ordinary discussion are not inherently attacks. Unknown/disabled rule codes or invalid evidence fail validation; severity casing is normalized.
 

@@ -28,7 +28,8 @@ from sqlalchemy.exc import IntegrityError
 from .. import auth, models, schemas, iam
 from ..prompt_guard import (CONFIG_KEY, EXTRA_RULES, OPTIONAL_RULES, DEFAULT_DISABLED_RULES, PromptGuardConfig, SemanticVerdict,
                             RULE_KEY_PREFIX, SPECIAL_RULES, PromptRuleConfig, PromptRuleTest,
-                            CATEGORIES, SEMANTIC_RULES, RULE_CATEGORIES, rule_category, semantic_prompt)
+                            CATEGORIES, SEMANTIC_RULES, RULE_CATEGORIES, rule_category, semantic_prompt,
+                            RSGUARD_CATEGORIES, parse_rsguard_response)
 from ..anthropic_compat import (
     anthropic_stream_event_to_openai,
     anthropic_to_openai_request,
@@ -578,7 +579,7 @@ def _prompt_security_action(mode, findings):
         action = "warn" if findings else "pass"
     elif mode == "block":
         untrusted_medium = any(
-            item["severity"] == "MEDIUM" and item.get("source") in UNTRUSTED_PROMPT_SOURCES
+            item["severity"] == "MEDIUM" and item.get("source") in UNTRUSTED_PROMPT_SOURCES and item.get("adapter") != "rsguard"
             for item in findings
         )
         blocked = max_risk == "HIGH" or untrusted_medium
@@ -599,6 +600,23 @@ def _prompt_guard_model(db, model_id):
     return model
 
 
+def _prompt_guard_plan(db, config):
+    default = db.get(models.ModelEndpoint, config.model_id) if config.model_id else None
+    if default and default.guard_adapter == "rsguard":
+        model = _prompt_guard_model(db, default.id)
+        provider = db.get(models.ModelProvider, model.provider_id)
+        if provider.api_format != "openai":
+            raise ApiError(422, "prompt_guard.adapter_protocol", "瑞数检测需使用 OpenAI 兼容接口", "RSGuard requires an OpenAI-compatible provider")
+        categories = [key for key in RSGUARD_CATEGORIES if key not in config.rsguard_disabled_categories]
+        return "rsguard", {model.id: categories} if categories else {}
+    batches = config.model_rules()
+    for model_id in batches:
+        model = _prompt_guard_model(db, model_id)
+        if model.guard_adapter != "generic":
+            raise ApiError(422, "prompt_guard.category_model_adapter", "通用分类需选择通用大模型，瑞数模型请在默认检测模型中选择", "Generic categories require a generic model; select RSGuard as the default detection model")
+    return "generic", batches
+
+
 async def _evaluate_prompt_security(db, messages, *, mode, sources, locale="zh-CN", config=None, policy=None):
     started = time.perf_counter()
     config = config or await run_db(db, _prompt_guard_config, db)
@@ -614,15 +632,16 @@ async def _evaluate_prompt_security(db, messages, *, mode, sources, locale="zh-C
     if result["blocked"]:
         result["llm_status"] = "skipped_blocked"
         return result
-    batches = config.model_rules()
-    if not batches:
-        result["llm_status"] = "skipped_categories_disabled"
-        return result
     result["llm_reviews"] = []
     lease = None
     ai_started = time.perf_counter()
     try:
         async with asyncio.timeout(config.timeout_seconds):
+            adapter, batches = await run_db(db, _prompt_guard_plan, db, config)
+            result["llm_adapter"] = adapter
+            if not batches:
+                result["llm_status"] = "skipped_categories_disabled"
+                return result
             # Bound the full input, never silently classify a truncated conversation.
             if len(json.dumps(messages, ensure_ascii=False)) > 60000:
                 raise ApiError(422, "prompt_guard.input_too_large", "检测内容超出长度限制", "Detection input exceeds the length limit")
@@ -646,16 +665,48 @@ async def _evaluate_prompt_security(db, messages, *, mode, sources, locale="zh-C
                                    ttl_seconds=config.timeout_seconds + 5, bind=db.get_bind())
             result["llm_usage"] = {}
             for model_id, rules in batches.items():
-                review = {"model_id": model_id, "rules": rules, "categories": list(dict.fromkeys(RULE_CATEGORIES[r] for r in rules)), "status": "running"}
+                review = {"model_id": model_id, "adapter": adapter, "rules": rules, "categories": rules if adapter == "rsguard" else list(dict.fromkeys(RULE_CATEGORIES[r] for r in rules)), "status": "running"}
                 result["llm_reviews"].append(review)
                 model = await run_db(db, _prompt_guard_model, db, model_id)
                 review["model"] = model.name
                 result["llm_model"] = ", ".join(r["model"] for r in result["llm_reviews"] if "model" in r)
                 result["llm_model_id"] = model.id if len(batches) == 1 else None
                 result["llm_review_used"] = True
+                if adapter == "rsguard":
+                    review["verdicts"] = []
+                    for index, entry in enumerate(data):
+                        if not entry["content"].strip():
+                            continue
+                        reply = await _call_upstream(db, model, {
+                            "model": model.name, "stream": False,
+                            "messages": [{"role": "user", "content": entry["content"]}],
+                        }, timeout_seconds=max(0.01, config.timeout_seconds - (time.perf_counter() - ai_started)), prompt_guard_review=True)
+                        usage = reply.get("usage") or {}
+                        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                            value = usage.get(key)
+                            if isinstance(value, (int, float)):
+                                result["llm_usage"][key] = result["llm_usage"].get(key, 0) + value
+                        raw = reply["choices"][0]["message"]["content"]
+                        verdict = parse_rsguard_response(raw)
+                        review["verdicts"].append({**verdict, "raw_response": raw, "message_index": index, "source": entry["source"], "usage": usage})
+                        for category in verdict["categories"]:
+                            if category not in rules:
+                                continue
+                            result["findings"].append({"rule": "rsguard:" + category, "category": category,
+                                "adapter": "rsguard", "safety": verdict["safety"],
+                                "severity": "HIGH" if verdict["safety"] == "unsafe" else "MEDIUM",
+                                "reason_code": "rsguard." + verdict["safety"],
+                                "message_index": index, "role": entry["role"], "source": entry["source"],
+                                "detector": "llm", "model_id": model.id, "model": model.name})
+                        result["findings_count"] = len(result["findings"])
+                        result["risk_level"] = max([result["risk_level"], *[f["severity"] for f in result["findings"]]], key=RISK_ORDER.get)
+                        result["action"], result["blocked"] = _prompt_security_action(mode, result["findings"])
+                    review["status"] = "completed"
+                    review["findings_count"] = sum(f.get("adapter") == "rsguard" for f in result["findings"])
+                    continue
                 reply = await _call_upstream(db, model, {
                     "model": model.name, "stream": False,
-                    "max_tokens": min(model.max_output_tokens or 2000, 2000),
+                    "max_tokens": model.max_output_tokens or 2000,
                     "messages": [{"role": "system", "content": semantic_prompt(rules) + f"\nReason language: {locale}"},
                                  {"role": "user", "content": json.dumps(data, ensure_ascii=False)}],
                 }, timeout_seconds=max(0.01, config.timeout_seconds - (time.perf_counter() - ai_started)), prompt_guard_review=True)
@@ -670,8 +721,10 @@ async def _evaluate_prompt_security(db, messages, *, mode, sources, locale="zh-C
                     index = finding.message_index
                     if finding.category not in rules or index >= len(data) or finding.evidence not in data[index]["content"]:
                         raise ValueError("Invalid rule or evidence")
+                    severity = config.category_config(RULE_CATEGORIES[finding.category]).rule_severities[finding.category]
                     findings.append({"rule": finding.category, "category": RULE_CATEGORIES[finding.category],
-                                     "severity": finding.severity, "reason": finding.reason, "snippet": finding.evidence,
+                                     "severity": finding.severity if severity == "AI" else severity,
+                                     "model_severity": finding.severity, "reason": finding.reason, "snippet": finding.evidence,
                                      "message_index": index, "role": data[index]["role"],
                                      "source": sources[index], "detector": "llm", "model_id": model.id, "model": model.name})
                 review["status"] = "completed"
@@ -780,6 +833,7 @@ def _model_response(db: Session, row: models.ModelEndpoint) -> schemas.ModelEndp
         name=row.name,
         upstream_name=row.upstream_name or row.name,
         display_name=row.display_name,
+        guard_adapter=row.guard_adapter,
         enabled=row.enabled,
         context_window=row.context_window,
         max_output_tokens=row.max_output_tokens,
@@ -2647,6 +2701,11 @@ async def list_prompt_categories(user=Depends(auth.get_current_admin_user)):
             for category in CATEGORIES]
 
 
+@admin_router.get("/prompt-guard/rsguard-categories")
+async def list_rsguard_categories(user=Depends(auth.get_current_admin_user)):
+    return [{"id": key, "name": value} for key, value in RSGUARD_CATEGORIES.items()]
+
+
 def _prompt_rule_definitions(settings):
     return PROMPT_GUARD_RULES + [(key, value["severity"], value.get("description") or value["name"], value["pattern"])
                                  for key, value in settings.items() if key.startswith("custom_")]
@@ -2782,8 +2841,7 @@ async def save_prompt_guard_config(body: PromptGuardConfig, request: Request,
         if value.model_id is not None and value.model_id != previous.category_config(category).model_id:
             _prompt_guard_model(db, value.model_id)
     if body.enabled:
-        for model_id in body.model_rules():
-            _prompt_guard_model(db, model_id)
+        _prompt_guard_plan(db, body)
     row = db.get(models.SystemConfig, CONFIG_KEY)
     if row is None:
         row = models.SystemConfig(key=CONFIG_KEY)

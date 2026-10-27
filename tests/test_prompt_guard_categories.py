@@ -115,3 +115,72 @@ def test_provider_severity_case_is_normalized_without_accepting_unknown_values()
     with pytest.raises(ValidationError):
         SemanticFinding.model_validate(finding('financial_risk', 'critical'))
     assert sum(len(rules) for rules in PromptGuardConfig().model_rules().values()) == len(SEMANTIC_RULES)
+
+
+@pytest.mark.parametrize('mode', ['log', 'warn', 'block', 'off'])
+@pytest.mark.parametrize('severity', [None, 'LOW', 'MEDIUM', 'HIGH', 'AI'])
+def test_ai_check_severity_in_test_and_runtime(tmp_path, monkeypatch, mode, severity):
+    client, token, factory, model = setup_guard(tmp_path, monkeypatch, mode=mode)
+    overrides = {} if severity is None else {'financial_risk': severity}
+    config = {'enabled': True, 'model_id': model, 'categories': {'professional': {'rule_severities': overrides}}}
+    assert client.put('/v1/prompt-guard/config', json=config).status_code == 200
+    assert client.get('/v1/prompt-guard/config').json()['categories']['professional']['rule_severities'] == {'medical_risk': 'MEDIUM', 'financial_risk': severity or 'MEDIUM'}
+    async def fake(db, selected, payload, **kwargs):
+        if kwargs.get('prompt_guard_review'):
+            return reply([finding('financial_risk', 'MEDIUM')])
+        return {'choices': [{'message': {'role': 'assistant', 'content': 'ok'}}], 'usage': {}}
+    monkeypatch.setattr(gateway, '_call_upstream', fake)
+    with factory() as db:
+        import asyncio
+        result = asyncio.run(gateway._evaluate_prompt_security(db, [{'role': 'user', 'content': 'sample'}], mode=mode, sources=['user']))
+    expected = 'MEDIUM' if severity in (None, 'AI') else severity
+    blocked = mode == 'block' and expected == 'HIGH'
+    assert result['blocked'] == blocked
+    if mode != 'off':
+        tested = client.post('/v1/prompt-guard/test', json={'mode': mode, 'messages': [{'role': 'user', 'content': 'sample'}]}).json()
+        assert tested['blocked'] == blocked
+        assert tested['risk_level'] == expected
+        assert tested['findings'][0]['severity'] == expected
+        assert tested['findings'][0]['model_severity'] == 'MEDIUM'
+    response = client.post('/v1/chat/completions', headers={'Authorization': f'Bearer {token}'}, json={'model': 'mock-model', 'messages': [{'role': 'user', 'content': 'sample'}]})
+    assert response.status_code == (403 if blocked else 200), response.text
+    with factory() as db:
+        audit = db.query(models.LlmRequestAudit).order_by(models.LlmRequestAudit.id.desc()).first()
+        saved = json.loads(audit.prompt_guard_result_json)
+        if mode != 'off':
+            assert saved['findings'][0]['severity'] == expected
+            assert saved['category_config']['professional']['rule_severities'] == {'medical_risk': 'MEDIUM', 'financial_risk': severity or 'MEDIUM'}
+
+
+@pytest.mark.parametrize('severities', [{'financial_risk': 'CRITICAL'}, {'unknown': 'HIGH'}, {'pii_extraction': 'HIGH'}])
+def test_invalid_ai_check_severity_rejected(tmp_path, monkeypatch, severities):
+    client, _, _, model = setup_guard(tmp_path, monkeypatch)
+    response = client.put('/v1/prompt-guard/config', json={'enabled': True, 'model_id': model, 'categories': {'professional': {'rule_severities': severities}}})
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize('disabled', ['ai', 'category', 'rule'])
+def test_disabled_check_with_configured_severity(tmp_path, monkeypatch, disabled):
+    client, _, _, model = setup_guard(tmp_path, monkeypatch)
+    config = {'enabled': disabled != 'ai', 'model_id': model, 'categories': {key: {'enabled': False} for key in CATEGORIES}}
+    config['categories']['professional'] = {'enabled': disabled != 'category', 'disabled_rules': ['medical_risk', 'financial_risk'] if disabled == 'rule' else [], 'rule_severities': {'financial_risk': 'HIGH'}}
+    assert client.put('/v1/prompt-guard/config', json=config).status_code == 200
+    async def unexpected(*args, **kwargs):
+        pytest.fail('Disabled check must not call AI')
+    monkeypatch.setattr(gateway, '_call_upstream', unexpected)
+    result = client.post('/v1/prompt-guard/test', json={'mode': 'block', 'messages': [{'role': 'user', 'content': 'sample'}]}).json()
+    assert not result['blocked'] and not result['findings']
+
+
+def test_default_severities_preserve_explicit_settings():
+    from backend.prompt_guard import DEFAULT_RULE_SEVERITIES
+    config = PromptGuardConfig(categories={'professional': {'rule_severities': {'financial_risk': 'AI', 'medical_risk': 'LOW'}}})
+    assert config.timeout_seconds == 180
+    assert set(DEFAULT_RULE_SEVERITIES) == set(SEMANTIC_RULES)
+    assert config.category_config('professional').rule_severities == {'financial_risk': 'AI', 'medical_risk': 'LOW'}
+    assert config.category_config('injection').rule_severities['prompt_injection'] == 'HIGH'
+    assert config.category_config('facts').rule_severities['factual_verification'] == 'MEDIUM'
+    assert config.categories['professional'].rule_severities['financial_risk'] == 'AI'
+    assert PromptGuardConfig(timeout_seconds=180).timeout_seconds == 180
+    with pytest.raises(ValidationError):
+        PromptGuardConfig(timeout_seconds=181)

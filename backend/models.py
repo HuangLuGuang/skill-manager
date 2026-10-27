@@ -117,6 +117,7 @@ class ModelEndpoint(Base):
     upstream_name = Column(String(128), nullable=True)
     __table_args__ = (Index("uq_model_provider_upstream", provider_id, func.coalesce(upstream_name, name), unique=True),)
     display_name = Column(String(128), nullable=True)
+    guard_adapter = Column(String(16), default="generic", server_default="generic", nullable=False)
     enabled = Column(Boolean, default=True, nullable=False)
     context_window = Column(Integer, nullable=True)
     max_output_tokens = Column(Integer, nullable=True)
