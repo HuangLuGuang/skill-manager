@@ -134,6 +134,7 @@ class ToolRule(Strict):
 
 
 class ToolPolicyInput(Strict):
+    approval_wait_seconds: int = Field(default=180, ge=30, le=300, strict=True)
     expected_revision: str = Field(pattern=r"^(0|[1-9][0-9]{0,17})$")
     # Accepted for older management UIs; published rules persist until replaced.
     lifetime_seconds: int | None = Field(default=None, ge=60, le=86400, exclude=True)
@@ -148,6 +149,7 @@ class ToolPolicyInput(Strict):
 
 
 class ApprovalRequest(Strict):
+    expires_at: int | None = Field(default=None, gt=0, strict=True)
     stream_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     event_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     receiver_instance: str = Field(pattern=r"^[0-9a-f]{32}$")
@@ -173,6 +175,20 @@ def reject(code, zh, en, status=409):
 
 def latest_policy(db, client_id):
     return db.query(HookPolicyRow).filter_by(client_id=client_id).order_by(HookPolicyRow.revision.desc()).first()
+
+
+def compatible_policy(db, client_id, revision):
+    current = latest_policy(db, client_id)
+    original = db.query(HookPolicyRow).filter_by(client_id=client_id, revision=int(revision)).first()
+    if current is None or original is None:
+        return None
+    policy = json.loads(original.payload)
+    # Every intervening rule set must match; changing away and back cannot revive an attempt.
+    for row in db.query(HookPolicyRow).filter(HookPolicyRow.client_id == client_id, HookPolicyRow.revision > original.revision):
+        candidate = json.loads(row.payload)
+        if any(candidate[k] != policy[k] for k in ('default_action', 'rules')):
+            return None
+    return original
 
 
 def evaluate(policy, agent, tool, observation=None):
@@ -212,8 +228,12 @@ def publish(db, client_id, body, username):
         reports = db.query(HookRuntimeRow).filter_by(client_id=client_id).filter(HookRuntimeRow.received_at >= now-90).all()
         if not reports or any(json.loads(r.payload).get('command_rules_schema') != 1 for r in reports):
             reject('hook_command_upgrade_required', '请先升级本地接收器并等待能力报告，再发布命令规则', 'Upgrade the local receiver and wait for its capability report before publishing command rules', 409)
-    schema = 3 if command_rules else 2
-    policy = {"schema": schema, "domain": f"aidr.tool-policy/{schema}", "device": client_id, "revision": str(revision+1), "issued_at": str(now), "default_action": body.default_action, "rules": [r.model_dump(exclude_none=True) for r in body.rules]}
+    from .aidr_hook_runtime import HookRuntimeRow
+    reports = db.query(HookRuntimeRow).filter_by(client_id=client_id).filter(HookRuntimeRow.received_at >= now-90).all()
+    if not reports or any(json.loads(r.payload).get('approval_wait_schema') != 1 for r in reports):
+        reject('hook_approval_wait_upgrade_required', '请升级客户端并等待审批等待时长能力报告', 'Upgrade the client and wait for approval timeout capability reporting')
+    schema = 4
+    policy = {"schema": schema, "domain": f"aidr.tool-policy/{schema}", "device": client_id, "revision": str(revision+1), "issued_at": str(now), "approval_wait_seconds": body.approval_wait_seconds, "default_action": body.default_action, "rules": [r.model_dump(exclude_none=True) for r in body.rules]}
     envelope = sign(policy)
     if len(canonical(envelope).encode())>32768:
         reject("hook_policy_too_large", "工具策略超过大小限制", "Tool policy exceeds the size limit", 422)
@@ -248,9 +268,11 @@ def request_approval(db, client_id, body):
     evidence = record["event"]
     if not BY_ID[evidence["agent"]]["approval"]:
         reject("aidr_hook_approval_unsupported", "此产品未接入工具审批", "Tool approval is not available for this product", 422)
-    if record.get("receiver_instance") != body.receiver_instance or evidence["kind"] != "tool.pre" or not evidence.get("input_digest") or not evidence.get("native_call_id") or (aidr_adapters.get(evidence["agent"]).turn_required and not evidence.get("turn_id")):
+    # CodeBuddy approvals bind the exact receiver attempt; its Hook has no native call ID.
+    codebuddy = evidence["agent"] == "codebuddy"
+    if record.get("receiver_instance") != body.receiver_instance or evidence["kind"] != "tool.pre" or not evidence.get("input_digest") or (not codebuddy and not evidence.get("native_call_id")) or ((codebuddy or aidr_adapters.get(evidence["agent"]).turn_required) and not evidence.get("turn_id")) or (codebuddy and not evidence.get("session_id")):
         reject("hook_scope_unverified", "调用身份不足以建立审批范围", "Call identity is insufficient for an approval scope", 422)
-    policy_row = latest_policy(db, client_id)
+    policy_row = compatible_policy(db, client_id, body.policy_revision)
     now = int(time.time())
     if policy_row is None or str(policy_row.revision) != body.policy_revision:
         reject("hook_policy_conflict", "工具策略版本已变化", "Tool policy revision changed")
@@ -258,8 +280,15 @@ def request_approval(db, client_id, body):
     decision = evaluate(policy, evidence["agent"], evidence["tool"], evidence.get('command_match'))
     if decision["decision"] != "ask" or decision["rule_id"] != body.rule_id:
         reject("hook_approval_not_applicable", "当前规则不接受此审批请求", "The current rule does not accept this approval request")
-    scope = {"device": client_id, "stream": body.stream_id, "receiver_instance": body.receiver_instance, "user_scope": record["user_scope"], "agent": evidence["agent"], "session_id": evidence["session_id"], "turn_id": evidence.get("turn_id", ""), "native_call_id": evidence["native_call_id"], "native_agent_id": evidence.get("native_agent_id", ""), "tool": evidence["tool"], "input_digest": evidence["input_digest"], "attempt_nonce": body.event_id, "rule_id": body.rule_id, "policy_revision": body.policy_revision, "execution_point": "plugin_pre_tool"}
-    result = db.execute(insert(HookApprovalRow).values(id=uuid.uuid4().hex, client_id=client_id, stream_id=body.stream_id, event_id=body.event_id, receiver_instance=body.receiver_instance, scope=canonical(scope), nonce=uuid.uuid4().hex, revision=1, state="pending", created_at=now, expires_at=now+300).on_conflict_do_nothing(index_elements=["client_id", "stream_id", "event_id"]))
+    scope = {"device": client_id, "stream": body.stream_id, "receiver_instance": body.receiver_instance, "user_scope": record["user_scope"], "agent": evidence["agent"], "session_id": evidence["session_id"], "turn_id": evidence.get("turn_id", ""), "native_call_id": evidence.get("native_call_id", ""), "native_agent_id": evidence.get("native_agent_id", ""), "tool": evidence["tool"], "input_digest": evidence["input_digest"], "attempt_nonce": body.event_id, "rule_id": body.rule_id, "policy_revision": body.policy_revision, "execution_point": "plugin_pre_tool"}
+    expires = body.expires_at
+    budget = policy['approval_wait_seconds'] if policy.get('schema') == 4 else 300
+    if (policy.get('schema') == 4 and expires is None) or (expires is not None and expires > now + budget):
+        reject('hook_approval_deadline_invalid', '审批截止时间无效', 'Invalid approval deadline', 422)
+    expires = expires if expires is not None else now + 45
+    if expires <= now:
+        reject('hook_approval_expired', '审批已过期', 'Approval expired')
+    result = db.execute(insert(HookApprovalRow).values(id=uuid.uuid4().hex, client_id=client_id, stream_id=body.stream_id, event_id=body.event_id, receiver_instance=body.receiver_instance, scope=canonical(scope), nonce=uuid.uuid4().hex, revision=1, state="pending", created_at=now, expires_at=expires).on_conflict_do_nothing(index_elements=["client_id", "stream_id", "event_id"]))
     row = db.query(HookApprovalRow).filter_by(client_id=client_id, stream_id=body.stream_id, event_id=body.event_id).one()
     if result.rowcount and db.query(HookApprovalRow).filter_by(client_id=client_id, state="pending").filter(HookApprovalRow.expires_at>now).count()>1000:
         reject("hook_approval_capacity", "待处理审批达到上限", "Pending approval capacity reached", 429)
@@ -287,7 +316,7 @@ def decide(db, client_id, approval_id, body, username):
         reject("hook_attempt_finished", "客户端已报告本次尝试结束", "Client already reported this attempt as finished")
     now = int(time.time())
     scope = json.loads(row.scope)
-    policy = latest_policy(db, client_id)
+    policy = compatible_policy(db, client_id, scope['policy_revision'])
     if row.revision != int(body.expected_revision):
         reject("hook_approval_version_conflict", "审批版本已变化，请刷新", "Approval revision changed; refresh")
     if row.expires_at <= now:
@@ -314,7 +343,7 @@ def snapshot(db, client_id, body):
         db.commit()
     except ApiError as error:
         db.rollback()
-        if error.code != 'aidr.hook_command_upgrade_required':
+        if error.code not in ('aidr.hook_command_upgrade_required', 'aidr.hook_approval_wait_upgrade_required'):
             raise
         return {"policy": None, "grants": [], "more_grants": False, "next_after": body.after}
     policy = latest_policy(db, client_id)

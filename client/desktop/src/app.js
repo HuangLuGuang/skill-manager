@@ -3461,6 +3461,8 @@ function agentLabel(value) {
     'global-skills': t('ui.13u0v7i'),
     codebuddy: 'CodeBuddy',
     workbuddy: 'WorkBuddy',
+    qwenwork: 'QwenWork CN',
+    zcode: 'ZCode',
     teleagent: 'TeleAgent',
   }[value] || value
 }

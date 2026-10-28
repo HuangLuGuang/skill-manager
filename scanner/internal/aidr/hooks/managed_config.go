@@ -49,6 +49,9 @@ func managedEntries(layout ManagedLayout, agent string) map[string]map[string]an
 	result := map[string]map[string]any{}
 	for event := range catalog[agent] {
 		timeout := 60
+		if event == "PreToolUse" {
+			timeout = 315
+		}
 		if agent == "codex" && (event == "SessionEnd" || event == "Interrupt") {
 			timeout = 3
 		}
@@ -115,9 +118,8 @@ func mergeManagedConfig(raw []byte, agent string, layout ManagedLayout, install 
 			a, _ := json.Marshal(entry)
 			b, _ := json.Marshal(entries[event])
 			matches := bytes.Equal(a, b)
-			if !matches && agent == "codex" && (event == "SessionEnd" || event == "Interrupt") {
-				// Previous installs used 60s for these native 3s events. Only
-				// the exact previously emitted entry can migrate with ownership.
+			if !matches && (event == "PreToolUse" || (agent == "codex" && (event == "SessionEnd" || event == "Interrupt"))) {
+				// Migrate only the exact owned entry previously emitted with 60s.
 				legacy, _ := json.Marshal(map[string]any{"hooks": []any{map[string]any{"type": "command", "command": managedCommand(layout, agent, event), "timeout": 60}}})
 				matches = bytes.Equal(a, legacy)
 			}

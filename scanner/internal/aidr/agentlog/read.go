@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"time"
 )
@@ -119,6 +120,7 @@ func readWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 		c.Session = ""
 		c.Turn = ""
 		c.CallTurns = nil
+		c.TraeHooks, c.TraeInput = nil, ""
 		c.QoderLinks = nil
 		c.AgentVersion = ""
 		c.RecoveryGaps = nil
@@ -262,6 +264,7 @@ func readWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 			break
 		}
 		candidate := c
+		candidate.TraeHooks = maps.Clone(c.TraeHooks)
 		candidate.Gaps = append([]string{}, c.Gaps...)
 		drafts, parseErr := normalizeSource(s, line, &candidate)
 		if parseErr != nil {

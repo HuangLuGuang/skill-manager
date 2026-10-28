@@ -11,16 +11,17 @@ import (
 
 func TestModelProtocolNegotiationKeepsCaptureReceipt(t *testing.T) {
 	s := openStore(t, tempDir(t), DefaultLimits())
-	p := agentlog.AuditPolicy{Version: "2", Enabled: true, Receipt: strings.Repeat("a", 32), Capture: &agentlog.CaptureScope{}}
+	p := agentlog.AuditPolicy{MessageSchema: 1, Version: "2", Enabled: true, Receipt: strings.Repeat("a", 32), Capture: &agentlog.CaptureScope{}}
 	if err := s.SavePolicy(testContext, p); err != nil {
 		t.Fatal(err)
 	}
 	p.ModelContextSchema = 1
 	p.CompletionSchema = 1
+	p.MessageLinkSchema = 1
 	if err := s.SavePolicy(testContext, p); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.LoadPolicy(testContext); err != nil || s.Policy().ModelContextSchema != 1 || s.Policy().CompletionSchema != 1 {
+	if err := s.LoadPolicy(testContext); err != nil || s.Policy().ModelContextSchema != 1 || s.Policy().CompletionSchema != 1 || s.Policy().MessageLinkSchema != 1 {
 		t.Fatal("negotiation not persisted", err)
 	}
 	p.CompletionSchema = 2

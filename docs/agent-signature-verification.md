@@ -258,3 +258,9 @@ sequenceDiagram
 
 - 旧的 `/api/v1/runtime/...` 治理接口已停用。无论 Agent 是否和服务端同机，都应使用 Agent 运行凭证访问 `/api/v1/access/runtime/...`。
 - `/api/v1/access/runtime/can-load/{skill_name}` 不接收 `skill_path`；先在 Agent 本地计算 `local_signature` 并调用 `verify-skill-signature`，再进行加载许可检查。
+
+## QwenWork CN 的证据与授权边界
+
+qwenwork 的执行前控制复用 AIDR 签名工具策略与一次性审批授权，不等同于 Skill 包签名验证。实机 Skill 调用给出的名称是原生扩展别名；当前返回没有可信本地源目录，因此不根据别名推断 skill_path 或宣称内容签名已验证。已发现的本地 Skill 文件仍沿用现有扫描、指纹和认证模型；文件发现、文件读取、Skill 调用、审批批准与实际执行分别记录。
+
+**English:** QwenWork CN reuses signed AIDR tool policies and single-use approval grants. These grants do not certify a Skill package signature. Native Skill extension aliases are preserved; absent source-directory evidence remains absent. Inventory, file access, Skill invocation, approval and execution are separate observations.

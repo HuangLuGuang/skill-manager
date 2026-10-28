@@ -94,6 +94,7 @@ class AidrEventTurn(Base):
     __tablename__ = 'aidr_event_turns'
     event_id = Column(Integer, ForeignKey('aidr_events.id', ondelete='CASCADE'), primary_key=True)
     turn_id = Column(String(256), nullable=False)
+    message_phase = Column(String(16), nullable=False, default='', server_default='')
 
 
 class AidrSource(Base):

@@ -244,6 +244,7 @@ class TurnLink(Contract):
     native_call_id: Token
     turn_id: Token
     content_digest: Hash
+    message_phase: Literal['commentary', 'final'] | None = None
 
 
 class CoverageRecord(Contract):

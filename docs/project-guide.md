@@ -3085,6 +3085,24 @@ Filters support severity, type, source, product and inclusive local calendar dat
 
 ### AIDR 多产品适配目录
 
+CodeBuddy IDE 已接入 macOS 日志、设置型 Hook、执行前允许/拒绝/人工审批规则及插件/MCP/Skill 资产发现；本机验证版本为 CN 4.12.2。配置、原生证据字段与验收边界见 [CodeBuddy IDE 接入](external-agent-integration.md#codebuddy-idemacoscn-4122)。客户端和服务端需配套更新；在客户端策略中选择对应日志产品与 Hook 宿主后生效。
+
+**English:** CodeBuddy IDE supports macOS native logs, settings Hooks, pre-tool allow/deny/approval rules and plugin/MCP/Skill inventory. CN 4.12.2 was verified locally. Upgrade both client and server, then select CodeBuddy in the log and Hook collection policies. See the CodeBuddy integration section for evidence fields and validation scope.
+
+TRAE macOS 使用 `trae`（国际版）和 `trae-cn`（国内版）两个入口。资产发现读取产品的用户 MCP 配置、已知工作区 `.trae/mcp.json`、用户/内置/项目 Skills、Agent 插件清单与 `.trae-plugin/plugin.json`、IDE 扩展目录。插件附带的 Skills 和 MCP 作为插件组件展示；配置存在和启用状态不代表连接成功或本次已加载。IDE 扩展的启用状态保持未知。
+
+TRAE / TRAE CN 人工审批复用平台签名授权流程：在工具规则中选择“需要审批”，执行前 Hook 持续等待平台决策，批准后继续原调用，拒绝、取消或超时返回原生 deny。授权绑定设备、接收器实例、会话、原生 tool_use_id、输入摘要和本次申请，无原生 turn_id 时保留为空；批准仅消费一次。人工审批等待时长默认180秒，平台全局工具规则可配置30–300秒，客户端可随规则覆盖。新申请保存客户端实际截止时间并在平台倒计时；CLI保留5秒返回预算，受管PreToolUse宿主配置为315秒以覆盖最大等待及通信开销。仅调整等待时长不改变已有申请截止时间；改变规则仍取消旧申请。2026-10-26专项自动化验证覆盖两种产品的批准/拒绝签名、CLI真实IPC等待、超时/取消拒绝、并发单次消费、策略变更及接收器重启。2026-10-28 已完成 TRAE 3.6.4 的 SOLO / Work、IDE 界面和 TRAE CN 3.4.9 的平台联动验收：超过60秒后批准和拒绝均生效，自然超时拦截，页面倒计时与实际截止时间一致。
+
+**English — approval:** TRAE and TRAE CN wait for a platform-signed, single-use grant before continuing the original tool call. Scope binds the device, receiver, session, native call ID, input digest and attempt; an absent native turn ID remains empty. Denial, cancellation and timeout return native deny. Local attempts default to 180 seconds, configurable from 30 to 300 seconds globally or per client. Client and platform share the attempt deadline; the CLI allows five additional seconds for the final response and managed PreToolUse Hooks use a 315-second host timeout. Timeout-only changes affect new attempts; rule changes invalidate pending attempts. Live platform approval, rejection after 60 seconds and natural timeout were verified on TRAE 3.6.4 and TRAE CN 3.4.9 on 2026-10-28.
+
+Hook 安装向 `~/.trae/hooks.json` 或 `~/.trae-cn/hooks.json` 合并六类原生事件，保留用户条目；宿主授权与启用需在 TRAE 确认。日志采集读取 `Library/Application Support/Trae[ CN]/logs/**/agent-hooks.log`，依赖宿主实际生成 Hook 日志，不读取加密会话数据库。支持用户提交、最终回复、工具输入/结果及 Skill 调用证据；正文遵守既有采集策略。`Skill` 的名称来源为 `tool_input.name`，加载目录来源为结果 `skill_path`，内容摘要是采集时观察值。拒绝后的空 `PostToolUse` 结果保持未知，拒绝依据单独保存为控制决策。
+
+2026-10-26 国际版 3.6.4 实机：真实客户端、Unix 接收器与签名策略允许 `printf allowed`，拒绝 `printf denied`；Skill 测试得到名称、目录与内容摘要。原生测试日志及客户端报文已保留为回归样本。带重定向的命令超出现有命令条件解析范围，会标记 unresolved 并继续其他规则/默认决策；默认允许不构成兜底阻断。需要全面限制终端时使用不依赖命令解析的工具级规则。国内版 3.4.9 已完成真实日志、Hook 拦截和平台人工审批验收；旧独立 TraeWork 入口保持待验证，新 TRAE 的 IDE/Agent 窗口不能作为旧产品验收依据。
+
+UI 手工复验 Todo：旧策略保持默认180秒直接保存升级、切换全局继承/客户端覆盖/保持混合继承后的时长回填；平台和桌面客户端中英文采集入口、Hook 授权/启用提示；资产页插件组件及禁用 MCP；会话页拒绝决策与空结果；Skill 名称、目录、内容核验状态；窄屏布局。本次同时修改安全规则等待时长配置和审批倒计时/回执刷新，未新增 UI 单元测试。Windows/Linux、云任务及独立新建 Agent 任务尚未实机验收。
+
+**English — TRAE:** macOS adapters `trae` and `trae-cn` discover MCP configuration, Skills, Agent plugins and IDE extensions. Hook installation preserves user entries and requires host authorization/enablement. Collection reads native `agent-hooks.log`, not encrypted conversation databases. Native 3.6.4 tests confirmed signed-policy command denial and Skill name/path evidence. Empty post-tool results remain unknown; control decisions are separate. Shell syntax outside the command parser falls through to other rules/default policy. TRAE CN 3.4.9 and TRAE 3.6.4 SOLO / Work and IDE views passed live approval/rejection after 60 seconds and natural timeout on 2026-10-28. Legacy standalone TraeWork, cloud tasks and other operating systems remain unverified. Manually verify saving the displayed 180-second default for legacy policies, wait values after switching inheritance modes, and both languages and narrow layouts for collection settings, assets, sessions and Skill details.
+
 AIDR 产品入口、日志格式/根目录、Hook 事件及决策能力统一维护在 `backend/aidr_products.json`；运行 `python3 scripts/sync-aidr-products.py` 更新 Go 与两端 UI 的随包副本，`--check` 检查一致性。新增产品先提供官方契约或匿名样本，再新增 `scanner/internal/aidr/agentlog/` 解析模块或 `hooks/` 宿主协议；公共脱敏、上传、ACK、存储沿用原链路。完整文件快照不当作 JSONL 追加流。
 
 客户端策略可多选日志产品和 Hook 宿主。协议 5 才应用新增产品目标；旧策略未指定 `log_sources` 时继续采集 Claude / Codex。平台和桌面“产品与采集能力”按产品分组，组内按入口列出适配及样本范围，实际生效由安装、授权、事件和 ACK 另行确认。逐产品矩阵与限制见 [外部 Agent 集成](external-agent-integration.md#aidr-多产品适配与证据范围2026-10-07)。
@@ -3238,9 +3256,9 @@ English: ZIP uploads, Scanner submissions, and network ZIP imports unpack only t
 
 Open **Clients → Global client settings → Security rules**, or **Client details → Client settings → Security rules**. One Add rule entry and one shared editor configure conditions, Agent/OS scope, a referenced path set, risk recording, pre-execution action and enabled state. Search and filters update immediately; name and severity are sortable.
 
-Path sets are independently named collections shared by multiple rules. Editing a set updates all references; referenced sets cannot be deleted. Explicit paths match themselves and descendants; built-in paths retain OS and exact-file/directory matching. Custom commands reference explicit paths. Actions require all operating systems; current Hook command actions support one POSIX path prefix, preserving all-segment/all-target matching for allow rules. Built-in complex behaviors and Windows-specific conditions support risk recording; action choices follow current Hook capabilities. Native tool calls can record risks and apply actions together. WorkBuddy, Claude Code, Codex and Qoder Hooks support platform approval. Products without approval support disable Require approval; Allow and Deny remain available. The server validates every selected product before saving.
+Path sets are independently named collections shared by multiple rules. Editing a set updates all references; referenced sets cannot be deleted. Explicit paths match themselves and descendants; built-in paths retain OS and exact-file/directory matching. Custom commands reference explicit paths. Actions require all operating systems; current Hook command actions support one POSIX path prefix, preserving all-segment/all-target matching for allow rules. Built-in complex behaviors and Windows-specific conditions support risk recording; action choices follow current Hook capabilities. Native tool calls can record risks and apply actions together. WorkBuddy, CodeBuddy IDE, TRAE, TRAE CN, Claude Code, Codex and Qoder Hooks support platform approval. Products without approval support disable Require approval; Allow and Deny remain available. The server validates every selected product before saving.
 
-WorkBuddy、Claude Code、Codex 和 Qoder Hooks 支持平台人工审批；未接入审批的智能体禁用“需要审批”，可使用允许或拒绝。服务端保存前逐一校验所选智能体，失败时保留原配置。
+WorkBuddy、CodeBuddy IDE、TRAE、TRAE CN、Claude Code、Codex 和 Qoder Hooks 支持平台人工审批；未接入审批的智能体禁用“需要审批”，可使用允许或拒绝。服务端保存前逐一校验所选智能体，失败时保留原配置。
 
 Clients can inherit global rules or maintain a complete override. Legacy mixed inheritance remains dynamic under Keep current inheritance; inherited entries are read-only. Risk recording can independently inherit, enable or disable. Migration retains separate legacy entries, original tool-rule IDs, signatures, defaults and historical risk snapshots. Opening the page does not publish. A unified document is validated and saved atomically with optimistic revision checks, permissions and receiver capabilities; unchanged execution policies are not re-signed. Legacy APIs remain compatible and their updates are reflected in the unified view. Failed saves retain the draft.
 
@@ -3250,9 +3268,9 @@ Test rules parses the current draft without executing commands, publishing polic
 
 Risk lists and details join approval receipts by device, stream and event identity. Grant consumption and denial feedback are separate from execution results, which require post-tool evidence. Historical rule snapshots are preserved.
 
-WorkBuddy 人工审批复用执行前 Hook：本地请求等待最多约 45 秒，Hook 外层等待预算 50 秒，宿主配置超时 60 秒。批准仅授权本次调用并一次性消费；拒绝或超时停止本次调用。再次发起同一命令仍需新的审批。平台审批记录与客户端回执分别保留，授权已使用不等同于工具执行成功。旧客户端需要升级后才能执行 WorkBuddy 审批；保存配置不代表设备已应用。
+WorkBuddy 人工审批复用执行前 Hook：本地请求按已发布的人工审批等待时长等待，默认180秒、范围30–300秒；CLI按本次截止时间额外保留5秒返回预算，受管PreToolUse配置超时315秒。批准仅授权本次调用并一次性消费；拒绝或超时停止本次调用。再次发起同一命令仍需新的审批。平台审批记录与客户端回执分别保留，授权已使用不等同于工具执行成功。旧客户端需要升级后才能执行 WorkBuddy 审批；保存配置不代表设备已应用。
 
-WorkBuddy approval uses the pre-tool Hook and existing signed grants. Local attempts expire after about 45 seconds, within the 50-second bridge budget and 60-second host timeout. Approval authorizes only that attempt and is consumed once; denial or timeout stops it. Repeating a command requires a new approval. Platform decisions and client receipts remain separate, and grant consumption does not establish execution success. Older clients must be upgraded; saving a policy does not establish device application.
+WorkBuddy approval uses the pre-tool Hook and existing signed grants. Local attempts default to 180 seconds, configurable from 30 to 300 seconds globally or per client, with five additional seconds for the CLI response and a 315-second managed PreToolUse timeout. Approval authorizes only that attempt and is consumed once; denial or timeout stops it. Repeating a command requires a new approval. Platform decisions and client receipts remain separate, and grant consumption does not establish execution success. Older clients must be upgraded; saving a policy does not establish device application.
 
 风险列表不展示动作结果列。详情保留明确执行结果；收到后置反馈但缺少结果状态时显示“未采集到执行结果”，未收到后置反馈时显示“未采集到执行反馈”。审批与拦截反馈单独展示，证据冲突保留冲突状态。检测修订号保留在接口追溯数据中，不在正文展示。点击“处理风险”展开处理方式与原因，取消收起并保留本次草稿；保存成功后收起。规则快照及原始证据按原权限查看，命令和用户规则名称保持原文。
 
@@ -3287,3 +3305,15 @@ Overview has Assets, Activity and Risks tabs with a shared date filter, defaulti
 Click metrics or charts to open the existing risk list, details, rule trace and disposition flow. Chart drilldowns use inclusive first-detection start and exclusive end boundaries; the regular Risk events page retains occurrence-time filtering. Focus a chart, use arrow keys to select a data point, and press Enter to drill down. Saving a disposition refreshes the overview. Agent links and evidence-content permissions remain unchanged.
 
 The score is `round(100 × (1 − exp(−W / 60)))`, where `W = open high × 8 + open medium × 3`. Levels are Low (0–29), Medium (30–59), High (60–100). Resolved, accepted and false-positive findings are excluded; reopening restores their contribution. Each finding counts once; independent cross-source findings count separately. Inferred cross-source links do not establish deduplication. The explanation shows actual counts and weights. Weights and thresholds are product choices not yet calibrated against incident data. Zero means no open findings; consult channel status for collection coverage. Scores are unavailable when detection is disabled, cursors lag, or checks are over 30 seconds old. Upgrade adds a client/first-detection index without rewriting historical findings.
+
+## 千问办公接入
+
+产品目录新增 qwenwork（QwenWork CN），范围限定已验证的 macOS 桌面版。复用日志增量队列、Hook 接收器、签名规则和独立人工审批；个人 Skill 使用身份隔离目录，插件安装与启用分开表达。自定义 MCP 导入在本机被产品限制，完整 MCP 配置发现未开放。详细能力、失败行为和三端升级要求见 [外部 Agent 集成](external-agent-integration.md#千问办公--qwenwork-cnqwenwork)。
+
+**English:** qwenwork covers the verified macOS QwenWork CN desktop entry. It reuses incremental collection, signed pre-tool rules and independent approvals. Personal Skills use identity-scoped directories; installed plugins do not imply enablement. Custom MCP import was restricted by the tested host. See the external integration guide for evidence boundaries and coordinated upgrades.
+
+## ZCode 运行时接入
+
+产品目录 zcode 对应已验证的 macOS ZCode 3.16.3 内置 Agent。适配覆盖 SQLite 增量会话、六类用户 Hook、执行前规则和独立平台审批，以及 Skill/MCP/插件资产来源。使用原生身份字段和现有队列、ACK、签名授权及回执，不按时间推断确定关联。桌面真实调用与随包运行程序隔离全链路测试的覆盖范围分别记录；宿主 Hook 失败可能继续执行。参见 [长期接入说明](external-agent-integration.md#zcodezcode)。
+
+**English:** The zcode adapter covers the verified macOS built-in Agent, mutable SQLite sessions, six user Hooks, signed pre-tool decisions and independent approvals. Native identifiers and existing delivery contracts are reused. Asset discovery is distinct from invocation evidence; native Hook failures may fail open.

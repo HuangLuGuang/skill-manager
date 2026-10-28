@@ -291,6 +291,18 @@ func discoverAssets(home, kind string, skillRoots []string) *AssetInventory {
 	result := &AssetInventory{Version: 1, ObservedAt: time.Now().UTC().Format(time.RFC3339), MCPServers: []MCPAsset{}, Plugins: []PluginAsset{}, Issues: []AssetIssue{}}
 	c := &assetCollector{result: result, seenMCP: map[string]bool{}, seenPlugin: map[string]int{}}
 	defer c.boundWireValues()
+	if kind == "zcode" {
+		c.discoverZcode(home)
+		return result
+	}
+	if kind == "qwenwork" {
+		c.discoverQwenWork(home)
+		return result
+	}
+	if kind == "trae" || kind == "trae-cn" {
+		c.discoverTrae(home, kind, skillRoots)
+		return result
+	}
 	rootName := map[string]string{"claude-code": ".claude", "codex": ".codex", "cursor": ".cursor", "gemini": ".gemini", "qoder": ".qoder", "qoder-cn": ".qoder-cn", "codebuddy": ".codebuddy", "workbuddy": ".workbuddy", "openclaw": ".openclaw", "opencode": ".config/opencode"}[kind]
 	if kind == "claude-desktop" {
 		result.MCPSupported = true
@@ -314,6 +326,11 @@ func discoverAssets(home, kind string, skillRoots []string) *AssetInventory {
 		root = filepath.Dir(resolvedModelPath(home, kind, rootName+"/config.toml"))
 	}
 	projects := map[string]bool{}
+	if kind == "codebuddy" {
+		for _, project := range c.codeBuddyProjects(home) {
+			projects[project] = true
+		}
+	}
 	for _, path := range skillRoots {
 		parent := filepath.Dir(path)
 		if filepath.Base(parent) == filepath.Base(rootName) && filepath.Clean(parent) != filepath.Clean(root) {
@@ -377,7 +394,9 @@ func discoverAssets(home, kind string, skillRoots []string) *AssetInventory {
 		projectRoot := filepath.Join(project, filepath.Base(rootName))
 		paths := []string{}
 		switch kind {
-		case "claude-code", "qoder", "qoder-cn", "codebuddy", "workbuddy":
+		case "codebuddy":
+			paths = []string{filepath.Join(project, ".mcp.json")}
+		case "claude-code", "qoder", "qoder-cn", "workbuddy":
 			paths = []string{filepath.Join(project, ".mcp.json"), filepath.Join(projectRoot, "mcp.json"), filepath.Join(projectRoot, "settings.json"), filepath.Join(projectRoot, "settings.local.json")}
 		case "cursor":
 			paths = []string{filepath.Join(projectRoot, "mcp.json")}

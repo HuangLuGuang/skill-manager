@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -11,6 +13,33 @@ import (
 
 	"skill-manager/scanner/internal/managedclient"
 )
+
+func TestAutomaticDoubaoIncludesFeishuLocalRoots(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS source")
+	}
+	home := shortDesktopTestHome(t)
+	if err := managedclient.SaveConfig(home, managedclient.Config{Server: "http://127.0.0.1:9", Token: "synthetic"}); err != nil {
+		t.Fatal(err)
+	}
+	profile := filepath.Join(home, "Library/Application Support/LarkShell/aha/users/test")
+	for _, sub := range []string{"doubao/.doubao/agent_mode/workspace/.sessions", "profile_explorer/IndexedDB"} {
+		if err := os.MkdirAll(filepath.Join(profile, sub), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := logTestPolicy()
+	p.Classification.RuntimeGovernance.LogSources = []string{"doubaowork"}
+	plan, err := automaticLogPlan(home, p)
+	if err != nil || len(plan.roots) != 4 || !plan.enabled {
+		t.Fatalf("plan %+v %v", plan, err)
+	}
+	p.Classification.RuntimeGovernance.Channels.Logs = false
+	disabled, err := automaticLogPlan(home, p)
+	if err != nil || disabled.enabled {
+		t.Fatal("log switch bypassed", err)
+	}
+}
 
 func logTestPolicy() managedclient.Policy {
 	return managedclient.Policy{Classification: &managedclient.ClassificationPolicy{RuntimeGovernanceConfigured: true, RuntimeGovernanceVersion: "1", RuntimeGovernance: &managedclient.RuntimeGovernancePolicy{Enabled: true, Channels: &managedclient.RuntimeCollectionChannels{Logs: true, Hooks: true}, Installation: "manual", AccessMode: "ordinary", Updates: "manual", Retry: managedclient.ReceiverRetryPolicy{Mode: "fixed", Retries: 2, MaxIntervalSeconds: 10}}}}

@@ -3,7 +3,7 @@
     "SessionStart": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" SessionStart"}]}],
     "SessionEnd": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" SessionEnd"}]}],
     "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" UserPromptSubmit"}]}],
-    "PreToolUse": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" PreToolUse", "timeout": 60}]}],
+    "PreToolUse": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" PreToolUse", "timeout": 315}]}],
     "PostToolUse": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" PostToolUse"}]}],
     "PermissionRequest": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" PermissionRequest"}]}],
     "SubagentStart": [{"hooks": [{"type": "command", "command": "sh \"${PLUGIN_ROOT}/scripts/bridge.sh\" SubagentStart"}]}],

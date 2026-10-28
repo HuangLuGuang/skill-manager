@@ -35,9 +35,14 @@ var logAdapters map[string]logAdapter
 
 func init() {
 	logAdapters = map[string]logAdapter{
+		"zcode":      zcodeLogAdapter(),
+		"trae":       traeLogAdapter(),
+		"trae-cn":    traeLogAdapter(),
 		"claude":     claudeLogAdapter(),
 		"codex":      codexLogAdapter(),
 		"workbuddy":  workbuddyLogAdapter(),
+		"codebuddy":  codeBuddyLogAdapter(),
+		"qwenwork":   qwenWorkLogAdapter(),
 		"qoder-cli":  qoderLogAdapter(),
 		"opencode":   openCodeLogAdapter(),
 		"teleagent":  teleAgentLogAdapter(),

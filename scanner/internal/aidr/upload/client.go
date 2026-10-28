@@ -327,7 +327,7 @@ func (c *Client) RefreshPolicy(ctx context.Context, s *localstore.Store) error {
 		return err
 	}
 	raw, _ := json.Marshal(map[string]string{"stream_id": stream, "last_sequence": fmt.Sprint(n), "applied_receipt": s.Policy().Receipt, "applied_after": after})
-	data, result := c.post(ctx, "audit-policy", raw, map[string]string{"X-AIDR-Policy-Schema": "2", "X-AIDR-Audit-Lifecycle": "1", "X-AIDR-Message-Capture": "1", "X-AIDR-Content-Options": "1", "X-AIDR-Model-Context": "1", "X-AIDR-Tool-Completion": "1", "X-AIDR-Command-Completion": "1", "X-AIDR-Skill-Audit": "1"})
+	data, result := c.post(ctx, "audit-policy", raw, map[string]string{"X-AIDR-Policy-Schema": "2", "X-AIDR-Audit-Lifecycle": "1", "X-AIDR-Message-Capture": "1", "X-AIDR-Message-Links": "1", "X-AIDR-Content-Options": "1", "X-AIDR-Model-Context": "1", "X-AIDR-Tool-Completion": "1", "X-AIDR-Command-Completion": "1", "X-AIDR-Skill-Audit": "1"})
 	if result.Code != "" {
 		c.policyCode = "aidr_policy_cached"
 		if result.Code == "aidr_upload_auth_rejected" || result.Code == "aidr_upload_access_rejected" {

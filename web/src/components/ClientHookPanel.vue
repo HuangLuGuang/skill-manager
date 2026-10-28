@@ -3,10 +3,10 @@
     <ClientProtectionStatus v-if="view === 'control' && !global && !fixedAgent" :client-id="clientId" channel="hooks" />
     <h3 v-if="view === 'events'">{{ t('aidr.hooks.events.title') }}</h3>
     <details v-if="view === 'events'" class="hook-context"><summary>{{ t('aidr.hooks.evidenceBoundary') }}</summary><p>{{ t('aidr.hooks.evidenceNote') }}</p><p>{{ t('aidr.hooks.events.note') }}</p><p>{{ t('aidr.hooks.scrollHint') }}</p></details>
-    <a-alert v-if="actionError" type="error" show-icon :message="actionError" />
+    <a-alert v-if="actionError" type="error" show-icon :message="renderFailure(actionError)" />
     <template v-if="['plugins','runtime'].includes(view)">
       <a-button :loading="policyLoading" :disabled="policyLoading" @click="loadPolicy">{{ t(policyError ? 'aidr.hooks.retry' : 'aidr.hooks.refresh') }}</a-button>
-      <a-alert v-if="policyError" type="error" :message="policyError" show-icon />
+      <a-alert v-if="policyError" type="error" :message="renderFailure(policyError)" show-icon />
       <template v-if="policy">
         <details v-if="view === 'plugins'" class="hook-analysis" open>
           <summary>{{ t('aidr.hooks.plugins.title') }}</summary>
@@ -53,7 +53,7 @@
     <div v-if="!global && !controlSection" class="control-tabs" role="group" :aria-label="t('aidr.hooks.title')"><button :aria-pressed="controlTab === 'rules'" @click="controlTab = 'rules'">{{ t('aidr.hooks.commands.title') }}</button><button :aria-pressed="controlTab === 'approvals'" @click="controlTab = 'approvals'">{{ t('aidr.hooks.approvals') }} <span>{{ page.items.length }}</span></button></div>
     <div v-if="controlTab === 'approvals'">
     <div class="hook-heading hook-list-heading"><h4>{{ t('aidr.hooks.approvals') }} <span class="hook-count">{{ t('aidr.hooks.visibleRecords', { count: page.items.length }) }}</span></h4><a-button :loading="listLoading" :disabled="listLoading || deciding" @click="loadList()">{{ t(listError ? 'aidr.hooks.retry' : 'aidr.hooks.refresh') }}</a-button></div>
-    <a-alert v-if="listError" type="error" show-icon :message="listError" />
+    <a-alert v-if="listError" type="error" show-icon :message="renderFailure(listError)" />
     <p>{{ t('aidr.hooks.lastSync') }}: {{ lastSynced ? new Date(lastSynced).toLocaleString(locale) : t('aidr.hooks.unknown') }}</p>
     <a-alert v-if="latestAvailable" type="info" show-icon :message="t('aidr.hooks.latestAvailable')">
       <template #description><a-button :disabled="listLoading || deciding" @click="loadList(null)">{{ t('aidr.hooks.showLatest') }}</a-button></template>
@@ -64,7 +64,7 @@
         <template v-else-if="column.key === 'agent'">{{ record.scope.agent }}<div><a-tooltip :title="record.scope.tool" :trigger="['hover', 'focus']"><code class="hook-id" tabindex="0" :aria-label="record.scope.tool">{{ shortId(record.scope.tool) }}</code></a-tooltip></div></template>
         <template v-else-if="column.key === 'session'"><a-tooltip :title="record.scope.session_id" :trigger="['hover', 'focus']"><code class="hook-id" tabindex="0" :aria-label="record.scope.session_id">{{ shortId(record.scope.session_id) }}</code></a-tooltip><div><a-tooltip :title="record.scope.native_call_id" :trigger="['hover', 'focus']"><code class="hook-id" tabindex="0" :aria-label="record.scope.native_call_id">{{ shortId(record.scope.native_call_id) }}</code></a-tooltip></div></template>
         <template v-else-if="column.key === 'state'"><a-tag :color="stateColor(record.state)">{{ stateLabel(record.state) }}</a-tag></template>
-        <template v-else-if="column.key === 'expires'"><span class="hook-date">{{ datePart(record.expires_at) }}<small>{{ timePart(record.expires_at) }}</small></span></template>
+        <template v-else-if="column.key === 'expires'"><span class="hook-date">{{ datePart(record.expires_at) }}<small>{{ timePart(record.expires_at) }}</small><small v-if="record.state === 'pending'">{{ remainingLabel(record) }}</small></span></template>
         <template v-else><a-button type="link" @click="openDetail(record.id)">{{ t('aidr.hooks.details') }}</a-button></template>
       </template>
     </a-table>
@@ -72,7 +72,7 @@
     <div v-if="cursor || page.has_more" class="hook-heading"><a-button :disabled="listLoading || deciding || !cursor" @click="loadList(null)">{{ t('aidr.hooks.first') }}</a-button><a-button :disabled="listLoading || deciding || !page.has_more" @click="loadList({ before: page.next_before, before_id: page.next_before_id })">{{ t('aidr.hooks.next') }}</a-button></div>
     </div>
     <section v-if="controlTab === 'rules'" class="control-rules">
-      <a-alert v-if="policyError" type="error" :message="policyError" show-icon />
+      <a-alert v-if="policyError" type="error" :message="renderFailure(policyError)" show-icon />
       <template v-if="policy">
         <div class="scope-choice" v-if="!global">
           <label :title="!policy.global_policy ? t('aidr.hooks.scope.unconfigured') : ''"><a-switch v-model:checked="inherit" :disabled="!canEdit || saving || policyLoading || !!policyError || (!inherit && !policy.global_policy)" @change="changeInheritance" /> {{ t('aidr.hooks.scope.inherit') }}</label>
@@ -81,6 +81,9 @@
         </div>
         <p v-else>{{ t('aidr.hooks.scope.impact', policy.impact || {}) }}</p>
         <p v-if="!canEdit">{{ t('aidr.hooks.readonly') }}</p>
+        <a-form-item :label="t('aidr.hooks.wait.label')" :validate-status="waitInvalid ? 'error' : ''" :help="waitInvalid ? t('aidr.hooks.wait.invalid') : t('aidr.hooks.wait.help')">
+          <a-input-number v-model:value="draft.approval_wait_seconds" :step="1" :disabled="(!global && inherit) || !canEdit || saving || policyLoading || !!policyError" :aria-label="t('aidr.hooks.wait.label')" />
+        </a-form-item>
         <AidrCommandRules v-model:rules="draft.rules" :products="products" :disabled="(!global && inherit) || !canEdit || saving || policyLoading || !!policyError" />
         <fieldset class="default-rule" :disabled="(!global && inherit) || !canEdit || saving || policyLoading || !!policyError">
           <label>{{ t('aidr.hooks.defaultAction') }}<select v-model="draft.default_action"><option v-for="d in decisions" :key="d" :value="d">{{ t(`aidr.hooks.${d}`) }}</option></select></label>
@@ -92,11 +95,12 @@
     </section>
     <a-modal v-model:open="reviewOpen" :title="t('aidr.hooks.commands.review')" :closable="!saving" :mask-closable="!saving" :keyboard="!saving" :confirm-loading="saving" :ok-text="t(global ? 'aidr.hooks.globalPublish' : 'aidr.hooks.publish')" :cancel-text="t('aidr.hooks.cancel')" :cancel-button-props="{ disabled: saving }" :ok-button-props="{ disabled: !dirty || !canEdit || !!policyError }" @ok="publish">
       <p>{{ t('aidr.hooks.commands.reviewHelp') }}</p>
+      <p>{{ t('aidr.hooks.wait.label') }}: {{ draft.approval_wait_seconds }}</p>
       <p v-if="global">{{ t('aidr.hooks.scope.impact', policy?.impact || {}) }}</p>
       <p v-else>{{ t(inherit ? 'aidr.hooks.scope.inherit' : 'aidr.hooks.scope.local') }}</p>
       <ul class="publish-review"><li v-for="rule in draft.rules" :key="rule.id"><div><strong>{{ rule.id }}</strong><code>{{ rule.command ? [rule.command.executable, ...(rule.command.args_all || []), rule.command.args_any?.length ? '(' + rule.command.args_any.join(' / ') + ')' : '', rule.command.path_prefix, rule.command.pipe_to?.length ? '| ' + rule.command.pipe_to.join(' / ') : ''].filter(Boolean).join(' ') : rule.tool }}</code><small>{{ t(rule.command ? 'aidr.hooks.commands.commandType' : 'aidr.hooks.commands.toolType') }}</small></div><span>{{ rule.agent === '*' ? t('aidr.hooks.commands.allAgents') : products.find(p => p.id === rule.agent)?.name || rule.agent }}</span><a-tag>{{ t('aidr.hooks.' + rule.decision) }}</a-tag></li></ul>
       <p><strong>{{ t('aidr.hooks.defaultAction') }}: {{ t('aidr.hooks.' + draft.default_action) }}</strong></p><p>{{ t('aidr.hooks.commands.fallback.' + draft.default_action) }}</p>
-      <a-alert v-if="actionError" type="error" show-icon :message="actionError" />
+      <a-alert v-if="actionError" type="error" show-icon :message="renderFailure(actionError)" />
     </a-modal>
     </template>
     <template v-if="view === 'events'">
@@ -115,7 +119,7 @@
       </div>
     </form>
     <div class="hook-heading hook-pagination"><a-button :loading="eventQueryBusy" :disabled="eventQueryBusy" @click="loadEvents(eventHistory[eventIndex], 'refresh')">{{ t(eventsError ? 'aidr.hooks.retry' : 'aidr.hooks.refresh') }}</a-button><a-button :disabled="eventQueryBusy" @click="loadEvents()">{{ t('aidr.hooks.events.latest') }}</a-button><a-button :disabled="eventQueryBusy || eventIndex === 0" @click="loadEvents(eventHistory[eventIndex - 1], 'newer')">{{ t('aidr.hooks.events.newer') }}</a-button><a-button :disabled="eventQueryBusy || !!eventsError || !eventsPage.has_more" @click="loadEvents({ before: eventsPage.next_before, snapshot_id: eventsPage.snapshot_id }, 'older')">{{ t('aidr.hooks.events.older') }}</a-button><span class="hook-muted">{{ t('aidr.hooks.events.batch', { number: eventIndex + 1 }) }}</span></div>
-    <a-alert v-if="eventsError" type="error" show-icon :message="eventsError" />
+    <a-alert v-if="eventsError" type="error" show-icon :message="renderFailure(eventsError)" />
     <a-table class="hook-table hook-event-table" table-layout="fixed" :columns="eventColumns" :data-source="eventsPage.items" :loading="eventQueryBusy" row-key="id" :pagination="false" :scroll="{ x: 1200, y: 'min(56vh, 500px)' }" size="small" :locale="{ emptyText: t(eventsError ? 'aidr.hooks.events.unavailable' : 'aidr.hooks.events.empty') }">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'received'"><span class="hook-date">{{ datePart(record.record.received_at, true) }}<small>{{ timePart(record.record.received_at, true) }}</small></span></template>
@@ -146,7 +150,7 @@
         <details v-if="canRelateHook" class="hook-context">
           <summary>{{ t('aidr.detail.relatedHooks') }}<span v-if="relatedOthers.length"> · {{ relatedOthers.length }}</span></summary>
           <p v-if="relatedLoading">{{ t('aidr.detail.loadingRelated') }}</p>
-          <a-alert v-if="relatedError" type="error" show-icon :message="relatedError"><template #action><a-button :loading="relatedLoading" :disabled="relatedLoading" @click="loadRelated(eventDetail)">{{ t('aidr.hooks.retry') }}</a-button></template></a-alert>
+          <a-alert v-if="relatedError" type="error" show-icon :message="renderFailure(relatedError)"><template #action><a-button :loading="relatedLoading" :disabled="relatedLoading" @click="loadRelated(eventDetail)">{{ t('aidr.hooks.retry') }}</a-button></template></a-alert>
           <p v-if="related && related.code !== 'native_identity_matched'">{{ t('aidr.hooks.events.relatedCodes.' + related.code) }}</p>
           <p v-if="related?.relation === 'matched'">{{ t('aidr.detail.relatedNote') }}</p>
           <p v-if="related?.execution_evidence">
@@ -177,13 +181,14 @@
       </article>
     </a-modal>
     <a-modal v-model:open="detailOpen" :title="t('aidr.hooks.detailTitle')" :footer="null" :width="900" :destroy-on-close="true">
-      <a-alert v-if="actionError" type="error" :message="actionError" show-icon />
-      <a-alert v-if="detailError" type="error" :message="detailError" show-icon />
+      <a-alert v-if="actionError" type="error" :message="renderFailure(actionError)" show-icon />
+      <a-alert v-if="detailError" type="error" :message="renderFailure(detailError)" show-icon />
       <a-button :loading="detailLoading" :disabled="detailLoading || deciding" @click="openDetail(detailId)">{{ t('aidr.hooks.retry') }}</a-button>
       <template v-if="detail && !detailError">
         <p>{{ t('aidr.hooks.evidenceNote') }}</p>
         <p>{{ t('aidr.hooks.state') }}: {{ stateLabel(detail.approval.state) }}</p>
         <p>{{ t('aidr.hooks.expires') }}: {{ stamp(detail.approval.expires_at) }}</p>
+        <p v-if="detail.approval.state === 'pending'" role="timer">{{ remainingLabel(detail.approval) }}</p>
         <a-alert type="info" :message="t('aidr.hooks.clientReport')" show-icon>
           <template #description>
             <template v-if="detail.client_report"><p>{{ t(detail.client_report.record.state === 'consumed' ? 'aidr.hooks.clientConsumed' : 'aidr.hooks.clientDenied') }} · <code>{{ detail.client_report.record.code }}</code></p><p>{{ t('aidr.hooks.reportedAt') }}: {{ stamp(detail.client_report.record.reported_at) }} · {{ t('aidr.hooks.receivedAt') }}: {{ stamp(detail.client_report.received_at) }}</p></template>
@@ -223,24 +228,25 @@ const props = defineProps({ clientId: { type: String, default: '' }, global: Boo
 const { t, locale } = useI18n()
 const scopeLabel = scope => scope ? ['prompt', 'model_response', 'tool_output', 'file_body', 'command_body'].filter(kind => scope[kind]).map(kind => t('aidr.content.kinds.' + kind)).join(' · ') || t('aidr.content.none') : t('aidr.redactionSettings.unknown')
 const lifecycleLabel = value => value ? t(value.enabled ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') + ' · ' + t('aidr.lifecycle.days', { days: value.retention_days }) : t('aidr.lifecycle.legacy')
-const policy = ref(null), draft = ref({ default_action: 'deny', rules: [] })
+const policy = ref(null), draft = ref({ default_action: 'deny', approval_wait_seconds: 180, rules: [] })
+const waitInvalid = computed(() => !Number.isInteger(draft.value.approval_wait_seconds) || draft.value.approval_wait_seconds < 30 || draft.value.approval_wait_seconds > 300)
 const reviewOpen = ref(false), baseline = ref('')
 const inherit = ref(false), baselineInherit = ref(false)
 let localDraft = null
-const dirty = computed(() => !!policy.value && ((props.global && !policy.value.policy) || inherit.value !== baselineInherit.value || JSON.stringify(draft.value) !== baseline.value))
+const dirty = computed(() => !!policy.value && ((inherit.value ? policy.value.global_policy : policy.value.policy)?.approval_wait_seconds == null || inherit.value !== baselineInherit.value || JSON.stringify(draft.value) !== baseline.value))
 function applyPolicy(data) {
   localDraft = null
   policy.value = data
   inherit.value = !props.global && !!data.inherit
   const selected = inherit.value ? data.global_policy : data.policy
-  draft.value = { default_action: selected?.default_action || 'allow', rules: structuredClone(selected?.rules || []) }
+  draft.value = { default_action: selected?.default_action || 'allow', approval_wait_seconds: selected?.approval_wait_seconds ?? 180, rules: structuredClone(selected?.rules || []) }
   baseline.value = JSON.stringify(draft.value); baselineInherit.value = inherit.value
 }
 function changeInheritance() {
   if (inherit.value) {
     localDraft = JSON.parse(JSON.stringify(draft.value))
     const selected = policy.value?.global_policy
-    draft.value = { default_action: selected?.default_action || 'allow', rules: structuredClone(selected?.rules || []) }
+    draft.value = { default_action: selected?.default_action || 'allow', approval_wait_seconds: selected?.approval_wait_seconds ?? 180, rules: structuredClone(selected?.rules || []) }
   } else if (localDraft) {
     draft.value = localDraft
     localDraft = null
@@ -285,6 +291,10 @@ const detailOpen = ref(false), detailLoading = ref(false), detailId = ref(''), d
 const decisions = ['allow', 'deny', 'ask']
 const states = ['pending', 'approved', 'denied', 'revoked', 'expired', 'timed_out']
 const stateLabel = value => t(`aidr.hooks.${states.includes(value) ? value : 'unknown'}`)
+const remainingLabel = row => {
+  const seconds = Math.max(0, Math.ceil((Number(row.expires_at) * 1000 - now.value) / 1000))
+  return seconds ? t('aidr.hooks.wait.remaining', { seconds }) : t('aidr.hooks.wait.ended')
+}
 const canEdit = computed(() => !!policy.value?.can_edit && can('clients:update'))
 const actionAllowed = computed(() => !!policy.value?.can_edit && can('clients:execute') && !!detail.value?.evidence && !detail.value?.client_report && !detailLoading.value && !detailError.value && ['pending', 'approved'].includes(detail.value?.approval.state) && Number(detail.value?.approval.expires_at) * 1000 > now.value)
 const availableActions = computed(() => detail.value?.approval.state === 'approved' ? [{ value: 'revoke', label: 'revoke' }] : detail.value?.approval.state === 'pending' ? [{ value: 'allow', label: 'approve' }, { value: 'deny', label: 'reject' }] : [])
@@ -296,17 +306,32 @@ const tableDate = (value, iso) => value ? new Date(iso ? value : Number(value) *
 const datePart = (value, iso = false) => tableDate(value, iso)?.toLocaleDateString(locale.value) || t('aidr.hooks.unknown')
 const timePart = (value, iso = false) => tableDate(value, iso)?.toLocaleTimeString(locale.value, { hour12: false }) || ''
 const stamp = value => value ? new Date(Number(value) * 1000).toLocaleString(locale.value) : t('aidr.hooks.unknown')
-const failure = (error, key) => error.apiErrorCode?.endsWith('hook_command_upgrade_required') ? t('aidr.hooks.commands.upgrade') : `${t(`aidr.hooks.${key}`)}${error.apiErrorCode ? ` (${error.apiErrorCode})` : ''}`
+const failure = (error, key) => ({
+  key: error.apiErrorCode?.endsWith('hook_approval_wait_upgrade_required') ? 'wait.upgrade' : error.apiErrorCode?.endsWith('hook_command_upgrade_required') ? 'commands.upgrade' : key,
+  code: error.apiErrorCode,
+})
+const renderFailure = error => `${t(`aidr.hooks.${error.key}`)}${error.code && !['wait.upgrade', 'commands.upgrade'].includes(error.key) ? ` (${error.code})` : ''}`
 let generation = 0, detailGeneration = 0, listGeneration = 0
 const panelElement = ref(null), panelVisible = ref(false), documentVisible = ref(!document.hidden), componentActive = ref(true)
 const lastSynced = ref(0), latestAvailable = ref(false)
 let latestHead = '', visibilityObserver, syncTimer
+let detailSyncing = false
 const canSync = computed(() => props.view === 'control' && panelVisible.value && documentVisible.value && componentActive.value)
 const headId = data => data.items?.[0]?.id || ''
 const invalidateList = () => { listGeneration++; listLoading.value = false }
 const syncApprovals = () => {
   if (props.global) return
   if (canSync.value && !listLoading.value && !deciding.value) void loadList(cursor.value, true)
+  if (canSync.value && detailOpen.value && detail.value && !detailLoading.value && !detailSyncing && !deciding.value && !detailError.value) void syncDetail()
+}
+async function syncDetail() {
+  const epoch = generation, request = detailGeneration, id = detailId.value
+  detailSyncing = true
+  try {
+    const data = await getHookApproval(props.clientId, id)
+    if (epoch === generation && request === detailGeneration && detailOpen.value && detailId.value === id && !deciding.value) detail.value = data
+  } catch { /* The current snapshot remains usable until its displayed deadline. */ }
+  finally { detailSyncing = false }
 }
 const visibilityChanged = () => { documentVisible.value = !document.hidden }
 watch(canSync, visible => {
@@ -327,7 +352,7 @@ onMounted(() => {
 onActivated(() => { componentActive.value = true })
 onDeactivated(() => { componentActive.value = false })
 const requestIds = new Map()
-const timer = setInterval(() => { if (canSync.value) now.value = Date.now() }, 1000)
+const timer = setInterval(() => { if (canSync.value || (detailOpen.value && documentVisible.value)) now.value = Date.now() }, 1000)
 async function loadPolicy() {
   if (policyLoading.value || saving.value) return
   const epoch = generation
@@ -349,6 +374,8 @@ async function loadList(next = cursor.value, automatic = false) {
     const data = await listHookApprovals(props.clientId, { ...(automatic ? {} : next || {}), ...(props.fixedAgent ? { agent: props.fixedAgent } : {}) })
     if (!current()) return
     lastSynced.value = Date.now(); listError.value = ''
+    const updated = data.items.find(row => row.id === detailId.value)
+    if (detail.value && detailOpen.value && updated && !deciding.value) detail.value.approval = updated
     if (automatic && next) {
       if (headId(data) !== latestHead) latestAvailable.value = true
     } else {
@@ -409,8 +436,9 @@ watch(eventDetailOpen, open => { if (!open) { relatedGeneration++; relatedLoadin
 
 async function publish() {
   if (saving.value || policyLoading.value || !dirty.value || !canEdit.value || policyError.value) return
+  if (waitInvalid.value) { actionError.value = failure({}, 'wait.invalid'); return }
   const rules = draft.value.rules
-  if (rules.some(r => !/^[A-Za-z0-9_-]{1,64}$/.test(r.id) || r.id === 'default' || !r.tool || /\s/.test(r.tool)) || new Set(rules.map(r => r.id)).size !== rules.length) { actionError.value = t('aidr.hooks.invalid'); return }
+  if (rules.some(r => !/^[A-Za-z0-9_-]{1,64}$/.test(r.id) || r.id === 'default' || !r.tool || /\s/.test(r.tool)) || new Set(rules.map(r => r.id)).size !== rules.length) { actionError.value = failure({}, 'invalid'); return }
   const epoch = generation
   saving.value = true; actionError.value = ''; saved.value = false
   try {

@@ -181,6 +181,15 @@ func Open(dir string, limits Limits) (*Store, error) {
 	if _, err = db.Exec(schema); err != nil {
 		return fail(err)
 	}
+	var phaseColumn int
+	if err = db.QueryRow(`SELECT count(*) FROM pragma_table_info('event_turn_links') WHERE name='message_phase'`).Scan(&phaseColumn); err != nil {
+		return fail(err)
+	}
+	if phaseColumn == 0 {
+		if _, err = db.Exec(`ALTER TABLE event_turn_links ADD COLUMN message_phase TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fail(err)
+		}
+	}
 	if err = s.compactCoverageHistory(context.Background()); err != nil {
 		return fail(storageError(err))
 	}
@@ -409,7 +418,19 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 		}
 		// Only fields used in the parser's logical identity belong here. A
 		// repeated call can have a different timestamp, raw layout or version.
-		logical, _ := json.Marshal([]string{e.SourceID, e.Agent, e.SessionID, e.TurnID, e.CallID, e.LogicalCallID, e.Kind, e.Tool, e.Outcome, e.ContentDigest})
+		sourceID := e.SourceID
+		if agentlog.SharedDoubaoCacheEvent(e) {
+			// Keep the first physical source in the hash, including after ACK clears its body.
+			var originalSource sql.NullString
+			err := tx.QueryRowContext(ctx, `SELECT source_id FROM logical_events WHERE id=?`, e.LogicalEventID).Scan(&originalSource)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return zero, err
+			}
+			if originalSource.Valid && originalSource.String != "" {
+				sourceID = originalSource.String
+			}
+		}
+		logical, _ := json.Marshal([]string{sourceID, e.Agent, e.SessionID, e.TurnID, e.CallID, e.LogicalCallID, e.Kind, e.Tool, e.Outcome, e.ContentDigest})
 		if e.SchemaVersion == 2 {
 			projected, _ := json.Marshal(e.Behavior)
 			logical = append(logical, projected...)
@@ -458,19 +479,19 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 	// even when a missing/unreadable source has no initialized file cursor.
 	var newLinks []agentlog.TurnLink
 	for _, link := range b.TurnLinks {
-		res, err := tx.ExecContext(ctx, `INSERT INTO event_turn_links(id,turn_id) SELECT id,? FROM logical_events WHERE id=? AND source_id=? ON CONFLICT(id) DO NOTHING`, link.TurnID, link.LogicalEventID, b.Source.ID)
+		res, err := tx.ExecContext(ctx, `INSERT INTO event_turn_links(id,turn_id,message_phase) SELECT id,?,? FROM logical_events WHERE id=? AND source_id=? ON CONFLICT(id) DO UPDATE SET message_phase=excluded.message_phase WHERE event_turn_links.turn_id=excluded.turn_id AND event_turn_links.message_phase='' AND excluded.message_phase!=''`, link.TurnID, link.MessagePhase, link.LogicalEventID, b.Source.ID)
 		if err != nil {
 			return zero, err
 		}
-		var turn string
-		err = tx.QueryRowContext(ctx, `SELECT turn_id FROM event_turn_links WHERE id=?`, link.LogicalEventID).Scan(&turn)
+		var turn, phase string
+		err = tx.QueryRowContext(ctx, `SELECT turn_id,message_phase FROM event_turn_links WHERE id=?`, link.LogicalEventID).Scan(&turn, &phase)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		}
 		if err != nil {
 			return zero, err
 		}
-		if turn != link.TurnID {
+		if turn != link.TurnID || (link.MessagePhase != "" && phase != link.MessagePhase) {
 			return zero, ErrBatchConflict
 		}
 		if count, _ := res.RowsAffected(); count == 1 {
@@ -480,6 +501,8 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 	if oldCoverage != string(coverage) || oldCursor != string(cursor) || len(newLinks) > 0 {
 		// Repair progress is local scheduling state, not part of the wire cursor.
 		wireCursor := b.Cursor
+		wireCursor.TraeHooks, wireCursor.TraeInput = nil, ""
+		wireCursor.CodeBuddyWorkspace = ""
 		wireCursor.DoubaoMessages = false
 		wireCursor.DoubaoTurns = ""
 		wireCursor.ContextRepair = nil
@@ -570,6 +593,29 @@ func (s *Store) collect(ctx context.Context, source agentlog.Source, budget agen
 		return c, err
 	}
 	budget.CollectionResumeAt = s.collectionResumeAt
+	if source.Agent == "doubaowork" && s.policy != nil && s.policy.MessageLinkSchema == 1 {
+		rows, err := s.db.QueryContext(ctx, `SELECT t.id,t.turn_id FROM logical_events e JOIN event_turn_links t ON t.id=e.id WHERE e.source_id=? LIMIT 10001`, source.ID)
+		if err != nil {
+			return c, err
+		}
+		budget.RetainedTurns = map[string]string{}
+		for rows.Next() {
+			var id, turn string
+			if err := rows.Scan(&id, &turn); err != nil {
+				rows.Close()
+				return c, err
+			}
+			budget.RetainedTurns[id] = turn
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return c, err
+		}
+		if len(budget.RetainedTurns) > 10000 {
+			budget.RetainedTurns = nil
+		}
+	}
 	if s.runtimeResumeAt.After(budget.CollectionResumeAt) {
 		budget.CollectionResumeAt = s.runtimeResumeAt
 	}

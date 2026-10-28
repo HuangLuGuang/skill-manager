@@ -12,6 +12,10 @@
         </button>
       </section>
       <a-alert v-if="errors.length" type="warning" show-icon :message="tr('partialRead')" />
+      <a-alert v-if="logs && !logs.enabled" type="warning" show-icon :message="tr('states.reporting_paused')" :description="t('aidr.setup')">
+        <template v-if="can('clients:update')" #action><a-button :loading="reportingSaving" :disabled="reportingSaving" @click="allowReporting">{{ t('aidr.enable') }}</a-button></template>
+      </a-alert>
+      <a-alert v-if="reportingError" type="error" show-icon :message="t('aidr.saveError')" :description="reportingError.code" />
       <div v-if="!selectedReady" class="collection-loading" role="status"><LoadingOutlined spin /><strong>{{ tr('loading') }}</strong><p>{{ tr('loadingHint') }}</p><a-skeleton active :paragraph="{ rows: 4 }" /></div>
       <div v-else-if="selectedPending && !backgroundRefresh" class="collection-refreshing" role="status"><LoadingOutlined spin />{{ tr('refreshing') }}</div>
       <div v-if="selectedReady" class="collection-grid">
@@ -51,7 +55,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiOutlined, CheckCircleFilled, ClockCircleOutlined, CloudUploadOutlined, DesktopOutlined, ExclamationCircleOutlined, FileTextOutlined, InfoCircleOutlined, LinkOutlined, LoadingOutlined, MessageOutlined, ReloadOutlined, RightOutlined } from '@ant-design/icons-vue'
-import { getClientAidrStatus, getClientRuntimeGovernance, getEnforcement } from '../api'
+import { configureClientAidr, getClientAidrStatus, getClientRuntimeGovernance, getEnforcement } from '../api'
 import { can } from '../access'
 import products from '../aidr-products.json'
 import AgentProductLogo from './AgentProductLogo.vue'
@@ -62,6 +66,7 @@ const { t, te, tm, locale } = useI18n()
 const tr = (key, params) => t('collectionStatus.' + key, params || {})
 const channel = ref(props.initialChannel), selectedId = ref(''), runtime = ref(null), logs = ref(null), system = ref(null), errors = ref([]), loading = ref(false), guideOpen = ref(false)
 const backgroundRefresh = ref(false)
+const reportingSaving = ref(false), reportingError = ref('')
 const settled = ref({ runtime: false, logs: false, system: false })
 const pending = ref({ runtime: false, logs: false, system: false })
 const selectedReady = computed(() => settled.value.runtime && (channel.value === 'hooks' || settled.value[channel.value]))
@@ -195,6 +200,20 @@ function channelSummary(id) {
 function changeChannel(id, sourceId = '') { channel.value = id; selectedId.value = sourceId; if (scrollArea.value) scrollArea.value.scrollTop = 0 }
 async function selectSource(id) { selectedId.value = id; await nextTick(); if (window.matchMedia('(max-width:700px)').matches) inspector.value?.scrollIntoView({ block: 'start' }) }
 function openActivity() { emit('activity', channel.value === 'system' ? 'system' : channel.value === 'hooks' ? 'hooks' : 'tools') }
+async function allowReporting() {
+ if (reportingSaving.value || !logs.value || logs.value.enabled || !can('clients:update')) return
+ const id = props.clientId
+ reportingSaving.value = true; reportingError.value = ''
+ try {
+  await configureClientAidr(id, { enabled: true })
+  if (props.clientId === id) {
+   logs.value = { ...logs.value, configured: true, enabled: true }
+   await load()
+  }
+ } catch (error) {
+  if (props.clientId === id) reportingError.value = { code: error.apiErrorCode }
+ } finally { reportingSaving.value = false }
+}
 async function load(background = false) {
  if (loading.value || !props.clientId) return
  const epoch = ++generation, id = props.clientId
@@ -228,7 +247,7 @@ async function load(background = false) {
  loading.value = false
 }
 watch(() => props.clientId, () => {
- generation++; loading.value = false; runtime.value = logs.value = system.value = null; selectedId.value = ''; errors.value = []
+ generation++; loading.value = false; runtime.value = logs.value = system.value = null; selectedId.value = ''; errors.value = []; reportingError.value = ''
  settled.value = { runtime: false, logs: false, system: false }
  pending.value = { runtime: false, logs: false, system: false }
  load()

@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"database/sql"
 	"errors"
+	"reflect"
 	"regexp"
 	products "skill-manager/scanner/internal/aidr/catalog"
 	"sort"
@@ -22,16 +23,18 @@ type ToolRule struct {
 	Decision string            `json:"decision"`
 }
 type ToolPolicy struct {
-	Schema   int        `json:"schema"`
-	Domain   string     `json:"domain"`
-	Device   string     `json:"device"`
-	Revision string     `json:"revision"`
-	Issued   string     `json:"issued_at"`
-	Expires  string     `json:"expires_at,omitempty"`
-	Default  string     `json:"default_action"`
-	Rules    []ToolRule `json:"rules"`
+	ApprovalWaitSeconds int        `json:"approval_wait_seconds,omitempty"`
+	Schema              int        `json:"schema"`
+	Domain              string     `json:"domain"`
+	Device              string     `json:"device"`
+	Revision            string     `json:"revision"`
+	Issued              string     `json:"issued_at"`
+	Expires             string     `json:"expires_at,omitempty"`
+	Default             string     `json:"default_action"`
+	Rules               []ToolRule `json:"rules"`
 }
 type ToolDecision struct {
+	Expires    int64    `json:"expires_at,omitempty"`
 	Decision   string   `json:"decision"`
 	Rule       string   `json:"rule_id"`
 	Matched    []string `json:"matched_rule_ids"`
@@ -58,14 +61,14 @@ func verifyToolPolicy(envelope, key []byte, device string, now time.Time) (ToolP
 	// Schema 1 is retained for signed policies already cached by existing devices.
 	// Its former lease no longer limits the lifetime of rule configuration.
 	expires, e := positiveDecimal(p.Expires)
-	formatValid := (p.Schema == 3 && p.Domain == "aidr.tool-policy/3" && p.Expires == "") || (p.Schema == 2 && p.Domain == "aidr.tool-policy/2" && p.Expires == "") ||
+	formatValid := (p.Schema == 4 && p.Domain == "aidr.tool-policy/4" && p.Expires == "" && p.ApprovalWaitSeconds >= 30 && p.ApprovalWaitSeconds <= 300) || (p.Schema == 3 && p.Domain == "aidr.tool-policy/3" && p.Expires == "") || (p.Schema == 2 && p.Domain == "aidr.tool-policy/2" && p.Expires == "") ||
 		(p.Schema == 1 && p.Domain == "aidr.tool-policy/1" && e && expires > issued && expires-issued <= 86400)
 	if !formatValid || p.Device != device || !r || !i || issued > now.Unix()+30 || !decisionValid(p.Default) || p.Rules == nil || len(p.Rules) > 128 {
 		return p, nil, code("aidr_hook_policy_invalid")
 	}
 	ids := map[string]bool{}
 	for _, rule := range p.Rules {
-		if rule.Command != nil && (p.Schema != 3 || !rule.Command.valid()) {
+		if rule.Command != nil && (p.Schema < 3 || !rule.Command.valid()) {
 			return p, nil, code("aidr_hook_policy_invalid")
 		}
 		if !toolRuleID.MatchString(rule.ID) || rule.ID == "default" || ids[rule.ID] || (rule.Agent != "*" && !products.Hook(rule.Agent)) || !validID(rule.Tool, true) || !decisionValid(rule.Decision) {
@@ -191,6 +194,15 @@ func (s *Store) ApplyToolPolicy(ctx context.Context, envelope []byte, now time.T
 	}
 	if _, err = s.db.ExecContext(ctx, `INSERT INTO hook_meta VALUES('tool_policy',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, envelope); err != nil {
 		return err
+	}
+	// Changing only the wait budget must not invalidate an already waiting call.
+	if s.controlPolicy != nil && s.controlPolicy.Default == p.Default && reflect.DeepEqual(s.controlPolicy.Rules, p.Rules) {
+		if s.compatiblePolicyRevisions == nil {
+			s.compatiblePolicyRevisions = map[string]bool{}
+		}
+		s.compatiblePolicyRevisions[s.controlPolicy.Revision] = true
+	} else {
+		s.compatiblePolicyRevisions = nil
 	}
 	s.controlPolicy = &p
 	s.controlPayload = raw

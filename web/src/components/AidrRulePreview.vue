@@ -41,7 +41,7 @@ const { t } = useI18n()
 const agent = ref('claude'), actor = ref('agent'), sample = ref('')
 const command = ref(''), cwd = ref('')
 const expanded = ref(false), testKind = ref('command'), shellTool = ref('Bash')
-const shellTools = ['Bash', 'exec', 'exec_command', 'shell', 'run_terminal_cmd', 'run_shell_command']
+const shellTools = ['Bash', 'exec', 'exec_command', 'shell', 'run_terminal_cmd', 'run_shell_command', 'mcp__qw-builtin__mcp_workspace_bash']
 const validInput = computed(() => props.channel === 'hooks' && testKind.value === 'command' ? !!command.value.trim() : !!sample.value.trim())
 const result = ref(null), error = ref(''), loading = ref(false)
 let generation = 0

@@ -1,0 +1,7 @@
+{
+  "role": "tool",
+  "message": "{\"role\":\"tool\",\"content\":[{\"type\":\"tool-result\",\"toolCallId\":\"chatcmpl-tool-999dfc8cdf4d9660\",\"toolName\":\"execute_command\",\"result\":{\"status\":\"success\",\"success\":true,\"result\":{\"type\":\"execute_command_result\",\"stdout\":\"Now using node v22.21.1 (npm v10.9.4)\\r\\n\\r\\nCODEBUDDY_ALLOWED_OK\\r\\n\",\"stderr\":\"\",\"exitCode\":0}},\"isError\":false}]}",
+  "id": "5982f19b33f64b4498924144e344e96d",
+  "extra": "{\"requestId\":\"c43d99e6515047a6baf22860fa3a16cc\",\"modelId\":\"auto\",\"modelName\":\"Auto\",\"isHelperMessage\":false,\"traceId\":\"286101eafc0ce67a1e4d7f9491b284e7\"}",
+  "createdAt": "2026-10-26T13:59:05.200Z"
+}

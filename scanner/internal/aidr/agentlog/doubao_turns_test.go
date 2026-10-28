@@ -73,3 +73,84 @@ func TestDoubaoLiveTurnLinks(t *testing.T) {
 	metadata, _ := json.Marshal(turns)
 	t.Log("verified native call-to-message mapping:", string(metadata))
 }
+
+func TestDoubaoFileIndexRefresh(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(base, "Default/.doubaowork/agent_mode/workspace/.sessions")
+	dir := filepath.Join(base, "sdk_storage/log")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "saman_2026.1025.1.log")
+	request := `[1:2:1021/100000:INFO:FRONTEND(0)] [neotix] [office-api-logger] "[logifier-report]: {"eventName":"on_message_receiving_start","meta":{"chat_session_id":"agent-a","send_message_id":"message-a"}}` + "\n"
+	call := `[1:2:1021/100000:INFO:aha/saman_sandbox_shell_api_metrics.cc(113)] [sandbox] shell api call, status=enter, sandbox_log_id={"conversation_id":"session","agent_id":"agent-a","tcid":"call-a"}` + "\n"
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refresh := func(want string) {
+		t.Helper()
+		doubaoTurnCache.at = time.Time{}
+		got, _ := doubaoTurns(context.Background(), root, "session")
+		if got["call-a"] != want {
+			t.Fatalf("got %v want %q", got, want)
+		}
+	}
+	write(path, request+call)
+	refresh("message-a")
+	first := doubaoTurnCache.files[path]
+	refresh("message-a")
+	if skillChangeTime(first.info) != 0 && doubaoTurnCache.files[path].index != first.index {
+		t.Fatal("unchanged file reparsed")
+	}
+	// Appending a conflicting ID must invalidate the cached association.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.WriteString(strings.ReplaceAll(request, "message-a", "message-b"))
+	f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	refresh("")
+	// Truncation and a same-size replacement must discard the old conflict.
+	write(path, request+call)
+	refresh("message-a")
+	replacement := path + ".new"
+	write(replacement, strings.ReplaceAll(request+call, "message-a", "message-b"))
+	if err := os.Chtimes(replacement, first.info.ModTime(), first.info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, path); err != nil {
+		t.Fatal(err)
+	}
+	refresh("message-b")
+	// Conflicts across files survive merging, and disappear when the file is removed.
+	second := filepath.Join(dir, "saman_2026.1025.2.log")
+	write(second, request)
+	refresh("")
+	if err := os.Remove(second); err != nil {
+		t.Fatal(err)
+	}
+	refresh("message-b")
+	// In-place same-size edits with restored mtime are detected by change time.
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(path, request+call)
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	refresh("message-a")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	refresh("")
+}

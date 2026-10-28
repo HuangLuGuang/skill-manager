@@ -5,7 +5,8 @@ from typing import Literal
 from pydantic import Field, model_validator
 from .aidr_behavior import Strict
 
-SHELL_TOOLS = {'bash', 'exec', 'exec_command', 'shell', 'run_terminal_cmd', 'run_shell_command'}
+SHELL_TOOLS = {'bash', 'exec', 'exec_command', 'shell', 'runcommand', 'run_terminal_cmd', 'run_shell_command'}
+SHELL_TOOLS.add('mcp__qw-builtin__mcp_workspace_bash')
 INDIRECT_COMMANDS = {'sudo', 'env', 'sh', 'bash', 'zsh', 'eval', 'exec', 'command', 'xargs', 'find', 'cd', 'source', '.', 'time', 'nohup', 'timeout', 'nice', 'doas', 'busybox', 'builtin', 'setsid', 'if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'until', 'do', 'done', 'case', 'esac', 'function', 'select'}
 
 

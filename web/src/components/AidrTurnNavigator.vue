@@ -8,7 +8,7 @@
       <div ref="marks" class="rail-marks" @scroll="measure">
         <a-popover v-for="(turn, index) in numberedItems" :key="turn.key" placement="right" :trigger="['hover', 'focus']">
           <template #content><div class="turn-preview"><p>{{ label(turn, index) }} · {{ date(turn.started_at) }}</p><strong>{{ question(turn) }}</strong><p>{{ t('aidr.sessions.counts', { logs: turn.log_count, messages: turn.message_count || 0, hooks: turn.hook_count }) }}</p></div></template>
-          <button type="button" :aria-label="`${label(turn, index)} · ${date(turn.started_at)} · ${question(turn)}`" :aria-current="active === turn.key ? 'step' : undefined" @click="$emit('select', turn.key)" @keydown="moveFocus($event, index)"><span class="tick" /></button>
+          <button type="button" :aria-label="`${label(turn, index)} · ${date(turn.started_at)} · ${question(turn)}`" :aria-current="active === turn.key ? 'step' : undefined" @click="$emit('select', turn.key)" @keydown="moveFocus($event, index)"><span class="turn-number">{{ allNumberedItems.findIndex(item => item.key === turn.key) + 1 }}</span></button>
         </a-popover>
       </div>
       </div>
@@ -78,9 +78,9 @@ function moveFocus(event, index) {
 .fade-top::before, .fade-bottom::after { opacity: 1; }
 .rail-marks { max-height: max(120px, min(40vh, calc(100dvh - 500px))); overflow-y: auto; width: 48px; scrollbar-width: thin; }
 .rail-marks button { width: 40px; min-height: 28px; display: flex; align-items: center; background: none; border: 0; padding: 8px 5px; cursor: pointer; }
-.tick { display: block; width: 14px; height: 3px; background: #b7c0ce; }
-button[aria-current=step] .tick { width: 28px; background: #245fe5; }
-.rail-marks button:hover .tick, .rail-marks button:focus-visible .tick { width: 28px; background: #344054; }
+.turn-number { display: flex; align-items: center; justify-content: center; width: 28px; min-height: 24px; border-radius: 4px; color: #50627d; font-size: 12px; }
+button[aria-current=step] .turn-number { color: white; background: #245fe5; font-weight: 600; }
+.rail-marks button:hover .turn-number, .rail-marks button:focus-visible .turn-number { background: #eef4ff; color: #245fe5; }
 button:focus-visible { outline: 2px solid #245fe5; outline-offset: -2px; }
 .unassigned-link { width: 48px; margin-top: 10px; padding: 7px 2px; border: 0; border-top: 1px solid #e5eaf1; background: transparent; color: #667085; font-size: 11px; overflow-wrap: anywhere; cursor: pointer; }
 .unassigned-link.selected, .unassigned-link:hover { color: #245fe5; background: #eef4ff; }

@@ -1,0 +1,69 @@
+[
+  {
+    "cwd": "/test/zcode/project",
+    "model": "account:bigmodel-start-plan/GLM-5.3",
+    "turnId": "turn_5b2d0010-2278-4da9-9945-ec517082889e",
+    "hook_event_name": "SessionStart",
+    "session_id": "session_3b8e589867b1d5a75c6a3293b67b4900"
+  },
+  {
+    "cwd": "/test/zcode/project",
+    "prompt": "Isolated integration test: run only printf AIDR_ZCODE_ALLOW in this project, then report its output. Do not read files, use MCP or network.",
+    "turnId": "turn_5b2d0010-2278-4da9-9945-ec517082889e",
+    "hook_event_name": "UserPromptSubmit",
+    "session_id": "session_3b8e589867b1d5a75c6a3293b67b4900"
+  },
+  {
+    "cwd": "/test/zcode/project",
+    "prompt": "Isolated integration test: run only printf AIDR_ZCODE_ALLOW in this project, then report its output. Do not read files, use MCP or network.",
+    "turnId": "turn_f0db9d9a-6479-4f14-92b3-6d57f8c495e5",
+    "hook_event_name": "UserPromptSubmit",
+    "session_id": "session_3b8e589867b1d5a75c6a3293b67b4900"
+  },
+  {
+    "cwd": "/test/zcode/project",
+    "prompt": "Isolated integration test: run only printf AIDR_ZCODE_ALLOW in this project, then report its output. Do not read files, use MCP or network.",
+    "turnId": "turn_8bc9ddea-5120-40b1-b595-ad7feedd016b",
+    "hook_event_name": "UserPromptSubmit",
+    "session_id": "session_3b8e589867b1d5a75c6a3293b67b4900"
+  },
+  {
+    "cwd": "/test/zcode/project",
+    "turnId": "turn_8bc9ddea-5120-40b1-b595-ad7feedd016b",
+    "hook_event_name": "PreToolUse",
+    "session_id": "session_3b8e589867b1d5a75c6a3293b67b4900",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "printf AIDR_ZCODE_ALLOW",
+      "description": "Print AIDR_ZCODE_ALLOW string"
+    },
+    "tool_use_id": "call_4e9f8727f17b453db0407d1a"
+  },
+  {
+    "cwd": "/test/zcode/project",
+    "turnId": "turn_8bc9ddea-5120-40b1-b595-ad7feedd016b",
+    "hook_event_name": "PostToolUse",
+    "session_id": "session_3b8e589867b1d5a75c6a3293b67b4900",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "printf AIDR_ZCODE_ALLOW",
+      "description": "Print AIDR_ZCODE_ALLOW string"
+    },
+    "tool_use_id": "call_4e9f8727f17b453db0407d1a",
+    "tool_response": {
+      "stdout": "AIDR_ZCODE_ALLOW",
+      "stderr": "",
+      "interrupted": false,
+      "isImage": false,
+      "noOutputExpected": false,
+      "status": "completed",
+      "exitCode": 0,
+      "timedOut": false,
+      "cancelled": false,
+      "stdoutTruncated": false,
+      "stderrTruncated": false,
+      "stdoutBytes": 16,
+      "stderrBytes": 0
+    }
+  }
+]
