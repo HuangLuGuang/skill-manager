@@ -20,11 +20,14 @@ agent-manager_1.0.6_x86.tar.gz    # x86 服务器
 
 ```text
 docker-compose.yaml
+docker-compose.https.yaml             # HTTPS 443、证书挂载与健康检查
 .env.example
 start.sh                             # 加载镜像、启动、检查
 upgrade.sh                           # 指定安装包升级
 deploy/offline.sh                     # 脚本共用逻辑（Bash）
 deploy/nginx/default.conf
+deploy/nginx/https.sh                 # HTTPS 入口、HTTP 跳转与证书重载
+deploy/nginx/certificates.py           # 自签名证书生成及自动续期
 release-provenance.json
 release-info                         # 版本、平台（两行文本）
 docs/offline-deployment.md
@@ -35,6 +38,9 @@ installers/docker-installer-28.5.2-x86-arm.tar.gz
 ```
 
 安装包包含运行镜像和部署文件，应用版本已固定。版本与架构见 `release-provenance.json`。
+ARM（linux/arm64）和 x86（linux/amd64）安装包均包含上述 HTTPS 文件，启动参数相同。
+证书服务使用包内对应架构、相同发布版本的后端镜像，Nginx 也随目标架构镜像交付；
+现场不需要安装 Python、OpenSSL 或联网下载依赖。证书及私钥在现场首次 HTTPS 启动时生成，不随包交付。
 
 ## 部署前检查
 
@@ -132,6 +138,48 @@ cp .env.example .env
 ```bash
 ./start.sh --wait-timeout 600
 ```
+
+### HTTPS 自签名证书
+
+先将实际访问域名或服务器 IP 写入 `.env`（逗号分隔，不带协议或端口）：
+
+```dotenv
+TLS_HOSTS=localhost,127.0.0.1,10.10.71.35,agent.example.com
+```
+
+```bash
+./start.sh --https       # HTTPS 443；HTTP 80 跳转到 HTTPS
+./start.sh --http        # HTTP 模式
+./start.sh               # 默认 HTTP，包括从 HTTPS 切回 HTTP
+```
+
+HTTPS 固定使用宿主机 443；HTTP 入口沿用 `.env` 的 `HTTP_PORT`（默认 80）。
+如之前改过端口，用 `./start.sh --https --port 80` 恢复 80 跳转入口；该端口不能为 443。
+跳转使用 308，保留路径、查询参数和请求方法；API 客户端需支持跳转并信任证书，建议直接配置 HTTPS 地址。
+
+证书服务复用后端镜像的 `cryptography`，无需联网安装工具。首次启动生成 365 天自签名证书，
+每天检查一次，到期前 30 天重新签发；Nginx 每分钟检查更新并重载。
+证书和私钥原子保存到 `tls_certificates` 命名卷，权限 0600，Nginx 只读挂载。
+修改 `TLS_HOSTS` 后重新执行 `./start.sh --https` 会按新地址签发。
+停止服务期间不执行续期，再次启动时检查；不要删除该卷。
+自签名证书需由客户端信任，重新签发后信任具体叶证书的客户端需要更新信任。
+
+`upgrade.sh` 保留 `.env` 中的 `DEPLOY_PROTOCOL`、地址配置和证书卷；切回 HTTP 会停止证书服务，保留证书。
+手动运维 HTTPS 时使用 `docker compose -f docker-compose.yaml -f docker-compose.https.yaml --profile https ...`；
+仅执行基础 `docker compose up` 使用 HTTP 配置。
+
+现场验收：确认 80 返回 308、Location 为对应 HTTPS URL；443 能登录并访问 API；
+检查 `docker compose -f docker-compose.yaml -f docker-compose.https.yaml --profile https logs certificates nginx` 中的签发和重载日志。
+
+ARM 和 x86 均需在对应架构的现场机器完成以下验收：
+
+- 用 `docker info --format '{{.Architecture}}'` 核对主机架构，安装脚本会进一步核对包与镜像架构。
+- 放通 TCP 443 和 HTTP 跳转端口（默认 80），设置 `TLS_HOSTS` 后运行 `./start.sh --https`。
+- 执行 `curl -I http://<服务器IP>/`，确认返回 308 和正确的 HTTPS Location；
+  执行 `curl -kI https://<服务器IP>/` 确认 HTTPS 响应，再由信任证书的客户端完成登录、API 调用。
+  `-k` 只用于现场连通性检查，不代表证书已受信任。
+- 重启及升级后确认 HTTPS 仍可用、证书卷仍存在；检查证书服务健康状态和续期日志。
+- 执行 `./start.sh --http` 确认恢复 HTTP，443 不再映射；再执行 `./start.sh --https` 确认恢复 HTTPS。
 
 ## 获取并导入授权文件
 

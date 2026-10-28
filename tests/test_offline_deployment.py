@@ -20,6 +20,7 @@ pytestmark = pytest.mark.skipif(sys.platform != 'linux', reason='Deployment targ
 def make_release(root, version='1.0.7', platform='linux/amd64'):
     root.mkdir(parents=True, exist_ok=True)
     for name in ('start.sh', 'upgrade.sh', 'deploy/offline.sh', '.env.example',
+                 'docker-compose.https.yaml', 'deploy/nginx/https.sh', 'deploy/nginx/certificates.py',
                  'deploy/nginx/default.conf', 'docs/offline-deployment.md', 'docs/docker-deployment.md', 'docs/license.md'):
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -134,6 +135,35 @@ def test_start_creates_env_only_when_missing(installation):
     assert result.returncode == 0, result.stderr
     assert (root / '.env').read_bytes() == (root / '.env.example').read_bytes()
     assert (root / '.env').stat().st_mode & 0o777 == 0o600
+
+
+def test_https_start_upgrade_and_switch_back(tmp_path, installation):
+    root, run = installation
+    result, calls = run(extra_args=('--https',))
+    assert result.returncode == 0, result.stderr
+    assert 'DEPLOY_PROTOCOL=https' in (root / '.env').read_text()
+    assert any('--profile' in call and 'https' in call and 'up' in call for call in calls)
+    assert any('https://127.0.0.1/' in call for call in calls)
+    source = make_release(tmp_path / 'new')
+    result, calls = run('upgrade', package(source, tmp_path / 'upgrade.tar.gz'))
+    assert result.returncode == 0, result.stderr
+    assert 'DEPLOY_PROTOCOL=https' in (root / '.env').read_text()
+    result, calls = run()
+    assert result.returncode == 0, result.stderr
+    assert 'DEPLOY_PROTOCOL=http' in (root / '.env').read_text()
+    assert any('stop' in call and 'certificates' in call for call in calls)
+
+
+def test_source_start_uses_existing_images(installation):
+    root, run = installation
+    (root / 'release-info').unlink()
+    (root / 'pyproject.toml').touch()
+    (root / 'backend').mkdir()
+    (root / 'backend/Dockerfile').touch()
+    result, calls = run(extra_args=('--https',))
+    assert result.returncode == 0, result.stderr
+    assert not any(call[0] == 'load' for call in calls)
+    assert any('up' in call and '--profile' in call for call in calls)
 
 
 def test_start_and_upgrade_use_standalone_compose(tmp_path, installation):

@@ -14,7 +14,7 @@ def test_compose_proxy_preserves_client_ip_without_trusting_inbound_header():
     nginx_config = Path("deploy/nginx/default.conf").read_text(encoding="utf-8")
     compose_config = yaml.safe_load(Path("docker-compose.yaml").read_text(encoding="utf-8"))
 
-    assert nginx_config.count("proxy_set_header X-Forwarded-For $remote_addr;") == 8
+    assert nginx_config.count("proxy_set_header X-Forwarded-For $remote_addr;") == nginx_config.count("proxy_pass ")
     assert "$proxy_add_x_forwarded_for" not in nginx_config
     assert compose_config["services"]["backend"]["environment"]["FORWARDED_ALLOW_IPS"] == (
         "${FORWARDED_ALLOW_IPS:-127.0.0.1,172.16.0.0/12}"

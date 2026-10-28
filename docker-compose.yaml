@@ -211,6 +211,24 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  certificates:
+    profiles: ["https"]
+    image: agent-manager-backend:${TAG:-latest}
+    entrypoint: ["python", "/certificates.py"]
+    environment:
+      TLS_HOSTS: ${TLS_HOSTS:-localhost,127.0.0.1}
+    volumes:
+      - ./deploy/nginx/certificates.py:/certificates.py:ro
+      - tls_certificates:/certificates
+    network_mode: none
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "from pathlib import Path; from cryptography import x509; from datetime import datetime, timezone; assert x509.load_pem_x509_certificate(Path('/certificates/server.pem').read_bytes()).not_valid_after_utc > datetime.now(timezone.utc)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   nginx:
     image: nginx:1.27-alpine
     depends_on:
@@ -221,7 +239,8 @@ services:
     ports:
       - "${HTTP_PORT:-80}:80"
     volumes:
-      - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/nginx/default.conf:/etc/nginx/http.conf:ro
+    command: ["/bin/sh", "-ec", "cp /etc/nginx/http.conf /etc/nginx/conf.d/default.conf; exec nginx -g 'daemon off;'"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
       interval: 15s
@@ -233,6 +252,7 @@ services:
       - app
 
 volumes:
+  tls_certificates:
   backend_data:
   backend_uploads:
   backend_sqlite:

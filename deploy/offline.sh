@@ -3,6 +3,7 @@ set -euo pipefail
 export LC_ALL=C
 
 DEPLOY_FILES=(docker-compose.yaml .env.example release-provenance.json release-info
+    docker-compose.https.yaml deploy/nginx/https.sh deploy/nginx/certificates.py
     start.sh upgrade.sh deploy/offline.sh deploy/nginx/default.conf
     docs/offline-deployment.md docs/docker-deployment.md docs/license.md)
 COMPOSE_COMMAND=(docker compose)
@@ -51,8 +52,11 @@ compose() (
     local source=$1
     shift
     local command=("${COMPOSE_COMMAND[@]}" --project-directory "$ROOT" -f "$source/docker-compose.yaml")
+    if [[ $PROTOCOL == https ]]; then
+        command+=(-f "$source/docker-compose.https.yaml" --profile https)
+    fi
     [[ ! -f $ROOT/.env ]] || command+=(--env-file "$ROOT/.env")
-    unset HTTP_PORT
+    unset HTTP_PORT TLS_HOSTS
     cd "$ROOT"
     "${command[@]}" "$@"
 )
@@ -90,6 +94,20 @@ prepare_environment() {
     fi
 }
 
+save_protocol() {
+    local temp
+    if [[ $PROTOCOL == http ]] && ! awk '/^[ \t]*(export[ \t]+)?DEPLOY_PROTOCOL[ \t]*=/ {found=1} END {exit !found}' "$ROOT/.env"; then
+        return
+    fi
+    temp=$(mktemp "$ROOT/.env.XXXXXX")
+    awk -v protocol="$PROTOCOL" '
+        /^[ \t]*(export[ \t]+)?DEPLOY_PROTOCOL[ \t]*=/ {next}
+        {print} END {print "DEPLOY_PROTOCOL=" protocol}
+    ' "$ROOT/.env" > "$temp"
+    chmod --reference="$ROOT/.env" "$temp"
+    mv -f "$temp" "$ROOT/.env"
+}
+
 preflight() {
     local source=$1 name
     read_release "$source"
@@ -118,12 +136,19 @@ load_images() {
 
 start_services() {
     prepare_environment
+    if [[ $PROTOCOL == http ]]; then
+        compose "$ROOT" stop certificates
+    fi
     compose "$ROOT" run --rm --no-deps --pull never backend agent-manager signing-key init
     local args=(up -d --pull never --no-build --wait --wait-timeout "$WAIT_TIMEOUT")
     [[ $ACTION != upgrade ]] || args+=(--force-recreate)
+    local page_check=(wget -q -O /dev/null http://127.0.0.1/)
+    if [[ $PROTOCOL == https ]]; then
+        page_check=(wget --no-check-certificate -q -O /dev/null https://127.0.0.1/)
+    fi
     if ! compose "$ROOT" "${args[@]}" ||
         ! compose "$ROOT" exec -T backend python -m backend.aidr_signing --check ||
-        ! compose "$ROOT" exec -T nginx wget -q -O /dev/null http://127.0.0.1/; then
+        ! compose "$ROOT" exec -T nginx "${page_check[@]}"; then
         compose "$ROOT" ps --all || true
         die '服务健康检查失败'
     fi
@@ -191,15 +216,18 @@ install_release() {
 
 main() {
     ACTION=$1; shift
-    ROOT= ARCHIVE= PORT= WAIT_TIMEOUT=300
+    ROOT= ARCHIVE= PORT= WAIT_TIMEOUT=300 PROTOCOL=http
     while (( $# )); do
         case "$1" in
+            --http|--https)
+                [[ $ACTION == start ]] || die '协议选项仅用于 start'
+                PROTOCOL=${1#--}; shift ;;
             --install-dir=*|--wait-timeout=*|--port=*) set -- "${1%%=*}" "${1#*=}" "${@:2}" ;;
             --install-dir|--wait-timeout|--port)
                 [[ $# -ge 2 && -n $2 ]] || die "$1 缺少参数"
                 case "$1" in --install-dir) ROOT=$2 ;; --wait-timeout) WAIT_TIMEOUT=$2 ;; --port) PORT=$2 ;; esac
                 shift 2 ;;
-            -h|--help) echo '用法：start.sh [--port 1–65535] [--wait-timeout 秒] [--install-dir 目录]；upgrade.sh 安装包.tar.gz [--wait-timeout 秒] [--install-dir 目录]'; return ;;
+            -h|--help) echo '用法：start.sh [--http|--https] [--port 1–65535] [--wait-timeout 秒] [--install-dir 目录]；默认 HTTP，HTTPS 固定 443，--port 控制 HTTP/跳转端口。upgrade.sh 安装包.tar.gz [--wait-timeout 秒] [--install-dir 目录] 保留已选协议。HTTPS 访问域名/IP 在 .env 的 TLS_HOSTS 中设置（逗号分隔）。'; return ;;
             --*) die "未知参数：$1" ;;
             *) [[ $ACTION == upgrade && -z $ARCHIVE ]] || die "无效参数：$1"; ARCHIVE=$1; shift ;;
         esac
@@ -210,19 +238,34 @@ main() {
         [[ $ACTION == start && $PORT =~ ^[0-9]{1,5}$ ]] && (( 10#$PORT >= 1 && 10#$PORT <= 65535 )) || die '--port 仅用于 start，取值必须为 1–65535'
         PORT=$((10#$PORT))
     fi
+    [[ $PROTOCOL != https || $PORT != 443 ]] || die 'HTTPS 模式的 HTTP 跳转端口不能为 443'
     local tool
     for tool in flock timeout tar gzip awk mktemp; do command -v "$tool" >/dev/null || die "缺少系统工具：$tool"; done
     ROOT=$(cd -- "$ROOT" && pwd -P)
     exec 9>>"$ROOT/.offline-deploy.lock"
     flock -n 9 || die '该安装目录正在执行启动或升级，请等待现有操作结束'
     if [[ $ACTION == start ]]; then
+        if [[ ! -f $ROOT/release-info && -f $ROOT/pyproject.toml && -f $ROOT/backend/Dockerfile ]]; then
+            check_runtime
+            prepare_environment
+            save_protocol
+            compose "$ROOT" config --quiet 2>/dev/null || die 'Compose 配置无效'
+            start_services
+            echo '[INFO] 源码目录启动完成（使用已构建或已加载的镜像）'
+            return
+        fi
         read_release "$ROOT"
         prepare_environment
+        # Bare start always selects HTTP; upgrade reuses the last saved choice.
+        save_protocol
         preflight "$ROOT"
         load_images "$ROOT"
         start_services
         echo "[INFO] 版本 $VERSION 启动完成"
     else
+        if [[ -f $ROOT/.env ]] && awk '/^DEPLOY_PROTOCOL=https$/ {found=1} END {exit !found}' "$ROOT/.env"; then
+            PROTOCOL=https
+        fi
         [[ -f $ARCHIVE ]] || die 'upgrade 需要指定存在的安装包'
         [[ -f $ROOT/docker-compose.yaml ]] || die '目标目录缺少现有 docker-compose.yaml，请指定已有安装目录'
         STAGING=$(mktemp -d "$ROOT/.upgrade-XXXXXX")
