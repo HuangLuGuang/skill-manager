@@ -255,6 +255,7 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, p
     )
     build.chmod(0o755)
     for relative in (
+        "docker-compose.https.yaml", "deploy/nginx/https.sh", "deploy/nginx/certificates.py",
         "docker-compose.yaml", ".env.example", "deploy/nginx/default.conf",
         "docs/offline-deployment.md", "docs/docker-deployment.md", "docs/license.md",
         "start.sh", "upgrade.sh", "deploy/offline.sh",
@@ -266,7 +267,7 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, p
     (source / "scanner/releases/skill-scan-report.json").write_text("private scan report")
     subprocess.run(
         ["git", "-C", str(source), "add", ".gitignore", "tracked.txt", "build.sh",
-         "docker-compose.yaml", ".env.example", "deploy", "docs", "start.sh", "upgrade.sh"],
+         "docker-compose.yaml", "docker-compose.https.yaml", ".env.example", "deploy", "docs", "start.sh", "upgrade.sh"],
         check=True,
     )
     subprocess.run(
@@ -335,6 +336,7 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, p
         names = set(archive.getnames())
         provenance = json.load(archive.extractfile("agent-manager/release-provenance.json"))
     files = {
+        "docker-compose.https.yaml", "deploy/nginx/https.sh", "deploy/nginx/certificates.py",
         "docker-compose.yaml", ".env.example", "deploy/nginx/default.conf", "release-provenance.json",
         "docs/offline-deployment.md", "docs/docker-deployment.md", "docs/license.md",
         f"docker_images/{arch}/agent-manager-images-{version}.tar.xz",
@@ -345,6 +347,13 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, p
     with tarfile.open(output / f"agent-manager_test_{arch}.tar.gz") as archive:
         assert {entry.name for entry in archive if entry.isfile()} == {"agent-manager/" + path for path in files}
         assert archive.extractfile("agent-manager/release-info").read().decode() == f"{version}\n{platform}\n"
+        compose = yaml.safe_load(archive.extractfile("agent-manager/docker-compose.yaml"))
+        assert compose["services"]["certificates"]["image"] == f"agent-manager-backend:{version}"
+        assert compose["services"]["certificates"]["image"] == compose["services"]["backend"]["image"]
+        assert compose["services"]["certificates"]["network_mode"] == "none"
+        for relative in ("docker-compose.https.yaml", "deploy/nginx/https.sh", "deploy/nginx/certificates.py"):
+            assert archive.extractfile(f"agent-manager/{relative}").read() == (ROOT / relative).read_bytes()
+        assert "--https" in archive.extractfile("agent-manager/docs/offline-deployment.md").read().decode()
         env = archive.extractfile("agent-manager/.env.example").read().decode()
         assert "TAG=" not in env
         assert archive.getmember("agent-manager/start.sh").mode & 0o111
