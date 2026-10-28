@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { maskDebugRequest } from '../web/src/utils/mcpDebug.js'
+
+test('history masks nested credentials without changing sent values or JSON types', () => {
+  const request = { jsonrpc: '2.0', id: 12, method: 'tools/call', params: { name: 'echo', arguments: {
+    text: '原文', enabled: false, count: 0, empty: null, nested: [{ 'API-Key': 'secret', text: 'keep' }],
+    access_token: 'token', credential: 'credential', password: 'password', private_key: 'key',
+  } } }
+  const before = structuredClone(request)
+  const display = maskDebugRequest(request)
+  assert.deepEqual(request, before)
+  assert.equal(display.id, request.id)
+  assert.deepEqual(display.params.arguments, {
+    text: '原文', enabled: false, count: 0, empty: null, nested: [{ 'API-Key': '******', text: 'keep' }],
+    access_token: '******', credential: '******', password: '******', private_key: '******',
+  })
+})

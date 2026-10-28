@@ -1463,6 +1463,8 @@ def test_admin_reports_upstream_limits(tmp_path, monkeypatch, locale, timeout, o
     assert response.status_code == (504 if timeout else 502)
     expected_code = "mcp.upstream_timeout" if timeout else "mcp.upstream_response_too_large"
     expected_params = {"timeout_seconds": 4} if timeout else {"max_response_kb": 1024}
+    if operation == "debug" and not timeout:
+        expected_params["debug_request"] = {"id": 1}
     assert response.json()["error_code"] == expected_code
     assert response.json()["error_params"] == expected_params
     if locale == "en-US":
@@ -1488,3 +1490,68 @@ def test_unknown_gateway_error_stays_generic(tmp_path, monkeypatch):
         "params": {"name": "crm__search", "arguments": {"query": "repro"}},
     }).json()
     assert result["error"] == {"code": -32000, "message": "上游 MCP 调用失败"}
+
+
+@pytest.mark.parametrize("method,params", [
+    ("tools/list", {}), ("ping", {}),
+    ("tools/call", {"name": "echo", "arguments": {"text": "原文", "api_key": "private-input"}}),
+])
+@pytest.mark.parametrize("failure", [None, "initialize", "business", "http", "notification", "timeout", "destination"])
+def test_debug_history_uses_sent_request(tmp_path, monkeypatch, method, params, failure):
+    """调试历史来自真实发送边界；脱敏副本不改变上游参数。"""
+    real_call = mcp_gateway._call_upstream
+    real_async_client = httpx.AsyncClient
+    client, _ = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(mcp_gateway, "_call_upstream", real_call)
+    sent = []
+
+    def validate(_endpoint):
+        if failure == "destination":
+            raise ValueError("destination rejected")
+        return ["93.184.216.34"]
+
+    def handle(request):
+        payload = json.loads(request.content)
+        sent.append(payload)
+        assert request.headers["Authorization"] == "Bearer header-secret"
+        if failure == "timeout" and payload["method"] == method:
+            raise httpx.ReadTimeout("test timeout", request=request)
+        if (failure == "http" and payload["method"] == method
+                or failure == "notification" and payload["method"] == "notifications/initialized"):
+            return httpx.Response(503)
+        if payload["method"] == "notifications/initialized":
+            return httpx.Response(202)
+        if (failure == "initialize" and payload["method"] == "initialize"
+                or failure == "business" and payload["method"] == method):
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": payload["id"],
+                                          "error": {"code": -32000, "message": "test error"}})
+        result = {"protocolVersion": mcp_gateway.MCP_PROTOCOL_VERSION} if payload["method"] == "initialize" else {}
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": payload["id"], "result": result})
+
+    monkeypatch.setattr(mcp_gateway, "_validate_resolved_endpoint", validate)
+    monkeypatch.setattr(mcp_gateway.httpx, "AsyncClient", lambda **kwargs: real_async_client(
+        **kwargs, transport=httpx.MockTransport(handle),
+    ))
+    response = client.post("/api/v1/mcp/debug/upstream", json={
+        "endpoint": "https://mcp.example.com/mcp", "authorization_value": "Bearer header-secret",
+        "method": method, "params": params,
+    })
+    data = response.json()
+    if failure in {"http", "notification", "timeout", "destination"}:
+        assert response.status_code == (504 if failure == "timeout" else 502)
+        recorded = data["error_params"].get("debug_request")
+    else:
+        assert response.status_code == 200
+        recorded = data["request"]
+        assert recorded["id"] == data["response"]["id"]
+    if failure == "destination":
+        assert recorded is None
+        assert not sent
+    else:
+        assert recorded == mcp_gateway._mask_approval_arguments(sent[-1])
+        assert len(sent) == (1 if failure == "initialize" else 2 if failure == "notification" else 3)
+        if failure not in {"initialize", "notification"}:
+            assert sent[-1]["params"] == params
+    assert "header-secret" not in response.text
+    if method == "tools/call" and failure not in {"initialize", "notification", "destination"}:
+        assert "private-input" not in response.text

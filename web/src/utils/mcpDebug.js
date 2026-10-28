@@ -34,3 +34,13 @@ export const localizeDebugResponse = (response, t) => {
     ...response,
   }
 }
+
+// 与服务端审批参数沿用相同敏感字段规则，仅脱敏历史展示副本。
+export const maskDebugRequest = (value, key = '') => {
+  if (/(password|passwd|secret|token|authorization|api_key|apikey|access_key|private_key|credential)/.test(key.toLowerCase().replaceAll('-', '_'))) return '******'
+  if (Array.isArray(value)) return value.map(item => maskDebugRequest(item))
+  if (value && typeof value === 'object') return Object.fromEntries(
+    Object.entries(value).map(([name, item]) => [name, maskDebugRequest(item, name)]),
+  )
+  return value
+}

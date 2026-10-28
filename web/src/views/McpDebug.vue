@@ -200,9 +200,10 @@
           <template #header>
             <a-space wrap><a-tag :color="item.ok ? 'green' : 'red'">{{ item.ok ? $t('legacy.1rraohc') : $t('legacy.12db3qz') }}</a-tag><span>{{ item.method }}</span><span class="muted">{{ formatDebugDuration(item.duration, t) }} · {{ item.time }}</span></a-space>
           </template>
-          <a-row :gutter="16">
-            <a-col :xs="24" :lg="12"><div class="json-title">Request</div><pre>{{ pretty(item.request) }}</pre></a-col>
-            <a-col :xs="24" :lg="12"><div class="json-title">Response</div><pre>{{ pretty(localizeDebugResponse(item.response, t)) }}</pre></a-col>
+          <div class="history-endpoint"><strong>Endpoint</strong><span>{{ item.endpoint }}</span></div>
+          <a-row :gutter="[16, 16]">
+            <a-col :xs="24" :lg="12"><div class="json-title">{{ t('mcpDebug.request') }}</div><pre>{{ item.request ? pretty(item.request) : t('mcpDebug.requestNotRecorded') }}</pre></a-col>
+            <a-col :xs="24" :lg="12"><div class="json-title">{{ t('mcpDebug.response') }}</div><pre>{{ pretty(localizeDebugResponse(item.response, t)) }}</pre></a-col>
           </a-row>
         </a-collapse-panel>
       </a-collapse>
@@ -224,7 +225,7 @@ import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { debugMcpUpstream, listMcpGateways, listMcpServers } from '../api'
 import { copyText, promptManualCopy } from '../utils/clipboard'
 import { validateServiceEndpoint } from '../utils/serviceEndpoint'
-import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, validConnectionTimeout } from '../utils/mcpDebug'
+import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, maskDebugRequest, validConnectionTimeout } from '../utils/mcpDebug'
 
 const { t } = useI18n()
 const targetMode = ref('service')
@@ -365,29 +366,41 @@ const serviceRequest = async (method, params) => {
   }
   const started = performance.now()
   let response
+  let sentRequest = null
   let ok = false
   try {
     const result = await debugMcpUpstream(request)
+    sentRequest = result.request
     response = result.response
     if (response?.error) throw new Error(response.error.message)
     ok = true
     return response
   } catch (error) {
-    response ||= error.response?.data || { error: error.message }
+    const data = error.response?.data
+    sentRequest ||= data?.error_params?.debug_request
+    response ||= data || { error: error.message }
+    // 请求记录单独展示，响应区保留业务错误及其参数。
+    if (response?.error_params && Object.hasOwn(response.error_params, 'debug_request')) {
+      const errorParams = { ...response.error_params }
+      delete errorParams.debug_request
+      response = { ...response, error_params: errorParams }
+    }
     throw error
   } finally {
-    addHistory(method, { endpoint: request.endpoint, params }, response, ok, Math.round(performance.now() - started))
+    addHistory(sentRequest?.method || method, sentRequest, response, ok, Math.round(performance.now() - started), request.endpoint)
   }
 }
 
 const gatewayRequest = async (method, params = {}, notification = false, attempt) => {
   const requestId = notification ? undefined : ++requestSequence
   const payload = { jsonrpc: '2.0', ...(requestId === undefined ? {} : { id: requestId }), method, params }
+  const endpoint = gatewayEndpoint.value.trim()
+  const historyRequest = maskDebugRequest(payload)
   const started = performance.now()
   let responseData
   let ok = false
   try {
-    const response = await fetch(gatewayEndpoint.value.trim(), {
+    const response = await fetch(endpoint, {
       signal: attempt?.signal,
       method: 'POST',
       headers: {
@@ -424,12 +437,13 @@ const gatewayRequest = async (method, params = {}, notification = false, attempt
     }
     throw new Error(localizeDebugResponse(responseData, t).detail)
   } finally {
-    addHistory(method, payload, responseData, ok, Math.round(performance.now() - started))
+    addHistory(method, historyRequest, responseData, ok, Math.round(performance.now() - started), endpoint)
   }
 }
 
-const addHistory = (method, request, response, ok, duration) => history.value.unshift({
+const addHistory = (method, request, response, ok, duration, endpoint) => history.value.unshift({
   key: ++historySequence,
+  endpoint,
   method,
   request,
   response,
@@ -607,6 +621,7 @@ onMounted(async () => {
 .muted { color: #8c8c8c; }
 .code-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .field-description { margin-top: 4px; color: #8c8c8c; font-size: 12px; }
+.history-endpoint { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; overflow-wrap: anywhere; }
 .json-title { margin-bottom: 8px; font-weight: 600; }
 pre { max-height: 420px; margin: 0; padding: 12px; overflow: auto; background: #f7f8fa; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

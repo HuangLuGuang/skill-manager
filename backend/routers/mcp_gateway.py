@@ -512,6 +512,9 @@ async def _post_upstream(
         headers["Host"] = original.netloc.decode("ascii")
         extensions["sni_hostname"] = original.host
         endpoint = str(original.copy_with(host=scan_addresses[0]))
+    # 调试只保存实际发送边界的脱敏副本，保留原始参数与鉴权行为。
+    if hasattr(server, "_debug_request"):
+        server._debug_request = _mask_approval_arguments(payload)
     async with client.stream("POST", endpoint, json=payload, headers=headers, extensions=extensions) as response:
         content = bytearray()
         async for chunk in response.aiter_bytes():
@@ -1321,12 +1324,17 @@ async def debug_upstream(
         authorization_value=protected_secret,
         timeout_seconds=body.timeout_seconds,
     )
+    transient._debug_request = None
     started = time.perf_counter()
     try:
         result = await _call_upstream(transient, body.method, body.params)
     except Exception as exc:
-        raise _upstream_connection_error(exc, timeout_seconds=transient.timeout_seconds, debug=True) from exc
+        error = _upstream_connection_error(exc, timeout_seconds=transient.timeout_seconds, debug=True)
+        if transient._debug_request is not None:
+            error.params = {**error.params, "debug_request": transient._debug_request}
+        raise error from exc
     return {
+        "request": transient._debug_request,
         "endpoint": endpoint,
         "method": body.method,
         "duration_ms": round((time.perf_counter() - started) * 1000, 2),
