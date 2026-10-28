@@ -1672,6 +1672,31 @@ def get_skill(skill_id_or_name: str, mgr: AgentManager = Depends(get_manager)):
     if entry is None:
         raise HTTPException(status_code=404, detail="Skill not found")
     payload = entry.model_dump(mode="json", exclude={"vetting": {"scan_report"}})
+    if entry.status == SkillStatus.REJECTED:
+        # 拒绝操作须属于当前有效检测；失败复扫保留原检测及其审批记录。
+        scan_failed = bool(entry.vetting and entry.vetting.scan_report.get("vetting_failed"))
+        event_types = ("skill_rejected", "skill_processing_completed", "skill_scan_reused")
+        if scan_failed:
+            event_types += ("skill_processing_failed",)
+        events = mgr.registry.read_audit(
+            skill_id=entry.skill_id, limit=1, event_types=event_types,
+            since=entry.vetting.vetted_at if entry.vetting else entry.submitted_at,
+            exclude_preserved_failures=True,
+        )
+        rejection = events[0] if events and events[0].event_type == "skill_rejected" else None
+        payload["rejected_by"] = rejection.actor if rejection else None
+        payload["rejected_at"] = rejection.timestamp.isoformat() if rejection else None
+        # 自动判定沿用本次完成或复用事件，避免将提交人误作审核人。
+        decision = events[0] if events else None
+        if not rejection and decision and decision.details.get("status") == "REJECTED":
+            reused = decision.event_type == "skill_scan_reused"
+            payload["rejected_by"] = "auto-policy-cache" if reused else "auto-policy"
+            payload["rejected_at"] = decision.timestamp.isoformat()
+        if not rejection and scan_failed:
+            # 首次失败的来源由有效报告确认，后续失败复扫不覆盖其时间。
+            payload["rejection_source"] = "scan_failed"
+            payload["rejected_by"] = None
+            payload["rejected_at"] = decision.timestamp.isoformat() if decision else None
     payload["version_id"] = entry.skill_id
     payload["scan_options"] = _previous_scan_options(entry) if entry.scan_options is not None or entry.vetting else None
     payload["scan_options_source"] = "submitted" if entry.scan_options is not None else "report" if entry.vetting else "unknown"

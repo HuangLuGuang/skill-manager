@@ -3287,3 +3287,15 @@ Overview has Assets, Activity and Risks tabs with a shared date filter, defaulti
 Click metrics or charts to open the existing risk list, details, rule trace and disposition flow. Chart drilldowns use inclusive first-detection start and exclusive end boundaries; the regular Risk events page retains occurrence-time filtering. Focus a chart, use arrow keys to select a data point, and press Enter to drill down. Saving a disposition refreshes the overview. Agent links and evidence-content permissions remain unchanged.
 
 The score is `round(100 × (1 − exp(−W / 60)))`, where `W = open high × 8 + open medium × 3`. Levels are Low (0–29), Medium (30–59), High (60–100). Resolved, accepted and false-positive findings are excluded; reopening restores their contribution. Each finding counts once; independent cross-source findings count separately. Inferred cross-source links do not establish deduplication. The explanation shows actual counts and weights. Weights and thresholds are product choices not yet calibrated against incident data. Zero means no open findings; consult channel status for collection coverage. Scores are unavailable when detection is disabled, cursors lag, or checks are over 30 seconds old. Upgrade adds a client/first-detection index without rewriting historical findings.
+
+### Skill 详情信息归位
+
+基础信息展示当前版本描述原文；生命周期三个步骤标题水平对齐：策略审核结果下展示北京时间；人工审核节点下显示审核人，结果下展示北京时间及备注，备注保留前30个Unicode字符，超出以省略号展示并悬浮显示全文，无备注时留空。缺失审核人或时间显示“未记录”。拒绝操作读取当前版本有效检测之后的最近一次拒绝审计记录；重新检测后的结果不沿用此前的拒绝操作。完整性校验展示内容指纹、最近校验结果、数字签名状态及签名预览。检测报告之后以灰色单行文字展示“能力边界：”及三项说明，空间不足时可横向滚动。详情中的治理信息分别在基础信息、生命周期、扫描结果、完整性校验及审计记录查看，报告通过现有 PDF 入口导出。
+
+English: The detail page shows the current version's original description, horizontally aligned lifecycle titles, the reviewer below manual review, and Beijing time below the outcome. Manual remarks show the first 30 Unicode characters with an ellipsis and their full text on hover, and signature status and preview under integrity verification. Missing review fields are shown as Not recorded. Rejection metadata comes from the version's latest rejection event after its effective scan. Capability boundaries appear on one gray line below the report, with horizontal scrolling when needed. Governance information is available in the corresponding detail sections; export uses the existing PDF action.
+
+本次仅增加详情读取字段并调整展示，无数据库结构迁移；Docker 更新前后端镜像，沿用已有数据卷。
+
+- Skill PDF 在“Skill 信息与来源”展示提交时间，在“扫描范围与执行状态”展示当前版本扫描缓存 Key。自动拒绝的操作来源与时间读取本次扫描完成或复用审计事件；策略审核结果展示状态及时间，人工备注展示前30个Unicode字符并悬浮查看全文。历史记录不回写。
+
+- 首次扫描失败的生命周期显示“提交 → 扫描失败 → 拒绝”，详情使用稳定来源 `scan_failed`，拒绝时间读取导致当前失败的审计事件；展示“扫描未完成，无法通过准入。”及原始失败原因（30字符预览、悬浮全文）。标记 `effective_result_preserved` 的失败复扫保留原有效结果和审核时间。历史记录仅在读取时补充来源，不回写。
