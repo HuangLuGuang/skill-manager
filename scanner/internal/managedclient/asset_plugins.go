@@ -9,6 +9,7 @@ import (
 )
 
 var pluginManifests = []struct{ path, format string }{
+	{".zcode-plugin/plugin.json", "zcode"},
 	{".trae-plugin/plugin.json", "trae"},
 	{"plugin.json", "agent_plugins"}, {".codex-plugin/plugin.json", "codex"},
 	{".claude-plugin/plugin.json", "claude"}, {".cursor-plugin/plugin.json", "cursor"},
@@ -209,6 +210,19 @@ func (c *assetCollector) addPlugin(root, name, state, scope, source string, enab
 }
 
 func (c *assetCollector) discoverPlugins(root, kind string, config map[string]any, configPath string, projects map[string]bool) {
+	if kind == "codebuddy" {
+		c.codeBuddyPlugins(root, config, configPath, "user")
+		paths := make([]string, 0, len(projects))
+		for project := range projects {
+			paths = append(paths, project)
+		}
+		sort.Strings(paths)
+		for _, project := range paths {
+			path := filepath.Join(project, ".codebuddy/settings.json")
+			c.codeBuddyPlugins(root, c.read(path), path, project)
+		}
+		return
+	}
 	enabledPlugins := assetObject(config["enabledPlugins"])
 	registryPath := filepath.Join(root, "plugins", "installed_plugins.json")
 	registry := c.read(registryPath)

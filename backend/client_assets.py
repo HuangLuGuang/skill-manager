@@ -55,7 +55,7 @@ class PluginAsset(AssetModel):
     id: Annotated[str, Field(max_length=128)]
     name: AssetName
     version: AssetName = ""
-    format: Literal["agent_plugins", "codex", "claude", "cursor", "qoder", "codebuddy", "workbuddy", "gemini", "openclaw", "opencode", "unknown"] = "unknown"
+    format: Literal["agent_plugins", "codex", "claude", "cursor", "qoder", "codebuddy", "workbuddy", "gemini", "openclaw", "opencode", "zcode", "unknown"] = "unknown"
     path: AssetText = ""
     source_path: AssetText
     scope: AssetText = "user"

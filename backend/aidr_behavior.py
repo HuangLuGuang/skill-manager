@@ -16,6 +16,7 @@ PATTERNS = [
 ]
 CATEGORIES = {'Bash':'command','exec_command':'command','shell_command':'command','Read':'file_read','read_file':'file_read','Write':'file_write','write_file':'file_write','Edit':'file_edit','MultiEdit':'file_edit','edit_file':'file_edit','rename_file':'file_rename','move_file':'file_rename','WebFetch':'network_request','fetch':'network_request','apply_patch':'patch'}
 CATEGORIES.update({'bash': 'command', 'Shell': 'command', 'PowerShell': 'command', 'RunCommand': 'command', 'read': 'file_read', 'write': 'file_write', 'edit': 'file_edit', 'webfetch': 'network_request'})
+CATEGORIES['mcp__qw-builtin__mcp_workspace_bash'] = 'command'
 Category = Literal['unknown','command','file_read','file_write','file_edit','file_rename','network_request','patch','wrapper']
 Status = Literal['unknown','reported_complete','reported_error','reported_success','reported_cancelled']
 
@@ -47,7 +48,7 @@ class Action(Strict):
     command: str = Field(default='',max_length=1536)
     cwd: str = Field(default='',max_length=512)
     targets: list[Target] = Field(max_length=4)
-    source_fields: list[Literal['command','cmd','workdir','cwd','file_path','path','old_path','new_path','url','patch','patch.header','record.cwd']] = Field(max_length=8)
+    source_fields: list[Literal['command','cmd','workdir','cwd','dir_path','file_path','path','old_path','new_path','url','patch','patch.header','record.cwd']] = Field(max_length=8)
     @model_validator(mode='after')
     def check(self):
         if CATEGORIES.get(self.tool)!=self.category:

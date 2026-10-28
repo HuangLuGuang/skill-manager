@@ -66,6 +66,39 @@ def policy(expected="0"):
     return {"expected_revision": expected, "lifetime_seconds": 3600, "default_action": "deny", "rules": [{"id": "review", "agent": "codex", "tool": "Bash", "decision": "ask"}]}
 
 
+def test_codebuddy_approval_requires_turn_and_preserves_empty_native_call(control):
+    client, _, _ = control
+    target = policy()
+    target['rules'][0]['agent'] = '*'
+    assert client.put(ROOT + '/hook-policy', json=target).status_code == 200
+    approved_scopes = []
+    for seq, (agent, turn, status) in enumerate([
+        ('codebuddy', 'same-turn', 200), ('codebuddy', 'same-turn', 200),
+        ('codebuddy', '', 422), ('workbuddy', 'same-turn', 422),
+    ], 1):
+        batch = hook_batch(seq)
+        row = batch['records'][0]
+        row['receiver_instance'] = INSTANCE
+        row['event'].update(agent=agent, hook_event='PreToolUse', kind='tool.pre', tool='Bash',
+                            turn_id=turn, input_digest='c' * 64)
+        row['event']['behavior'] = dict(version=3, policy=row['event']['policy'], category='command',
+            method='direct_fields', actions=[], status='unknown', result_basis=[],
+            redacted=False, truncated=False, uncertainty=[])
+        submitted = send(client, batch)
+        assert submitted.status_code == 200, submitted.text
+        request = dict(expires_at=int(time.time())+180, stream_id=batch['stream_id'], event_id=row['event_id'],
+                       receiver_instance=INSTANCE, policy_revision='1', rule_id='review')
+        response = client.post(ROOT + '/hook-approvals', json=request, headers=HEADERS)
+        assert response.status_code == status, response.text
+        if status == 200:
+            scope = response.json()['scope']
+            assert scope['native_call_id'] == '' and scope['attempt_nonce'] == row['event_id']
+            approved_scopes.append(scope)
+        else:
+            assert response.json()['error_code'] == 'aidr.hook_scope_unverified'
+    assert approved_scopes[0]['attempt_nonce'] != approved_scopes[1]['attempt_nonce']
+
+
 def test_twenty_concurrent_terminal_receipts_keep_exact_identity(control):
     client, factory, _ = control
     assert client.put(ROOT + "/hook-policy", json=policy()).status_code == 200

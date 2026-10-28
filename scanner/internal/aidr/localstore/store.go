@@ -502,6 +502,7 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 		// Repair progress is local scheduling state, not part of the wire cursor.
 		wireCursor := b.Cursor
 		wireCursor.TraeHooks, wireCursor.TraeInput = nil, ""
+		wireCursor.CodeBuddyWorkspace = ""
 		wireCursor.DoubaoMessages = false
 		wireCursor.DoubaoTurns = ""
 		wireCursor.ContextRepair = nil

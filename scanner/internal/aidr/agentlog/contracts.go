@@ -72,6 +72,7 @@ type CallTurn struct {
 	ContentDigest string `json:"content_digest,omitempty"`
 }
 type Cursor struct {
+	CodeBuddyWorkspace       string           `json:"codebuddy_workspace,omitempty"`
 	TraeHooks                map[string]int64 `json:"trae_hooks,omitempty"`
 	TraeInput                string           `json:"trae_input,omitempty"`
 	DoubaoMessages           bool             `json:"doubao_messages,omitempty"`
@@ -200,6 +201,9 @@ func digest(parts ...string) string {
 }
 func validAgent(agent string) bool { return catalog.Log(agent) }
 func ValidateCursor(c Cursor, s Source) error {
+	if len(c.CodeBuddyWorkspace) > 2048 {
+		return errors.New("aidr_log_cursor_invalid")
+	}
 	if c.ContextRepairVersion < 0 || c.ContextRepairVersion > contextRepairVersion {
 		return errors.New("aidr_log_cursor_invalid")
 	}

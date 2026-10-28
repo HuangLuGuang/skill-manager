@@ -3053,6 +3053,10 @@ Filters support severity, type, source, product and inclusive local calendar dat
 
 ### AIDR 多产品适配目录
 
+CodeBuddy IDE 已接入 macOS 日志、设置型 Hook、执行前允许/拒绝/人工审批规则及插件/MCP/Skill 资产发现；本机验证版本为 CN 4.12.2。配置、原生证据字段与验收边界见 [CodeBuddy IDE 接入](external-agent-integration.md#codebuddy-idemacoscn-4122)。客户端和服务端需配套更新；在客户端策略中选择对应日志产品与 Hook 宿主后生效。
+
+**English:** CodeBuddy IDE supports macOS native logs, settings Hooks, pre-tool allow/deny/approval rules and plugin/MCP/Skill inventory. CN 4.12.2 was verified locally. Upgrade both client and server, then select CodeBuddy in the log and Hook collection policies. See the CodeBuddy integration section for evidence fields and validation scope.
+
 TRAE macOS 使用 `trae`（国际版）和 `trae-cn`（国内版）两个入口。资产发现读取产品的用户 MCP 配置、已知工作区 `.trae/mcp.json`、用户/内置/项目 Skills、Agent 插件清单与 `.trae-plugin/plugin.json`、IDE 扩展目录。插件附带的 Skills 和 MCP 作为插件组件展示；配置存在和启用状态不代表连接成功或本次已加载。IDE 扩展的启用状态保持未知。
 
 TRAE / TRAE CN 人工审批复用平台签名授权流程：在工具规则中选择“需要审批”，执行前 Hook 持续等待平台决策，批准后继续原调用，拒绝、取消或超时返回原生 deny。授权绑定设备、接收器实例、会话、原生 tool_use_id、输入摘要和本次申请，无原生 turn_id 时保留为空；批准仅消费一次。人工审批等待时长默认180秒，平台全局工具规则可配置30–300秒，客户端可随规则覆盖。新申请保存客户端实际截止时间并在平台倒计时；CLI保留5秒返回预算，受管PreToolUse宿主配置为315秒以覆盖最大等待及通信开销。仅调整等待时长不改变已有申请截止时间；改变规则仍取消旧申请。2026-10-26专项自动化验证覆盖两种产品的批准/拒绝签名、CLI真实IPC等待、超时/取消拒绝、并发单次消费、策略变更及接收器重启。2026-10-28 已完成 TRAE 3.6.4 的 SOLO / Work、IDE 界面和 TRAE CN 3.4.9 的平台联动验收：超过60秒后批准和拒绝均生效，自然超时拦截，页面倒计时与实际截止时间一致。
@@ -3220,9 +3224,9 @@ English: ZIP uploads, Scanner submissions, and network ZIP imports unpack only t
 
 Open **Clients → Global client settings → Security rules**, or **Client details → Client settings → Security rules**. One Add rule entry and one shared editor configure conditions, Agent/OS scope, a referenced path set, risk recording, pre-execution action and enabled state. Search and filters update immediately; name and severity are sortable.
 
-Path sets are independently named collections shared by multiple rules. Editing a set updates all references; referenced sets cannot be deleted. Explicit paths match themselves and descendants; built-in paths retain OS and exact-file/directory matching. Custom commands reference explicit paths. Actions require all operating systems; current Hook command actions support one POSIX path prefix, preserving all-segment/all-target matching for allow rules. Built-in complex behaviors and Windows-specific conditions support risk recording; action choices follow current Hook capabilities. Native tool calls can record risks and apply actions together. WorkBuddy, TRAE, TRAE CN, Claude Code, Codex and Qoder Hooks support platform approval. Products without approval support disable Require approval; Allow and Deny remain available. The server validates every selected product before saving.
+Path sets are independently named collections shared by multiple rules. Editing a set updates all references; referenced sets cannot be deleted. Explicit paths match themselves and descendants; built-in paths retain OS and exact-file/directory matching. Custom commands reference explicit paths. Actions require all operating systems; current Hook command actions support one POSIX path prefix, preserving all-segment/all-target matching for allow rules. Built-in complex behaviors and Windows-specific conditions support risk recording; action choices follow current Hook capabilities. Native tool calls can record risks and apply actions together. WorkBuddy, CodeBuddy IDE, TRAE, TRAE CN, Claude Code, Codex and Qoder Hooks support platform approval. Products without approval support disable Require approval; Allow and Deny remain available. The server validates every selected product before saving.
 
-WorkBuddy、TRAE、TRAE CN、Claude Code、Codex 和 Qoder Hooks 支持平台人工审批；未接入审批的智能体禁用“需要审批”，可使用允许或拒绝。服务端保存前逐一校验所选智能体，失败时保留原配置。
+WorkBuddy、CodeBuddy IDE、TRAE、TRAE CN、Claude Code、Codex 和 Qoder Hooks 支持平台人工审批；未接入审批的智能体禁用“需要审批”，可使用允许或拒绝。服务端保存前逐一校验所选智能体，失败时保留原配置。
 
 Clients can inherit global rules or maintain a complete override. Legacy mixed inheritance remains dynamic under Keep current inheritance; inherited entries are read-only. Risk recording can independently inherit, enable or disable. Migration retains separate legacy entries, original tool-rule IDs, signatures, defaults and historical risk snapshots. Opening the page does not publish. A unified document is validated and saved atomically with optimistic revision checks, permissions and receiver capabilities; unchanged execution policies are not re-signed. Legacy APIs remain compatible and their updates are reflected in the unified view. Failed saves retain the draft.
 
@@ -3269,3 +3273,15 @@ Overview has Assets, Activity and Risks tabs with a shared date filter, defaulti
 Click metrics or charts to open the existing risk list, details, rule trace and disposition flow. Chart drilldowns use inclusive first-detection start and exclusive end boundaries; the regular Risk events page retains occurrence-time filtering. Focus a chart, use arrow keys to select a data point, and press Enter to drill down. Saving a disposition refreshes the overview. Agent links and evidence-content permissions remain unchanged.
 
 The score is `round(100 × (1 − exp(−W / 60)))`, where `W = open high × 8 + open medium × 3`. Levels are Low (0–29), Medium (30–59), High (60–100). Resolved, accepted and false-positive findings are excluded; reopening restores their contribution. Each finding counts once; independent cross-source findings count separately. Inferred cross-source links do not establish deduplication. The explanation shows actual counts and weights. Weights and thresholds are product choices not yet calibrated against incident data. Zero means no open findings; consult channel status for collection coverage. Scores are unavailable when detection is disabled, cursors lag, or checks are over 30 seconds old. Upgrade adds a client/first-detection index without rewriting historical findings.
+
+## 千问办公接入
+
+产品目录新增 qwenwork（QwenWork CN），范围限定已验证的 macOS 桌面版。复用日志增量队列、Hook 接收器、签名规则和独立人工审批；个人 Skill 使用身份隔离目录，插件安装与启用分开表达。自定义 MCP 导入在本机被产品限制，完整 MCP 配置发现未开放。详细能力、失败行为和三端升级要求见 [外部 Agent 集成](external-agent-integration.md#千问办公--qwenwork-cnqwenwork)。
+
+**English:** qwenwork covers the verified macOS QwenWork CN desktop entry. It reuses incremental collection, signed pre-tool rules and independent approvals. Personal Skills use identity-scoped directories; installed plugins do not imply enablement. Custom MCP import was restricted by the tested host. See the external integration guide for evidence boundaries and coordinated upgrades.
+
+## ZCode 运行时接入
+
+产品目录 zcode 对应已验证的 macOS ZCode 3.16.3 内置 Agent。适配覆盖 SQLite 增量会话、六类用户 Hook、执行前规则和独立平台审批，以及 Skill/MCP/插件资产来源。使用原生身份字段和现有队列、ACK、签名授权及回执，不按时间推断确定关联。桌面真实调用与随包运行程序隔离全链路测试的覆盖范围分别记录；宿主 Hook 失败可能继续执行。参见 [长期接入说明](external-agent-integration.md#zcodezcode)。
+
+**English:** The zcode adapter covers the verified macOS built-in Agent, mutable SQLite sessions, six user Hooks, signed pre-tool decisions and independent approvals. Native identifiers and existing delivery contracts are reused. Asset discovery is distinct from invocation evidence; native Hook failures may fail open.

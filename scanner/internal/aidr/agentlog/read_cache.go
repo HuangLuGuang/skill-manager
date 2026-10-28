@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -21,6 +23,33 @@ func inspectReadStamp(s Source) (readStamp, bool) {
 		return readStamp{}, false
 	}
 	stamp := readStamp{main: main}
+	if s.Agent == "codebuddy" {
+		folder := filepath.Join(filepath.Dir(s.Path), "messages")
+		if checkPath(folder) != nil {
+			return readStamp{}, false
+		}
+		f, err := openLog(folder)
+		if err != nil {
+			return readStamp{}, false
+		}
+		names, err := f.Readdirnames(4097)
+		f.Close()
+		if err != nil && err != io.EOF || len(names) > 4096 {
+			return readStamp{}, false
+		}
+		stamp.related = make(map[string]os.FileInfo)
+		for _, name := range names {
+			if !strings.HasSuffix(name, ".json") {
+				continue
+			}
+			path := filepath.Join(folder, name)
+			info, err := checkedPathInfo(path)
+			if err != nil || !info.Mode().IsRegular() || skillChangeTime(info) == 0 {
+				return readStamp{}, false
+			}
+			stamp.related[path] = info
+		}
+	}
 	if s.Agent == "doubaowork" && doubaoCacheSource(s.Root, s.Path) {
 		stamp.related = make(map[string]os.FileInfo)
 		for _, name := range doubaoCacheDirs(s.Root) {
@@ -51,7 +80,7 @@ func inspectReadStamp(s Source) (readStamp, bool) {
 			}
 		}
 	}
-	if s.Agent == "teleagent" {
+	if s.Agent == "teleagent" || s.Agent == "zcode" {
 		for _, suffix := range []string{"-wal", "-shm"} {
 			info, err := checkedPathInfo(s.Path + suffix)
 			if err != nil && !os.IsNotExist(err) || err == nil && !info.Mode().IsRegular() {
@@ -131,12 +160,12 @@ func (cache *ReadCache) Read(ctx context.Context, s Source, old Cursor, b Budget
 	}
 	after, current := inspectReadStamp(s)
 	tracking := valid && current && before.equal(after)
-	if (s.Agent == "teleagent" || doubaoSnapshot) && old.SchemaVersion != 0 && !old.ScanComplete {
+	if (s.Agent == "teleagent" || s.Agent == "codebuddy" || doubaoSnapshot) && old.SchemaVersion != 0 && !old.ScanComplete {
 		// A mutation between pages invalidates the entire snapshot cycle.
 		tracking = tracking && match
 	}
 	complete := tracking && batch.Coverage.Status == "complete" && batch.Cursor.ContextRepair == nil
-	if s.Agent == "teleagent" || doubaoSnapshot {
+	if s.Agent == "teleagent" || s.Agent == "codebuddy" || doubaoSnapshot {
 		complete = complete && batch.Cursor.ScanComplete
 	} else {
 		complete = complete && after.main != nil && batch.Cursor.Offset == after.main.Size()

@@ -1746,6 +1746,10 @@ The log store uses an 8 MiB SQLite page-cache budget and maintenance indexes, in
 
 Private configuration reads still validate permissions and file identity, reusing unchanged bytes where change-time metadata is available and normalizing binding configuration from one read. Repeated identical sync errors avoid writes; recovery and other tasks' success timestamps remain recorded. Daemon health checks run every second, with successful health timestamps provided by the atomically replaced, synchronized health file; failures and recovery remain in the database. Ordinary-event uploads watch only `events-wake`, recreating its watch after removal or rename and retaining the 30-second durable-queue repair check. Collection, heartbeat, upload and health-check intervals remain unchanged.
 
+日志发现器在每轮有界探测中合并提交文件和目录元数据；失败时回滚并重新枚举，保持原有探测周期。豆包会话关联每 15 秒检查 SDK 日志，按文件复用解析索引：支持变更时间的系统上，文件身份、大小、修改时间和变更时间均未变化时复用；变化的文件重新解析，删除文件的关联从合并结果中移除。无法取得变更时间时继续重新解析。关联冲突、日志读取上限和路径校验保持。历史清理使用确认时间、源关联索引；首次升级需要在本地数据库创建索引，会增加少量磁盘占用和启动时间，既有审计数据与保留规则不变。
+
+Each bounded discovery pass commits file and directory metadata together. Failures roll back and restart enumeration without changing the probe interval. Doubao correlation checks SDK logs every 15 seconds and reuses per-file parsing indexes when identity, size, modification time and filesystem change time are unchanged. Changed files are reparsed; deleted files are removed from the merged index. Systems without change-time metadata continue reparsing. Conflict handling, read limits and path validation remain in place. Retention queries use acknowledgement-time and source indexes. The first upgrade builds these local indexes, adding some disk usage and startup work while preserving audit data and retention rules.
+
 Skill 监听保留配置根目录的直接父目录监听，用于发现同名目录替换；父目录不存在时监听最近的现存祖先，无关路径事件不触发扫描。目录删除、重命名及携带明确路径的异步路径消失错误，复用 300 毫秒事件合并窗口重新注册受影响根目录并请求补偿扫描。无法确认监听完整性的错误立即重建监听器；连续失败按 1、2、4 秒递增退避，最长 30 秒，恢复后请求补偿扫描。健康监听器不启动周期重试定时器。
 
 Skill monitoring retains the direct parent watch of each configured root to detect replacement at the same path; if the parent is absent, it watches the nearest existing ancestor. Unrelated paths do not trigger scans. Directory removal, rename, and asynchronous missing-path errors with an identifiable path use the existing 300 ms coalescing window to re-register affected roots and request a compensating scan. Errors that leave watch integrity uncertain trigger an immediate rebuild; repeated failures back off from 1 to 2 to 4 seconds, capped at 30 seconds, with a compensating scan after recovery. Healthy monitors have no periodic retry timer.
@@ -1756,3 +1760,21 @@ Skill monitoring retains the direct parent watch of each configured root to dete
 2026-10-28 本机 TRAE CN 3.4.9 实测：浏览器在申请后 89 秒批准、100 秒拒绝均有效；自然超时的原生 PreToolUse 持续 180.126 秒并拒绝执行。仅批准标记文件存在，平台倒计时与客户端截止时间一致，超时回执自动刷新。现用全局/客户端“安全规则”页均可配置时长；本机最终全局与客户端覆盖均为 180 秒。此结果限定本次 TRAE CN 宿主版本。
 
 2026-10-28 本机 TRAE 3.6.4 两个入口完成 180 秒审批回归：SOLO / Work 在申请后 95 秒批准、85 秒拒绝，专用自然超时 180.243 秒；切换 IDE 界面后在 74 秒批准、93 秒拒绝，专用自然超时 179.730 秒（截止时间按整数秒）。批准、拒绝由平台浏览器完成，平台倒计时和回执与实际文件结果一致。两个界面复用同一宿主会话引擎，各次工具调用及审批独立；本结论不扩展到独立旧产品 TraeWork。临时测试规则已移除。
+
+## 千问办公（QwenWork CN）
+
+macOS 客户端可以发现 /Applications/QwenWorkCN.app，从 Info.plist 读取版本，并发现共享与 identity-data/v1/*/skills 个人 Skill 目录。日志与 Hook 在产品目录中独立启用；本机 Hook 设置位于 ~/.qwenworkcn/settings.json，安装后开启新会话。共享 plugins/plugins-custom 只报告已安装包，启用状态未知；身份加密 MCP 配置不读取。验收版本为 1.4.0（26102705），其他平台及引擎不作支持承诺。参见 [长期接入说明](external-agent-integration.md#千问办公--qwenwork-cnqwenwork)。
+
+**English:** On macOS, the client discovers QwenWorkCN.app and its bundle version, shared Skills and identity-scoped personal Skills. Enable logs and Hooks separately, install user settings, then start a new conversation. Shared plugin packages retain unknown enablement; encrypted connector settings are not read. The verified host is CN 1.4.0 (26102705). Upgrade the platform, sidecar and desktop together.
+
+## ZCode 客户端接入
+
+macOS 通过 /Applications/ZCode.app 和 Info.plist 发现 ZCode 及版本。日志来源为 ~/.zcode/cli/db/db.sqlite，Hook 用户配置为 ~/.zcode/cli/config.json 的 hooks.events。启用采集、安装 Hook 后新建会话；原生运行程序只在会话加载时读取 Hook 配置。先验证接收器、平台 ACK 和真实执行结果，再使用执行前策略及审批。
+
+用户/已知工作区 Skill、MCP 配置、插件目录和安装记录分别展示，未明确的启用状态保持未知。Hook 安装/移除保留其他配置；宿主 Hook 进程失败可能继续执行，移除接入不能仅停止服务。完整范围和三端升级说明见 [ZCode 接入](external-agent-integration.md#zcodezcode)。
+
+撤回接入前检查客户端的“采集与接入 → 安装、更新与重试”：管理员仍指定 ZCode 且启用自动安装时，后续策略应用会重新安装已移除的 Hook。需要保留产品范围、由用户控制安装时选择手动安装，再在桌面移除 Hook 配置。移除后分别确认本机配置、桌面“未安装”和平台插件接入状态；历史事件仍然保留。完整平台与 macOS 桌面按钮验收记录见 `outputs/zcode-acceptance/full-ui/验收报告.md`。
+
+**English:** Discover the macOS ZCode bundle, enable SQLite logs, install user Hooks, then start a new session. Check receiver health, platform ACK and actual tool execution separately. Inventory distinguishes configuration, installation and enablement. Native Hook failures may fail open. Upgrade the server, Go client and desktop together.
+
+If ZCode remains an administrator-selected product with automatic installation, a subsequent policy application can reinstall removed Hooks. Select manual installation when users should control installation within that scope. After removal, verify the local configuration, desktop status and platform plugin status separately; historical events remain available.

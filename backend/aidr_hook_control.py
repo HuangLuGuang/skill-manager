@@ -268,7 +268,9 @@ def request_approval(db, client_id, body):
     evidence = record["event"]
     if not BY_ID[evidence["agent"]]["approval"]:
         reject("aidr_hook_approval_unsupported", "此产品未接入工具审批", "Tool approval is not available for this product", 422)
-    if record.get("receiver_instance") != body.receiver_instance or evidence["kind"] != "tool.pre" or not evidence.get("input_digest") or not evidence.get("native_call_id") or (aidr_adapters.get(evidence["agent"]).turn_required and not evidence.get("turn_id")):
+    # CodeBuddy approvals bind the exact receiver attempt; its Hook has no native call ID.
+    codebuddy = evidence["agent"] == "codebuddy"
+    if record.get("receiver_instance") != body.receiver_instance or evidence["kind"] != "tool.pre" or not evidence.get("input_digest") or (not codebuddy and not evidence.get("native_call_id")) or ((codebuddy or aidr_adapters.get(evidence["agent"]).turn_required) and not evidence.get("turn_id")) or (codebuddy and not evidence.get("session_id")):
         reject("hook_scope_unverified", "调用身份不足以建立审批范围", "Call identity is insufficient for an approval scope", 422)
     policy_row = compatible_policy(db, client_id, body.policy_revision)
     now = int(time.time())
@@ -278,7 +280,7 @@ def request_approval(db, client_id, body):
     decision = evaluate(policy, evidence["agent"], evidence["tool"], evidence.get('command_match'))
     if decision["decision"] != "ask" or decision["rule_id"] != body.rule_id:
         reject("hook_approval_not_applicable", "当前规则不接受此审批请求", "The current rule does not accept this approval request")
-    scope = {"device": client_id, "stream": body.stream_id, "receiver_instance": body.receiver_instance, "user_scope": record["user_scope"], "agent": evidence["agent"], "session_id": evidence["session_id"], "turn_id": evidence.get("turn_id", ""), "native_call_id": evidence["native_call_id"], "native_agent_id": evidence.get("native_agent_id", ""), "tool": evidence["tool"], "input_digest": evidence["input_digest"], "attempt_nonce": body.event_id, "rule_id": body.rule_id, "policy_revision": body.policy_revision, "execution_point": "plugin_pre_tool"}
+    scope = {"device": client_id, "stream": body.stream_id, "receiver_instance": body.receiver_instance, "user_scope": record["user_scope"], "agent": evidence["agent"], "session_id": evidence["session_id"], "turn_id": evidence.get("turn_id", ""), "native_call_id": evidence.get("native_call_id", ""), "native_agent_id": evidence.get("native_agent_id", ""), "tool": evidence["tool"], "input_digest": evidence["input_digest"], "attempt_nonce": body.event_id, "rule_id": body.rule_id, "policy_revision": body.policy_revision, "execution_point": "plugin_pre_tool"}
     expires = body.expires_at
     budget = policy['approval_wait_seconds'] if policy.get('schema') == 4 else 300
     if (policy.get('schema') == 4 and expires is None) or (expires is not None and expires > now + budget):

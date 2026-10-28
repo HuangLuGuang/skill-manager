@@ -249,6 +249,7 @@ defineExpose({ save, busy, editable, canSave })
 .builtin-path-browser { margin:-8px 0 16px; }.builtin-path-browser code { overflow-wrap:anywhere;white-space:pre-wrap; }.builtin-path-browser .path-spec { padding:6px 0; }.builtin-path-browser small { color:#667085; }
 .path-link { display:block;padding:0;height:auto;font-size:12px; }.path-group { padding:16px 0;border-bottom:1px solid #eee; }.path-group header,.dialog-footer { display:flex;align-items:center;gap:12px;justify-content:space-between; }.dialog-footer { justify-content:flex-end;position:sticky;bottom:0;background:white;padding:12px 0 0;z-index:1; }.path-group code { display:block;white-space:pre-wrap; }.path-group details { margin:8px 0; }.path-spec { display:flex;gap:8px;flex-wrap:wrap; }summary { cursor:pointer; }.ant-alert { margin-bottom:16px; }
 @media(max-width:600px) {
+  .security-rules { padding-inline-end:16px; }
   .settings-grid,.form-grid { grid-template-columns:1fr; }.toolbar .ant-input-search { width:100%; }.dialog-footer { flex-wrap:wrap; }
   .security-rules :deep(.ant-table-content) { overflow-x:visible !important; }.security-rules :deep(.ant-table table) { width:100% !important;min-width:0 !important; }
   .security-rules :deep(.ant-table colgroup),.security-rules :deep(.ant-table-thead) { display:none; }.security-rules :deep(.ant-table-tbody),.security-rules :deep(.ant-table-row) { display:block; }

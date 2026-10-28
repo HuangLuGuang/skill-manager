@@ -13,7 +13,7 @@ from . import models
 from .api_errors import ApiError
 
 KEY = 'client_agent_discovery'
-REQUIRED_BUILTIN_TYPES = {'teleagent'}
+REQUIRED_BUILTIN_TYPES = {'teleagent', 'qwenwork'}
 SEEDS = [
     ('global-skills', 'Shared Skills', '.agents/skills'),
     ('claude-code', 'Claude Code', '.claude/skills'), ('codex', 'Codex', '.codex/skills'),
@@ -22,6 +22,7 @@ SEEDS = [
     ('trae-cn', 'TRAE CN', '.trae-cn/skills'), ('trae', 'TRAE', '.trae/skills'),
     ('cursor', 'Cursor', '.cursor/skills'), ('codebuddy', 'CodeBuddy', '.codebuddy/skills'),
     ('workbuddy', 'WorkBuddy', '.workbuddy/skills'),
+    ('qwenwork', 'QwenWork CN', '.qwenworkcn/skills'),
     ('teleagent', 'TeleAgent', '.config/TeleAgent/users/*/skills'),
     ('qoder', 'Qoder', '.qoder/skills'), ('qoder-cn', 'Qoder CN', '.qoder-cn/skills'),
     ('qoderwork', 'QoderWork', '.qoderwork/skills'), ('zcode', 'ZCode', '.zcode/skills'),
@@ -72,7 +73,10 @@ def defaults():
         roots = [root] if root else []
         if kind == 'opencode':
             roots.append('.config/opencode/skills')
-        result.append(AgentDefinition(agent_type=kind, name=name, enabled=bool(root), skill_roots=roots).model_dump())
+        if kind == 'qwenwork':
+            roots.append('.qwenworkcn/identity-data/v1/*/skills')
+        systems = ['darwin'] if kind == 'qwenwork' else ['darwin', 'windows', 'linux']
+        result.append(AgentDefinition(agent_type=kind, name=name, enabled=bool(root), skill_roots=roots, systems=systems).model_dump())
     return result
 
 def view(db: Session, client=None):

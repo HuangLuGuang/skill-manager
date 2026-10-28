@@ -94,10 +94,16 @@ func (watcher *SkillWatcher) Refresh(home string, store *Store) error {
 	}
 	roots := managedSkillsRoots(home)
 	collector := &assetCollector{result: &AssetInventory{}}
+	for _, project := range collector.zcodeProjects(home) {
+		roots = append(roots, filepath.Join(project, ".zcode/skills"), filepath.Join(project, ".agents/skills"))
+	}
 	for _, kind := range []string{"trae", "trae-cn"} {
 		for _, project := range collector.traeProjects(home, kind) {
 			roots = append(roots, filepath.Join(project, ".trae/skills"))
 		}
+	}
+	for _, project := range collector.codeBuddyProjects(home) {
+		roots = append(roots, filepath.Join(project, ".codebuddy/skills"))
 	}
 	for _, spec := range adaptersForHome(home) {
 		skillRoots := spec.skillRoots

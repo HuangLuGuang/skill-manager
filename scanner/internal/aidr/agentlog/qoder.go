@@ -18,6 +18,11 @@ type QoderLink struct {
 // distinct metadata records and an explicit entry point. IDE/Work logs must
 // not acquire the CLI identity merely because they share this directory.
 func normalizeQoder(raw []byte, c *Cursor) ([]draft, error) {
+	return normalizeRequestSetTranscript(raw, c)
+}
+
+// Native request-set ancestry is also present in QwenWork CN 1.4.0 transcripts.
+func normalizeRequestSetTranscript(raw []byte, c *Cursor) ([]draft, error) {
 	var r struct {
 		Type, Entrypoint string
 		Session          string `json:"sessionId"`

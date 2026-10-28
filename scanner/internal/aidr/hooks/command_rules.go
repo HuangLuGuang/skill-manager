@@ -223,7 +223,7 @@ func commandMatch(c *CommandCondition, command, cwd, decision string) string {
 func shellTool(tool string) bool {
 	parts := strings.Split(strings.ToLower(tool), ".")
 	switch parts[len(parts)-1] {
-	case "bash", "exec", "exec_command", "shell", "runcommand", "run_terminal_cmd", "run_shell_command":
+	case "bash", "exec", "exec_command", "shell", "runcommand", "run_terminal_cmd", "run_shell_command", "mcp__qw-builtin__mcp_workspace_bash":
 		return true
 	}
 	return false
@@ -257,6 +257,9 @@ func (p ToolPolicy) observeCommand(e Event, raw []byte) *CommandObservation {
 		}
 	}
 	command := ""
+	if e.Agent == "qwenwork" && e.Tool == "mcp__qw-builtin__mcp_workspace_bash" {
+		_ = json.Unmarshal(fields["dir_path"], &cwd)
+	}
 	var c string
 	for _, key := range []string{"command", "cmd"} {
 		if json.Unmarshal(fields[key], &c) == nil {

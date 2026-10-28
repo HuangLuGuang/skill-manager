@@ -1,8 +1,10 @@
 """Explicit product registry shared by validation, correlation and presentation."""
-from . import claude, codex, cursor, workbuddy, qoder, opencode, teleagent, doubaowork, trae
+from . import claude, codex, cursor, workbuddy, codebuddy, qoder, opencode, teleagent, doubaowork, trae, qwenwork
 from .contract import Adapter
+from . import zcode
 
-ADAPTERS = {a.id: a for module in (claude, codex, cursor, workbuddy, qoder, opencode, teleagent, doubaowork, trae) for a in module.ADAPTERS}
+ADAPTERS = {a.id: a for module in (claude, codex, cursor, workbuddy, codebuddy, qoder, opencode, teleagent, doubaowork, trae, qwenwork) for a in module.ADAPTERS}
+ADAPTERS.update({a.id: a for a in zcode.ADAPTERS})
 
 def get(agent):
     return ADAPTERS.get(agent, Adapter(agent))

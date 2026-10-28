@@ -12,7 +12,7 @@ import (
 )
 
 func TestSettingsMergeRepeatRemove(t *testing.T) {
-	for _, agent := range []string{"cursor", "qoder-hooks", "qoder-work", "workbuddy", "trae", "trae-cn"} {
+	for _, agent := range []string{"cursor", "qoder-hooks", "qoder-work", "workbuddy", "codebuddy", "trae", "trae-cn"} {
 		t.Run(agent, func(t *testing.T) {
 			product, _ := products.Get(agent)
 			if !products.SupportedHookOS(product) {
