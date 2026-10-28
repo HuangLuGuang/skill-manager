@@ -313,3 +313,5 @@ make sandbox-runtime-build
 - Skill 详情检测记录首列展示可复制的 `scan_run_id`，语义双语键为 `skillVersions.scanRunId`；来源列沿用 `reused_from_scan_run_id`，无来源留空，窄屏支持横向滚动。
 
 - Skill 详情基础信息的结果复用使用 `skillDetail.notReused` / `skillDetail.reused` 显示“未复用 / 已复用”，来源关联集中展示于版本检测记录。
+
+- MCP调试直连鉴权值纯空白时即时显示 `mcpDebug.authorizationWhitespace` 双语字段错误，保留草稿并在连接前拦截；后端仅在调试schema使用 `mcp.server.invalid_fields` / `whitespace` 拒绝。正常值中的空格、空值复用及临时凭证不写回语义保持。

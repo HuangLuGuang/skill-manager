@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any, Optional, Literal
 
 from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
+from pydantic_core import PydanticCustomError
 from .client_assets import ClientAssetInventory
 from .aidr_skill_contract import SkillObservationReceipt
 
@@ -776,6 +777,14 @@ class McpUpstreamDebugRequest(BaseModel):
         # 可选连接字段为null时沿用已保存配置。
         if value is None and info.field_name in {"endpoint", "authorization_header", "authorization_value"}:
             return value
+        # 纯空白是非法临时凭证，保留真正留空时的既有语义。
+        if (
+            info.field_name == "authorization_value"
+            and isinstance(value, str) and value and not value.strip()
+        ):
+            raise PydanticCustomError("mcp_field", "Invalid MCP field", {
+                "field": "authorization_value", "reason": "whitespace",
+            })
         return validate_field(info.field_name, value)
 
     server_id: Optional[int] = None

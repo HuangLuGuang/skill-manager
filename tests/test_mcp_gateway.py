@@ -1119,6 +1119,70 @@ def test_mcp_limits_boundaries_and_partial_update_compatibility(tmp_path, monkey
     assert {item["field"] for item in invalid["error_params"]["errors"]} == {"name", "slug", "endpoint"}
 
 
+@pytest.mark.parametrize("locale", ["zh-CN", "en-US"])
+@pytest.mark.parametrize("value", [" ", "   ", "\t", "\r\n", "\u3000"])
+def test_mcp_debug_rejects_whitespace_credentials(tmp_path, monkeypatch, locale, value):
+    client, sessions = _client(tmp_path, monkeypatch)
+    saved = client.post("/api/v1/mcp/servers", json={
+        "name": "Debug", "slug": "debug-auth", "endpoint": "https://mcp.example.com/mcp",
+        "authorization_value": "Bearer saved-test-token",
+    }).json()
+
+    async def unexpected_call(*args, **kwargs):
+        pytest.fail("纯空白鉴权值不得发送上游请求")
+
+    monkeypatch.setattr(mcp_gateway, "_call_upstream", unexpected_call)
+    response = client.post(
+        "/api/v1/mcp/debug/upstream", headers={"Accept-Language": locale},
+        json={"server_id": saved["id"], "authorization_value": value, "method": "tools/list"},
+    )
+    assert response.status_code == 422
+    data = response.json()
+    assert data["error_code"] == "mcp.server.invalid_fields"
+    assert data["error_params"]["errors"] == [
+        {"field": "authorization_value", "reason": "whitespace"},
+    ]
+    expected = "不能仅包含空白字符" if locale == "zh-CN" else "must not contain only whitespace"
+    assert expected in data["detail"]
+    assert "saved-test-token" not in response.text
+    with sessions() as db:
+        stored = db.get(models.McpServer, saved["id"])
+        assert mcp_gateway._unprotect_secret(stored.authorization_value) == "Bearer saved-test-token"
+
+
+@pytest.mark.parametrize("credentials, expected", [
+    ({}, "Bearer saved-test-token"),
+    ({"authorization_value": None}, "Bearer saved-test-token"),
+    ({"authorization_value": ""}, None),
+    ({"authorization_value": "Bearer temporary-test-token"}, "Bearer temporary-test-token"),
+    ({"authorization_value": "Custom token with spaces"}, "Custom token with spaces"),
+])
+def test_mcp_debug_preserves_valid_credential_semantics(
+    tmp_path, monkeypatch, credentials, expected,
+):
+    client, sessions = _client(tmp_path, monkeypatch)
+    saved = client.post("/api/v1/mcp/servers", json={
+        "name": "Debug", "slug": "debug-auth", "endpoint": "https://mcp.example.com/mcp",
+        "authorization_value": "Bearer saved-test-token",
+    }).json()
+    calls = []
+
+    async def capture_call(server, method, params):
+        calls.append(mcp_gateway._unprotect_secret(server.authorization_value))
+        return {"jsonrpc": "2.0", "id": "debug", "result": {"tools": []}}
+
+    monkeypatch.setattr(mcp_gateway, "_call_upstream", capture_call)
+    response = client.post("/api/v1/mcp/debug/upstream", json={
+        "server_id": saved["id"], "method": "tools/list", **credentials,
+    })
+    assert response.status_code == 200
+    assert calls == [expected]
+    # 临时鉴权值仅用于本次调试，不覆盖服务配置。
+    with sessions() as db:
+        stored = db.get(models.McpServer, saved["id"])
+        assert mcp_gateway._unprotect_secret(stored.authorization_value) == "Bearer saved-test-token"
+
+
 def test_mcp_preview_field_validation_and_other_api_errors_unchanged(tmp_path, monkeypatch):
     client, _ = _client(tmp_path, monkeypatch)
     response = client.post("/api/v1/mcp/debug/upstream", json={
