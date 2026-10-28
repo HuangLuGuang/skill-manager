@@ -198,8 +198,9 @@
       <a-collapse v-else>
         <a-collapse-panel v-for="item in history" :key="item.key">
           <template #header>
-            <a-space wrap><a-tag :color="item.ok ? 'green' : 'red'">{{ item.ok ? $t('legacy.1rraohc') : $t('legacy.12db3qz') }}</a-tag><span>{{ item.method }}</span><span class="muted">{{ formatDebugDuration(item.duration, t) }} · {{ item.time }}</span></a-space>
+            <a-space wrap><a-tag :color="item.pendingApproval ? 'orange' : item.ok ? 'green' : 'red'">{{ item.pendingApproval ? t('mcpDebug.pendingApproval') : item.ok ? $t('legacy.1rraohc') : $t('legacy.12db3qz') }}</a-tag><span>{{ item.method }}</span><span class="muted">{{ formatDebugDuration(item.duration, t) }} · {{ item.time }}</span></a-space>
           </template>
+          <a-alert v-if="item.pendingApproval" type="warning" show-icon :message="t('mcpDebug.pendingApprovalHint')" style="margin-bottom: 16px" />
           <div class="history-endpoint"><strong>Endpoint</strong><span>{{ item.endpoint }}</span></div>
           <a-row :gutter="[16, 16]">
             <a-col :xs="24" :lg="12"><div class="json-title">{{ t('mcpDebug.request') }}</div><pre>{{ item.request ? pretty(item.request) : t('mcpDebug.requestNotRecorded') }}</pre></a-col>
@@ -225,7 +226,7 @@ import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { debugMcpUpstream, listMcpGateways, listMcpServers } from '../api'
 import { copyText, promptManualCopy } from '../utils/clipboard'
 import { validateServiceEndpoint } from '../utils/serviceEndpoint'
-import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, maskDebugRequest, validConnectionTimeout } from '../utils/mcpDebug'
+import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, isPendingDebugApproval, maskDebugRequest, validConnectionTimeout } from '../utils/mcpDebug'
 
 const { t } = useI18n()
 const targetMode = ref('service')
@@ -418,9 +419,11 @@ const gatewayRequest = async (method, params = {}, notification = false, attempt
     if (responseData?.error) {
       const { message, data } = responseData.error
       // 按稳定编码显示当前语言，历史中的原始响应保持不变。
-      throw new Error(localizeApiError({
+      const error = new Error(localizeApiError({
         code: data?.error_code, params: data?.error_params, message,
       }, getCurrentLocale()))
+      error.pendingApproval = isPendingDebugApproval(method, responseData)
+      throw error
     }
     ok = true
     return responseData
@@ -437,17 +440,18 @@ const gatewayRequest = async (method, params = {}, notification = false, attempt
     }
     throw new Error(localizeDebugResponse(responseData, t).detail)
   } finally {
-    addHistory(method, historyRequest, responseData, ok, Math.round(performance.now() - started), endpoint)
+    addHistory(method, historyRequest, responseData, ok, Math.round(performance.now() - started), endpoint, isPendingDebugApproval(method, responseData))
   }
 }
 
-const addHistory = (method, request, response, ok, duration, endpoint) => history.value.unshift({
+const addHistory = (method, request, response, ok, duration, endpoint, pendingApproval = false) => history.value.unshift({
   key: ++historySequence,
   endpoint,
   method,
   request,
   response,
   ok,
+  pendingApproval,
   duration,
   time: new Date().toLocaleTimeString(),
 })
@@ -575,7 +579,8 @@ const callTool = async () => {
     callResult.value = await request('tools/call', { name: selectedTool.value.name, arguments: args })
     message.success(phrase('legacy.bjv336'))
   } catch (error) {
-    message.error(error.response?.data?.detail || error.message || phrase('legacy.1jj1f5k'))
+    if (error.pendingApproval) message.warning(t('mcpDebug.pendingApprovalHint'))
+    else message.error(error.response?.data?.detail || error.message || phrase('legacy.1jj1f5k'))
   } finally {
     calling.value = false
   }

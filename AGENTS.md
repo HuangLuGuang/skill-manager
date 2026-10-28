@@ -319,3 +319,5 @@ make sandbox-runtime-build
 - MCP 调试历史的直连请求在 `_post_upstream` 实际发送边界记录到本次临时实例，复用审批敏感字段脱敏；成功以 `request`、异常以 `error_params.debug_request` 返回。页面独立展示当次 Endpoint，请求 id 取自发送记录；初始化失败按真实方法展示，缺请求显示 `mcpDebug.requestNotRecorded`。平台网关仅脱敏历史副本，原参数继续发送；后端回归 `test_debug_history_uses_sent_request`，展示数据转换回归 `tests/mcp_debug_requests.test.mjs`。
 
 - MCP Tool 策略弹窗通过 `toolApprovalRequired` 共用高风险或破坏性的强制条件，`toolApprovalChecked` 统一选中态与保存值；强制时显示开启并禁用，解除强制后保留普通审批草稿。复用现有双语提示及后端规则，接口组合回归见 `test_tool_policy_approval_matches_effective_conditions`；UI按场景人工验收。
+
+- MCP 调试平台网关 Tool 历史通过 `isPendingDebugApproval` 按 `approval_required=true` 与 `status=pending` 识别待审批；历史与本次提示复用 `mcpDebug.pendingApproval` / `pendingApprovalHint`。本次请求已结束，审批后需再次调用；历史保留当次状态及原始响应。直连沿用既有状态逻辑；分类纯数据回归见 `tests/mcp_debug_requests.test.mjs`。

@@ -44,3 +44,8 @@ export const maskDebugRequest = (value, key = '') => {
   )
   return value
 }
+
+// 待审批是本次已结束调用的响应状态，后续执行需重新发起请求。
+export const isPendingDebugApproval = (method, response) => method === 'tools/call'
+  && response?.error?.data?.approval_required === true
+  && response.error.data.status === 'pending'
