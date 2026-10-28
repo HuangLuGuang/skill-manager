@@ -40,7 +40,7 @@
             <a-select-option v-for="gateway in gateways" :key="gateway.slug" :value="gateway.slug">{{ gateway.name }}</a-select-option>
           </a-select>
           <a-input v-model:value="filters.tool_name" allow-clear :placeholder="t('mcpApproval.tool')" class="filter-control" @pressEnter="applyFilters" />
-          <a-input v-model:value="filters.token_name" allow-clear :placeholder="t('mcpApproval.credential')" class="filter-control" @pressEnter="applyFilters" />
+          <a-input v-model:value="filters.token_name" allow-clear :placeholder="t('mcpApproval.credentialName')" class="filter-control" @pressEnter="applyFilters" />
           <a-tooltip :title="t('mcpApproval.timeHelp')">
             <a-range-picker v-model:value="filters.timeRange" show-time class="date-filter" :placeholder="[t('mcpApproval.requestedFrom'), t('mcpApproval.requestedTo')]" @change="applyFilters" />
           </a-tooltip>
