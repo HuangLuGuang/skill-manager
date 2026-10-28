@@ -14,6 +14,9 @@
           <a-switch v-else v-model:checked="enabled" :aria-label="tr('detectionEnabled')" :disabled="busy || !editable" />
         </a-form-item>
         <a-form-item :label="tr('defaultAction')"><a-select v-model:value="defaultAction" :aria-label="tr('defaultAction')" :options="actionOptions.filter(x => x.value !== 'none')" :disabled="busy || !editable || source === 'inherit' || source === 'mixed' && view.control.inherit" /></a-form-item>
+        <a-form-item :label="t('aidr.hooks.wait.label')" :validate-status="waitInvalid ? 'error' : ''" :help="waitInvalid ? t('aidr.hooks.wait.invalid') : t('aidr.hooks.wait.help')">
+          <a-input-number v-model:value="approvalWait" :step="1" :aria-label="t('aidr.hooks.wait.label')" :disabled="busy || !editable || source === 'inherit' || source === 'mixed' && view.control.inherit" />
+        </a-form-item>
       </a-form>
       <a-button v-if="clientId && source !== 'custom'" type="link" @click="emit('global')">{{ tr('viewGlobal') }}</a-button>
       <a-tabs v-model:active-key="tab">
@@ -112,7 +115,8 @@ const props = defineProps({ clientId: { type: String, default: '' } })
 const emit = defineEmits(['saved', 'global'])
 const { t, locale } = useI18n(), tr = (key, params) => t(`securityRules.${key}`, params || {})
 const clone = value => JSON.parse(JSON.stringify(value))
-const view = ref(null), rules = ref([]), paths = ref([]), source = ref('custom'), enabled = ref(true), enabledMode = ref('inherit'), defaultAction = ref('allow')
+const view = ref(null), rules = ref([]), paths = ref([]), source = ref('custom'), enabled = ref(true), enabledMode = ref('inherit'), defaultAction = ref('allow'), approvalWait = ref(180)
+const waitInvalid = computed(() => !Number.isInteger(approvalWait.value) || approvalWait.value < 30 || approvalWait.value > 300)
 const loading = ref(false), saving = ref(false), error = ref(null), baseline = ref(''), tab = ref('rules'), search = ref(''), query = ref(''), filter = ref('all')
 const ruleOpen = ref(false), draft = ref(null), draftError = ref(''), editingId = ref(''), argumentText = ref({})
 const pathOpen = ref(false), pathDraft = ref({}), pathText = ref(''), pathError = ref('')
@@ -192,23 +196,25 @@ function applyRule() {
 function editPath(row) { pathDraft.value = clone(row || { id: `paths_${crypto.randomUUID().replaceAll('-','')}`, name: '', paths: [], builtin_ids: [], source: props.clientId ? 'client' : 'global' }); pathText.value = pathDraft.value.paths.join('\n'); pathError.value = ''; pathOpen.value = true }
 function applyPath() { if (locked.value) return; if (!pathDraft.value.name.trim()) { pathError.value = 'required'; return }; const row = { ...clone(pathDraft.value), paths: pathText.value.split('\n').filter(Boolean) }; paths.value = paths.value.some(p => p.id === row.id) ? paths.value.map(p => p.id === row.id ? row : p) : [...paths.value, row]; pathOpen.value = false }
 const document = () => ({ rules: clone(rules.value), path_sets: clone(paths.value) })
-function snapshot() { return { document: document(), source: source.value, enabled: enabled.value, enabled_mode: enabledMode.value, default_action: defaultAction.value } }
+function snapshot() { return { document: document(), source: source.value, enabled: enabled.value, enabled_mode: enabledMode.value, default_action: defaultAction.value, approval_wait_seconds: approvalWait.value } }
 function accept(value) {
   view.value = clone(value); rules.value = clone(value.rules); paths.value = clone(value.path_sets); enabled.value = value.detection?.enabled ?? true; enabledMode.value = value.detection?.enabled_mode || 'inherit'
   source.value = !props.clientId ? 'custom' : (value.detection?.rules_mode === 'inherit') === value.control.inherit ? value.control.inherit ? 'inherit' : 'custom' : 'mixed'
   defaultAction.value = (props.clientId && value.control.inherit ? value.control.global_policy : value.control.policy)?.default_action || 'allow'
+  approvalWait.value = (props.clientId && value.control.inherit ? value.control.global_policy : value.control.policy)?.approval_wait_seconds ?? 180
   baseline.value = JSON.stringify(snapshot()); customDraft = null
 }
 async function changeSource(value) {
   if (busy.value) return
-  if (value === 'custom') { if (customDraft) { rules.value = customDraft.rules; paths.value = customDraft.path_sets; defaultAction.value = customDraft.default_action }; rules.value.forEach(r => r.source = 'client'); paths.value.forEach(p => p.source = 'client'); source.value = value; return }
-  if (value === 'mixed') { rules.value = clone(view.value.rules); paths.value = clone(view.value.path_sets); source.value = value; return }
-  const epoch = generation; customDraft = { ...document(), default_action: defaultAction.value }; loading.value = true; error.value = null
-  try { const global = await getSecurityRules(''); if (epoch !== generation) return; rules.value = global.rules; paths.value = global.path_sets; defaultAction.value = global.control.policy?.default_action || 'allow'; source.value = value }
+  if (value === 'custom') { if (customDraft) { rules.value = customDraft.rules; paths.value = customDraft.path_sets; defaultAction.value = customDraft.default_action; approvalWait.value = customDraft.approval_wait_seconds }; rules.value.forEach(r => r.source = 'client'); paths.value.forEach(p => p.source = 'client'); source.value = value; return }
+  if (value === 'mixed') { rules.value = clone(view.value.rules); paths.value = clone(view.value.path_sets); approvalWait.value = (view.value.control.inherit ? view.value.control.global_policy : view.value.control.policy)?.approval_wait_seconds ?? 180; source.value = value; return }
+  const epoch = generation; customDraft = { ...document(), default_action: defaultAction.value, approval_wait_seconds: approvalWait.value }; loading.value = true; error.value = null
+  try { const global = await getSecurityRules(''); if (epoch !== generation) return; rules.value = global.rules; paths.value = global.path_sets; defaultAction.value = global.control.policy?.default_action || 'allow'; approvalWait.value = global.control.policy?.approval_wait_seconds ?? 180; source.value = value }
   catch (cause) { if (epoch === generation) error.value = cause }
   finally { if (epoch === generation) loading.value = false }
 }
-const canSave = computed(() => !!view.value && editable.value && !busy.value && baseline.value !== JSON.stringify(snapshot()))
+const needsWaitUpgrade = computed(() => source.value === 'custom' && view.value?.control.policy?.approval_wait_seconds == null)
+const canSave = computed(() => !!view.value && editable.value && !busy.value && !waitInvalid.value && (needsWaitUpgrade.value || baseline.value !== JSON.stringify(snapshot())))
 const errorText = value => localizeApiError({ code: value?.apiErrorCode, params: value?.apiErrorParams, message: value?.response?.data?.detail || t('aidrRisk.readFailed') }, locale.value)
 async function load() { const epoch = ++generation; loading.value = true; error.value = null; try { const result = await getSecurityRules(props.clientId); if (epoch === generation) accept(result) } catch (cause) { if (epoch === generation) error.value = cause } finally { if (epoch === generation) loading.value = false } }
 async function save() {

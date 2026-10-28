@@ -93,6 +93,12 @@ func (watcher *SkillWatcher) Refresh(home string, store *Store) error {
 		return err
 	}
 	roots := managedSkillsRoots(home)
+	collector := &assetCollector{result: &AssetInventory{}}
+	for _, kind := range []string{"trae", "trae-cn"} {
+		for _, project := range collector.traeProjects(home, kind) {
+			roots = append(roots, filepath.Join(project, ".trae/skills"))
+		}
+	}
 	for _, spec := range adaptersForHome(home) {
 		skillRoots := spec.skillRoots
 		if configured := config.AgentSkillRoots[spec.agentType]; len(configured) > 0 {

@@ -53,6 +53,8 @@ var hookAdapters map[string]hookAdapter
 
 func init() {
 	hookAdapters = map[string]hookAdapter{
+		"trae":        traeHookAdapter(".trae"),
+		"trae-cn":     traeHookAdapter(".trae-cn"),
 		"claude":      claudeHookAdapter(),
 		"teleagent":   teleAgentHookAdapter(),
 		"codex":       codexHookAdapter(),

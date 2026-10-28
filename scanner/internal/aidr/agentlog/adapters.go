@@ -35,6 +35,8 @@ var logAdapters map[string]logAdapter
 
 func init() {
 	logAdapters = map[string]logAdapter{
+		"trae":       traeLogAdapter(),
+		"trae-cn":    traeLogAdapter(),
 		"claude":     claudeLogAdapter(),
 		"codex":      codexLogAdapter(),
 		"workbuddy":  workbuddyLogAdapter(),

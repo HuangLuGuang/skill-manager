@@ -26,22 +26,23 @@ import (
 // supplies single-writer locking and immutable destination binding; P1 log data
 // and P2 runtime queues are not migrated or rewritten.
 type Store struct {
-	directory         string
-	guard             *localstore.Store
-	db                *sql.DB
-	mu                sync.Mutex
-	key               []byte
-	stream, device    string
-	platform          string
-	instance          string
-	controlKey        []byte
-	controlMode       string
-	bridgeIntercept   atomic.Bool
-	controlPolicy     *ToolPolicy
-	controlPayload    []byte
-	policy            agentlog.AuditPolicy
-	capacity          int
-	runtimeCollection *runtimeCollection
+	directory                 string
+	guard                     *localstore.Store
+	db                        *sql.DB
+	mu                        sync.Mutex
+	key                       []byte
+	stream, device            string
+	platform                  string
+	instance                  string
+	controlKey                []byte
+	controlMode               string
+	bridgeIntercept           atomic.Bool
+	controlPolicy             *ToolPolicy
+	compatiblePolicyRevisions map[string]bool
+	controlPayload            []byte
+	policy                    agentlog.AuditPolicy
+	capacity                  int
+	runtimeCollection         *runtimeCollection
 }
 
 type Record struct {

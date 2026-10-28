@@ -15,7 +15,7 @@ PATTERNS = [
  r'''\?[^\s"']+''',
 ]
 CATEGORIES = {'Bash':'command','exec_command':'command','shell_command':'command','Read':'file_read','read_file':'file_read','Write':'file_write','write_file':'file_write','Edit':'file_edit','MultiEdit':'file_edit','edit_file':'file_edit','rename_file':'file_rename','move_file':'file_rename','WebFetch':'network_request','fetch':'network_request','apply_patch':'patch'}
-CATEGORIES.update({'bash': 'command', 'Shell': 'command', 'PowerShell': 'command', 'read': 'file_read', 'write': 'file_write', 'edit': 'file_edit', 'webfetch': 'network_request'})
+CATEGORIES.update({'bash': 'command', 'Shell': 'command', 'PowerShell': 'command', 'RunCommand': 'command', 'read': 'file_read', 'write': 'file_write', 'edit': 'file_edit', 'webfetch': 'network_request'})
 Category = Literal['unknown','command','file_read','file_write','file_edit','file_rename','network_request','patch','wrapper']
 Status = Literal['unknown','reported_complete','reported_error','reported_success','reported_cancelled']
 

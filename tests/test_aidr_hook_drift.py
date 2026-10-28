@@ -1,5 +1,5 @@
 from backend.aidr_hook_drift import compare
-from tests.test_aidr_enforcement import control
+from tests.test_aidr_hook_control import base_control, control
 from tests.test_aidr_api import service
 
 

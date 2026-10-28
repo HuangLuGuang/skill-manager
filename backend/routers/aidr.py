@@ -1182,7 +1182,7 @@ def save_security_document(client_id, body, response, db, user):
         view = security_configuration(client_id, response, db, user)
         if view['detection'] is None:
             iam.check(db, user, 'settings:view')
-        if set(body) != {'document', 'expected', 'source', 'enabled_mode', 'enabled', 'default_action'}:
+        if set(body) - {'approval_wait_seconds'} != {'document', 'expected', 'source', 'enabled_mode', 'enabled', 'default_action'}:
             security_rules.invalid()
         if body['expected'] != security_versions(view):
             raise ApiError(409, 'aidr.security.config_conflict', '安全规则已更新，请重新读取后保存', 'Security rules changed; reload before saving')
@@ -1219,9 +1219,14 @@ def save_security_document(client_id, body, response, db, user):
             persist_risk_configuration(client_id, detection, db, user)
         else:
             persist_global_risk_configuration(detection, db, user)
-        policy = {'default_action': body['default_action'], 'rules': compiled}
+        wait = body.get('approval_wait_seconds', security_rules.editor_policy(c, bool(client_id))['approval_wait_seconds'])
+        policy = {'default_action': body['default_action'], 'approval_wait_seconds': wait, 'rules': compiled}
         control_body = {**policy, 'expected_revision': c['revision']}
-        changed = security_rules.digest(policy) != security_rules.digest(security_rules.editor_policy(c, bool(client_id))) or client_id and inherit != c['inherit']
+        hook_control.ToolPolicyInput.model_validate(control_body)
+        previous_policy = security_rules.editor_policy(c, bool(client_id))
+        stored_policy = (c.get('global_policy') if client_id and c['inherit'] else c.get('policy')) or {}
+        upgrade_wait = 'approval_wait_seconds' in body and 'approval_wait_seconds' not in stored_policy
+        changed = upgrade_wait or wait != previous_policy['approval_wait_seconds'] or security_rules.digest(policy) != security_rules.digest(previous_policy) or client_id and inherit != c['inherit']
         if changed:
             if client_id:
                 control_body.update(inherit=inherit, expected_scope_revision=c['scope_revision'], expected_global_revision=c['global_revision'])

@@ -507,5 +507,100 @@ window.aidrProducts = [
       "new_call_e2e": "unverified"
     },
     "enrollment_log_source": "doubaowork"
+  },
+  {
+    "id": "trae",
+    "name": "TRAE",
+    "entry": "desktop",
+    "os": [
+      "darwin"
+    ],
+    "logs": "trae-hook-log",
+    "roots": [
+      "Library/Application Support/Trae/logs"
+    ],
+    "hooks": "trae-settings",
+    "hook_setup": {
+      "host_authorization": true,
+      "host_enablement": true
+    },
+    "block": true,
+    "approval": true,
+    "evidence": "local-source-and-hook-sample",
+    "docs": [
+      "https://docs.trae.cn/ide_hook-configuration-reference"
+    ],
+    "hook_events": {
+      "SessionStart": "session.start",
+      "UserPromptSubmit": "turn.submit",
+      "PreToolUse": "tool.pre",
+      "PostToolUse": "tool.post",
+      "Stop": "turn.stop",
+      "Notification": "notification"
+    },
+    "managed": false,
+    "sample_versions": [
+      "3.6.4"
+    ],
+    "log_os": [
+      "darwin"
+    ],
+    "hook_os": [
+      "darwin"
+    ],
+    "skill_usage": {
+      "invocation": true,
+      "file_access": true,
+      "result_source": "result.metadata",
+      "new_call_e2e": "host-hook-and-log"
+    }
+  },
+  {
+    "id": "trae-cn",
+    "name": "TRAE CN",
+    "entry": "desktop",
+    "os": [
+      "darwin"
+    ],
+    "logs": "trae-hook-log",
+    "roots": [
+      "Library/Application Support/Trae CN/logs"
+    ],
+    "hooks": "trae-settings",
+    "hook_setup": {
+      "host_authorization": true,
+      "host_enablement": true
+    },
+    "block": true,
+    "approval": true,
+    "evidence": "local-source-and-hook-sample",
+    "docs": [
+      "https://docs.trae.cn/ide_hook-configuration-reference"
+    ],
+    "hook_events": {
+      "SessionStart": "session.start",
+      "UserPromptSubmit": "turn.submit",
+      "PreToolUse": "tool.pre",
+      "PostToolUse": "tool.post",
+      "Stop": "turn.stop",
+      "Notification": "notification"
+    },
+    "managed": false,
+    "sample_versions": [
+      "3.3.99",
+      "3.4.9"
+    ],
+    "log_os": [
+      "darwin"
+    ],
+    "hook_os": [
+      "darwin"
+    ],
+    "skill_usage": {
+      "invocation": true,
+      "file_access": true,
+      "result_source": "result.metadata",
+      "new_call_e2e": "unverified"
+    }
   }
 ];

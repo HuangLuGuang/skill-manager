@@ -22,12 +22,13 @@ def invalid():
 
 def digest(policy):
     policy = policy or {'default_action': 'allow', 'rules': []}
+    policy = {key: value for key, value in policy.items() if key != 'approval_wait_seconds'}
     return hashlib.sha256(json.dumps({**policy, 'rules': sorted(policy['rules'], key=lambda r: r['id'])}, sort_keys=True).encode()).hexdigest()
 
 
 def editor_policy(control, client):
     value = (control.get('global_policy') if client and control['inherit'] else control.get('policy')) or {}
-    return {key: value.get(key, default) for key, default in [('default_action', 'allow'), ('rules', [])]}
+    return {key: value.get(key, default) for key, default in [('default_action', 'allow'), ('approval_wait_seconds', 180), ('rules', [])]}
 
 
 def document_view(db, detection, control, client_id):

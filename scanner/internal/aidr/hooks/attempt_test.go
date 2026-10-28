@@ -14,7 +14,7 @@ import (
 )
 
 func TestApprovalAttemptIdentitySingleDeliveryAndLifecycle(t *testing.T) {
-	for _, agent := range []string{"codex", "workbuddy"} {
+	for _, agent := range []string{"codex", "workbuddy", "trae", "trae-cn"} {
 		t.Run(agent, func(t *testing.T) { testApprovalAttemptLifecycle(t, agent) })
 	}
 }
@@ -35,7 +35,11 @@ func testApprovalAttemptLifecycle(t *testing.T, agent string) {
 	}
 	var records []Record
 	for i := 1; i <= 5; i++ {
-		r, err := s.Receive(ctx, testID(i), "501", agent, "PreToolUse", []byte(storeInput))
+		raw := []byte(storeInput)
+		if agent == "trae" || agent == "trae-cn" {
+			raw = []byte(`{"hook_event_name":"PreToolUse","session_id":"session","agent_id":"solo_agent","tool_use_id":"native-call","tool_name":"RunCommand","tool_input":{"command":"printf approved"}}`)
+		}
+		r, err := s.Receive(ctx, testID(i), "501", agent, "PreToolUse", raw)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -110,6 +114,7 @@ func testApprovalAttemptLifecycle(t *testing.T, agent string) {
 		t.Fatal(d, err)
 	}
 	p.Revision = "2"
+	p.Default = "deny"
 	if err = s.ApplyToolPolicy(ctx, signGrant(t, key, p), now); err != nil {
 		t.Fatal(err)
 	}

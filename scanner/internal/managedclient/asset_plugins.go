@@ -9,6 +9,7 @@ import (
 )
 
 var pluginManifests = []struct{ path, format string }{
+	{".trae-plugin/plugin.json", "trae"},
 	{"plugin.json", "agent_plugins"}, {".codex-plugin/plugin.json", "codex"},
 	{".claude-plugin/plugin.json", "claude"}, {".cursor-plugin/plugin.json", "cursor"},
 	{".qoder-plugin/plugin.json", "qoder"}, {".codebuddy-plugin/plugin.json", "codebuddy"},

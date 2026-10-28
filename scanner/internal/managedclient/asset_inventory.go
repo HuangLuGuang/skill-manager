@@ -291,6 +291,10 @@ func discoverAssets(home, kind string, skillRoots []string) *AssetInventory {
 	result := &AssetInventory{Version: 1, ObservedAt: time.Now().UTC().Format(time.RFC3339), MCPServers: []MCPAsset{}, Plugins: []PluginAsset{}, Issues: []AssetIssue{}}
 	c := &assetCollector{result: result, seenMCP: map[string]bool{}, seenPlugin: map[string]int{}}
 	defer c.boundWireValues()
+	if kind == "trae" || kind == "trae-cn" {
+		c.discoverTrae(home, kind, skillRoots)
+		return result
+	}
 	rootName := map[string]string{"claude-code": ".claude", "codex": ".codex", "cursor": ".cursor", "gemini": ".gemini", "qoder": ".qoder", "qoder-cn": ".qoder-cn", "codebuddy": ".codebuddy", "workbuddy": ".workbuddy", "openclaw": ".openclaw", "opencode": ".config/opencode"}[kind]
 	if kind == "claude-desktop" {
 		result.MCPSupported = true

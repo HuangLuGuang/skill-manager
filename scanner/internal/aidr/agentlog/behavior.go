@@ -138,7 +138,7 @@ func rawObject(raw json.RawMessage) map[string]json.RawMessage {
 func rawString(raw json.RawMessage) string { var s string; _ = json.Unmarshal(raw, &s); return s }
 func category(tool string) string {
 	switch tool {
-	case "Bash", "bash", "Shell", "PowerShell", "exec_command", "shell_command":
+	case "Bash", "bash", "Shell", "PowerShell", "RunCommand", "exec_command", "shell_command":
 		return "command"
 	case "Read", "read", "read_file":
 		return "file_read"

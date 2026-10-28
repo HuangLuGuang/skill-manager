@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives import serialization
 import uvicorn
 
 from tests.test_aidr_api import service
-from tests.test_aidr_enforcement import control
+from tests.test_aidr_hook_control import base_control, control
 
 
 def test_owned_bridge_waits_for_exact_signed_approval(control, tmp_path):

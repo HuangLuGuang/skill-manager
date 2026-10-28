@@ -12,7 +12,7 @@ import (
 )
 
 func TestSettingsMergeRepeatRemove(t *testing.T) {
-	for _, agent := range []string{"cursor", "qoder-hooks", "qoder-work", "workbuddy"} {
+	for _, agent := range []string{"cursor", "qoder-hooks", "qoder-work", "workbuddy", "trae", "trae-cn"} {
 		t.Run(agent, func(t *testing.T) {
 			product, _ := products.Get(agent)
 			if !products.SupportedHookOS(product) {
@@ -30,6 +30,19 @@ func TestSettingsMergeRepeatRemove(t *testing.T) {
 				status, err := MergeSettingsHooks(agent, home, "/safe/client", "/safe/bridge.json", false)
 				if err != nil || status.Installed == nil || !*status.Installed || status.Enabled != nil {
 					t.Fatal(status, err)
+				}
+			}
+			if product.Approval {
+				data, _ := os.ReadFile(path)
+				data = bytes.ReplaceAll(data, []byte(`"timeout": 315`), []byte(`"timeout": 60`))
+				os.WriteFile(path, data, 0600)
+				status, err := InspectSettingsHooks(agent, home, "/safe/client", "/safe/bridge.json")
+				if err != nil || status.PluginVersion == BundledPluginVersion {
+					t.Fatal("legacy timeout not detected", status, err)
+				}
+				status, err = MergeSettingsHooks(agent, home, "/safe/client", "/safe/bridge.json", false)
+				if err != nil || status.PluginVersion != BundledPluginVersion {
+					t.Fatal("legacy timeout not upgraded", status, err)
 				}
 			}
 			status, err := MergeSettingsHooks(agent, home, "/safe/client", "/safe/bridge.json", true)

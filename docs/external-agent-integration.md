@@ -1302,7 +1302,8 @@ Local verification on 2026-10-08: real Codex tool Hook record #13229 retained th
 | Cursor IDE / 本地 Agents | [官方 Hooks](https://cursor.com/docs/hooks) | 未接入，不读取内部会话数据库 | `~/.cursor/hooks.json` version 1；7 类通用事件；`permission: allow/deny`；不提供审批 | 本机 3.12.30 本地 Agents 的真实提交、工具成功、工具失败及轮次结束已入库并在平台查看；SessionEnd 尚未实测。CLI、Cloud、Windows 未完成实机验收 |
 | OpenCode CLI（仅兼容旧接入） | 本机 1.1.51 存储样本、[插件接口](https://opencode.ai/docs/plugins/) | `~/.local/share/opencode/storage/part` 完整 JSON 快照，以原生 message/session ID 读取元数据 | 官方有插件接口，当前尚未接入 | 真实历史快照解析通过；不宣称支持新版 SQLite 存储或流式插件。等待 assistant message 完成后采集文本 |
 | OpenClaw Gateway | [内部 Hooks](https://docs.openclaw.ai/automation/hooks)、[插件 Hooks](https://docs.openclaw.ai/plugins/hooks) | 未接入 | 能力已文档核对，未实现适配 | 本机未发现环境。内部事件与工具插件钩子是不同接口，需要目标版本原生样本与实机验证 |
-| TraeWork | [产品入口](https://www.trae.ai/work) | 未接入 | 未取得足够的公开契约或本机样本 | 已安装 Trae / Trae CN IDE 不证明 TraeWork 具备行为审计接口 |
+| TRAE / TRAE CN macOS | [原生 Hook 协议](https://docs.trae.cn/ide_hook-configuration-reference)、本机 3.6.4 测试日志 | 原生 `agent-hooks.log`；提交、最终回复、工具输入/结果、Skill 名称和目录；依赖 Hook 日志生成 | 用户目录 `.trae/hooks.json` / `.trae-cn/hooks.json`；6 类事件；原生 deny/ask 响应，复用平台决策流程 | TRAE 3.6.4、CN 3.4.9 真实日志、签名策略阻断及180秒审批通过；超过60秒批准/拒绝和自然超时已实测。空 PostToolUse 不等于成功；复杂 shell 命令条件可能 unresolved，继续其他规则/默认决策 |
+| 旧独立 TraeWork | [融合说明](https://docs.trae.cn/ide_traework-to-traecode-data-migration) | 待验证 | 待验证 | 新 TRAE 的 IDE/Agent 窗口实测不能外推到旧独立版本；库存和治理入口保持区分 |
 
 OpenCode 当前不作为新增采集入口展示。官方插件支持工具前后、消息和会话事件，但本项目尚无对应 Hook 适配；现有日志解析仅有 1.1.51 JSON 快照依据。目录中的 `collection_visible: false` 只控制采集入口展示，不移除产品 ID、旧策略、解析器、队列或历史事件。已配置来源继续报告实际状态；新接入需另行完成目标版本适配和真实链路验收。
 
@@ -1482,6 +1483,8 @@ macOS 飞书内豆包工作的本地电脑模式也复用 `doubaowork` 来源：
 
 ### WorkBuddy 平台人工审批 / Platform approval
 
-升级到包含 WorkBuddy 审批能力的客户端后，在安全规则中选择 WorkBuddy 并设置执行前动作为“需要审批”。执行前 Hook 使用现有平台审批与签名授权链路；本地等待约 45 秒，批准后仅恢复本次调用，拒绝或超时则停止。每次新调用需要独立审批，已消费的授权不可复用。平台收到客户端超时回执后，列表与详情统一显示“审批已超时”，不再提供批准、拒绝或撤销操作；审批接口拒绝后续变更。历史平台决定保留，已存在的超时回执也适用。
+升级到包含 WorkBuddy 审批能力的客户端后，在安全规则中选择 WorkBuddy 并设置执行前动作为“需要审批”。执行前 Hook 使用现有平台审批与签名授权链路；按平台配置等待，默认180秒（30–300秒，支持全局继承与客户端覆盖），批准后仅恢复本次调用，拒绝或超时则停止。每次新调用需要独立审批，已消费的授权不可复用。平台收到客户端超时回执后，列表与详情统一显示“审批已超时”，不再提供批准、拒绝或撤销操作；审批接口拒绝后续变更。历史平台决定保留，已存在的超时回执也适用。
 
-After upgrading to a client with WorkBuddy approval support, select WorkBuddy in Security rules and choose Require approval. The pre-tool Hook uses existing platform approvals and signed grants. Local attempts wait about 45 seconds; approval resumes only that attempt, while denial or timeout stops it. Each new call needs its own approval and consumed grants cannot be reused. After receiving a client timeout receipt, both list and detail show Approval timed out and offer no approval, denial or revocation actions. The decision API rejects further changes. Historical platform decisions are retained; existing timeout receipts also apply.
+After upgrading to a client with WorkBuddy approval support, select WorkBuddy in Security rules and choose Require approval. The pre-tool Hook uses existing platform approvals and signed grants. Local attempts default to 180 seconds (30–300 seconds through global policy or client overrides); approval resumes only that attempt, while denial or timeout stops it. Each new call needs its own approval and consumed grants cannot be reused. After receiving a client timeout receipt, both list and detail show Approval timed out and offer no approval, denial or revocation actions. The decision API rejects further changes. Historical platform decisions are retained; existing timeout receipts also apply.
+
+平台人工审批等待配置统一使用 `approval_wait_seconds`，默认180秒，整数范围30–300。接收器报告 `approval_wait_schema=1` 后可接收新版签名策略；申请上报本地持久化的 `expires_at`，平台校验策略预算并保存同一截止时间。CLI等待至该截止时间后5秒以留出拒绝回执预算，审批宿主PreToolUse配置为315秒。等待时长单独变更只影响新申请，规则变更仍使旧申请失效。

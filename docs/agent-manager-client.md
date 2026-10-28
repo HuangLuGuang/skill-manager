@@ -1580,13 +1580,13 @@ Qoder 轮次采集使用原生 request-set ID 与日志 UUID 父子关系；同�
 
 ### Hook 工具规则持续有效 / Persistent Hook tool rules
 
-Hook 工具规则发布后持续有效，管理员更新时以更高版本替换；客户端离线和重启继续使用已验证签名的缓存。仅审计模式不执行这些拦截规则，切换模式不改写规则内容。界面不再提供规则有效期。新发布使用签名协议 `aidr.tool-policy/2`，不含 `expires_at`；新版客户端兼容已有 v1 签名规则，并按持续有效的配置解释，保留原始签名和历史版本。旧管理台的 `lifetime_seconds` 仅作输入兼容，不参与新规则的期限计算。先升级客户端，再发布 v2 规则；旧客户端无法识别 v2，拦截模式需要升级后使用。本机开发组件已构建，既有模式保持仅审计。
+Hook 工具规则发布后持续有效，管理员更新时以更高版本替换；客户端离线和重启继续使用已验证签名的缓存。仅审计模式不执行这些拦截规则，切换模式不改写规则内容。界面不再提供规则有效期。新发布使用签名协议 `aidr.tool-policy/4`，包含 `approval_wait_seconds`，不含策略 `expires_at`；新版客户端兼容已有 v1–v3 签名规则，并按持续有效的配置解释，保留原始签名和历史版本。旧管理台的 `lifetime_seconds` 仅作输入兼容，不参与新规则的期限计算。先升级客户端，再发布 v4 规则；旧客户端无法识别 v4，拦截模式需要升级后使用。
 
-单次人工审批仍绑定具体调用及一次性授权：本地等待 45 秒、平台审批窗口最多 300 秒，拒绝、撤销、策略版本更新和授权消耗继续生效。它不是规则配置的有效期。系统采集仍沿用已有独立签名和设备认证续签链路。
+单次人工审批仍绑定具体调用及一次性授权：平台全局或客户端覆盖配置等待时长，默认180秒、范围30–300秒；平台审批记录与客户端使用同一本次截止时间，拒绝、撤销、策略版本更新和授权消耗继续生效。它不是规则配置的有效期。系统采集仍沿用已有独立签名和设备认证续签链路。
 
-**English:** Published Hook tool rules persist until a higher signed revision replaces them, including offline and restart use. Audit mode does not enforce the rules. New `aidr.tool-policy/2` payloads omit expiry; upgraded collectors accept previously signed v1 rule configurations without changing their original signatures or history. Legacy UI lifetime input is accepted for compatibility but does not give new rules an expiry. Upgrade collectors before publishing v2: old collectors cannot interpret it. Exact-call, single-use approval windows remain bounded (45 seconds locally and at most 300 seconds on the platform). System collection retains its separate signed device renewal mechanism.
+**English:** Published Hook tool rules persist until a higher signed revision replaces them, including offline and restart use. Audit mode does not enforce the rules. New `aidr.tool-policy/4` payloads include `approval_wait_seconds` and omit policy expiry; upgraded collectors accept previously signed v1–v3 rule configurations without changing their original signatures or history. Legacy UI lifetime input is accepted for compatibility but does not give new rules an expiry. Upgrade collectors before publishing v4: old collectors cannot interpret it. Exact-call, single-use approval windows remain bounded (180 seconds by default, configurable from 30 to 300 seconds globally or per client, with the same deadline on the client and platform). System collection retains its separate signed device renewal mechanism.
 
-本次验证：中英文规则页面均无有效期输入，平台与客户端均报告仅审计；隔离后端和 Go 测试覆盖长期规则、旧签名兼容、离线缓存、重启及版本替换。时间推进由测试完成，并未等待实际跨日；新版真实 Agent 拦截审批尚未重新验收。/ Verified in this run: both rule forms omit lifetime and platform/client reports confirm audit mode. Isolated backend and Go tests cover persistent rules, legacy signatures, offline cache, restart and revision replacement. Time advancement is tested, not an actual multi-day run; real-Agent enforcement approval has not been revalidated with the new protocol.
+验证范围：自动化覆盖长期规则、旧签名兼容、离线缓存、重启和版本替换；TRAE / TRAE CN 的真实审批结果见文末180秒验收记录。/ Validation covers persistent rules, legacy signatures, offline caches, restarts and revision replacement. See the 180-second acceptance results below for live TRAE / TRAE CN approval evidence.
 
 人工验收 / Manual checks（不新增 UI 单元测试）：
 - 中英文工具规则编辑不显示有效期，发布后显示等待客户端获取，不能代替实际生效回执。
@@ -1749,3 +1749,10 @@ Private configuration reads still validate permissions and file identity, reusin
 Skill 监听保留配置根目录的直接父目录监听，用于发现同名目录替换；父目录不存在时监听最近的现存祖先，无关路径事件不触发扫描。目录删除、重命名及携带明确路径的异步路径消失错误，复用 300 毫秒事件合并窗口重新注册受影响根目录并请求补偿扫描。无法确认监听完整性的错误立即重建监听器；连续失败按 1、2、4 秒递增退避，最长 30 秒，恢复后请求补偿扫描。健康监听器不启动周期重试定时器。
 
 Skill monitoring retains the direct parent watch of each configured root to detect replacement at the same path; if the parent is absent, it watches the nearest existing ancestor. Unrelated paths do not trigger scans. Directory removal, rename, and asynchronous missing-path errors with an identifiable path use the existing 300 ms coalescing window to re-register affected roots and request a compensating scan. Errors that leave watch integrity uncertain trigger an immediate rebuild; repeated failures back off from 1 to 2 to 4 seconds, capped at 30 seconds, with a compensating scan after recovery. Healthy monitors have no periodic retry timer.
+
+审批等待时长由签名工具策略下发。升级客户端后，在全局或单机安全规则页保存以发布新等待时长；旧配置显示默认180秒时也可直接保存完成升级。旧接收器缺少能力报告时拒绝发布并提示升级。仅修改时长保留已有申请的原截止时间，规则变化或接收器重启仍使旧申请失效。CLI在本次截止后保留5秒返回预算；支持审批的受管PreToolUse宿主配置使用315秒上限，覆盖300秒最大等待及通信开销，不随每次配置变更重启宿主。平台列表及详情每秒显示剩余等待，过期禁用审批，详情自动同步回执。
+
+
+2026-10-28 本机 TRAE CN 3.4.9 实测：浏览器在申请后 89 秒批准、100 秒拒绝均有效；自然超时的原生 PreToolUse 持续 180.126 秒并拒绝执行。仅批准标记文件存在，平台倒计时与客户端截止时间一致，超时回执自动刷新。现用全局/客户端“安全规则”页均可配置时长；本机最终全局与客户端覆盖均为 180 秒。此结果限定本次 TRAE CN 宿主版本。
+
+2026-10-28 本机 TRAE 3.6.4 两个入口完成 180 秒审批回归：SOLO / Work 在申请后 95 秒批准、85 秒拒绝，专用自然超时 180.243 秒；切换 IDE 界面后在 74 秒批准、93 秒拒绝，专用自然超时 179.730 秒（截止时间按整数秒）。批准、拒绝由平台浏览器完成，平台倒计时和回执与实际文件结果一致。两个界面复用同一宿主会话引擎，各次工具调用及审批独立；本结论不扩展到独立旧产品 TraeWork。临时测试规则已移除。

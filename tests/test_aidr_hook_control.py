@@ -13,13 +13,25 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from backend import auth, models
 from backend import aidr_hook_control as control_logic
 from backend.aidr_enforcement import canonical, sign
-from tests.test_aidr_enforcement import control
+from tests.test_aidr_enforcement import control as base_control
+import pytest
 from tests.test_aidr_api import service
 from tests.test_aidr_hooks import hook_batch, send
 
 ROOT = "/api/v1/clients/one/aidr"
 HEADERS = {"authorization": "Bearer test-one"}
 INSTANCE = "e"*32
+
+
+@pytest.fixture
+def control(base_control):
+    from backend.aidr_hook_runtime import HookRuntimeRow
+    client, factory, key = base_control
+    with factory() as db:
+        db.add(HookRuntimeRow(client_id='one', stream_id='b'*32, receiver_instance=INSTANCE,
+                             sequence=1, received_at=int(time.time()), payload=json.dumps({'approval_wait_schema': 1, 'control_revision': '', 'control_mode': 'audit'})))
+        db.commit()
+    return client, factory, key
 
 
 def test_client_attempt_receipt_exact_scope_durable_replay_and_terminal_gate(control):
@@ -94,7 +106,7 @@ def pending(client, seq=1):
     event["behavior"] = {"version": 3, "policy": event["policy"], "body_omitted": False, "category": "command", "method": "direct_fields", "actions": [{"tool": "Bash", "category": "command", "command": "/bin/sleep 1", "cwd": "/private/tmp", "targets": [], "source_fields": ["command", "cwd"]}], "status": "unknown", "result_basis": [], "redacted": False, "truncated": False, "uncertainty": []}
     result = send(client, batch)
     assert result.status_code == 200, result.text
-    request = {"stream_id": "b"*32, "event_id": row["event_id"], "receiver_instance": INSTANCE, "policy_revision": "1", "rule_id": "review"}
+    request = {"expires_at": int(time.time())+180, "stream_id": "b"*32, "event_id": row["event_id"], "receiver_instance": INSTANCE, "policy_revision": "1", "rule_id": "review"}
     result = client.post(ROOT+"/hook-approvals", json=request, headers=HEADERS)
     assert result.status_code == 200, result.text
     return result.json(), request
@@ -156,7 +168,7 @@ def test_scope_permissions_expiry_and_policy_change(control):
     assert decision(client,row,"allow").status_code == 403
     assert client.put(ROOT+"/hook-policy", json=policy("1")).status_code == 403
     actor.role="admin"
-    assert client.put(ROOT+"/hook-policy", json=policy("1")).status_code == 200
+    assert client.put(ROOT+"/hook-policy", json={**policy("1"), 'default_action': 'allow'}).status_code == 200
     assert decision(client,row,"allow").status_code == 409
     with factory() as db:
         db.get(control_logic.HookApprovalRow,row["id"]).expires_at=int(time.time())-1
@@ -235,7 +247,7 @@ def test_persistent_rules_and_legacy_policy_keep_approval_attempts_bounded(contr
     result = client.put(ROOT + "/hook-policy", json=body)
     assert result.status_code == 200, result.text
     published = result.json()["policy"]
-    assert published["schema"] == 2 and published["domain"] == "aidr.tool-policy/2"
+    assert published["schema"] == 4 and published["domain"] == "aidr.tool-policy/4"
     assert "expires_at" not in published
     assert result.json()["analysis"]["validity"] == "until_replaced"
     # Existing signed configuration survives its former lease without rewriting history.

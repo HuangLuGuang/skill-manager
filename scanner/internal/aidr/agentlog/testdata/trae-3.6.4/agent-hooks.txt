@@ -1,0 +1,190 @@
+[1793025245507] [6ae5f96e-176a-4e8c-b2b4-953754bea56e] --- Hook Execution Start ---
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] Source: Personal
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] Session: 6adf602d808d0dcdd3d0d567
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] Agent: solo_agent (solo_agent)
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] Event: UserPromptSubmit
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] Hook: /test/trae-project/.trae/hooks.json:UserPromptSubmit:0:0
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] Command: /private/tmp/trae-adapter-client aidr-hook --agent trae --event UserPromptSubmit --socket /private/tmp/trae-adapter-e2e/r.sock
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] CWD: /test/trae-project
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] Timeout: 60000ms
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] ExecEnv: Sandbox
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] stdin:
+{"session_id":"6adf602d808d0dcdd3d0d567","cwd":"/test/trae-project","hook_event_name":"UserPromptSubmit","workspace_roots":["/test/trae-project"],"agent_id":"solo_agent","agent_type":"solo_agent","prompt":"继续验证实际 Adapter：仅分两次执行终端命令 printf allowed 和 printf denied，不加重定向或其他命令。第二条预计被策略拒绝，拒绝后停止不重试、不改配置。报告真实结果。"}
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] Status: Finished
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] Exit Code: 0
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] Duration: 545ms
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] stdout:
+{}
+
+[6ae5f96e-176a-4e8c-b2b4-953754bea56e] --- Hook Execution End ---
+[1793025249301] [fe8976f5-29be-412a-8481-9342cae9b177] --- Hook Execution Start ---
+[fe8976f5-29be-412a-8481-9342cae9b177] Source: Personal
+[fe8976f5-29be-412a-8481-9342cae9b177] Session: 6adf602d808d0dcdd3d0d567
+[fe8976f5-29be-412a-8481-9342cae9b177] Agent: solo_agent (solo_agent)
+[fe8976f5-29be-412a-8481-9342cae9b177] Event: PreToolUse
+[fe8976f5-29be-412a-8481-9342cae9b177] Hook: /test/trae-project/.trae/hooks.json:PreToolUse:0:0
+[fe8976f5-29be-412a-8481-9342cae9b177] Command: /private/tmp/trae-adapter-client aidr-hook --agent trae --event PreToolUse --socket /private/tmp/trae-adapter-e2e/r.sock
+[fe8976f5-29be-412a-8481-9342cae9b177] CWD: /test/trae-project
+[fe8976f5-29be-412a-8481-9342cae9b177] Timeout: 60000ms
+[fe8976f5-29be-412a-8481-9342cae9b177] ExecEnv: Sandbox
+[fe8976f5-29be-412a-8481-9342cae9b177] stdin:
+{"session_id":"6adf602d808d0dcdd3d0d567","cwd":"/test/trae-project","hook_event_name":"PreToolUse","workspace_roots":["/test/trae-project"],"agent_id":"solo_agent","agent_type":"solo_agent","tool_use_id":"call_tZ84sgwwXJ1wgIevdW4G4sqp","tool_name":"RunCommand","llm_tool_name":"RunCommand","tool_input":{"blocking":true,"command":"printf allowed","command_type":"short_running_process","cwd":"/test/trae-project","requires_approval":false}}
+[fe8976f5-29be-412a-8481-9342cae9b177] Status: Finished
+[fe8976f5-29be-412a-8481-9342cae9b177] Exit Code: 0
+[fe8976f5-29be-412a-8481-9342cae9b177] Duration: 449ms
+[fe8976f5-29be-412a-8481-9342cae9b177] stdout:
+{}
+
+[fe8976f5-29be-412a-8481-9342cae9b177] --- Hook Execution End ---
+[1793025251586] [929cf6e9-2d86-456e-a931-595bc04574d6] --- Hook Execution Start ---
+[929cf6e9-2d86-456e-a931-595bc04574d6] Source: Personal
+[929cf6e9-2d86-456e-a931-595bc04574d6] Session: 6adf602d808d0dcdd3d0d567
+[929cf6e9-2d86-456e-a931-595bc04574d6] Agent: solo_agent (solo_agent)
+[929cf6e9-2d86-456e-a931-595bc04574d6] Event: PostToolUse
+[929cf6e9-2d86-456e-a931-595bc04574d6] Hook: /test/trae-project/.trae/hooks.json:PostToolUse:0:0
+[929cf6e9-2d86-456e-a931-595bc04574d6] Command: /private/tmp/trae-adapter-client aidr-hook --agent trae --event PostToolUse --socket /private/tmp/trae-adapter-e2e/r.sock
+[929cf6e9-2d86-456e-a931-595bc04574d6] CWD: /test/trae-project
+[929cf6e9-2d86-456e-a931-595bc04574d6] Timeout: 60000ms
+[929cf6e9-2d86-456e-a931-595bc04574d6] ExecEnv: Sandbox
+[929cf6e9-2d86-456e-a931-595bc04574d6] stdin:
+{"session_id":"6adf602d808d0dcdd3d0d567","cwd":"/test/trae-project","hook_event_name":"PostToolUse","workspace_roots":["/test/trae-project"],"agent_id":"solo_agent","agent_type":"solo_agent","tool_use_id":"call_tZ84sgwwXJ1wgIevdW4G4sqp","tool_name":"RunCommand","llm_tool_name":"RunCommand","tool_input":{"blocking":true,"command":"printf allowed","command_type":"short_running_process","cwd":"/test/trae-project","requires_approval":false},"tool_response":{"terminal_id":0,"command_id":"job-58ac7c0244c1479e9cd99a44e85cd03c","pid":80001,"stdout":"allowed","status":"Exited","exit_code":0,"cwd":"/test/trae-project","send_to_command_status":null,"run_command_to_bg_reason":null,"shell_type":null,"command":"printf allowed","display_command":"printf allowed ","history_run_mode":"auto","sandbox_status":null,"sandbox_trace_file":"/tmp/trae_sandbox_trace_da832ec6-da2b-46cf-afbf-ffd610049116.jsonl","sandbox_dry_run_log":null,"command_start_ms":1793025249446,"command_end_ms":1793025251088,"toolcall_output_path":"/tmp/trae-agent-toolhost-501/jobs/job-58ac7c0244c1479e9cd99a44e85cd03c/output.log","file_path":null,"log_path":"/tmp/trae-agent-toolhost-501/jobs/job-58ac7c0244c1479e9cd99a44e85cd03c/output.log","total_bytes":0,"stdout_complete":null,"user_aborted":null,"tty_mode":false}}
+[929cf6e9-2d86-456e-a931-595bc04574d6] Status: Finished
+[929cf6e9-2d86-456e-a931-595bc04574d6] Exit Code: 0
+[929cf6e9-2d86-456e-a931-595bc04574d6] Duration: 452ms
+[929cf6e9-2d86-456e-a931-595bc04574d6] stdout:
+{}
+
+[929cf6e9-2d86-456e-a931-595bc04574d6] --- Hook Execution End ---
+[1793025254659] [afcec902-5cb5-417c-afca-3c32c69faf79] --- Hook Execution Start ---
+[afcec902-5cb5-417c-afca-3c32c69faf79] Source: Personal
+[afcec902-5cb5-417c-afca-3c32c69faf79] Session: 6adf602d808d0dcdd3d0d567
+[afcec902-5cb5-417c-afca-3c32c69faf79] Agent: solo_agent (solo_agent)
+[afcec902-5cb5-417c-afca-3c32c69faf79] Event: PreToolUse
+[afcec902-5cb5-417c-afca-3c32c69faf79] Hook: /test/trae-project/.trae/hooks.json:PreToolUse:0:0
+[afcec902-5cb5-417c-afca-3c32c69faf79] Command: /private/tmp/trae-adapter-client aidr-hook --agent trae --event PreToolUse --socket /private/tmp/trae-adapter-e2e/r.sock
+[afcec902-5cb5-417c-afca-3c32c69faf79] CWD: /test/trae-project
+[afcec902-5cb5-417c-afca-3c32c69faf79] Timeout: 60000ms
+[afcec902-5cb5-417c-afca-3c32c69faf79] ExecEnv: Sandbox
+[afcec902-5cb5-417c-afca-3c32c69faf79] stdin:
+{"session_id":"6adf602d808d0dcdd3d0d567","cwd":"/test/trae-project","hook_event_name":"PreToolUse","workspace_roots":["/test/trae-project"],"agent_id":"solo_agent","agent_type":"solo_agent","tool_use_id":"call_YHOVlAFpvYct6KMLPxfzdLTY","tool_name":"RunCommand","llm_tool_name":"RunCommand","tool_input":{"blocking":true,"command":"printf denied","command_type":"short_running_process","cwd":"/test/trae-project","requires_approval":false}}
+[afcec902-5cb5-417c-afca-3c32c69faf79] Status: Finished
+[afcec902-5cb5-417c-afca-3c32c69faf79] Exit Code: 0
+[afcec902-5cb5-417c-afca-3c32c69faf79] Duration: 450ms
+[afcec902-5cb5-417c-afca-3c32c69faf79] stdout:
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"aidr_hook_rule_deny"}}
+
+[afcec902-5cb5-417c-afca-3c32c69faf79] --- Hook Execution End ---
+[1793025255132] [f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] --- Hook Execution Start ---
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] Source: Personal
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] Session: 6adf602d808d0dcdd3d0d567
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] Agent: solo_agent (solo_agent)
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] Event: PostToolUse
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] Hook: /test/trae-project/.trae/hooks.json:PostToolUse:0:0
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] Command: /private/tmp/trae-adapter-client aidr-hook --agent trae --event PostToolUse --socket /private/tmp/trae-adapter-e2e/r.sock
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] CWD: /test/trae-project
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] Timeout: 60000ms
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] ExecEnv: Sandbox
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] stdin:
+{"session_id":"6adf602d808d0dcdd3d0d567","cwd":"/test/trae-project","hook_event_name":"PostToolUse","workspace_roots":["/test/trae-project"],"agent_id":"solo_agent","agent_type":"solo_agent","tool_use_id":"call_YHOVlAFpvYct6KMLPxfzdLTY","tool_name":"RunCommand","llm_tool_name":"RunCommand","tool_input":{"blocking":true,"command":"printf denied","command_type":"short_running_process","cwd":"/test/trae-project","requires_approval":false},"tool_response":{}}
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] Status: Finished
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] Exit Code: 0
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] Duration: 447ms
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] stdout:
+{}
+
+[f1ff1f0d-3da9-4ae4-865e-d71bcfb58851] --- Hook Execution End ---
+[1793025258672] [5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] --- Hook Execution Start ---
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] Source: Personal
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] Session: 6adf602d808d0dcdd3d0d567
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] Agent: solo_agent (solo_agent)
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] Event: Stop
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] Hook: /test/trae-project/.trae/hooks.json:Stop:0:0
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] Command: /private/tmp/trae-adapter-client aidr-hook --agent trae --event Stop --socket /private/tmp/trae-adapter-e2e/r.sock
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] CWD: /test/trae-project
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] Timeout: 60000ms
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] ExecEnv: Sandbox
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] stdin:
+{"session_id":"6adf602d808d0dcdd3d0d567","cwd":"/test/trae-project","hook_event_name":"Stop","workspace_roots":["/test/trae-project"],"agent_id":"solo_agent","agent_type":"solo_agent","stop_hook_active":false,"loop_count":0,"text_content":"结果报告：\n\n1. `printf allowed` — 执行成功（exit code 0），输出 `allowed`。\n2. `printf denied` — 被 Hook 拒绝（理由：`aidr_hook_rule_deny`）。\n\n第二次被拒后已停止，未重试、未改配置。","last_assistant_message":"结果报告：\n\n1. `printf allowed` — 执行成功（exit code 0），输出 `allowed`。\n2. `printf denied` — 被 Hook 拒绝（理由：`aidr_hook_rule_deny`）。\n\n第二次被拒后已停止，未重试、未改配置。"}
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] Status: Finished
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] Exit Code: 0
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] Duration: 450ms
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] stdout:
+{}
+
+[5d5c37cd-7ac4-4df7-b75f-6a1c2e864eb1] --- Hook Execution End ---
+[1793025291658] [9a9f5904-527b-4b92-8ecd-266d9d90eee8] --- Hook Execution Start ---
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] Source: Personal
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] Session: 6adf602d808d0dcdd3d0d567
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] Agent: solo_agent (solo_agent)
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] Event: UserPromptSubmit
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] Hook: /test/trae-project/.trae/hooks.json:UserPromptSubmit:0:0
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] Command: /private/tmp/trae-adapter-client aidr-hook --agent trae --event UserPromptSubmit --socket /private/tmp/trae-adapter-e2e/r.sock
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] CWD: /test/trae-project
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] Timeout: 60000ms
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] ExecEnv: Sandbox
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] stdin:
+{"session_id":"6adf602d808d0dcdd3d0d567","cwd":"/test/trae-project","hook_event_name":"UserPromptSubmit","workspace_roots":["/test/trae-project"],"agent_id":"solo_agent","agent_type":"solo_agent","prompt":"请调用当前项目测试 Skill aidr-probe（AIDR adapter skill probe），按它的说明返回结果。不要访问其他目录、网络或 MCP，不修改任何文件。"}
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] Status: Finished
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] Exit Code: 0
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] Duration: 521ms
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] stdout:
+{}
+
+[9a9f5904-527b-4b92-8ecd-266d9d90eee8] --- Hook Execution End ---
+[1793025294514] [350a8884-d299-4fa6-ad9a-91f411731e3a] --- Hook Execution Start ---
+[350a8884-d299-4fa6-ad9a-91f411731e3a] Source: Personal
+[350a8884-d299-4fa6-ad9a-91f411731e3a] Session: 6adf602d808d0dcdd3d0d567
+[350a8884-d299-4fa6-ad9a-91f411731e3a] Agent: solo_agent (solo_agent)
+[350a8884-d299-4fa6-ad9a-91f411731e3a] Event: PreToolUse
+[350a8884-d299-4fa6-ad9a-91f411731e3a] Hook: /test/trae-project/.trae/hooks.json:PreToolUse:0:0
+[350a8884-d299-4fa6-ad9a-91f411731e3a] Command: /private/tmp/trae-adapter-client aidr-hook --agent trae --event PreToolUse --socket /private/tmp/trae-adapter-e2e/r.sock
+[350a8884-d299-4fa6-ad9a-91f411731e3a] CWD: /test/trae-project
+[350a8884-d299-4fa6-ad9a-91f411731e3a] Timeout: 60000ms
+[350a8884-d299-4fa6-ad9a-91f411731e3a] ExecEnv: Sandbox
+[350a8884-d299-4fa6-ad9a-91f411731e3a] stdin:
+{"session_id":"6adf602d808d0dcdd3d0d567","cwd":"/test/trae-project","hook_event_name":"PreToolUse","workspace_roots":["/test/trae-project"],"agent_id":"solo_agent","agent_type":"solo_agent","tool_use_id":"call_FlxToRj61yOFTB3EjuuU71DL","tool_name":"Skill","llm_tool_name":"Skill","tool_input":{"name":"aidr-probe"}}
+[350a8884-d299-4fa6-ad9a-91f411731e3a] Status: Finished
+[350a8884-d299-4fa6-ad9a-91f411731e3a] Exit Code: 0
+[350a8884-d299-4fa6-ad9a-91f411731e3a] Duration: 449ms
+[350a8884-d299-4fa6-ad9a-91f411731e3a] stdout:
+{}
+
+[350a8884-d299-4fa6-ad9a-91f411731e3a] --- Hook Execution End ---
+[1793025295060] [72719b90-d7fe-4c71-89c6-78ee4b54b34b] --- Hook Execution Start ---
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] Source: Personal
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] Session: 6adf602d808d0dcdd3d0d567
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] Agent: solo_agent (solo_agent)
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] Event: PostToolUse
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] Hook: /test/trae-project/.trae/hooks.json:PostToolUse:0:0
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] Command: /private/tmp/trae-adapter-client aidr-hook --agent trae --event PostToolUse --socket /private/tmp/trae-adapter-e2e/r.sock
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] CWD: /test/trae-project
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] Timeout: 60000ms
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] ExecEnv: Sandbox
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] stdin:
+{"session_id":"6adf602d808d0dcdd3d0d567","cwd":"/test/trae-project","hook_event_name":"PostToolUse","workspace_roots":["/test/trae-project"],"agent_id":"solo_agent","agent_type":"solo_agent","tool_use_id":"call_FlxToRj61yOFTB3EjuuU71DL","tool_name":"Skill","llm_tool_name":"Skill","tool_input":{"name":"aidr-probe"},"tool_response":{"skill_path":"/test/trae-project/.trae/skills/aidr-probe","skill_detail":"# aidr-probe\n\n**Description:** Synthetic skill used only when the user explicitly asks for the AIDR adapter skill probe.\n\n**Details:** Return exactly AIDR_SKILL_PROBE_OK. Do not invoke any other tool or access files.","skill_type":"skill"}}
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] Status: Finished
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] Exit Code: 0
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] Duration: 450ms
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] stdout:
+{}
+
+[72719b90-d7fe-4c71-89c6-78ee4b54b34b] --- Hook Execution End ---
+[1793025298502] [a5fbd45f-d843-4fc6-ae75-03a200ef127b] --- Hook Execution Start ---
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] Source: Personal
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] Session: 6adf602d808d0dcdd3d0d567
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] Agent: solo_agent (solo_agent)
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] Event: Stop
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] Hook: /test/trae-project/.trae/hooks.json:Stop:0:0
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] Command: /private/tmp/trae-adapter-client aidr-hook --agent trae --event Stop --socket /private/tmp/trae-adapter-e2e/r.sock
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] CWD: /test/trae-project
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] Timeout: 60000ms
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] ExecEnv: Sandbox
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] stdin:
+{"session_id":"6adf602d808d0dcdd3d0d567","cwd":"/test/trae-project","hook_event_name":"Stop","workspace_roots":["/test/trae-project"],"agent_id":"solo_agent","agent_type":"solo_agent","stop_hook_active":false,"loop_count":0,"text_content":"AIDR_SKILL_PROBE_OK","last_assistant_message":"AIDR_SKILL_PROBE_OK"}
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] Status: Finished
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] Exit Code: 0
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] Duration: 399ms
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] stdout:
+{}
+
+[a5fbd45f-d843-4fc6-ae75-03a200ef127b] --- Hook Execution End ---

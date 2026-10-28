@@ -32,7 +32,7 @@ def test_combined_product_log_entry_preserves_source_contract():
             assert not products[source]['hooks']
 
 
-@pytest.mark.parametrize('agent', ['workbuddy', 'qoder-cli', 'opencode', 'doubaowork'])
+@pytest.mark.parametrize('agent', ['workbuddy', 'qoder-cli', 'opencode', 'doubaowork', 'trae', 'trae-cn'])
 def test_new_log_product_ingestion_session_and_replay(service, agent):
     client, _ = service
     value = batch()
@@ -49,7 +49,7 @@ def test_new_log_product_ingestion_session_and_replay(service, agent):
     assert timeline.status_code == 200, timeline.text
 
 
-@pytest.mark.parametrize('agent,event', [('cursor','sessionStart'), ('workbuddy','SessionStart'), ('qoder-hooks','SessionStart'), ('qoder-work','SessionStart')])
+@pytest.mark.parametrize('agent,event', [('cursor','sessionStart'), ('workbuddy','SessionStart'), ('qoder-hooks','SessionStart'), ('qoder-work','SessionStart'), ('trae','SessionStart'), ('trae-cn','SessionStart')])
 def test_hook_product_protocol_and_ack(service, agent, event):
     client, _ = service
     value = hook_batch()

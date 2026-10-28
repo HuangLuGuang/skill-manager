@@ -82,7 +82,7 @@ func TestManagedCodexMigratesOwnedNativeTimeouts(t *testing.T) {
 	if values.Hooks.SessionEnd[0].Hooks[0].Timeout != 3 || values.Hooks.Interrupt[0].Hooks[0].Timeout != 3 {
 		t.Fatal("native event timeout not migrated")
 	}
-	if values.Hooks.PreToolUse[0].Hooks[0].Timeout != 60 {
+	if values.Hooks.PreToolUse[0].Hooks[0].Timeout != 315 {
 		t.Fatal("blocking hook budget changed")
 	}
 	if _, _, err = mergeManagedConfig(legacy, "codex", layout, true, false); err == nil || err.Error() != "aidr_managed_ownership_unknown" {

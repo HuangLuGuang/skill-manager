@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
@@ -17,7 +18,7 @@ import (
 
 var Version = "dev"
 
-const InventoryCacheVersion = "10"
+const InventoryCacheVersion = "11"
 
 type Skill struct {
 	Governance    *SkillObservation `json:"governance,omitempty"`
@@ -102,8 +103,8 @@ func adapters() []adapter {
 		{agentType: "hermes", binaries: []string{"hermes"}, skillRoots: []string{".hermes/skills"}, supportsSkill: true},
 		{agentType: "pi", displayName: "Pi", binaries: []string{"pi"}, skillRoots: []string{".pi/agent/skills"}, supportsSkill: true},
 		{agentType: "grokbuild", displayName: "Grok Build", binaries: []string{"grok"}, skillRoots: []string{".grok/skills"}, supportsSkill: true},
-		{agentType: "trae-cn", appPaths: []string{"/Applications/Trae CN.app", "Applications/Trae CN.app"}, binaries: []string{"trae-cn"}, skillRoots: []string{".trae-cn/skills"}, supportsSkill: true},
-		{agentType: "trae", appPaths: []string{"/Applications/Trae.app", "Applications/Trae.app", "/Applications/TRAE.app", "Applications/TRAE.app"}, binaries: []string{"trae"}, skillRoots: []string{".trae/skills"}, supportsSkill: true},
+		{agentType: "trae-cn", appPaths: []string{"/Applications/Trae CN.app", "Applications/Trae CN.app"}, binaries: []string{"trae-cn"}, skillRoots: []string{".trae-cn/skills", ".trae-cn/builtin_skills"}, supportsSkill: true},
+		{agentType: "trae", appPaths: []string{"/Applications/Trae.app", "Applications/Trae.app", "/Applications/TRAE.app", "Applications/TRAE.app"}, binaries: []string{"trae"}, skillRoots: []string{".trae/skills", ".trae/builtin_skills"}, supportsSkill: true},
 		{agentType: "cursor", appPaths: []string{"/Applications/Cursor.app", "Applications/Cursor.app"}, binaries: []string{"cursor"}, skillRoots: []string{".cursor/skills"}, supportsSkill: true},
 		{agentType: "codebuddy", appPaths: []string{"/Applications/CodeBuddy.app", "Applications/CodeBuddy.app"}, binaries: []string{"codebuddy"}, skillRoots: []string{".codebuddy/skills"}, supportsSkill: true},
 		{agentType: "workbuddy", appPaths: []string{"/Applications/WorkBuddy.app", "Applications/WorkBuddy.app"}, binaries: []string{"workbuddy"}, skillRoots: []string{".workbuddy/skills"}, supportsSkill: true},
@@ -311,6 +312,16 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 		}
 	}
 	agent.AssetInventory = discoverAssets(home, spec.agentType, roots)
+	if spec.agentType == "trae" || spec.agentType == "trae-cn" {
+		collector := &assetCollector{result: agent.AssetInventory}
+		for _, project := range collector.traeProjects(home, spec.agentType) {
+			root := filepath.Join(project, ".trae/skills")
+			if info, err := os.Stat(root); err == nil && info.IsDir() && !slices.Contains(roots, root) {
+				roots = append(roots, root)
+			}
+		}
+	}
+
 	if len(agent.AssetInventory.MCPServers) > 0 || len(agent.AssetInventory.Plugins) > 0 {
 		relatedDirectoryFound = true
 	}

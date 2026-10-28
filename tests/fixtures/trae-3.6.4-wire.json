@@ -1,0 +1,1493 @@
+{
+  "hooks": {
+    "schema_version": 1,
+    "client_id": "one",
+    "stream_id": "530117240a100bb385a9b5b17c87dcf0",
+    "records": [
+      {
+        "event_id": "000001a1789d03cac506b94be9c57f60",
+        "source_seq": "1",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:28:38.482991Z",
+        "event": {
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "UserPromptSubmit",
+          "kind": "turn.submit",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_agent_id": "solo_agent",
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "contents": [
+            {
+              "kind": "prompt",
+              "source_field": "hook.prompt",
+              "block": 0,
+              "text": "继续在此临时目录测试，现在使用实际 Agent Manager Adapter 和签名策略。仅分两次调用终端：printf 'allowed' > adapter-allowed-marker；printf 'denied' > adapter-denied-marker。第二条预计拒绝，拒绝后停止，不重试不修改配置，不访问其他目录或网络。报告真实结果。",
+              "source_bytes": 328,
+              "redacted": false,
+              "truncated": false
+            }
+          ],
+          "content_status": "captured",
+          "evidence_digest": "9f9a682b131729dbf079da5f0e245ae0ac45460055bc1b367fc94b12b6dbdfe6",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "76733",
+          "pidversion": "8962825",
+          "start_us": "1793024918401339",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a1789d118c22e25734d63976a6",
+        "source_seq": "2",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:28:42.001277Z",
+        "event": {
+          "control_decision": {
+            "decision": "allow",
+            "rule_id": "default",
+            "matched_rule_ids": [],
+            "policy_revision": "1",
+            "code": "aidr_hook_rule_allow",
+            "unresolved": true
+          },
+          "command_match": {
+            "schema_version": 1,
+            "policy_revision": "1",
+            "matched": [],
+            "unresolved": [
+              "deny-marker"
+            ]
+          },
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "PreToolUse",
+          "kind": "tool.pre",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_call_id": "call_NEErLolmYv4CYsrCKbX1RNlp",
+          "native_agent_id": "solo_agent",
+          "tool": "RunCommand",
+          "behavior": {
+            "contents": [
+              {
+                "kind": "command_body",
+                "source_field": "input.command",
+                "block": 0,
+                "text": "printf 'allowed' > adapter-allowed-marker",
+                "source_bytes": 41,
+                "redacted": false,
+                "truncated": false
+              }
+            ],
+            "content_status": "captured",
+            "policy": {
+              "version": "2",
+              "enabled": true,
+              "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "capture": {
+                "command_body": true,
+                "prompt": true,
+                "tool_output": true,
+                "file_body": false
+              }
+            },
+            "body_omitted": true,
+            "version": 4,
+            "category": "command",
+            "method": "direct_fields",
+            "actions": [
+              {
+                "tool": "RunCommand",
+                "category": "command",
+                "command": "printf '[BODY OMITTED]' > adapter-allowed-marker",
+                "cwd": "/test/trae-project",
+                "targets": [],
+                "source_fields": [
+                  "command",
+                  "cwd"
+                ]
+              }
+            ],
+            "status": "unknown",
+            "result_basis": [],
+            "redacted": false,
+            "truncated": false,
+            "uncertainty": []
+          },
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "content_status": "not_requested",
+          "input_digest": "cdf4e8ca5e734e97e15874c79ddb1f51cf12eb9e331d2b8a849e09e57f016d44",
+          "evidence_digest": "e14d73f1dd62125b17428805ac8b5488c1ed7902b51d37812b45cd0140a04d42",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "76767",
+          "pidversion": "8962926",
+          "start_us": "1793024921980039",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a1789d18ca4e735f250918a04e",
+        "source_seq": "3",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:28:43.853467Z",
+        "event": {
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "PostToolUse",
+          "kind": "tool.post",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_call_id": "call_NEErLolmYv4CYsrCKbX1RNlp",
+          "native_agent_id": "solo_agent",
+          "tool": "RunCommand",
+          "behavior": {
+            "content_status": "not_provided",
+            "policy": {
+              "version": "2",
+              "enabled": true,
+              "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "capture": {
+                "command_body": true,
+                "prompt": true,
+                "tool_output": true,
+                "file_body": false
+              }
+            },
+            "version": 4,
+            "category": "unknown",
+            "method": "result_fields",
+            "actions": [],
+            "status": "reported_success",
+            "exit_code": 0,
+            "result_basis": [
+              "structured_exit_code"
+            ],
+            "redacted": false,
+            "truncated": false,
+            "uncertainty": []
+          },
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "content_status": "not_requested",
+          "input_digest": "cdf4e8ca5e734e97e15874c79ddb1f51cf12eb9e331d2b8a849e09e57f016d44",
+          "evidence_digest": "4198ff2ed4b931487d2dc28df8d91af058cbcbbea0aed3438ed0b34a905bf679",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "76786",
+          "pidversion": "8962976",
+          "start_us": "1793024923835607",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a1789d2190c4a07ee96fd5e956",
+        "source_seq": "4",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:28:46.098475Z",
+        "event": {
+          "control_decision": {
+            "decision": "allow",
+            "rule_id": "default",
+            "matched_rule_ids": [],
+            "policy_revision": "1",
+            "code": "aidr_hook_rule_allow",
+            "unresolved": true
+          },
+          "command_match": {
+            "schema_version": 1,
+            "policy_revision": "1",
+            "matched": [],
+            "unresolved": [
+              "deny-marker"
+            ]
+          },
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "PreToolUse",
+          "kind": "tool.pre",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_call_id": "call_noChZ1CE2qwFLolMLeL0UNn6",
+          "native_agent_id": "solo_agent",
+          "tool": "RunCommand",
+          "behavior": {
+            "contents": [
+              {
+                "kind": "command_body",
+                "source_field": "input.command",
+                "block": 0,
+                "text": "printf 'denied' > adapter-denied-marker",
+                "source_bytes": 39,
+                "redacted": false,
+                "truncated": false
+              }
+            ],
+            "content_status": "captured",
+            "policy": {
+              "version": "2",
+              "enabled": true,
+              "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "capture": {
+                "command_body": true,
+                "prompt": true,
+                "tool_output": true,
+                "file_body": false
+              }
+            },
+            "body_omitted": true,
+            "version": 4,
+            "category": "command",
+            "method": "direct_fields",
+            "actions": [
+              {
+                "tool": "RunCommand",
+                "category": "command",
+                "command": "printf '[BODY OMITTED]' > adapter-denied-marker",
+                "cwd": "/test/trae-project",
+                "targets": [],
+                "source_fields": [
+                  "command",
+                  "cwd"
+                ]
+              }
+            ],
+            "status": "unknown",
+            "result_basis": [],
+            "redacted": false,
+            "truncated": false,
+            "uncertainty": []
+          },
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "content_status": "not_requested",
+          "input_digest": "04684f84341e3878d351f3f8f9ee30252d8f84787eaa095d2fbfbab30161abd8",
+          "evidence_digest": "3bc9126108eae8726abd382404949463d95b2e8e1f5314ae7036ea3097d7b4b7",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "76803",
+          "pidversion": "8963024",
+          "start_us": "1793024926081176",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a1789d27d550999ce502c2ebd6",
+        "source_seq": "5",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:28:47.706972Z",
+        "event": {
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "PostToolUse",
+          "kind": "tool.post",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_call_id": "call_noChZ1CE2qwFLolMLeL0UNn6",
+          "native_agent_id": "solo_agent",
+          "tool": "RunCommand",
+          "behavior": {
+            "content_status": "not_provided",
+            "policy": {
+              "version": "2",
+              "enabled": true,
+              "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "capture": {
+                "command_body": true,
+                "prompt": true,
+                "tool_output": true,
+                "file_body": false
+              }
+            },
+            "version": 4,
+            "category": "unknown",
+            "method": "result_fields",
+            "actions": [],
+            "status": "reported_success",
+            "exit_code": 0,
+            "result_basis": [
+              "structured_exit_code"
+            ],
+            "redacted": false,
+            "truncated": false,
+            "uncertainty": []
+          },
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "content_status": "not_requested",
+          "input_digest": "04684f84341e3878d351f3f8f9ee30252d8f84787eaa095d2fbfbab30161abd8",
+          "evidence_digest": "851dbb7c8593052a2ed656feb8d1acceb7b707c84649d342aa61a8f553f15462",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "76821",
+          "pidversion": "8963071",
+          "start_us": "1793024927665733",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a1789d36a87976fd97a2df34be",
+        "source_seq": "6",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:28:51.500521Z",
+        "event": {
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "Stop",
+          "kind": "turn.stop",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_agent_id": "solo_agent",
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "content_status": "not_requested",
+          "evidence_digest": "b02f02495c5dcc3186952738fa32257c6d5466a17336c2f9feb42cd64b5bd458",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "76847",
+          "pidversion": "8963146",
+          "start_us": "1793024931483009",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a178a200345b152a2d4470826a",
+        "source_seq": "7",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:34:05.256948Z",
+        "event": {
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "UserPromptSubmit",
+          "kind": "turn.submit",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_agent_id": "solo_agent",
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "contents": [
+            {
+              "kind": "prompt",
+              "source_field": "hook.prompt",
+              "block": 0,
+              "text": "继续验证实际 Adapter：仅分两次执行终端命令 printf allowed 和 printf denied，不加重定向或其他命令。第二条预计被策略拒绝，拒绝后停止不重试、不改配置。报告真实结果。",
+              "source_bytes": 224,
+              "redacted": false,
+              "truncated": false
+            }
+          ],
+          "content_status": "captured",
+          "evidence_digest": "69ffee7aabb00ce9c77e28f268418326120ba2f7e0499dcf78f5a6ba57f6fed6",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "79969",
+          "pidversion": "8970965",
+          "start_us": "1793025245188915",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a178a20f0aea0a323d5ab167b1",
+        "source_seq": "8",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:34:09.037329Z",
+        "event": {
+          "control_decision": {
+            "decision": "allow",
+            "rule_id": "default",
+            "matched_rule_ids": [],
+            "policy_revision": "1",
+            "code": "aidr_hook_rule_allow"
+          },
+          "command_match": {
+            "schema_version": 1,
+            "policy_revision": "1",
+            "matched": [],
+            "unresolved": []
+          },
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "PreToolUse",
+          "kind": "tool.pre",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_call_id": "call_tZ84sgwwXJ1wgIevdW4G4sqp",
+          "native_agent_id": "solo_agent",
+          "tool": "RunCommand",
+          "behavior": {
+            "contents": [
+              {
+                "kind": "command_body",
+                "source_field": "input.command",
+                "block": 0,
+                "text": "printf allowed",
+                "source_bytes": 14,
+                "redacted": false,
+                "truncated": false
+              }
+            ],
+            "content_status": "captured",
+            "policy": {
+              "version": "2",
+              "enabled": true,
+              "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "capture": {
+                "command_body": true,
+                "prompt": true,
+                "tool_output": true,
+                "file_body": false
+              }
+            },
+            "version": 4,
+            "category": "command",
+            "method": "direct_fields",
+            "actions": [
+              {
+                "tool": "RunCommand",
+                "category": "command",
+                "command": "printf allowed",
+                "cwd": "/test/trae-project",
+                "targets": [],
+                "source_fields": [
+                  "command",
+                  "cwd"
+                ]
+              }
+            ],
+            "status": "unknown",
+            "result_basis": [],
+            "redacted": false,
+            "truncated": false,
+            "uncertainty": []
+          },
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "content_status": "not_requested",
+          "input_digest": "d92b82256f4ff68ec7ce1cc7f1434c9429d2bd0c4f99a6a661603fb04bd665e3",
+          "evidence_digest": "87fc48400850424533b3d1d4d67d671b58f70fba87e4cfd95f7b3c72547dae57",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "80000",
+          "pidversion": "8971062",
+          "start_us": "1793025249017979",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a178a217fd882bf6e26c5f0be1",
+        "source_seq": "9",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:34:11.329776Z",
+        "event": {
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "PostToolUse",
+          "kind": "tool.post",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_call_id": "call_tZ84sgwwXJ1wgIevdW4G4sqp",
+          "native_agent_id": "solo_agent",
+          "tool": "RunCommand",
+          "behavior": {
+            "contents": [
+              {
+                "kind": "tool_output",
+                "source_field": "result.stdout",
+                "block": 0,
+                "text": "allowed",
+                "source_bytes": 7,
+                "redacted": false,
+                "truncated": false
+              }
+            ],
+            "content_status": "captured",
+            "policy": {
+              "version": "2",
+              "enabled": true,
+              "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "capture": {
+                "command_body": true,
+                "prompt": true,
+                "tool_output": true,
+                "file_body": false
+              }
+            },
+            "version": 4,
+            "category": "unknown",
+            "method": "result_fields",
+            "actions": [],
+            "status": "reported_success",
+            "exit_code": 0,
+            "result_basis": [
+              "structured_exit_code"
+            ],
+            "redacted": false,
+            "truncated": false,
+            "uncertainty": []
+          },
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "content_status": "not_requested",
+          "input_digest": "d92b82256f4ff68ec7ce1cc7f1434c9429d2bd0c4f99a6a661603fb04bd665e3",
+          "evidence_digest": "7c645102f24bc321f93b8478f6cdece1e5b6adf099752fd59fd895de3cdaeb1a",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "80030",
+          "pidversion": "8971155",
+          "start_us": "1793025251309136",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a178a223f3416fbc368e0cb82a",
+        "source_seq": "10",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:34:14.389345Z",
+        "event": {
+          "control_decision": {
+            "decision": "deny",
+            "rule_id": "deny-marker",
+            "matched_rule_ids": [
+              "deny-marker"
+            ],
+            "policy_revision": "1",
+            "code": "aidr_hook_rule_deny"
+          },
+          "command_match": {
+            "schema_version": 1,
+            "policy_revision": "1",
+            "matched": [
+              "deny-marker"
+            ],
+            "unresolved": []
+          },
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "PreToolUse",
+          "kind": "tool.pre",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_call_id": "call_YHOVlAFpvYct6KMLPxfzdLTY",
+          "native_agent_id": "solo_agent",
+          "tool": "RunCommand",
+          "behavior": {
+            "contents": [
+              {
+                "kind": "command_body",
+                "source_field": "input.command",
+                "block": 0,
+                "text": "printf denied",
+                "source_bytes": 13,
+                "redacted": false,
+                "truncated": false
+              }
+            ],
+            "content_status": "captured",
+            "policy": {
+              "version": "2",
+              "enabled": true,
+              "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "capture": {
+                "command_body": true,
+                "prompt": true,
+                "tool_output": true,
+                "file_body": false
+              }
+            },
+            "version": 4,
+            "category": "command",
+            "method": "direct_fields",
+            "actions": [
+              {
+                "tool": "RunCommand",
+                "category": "command",
+                "command": "printf denied",
+                "cwd": "/test/trae-project",
+                "targets": [],
+                "source_fields": [
+                  "command",
+                  "cwd"
+                ]
+              }
+            ],
+            "status": "unknown",
+            "result_basis": [],
+            "redacted": false,
+            "truncated": false,
+            "uncertainty": []
+          },
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "content_status": "not_requested",
+          "input_digest": "2c25f229b9295f48e75a5a8a88c3ce84a6f7e0cdc3332ae7e1199620a9122224",
+          "evidence_digest": "b12c918e20956d2b2dd2a7d622c717d85a27182c2b39f22d1b02f74838c8079f",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "80060",
+          "pidversion": "8971242",
+          "start_us": "1793025254372641",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a178a225ccfc3910c2466aa3d7",
+        "source_seq": "11",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:34:14.861732Z",
+        "event": {
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "PostToolUse",
+          "kind": "tool.post",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_call_id": "call_YHOVlAFpvYct6KMLPxfzdLTY",
+          "native_agent_id": "solo_agent",
+          "tool": "RunCommand",
+          "behavior": {
+            "content_status": "unsupported",
+            "policy": {
+              "version": "2",
+              "enabled": true,
+              "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "capture": {
+                "command_body": true,
+                "prompt": true,
+                "tool_output": true,
+                "file_body": false
+              }
+            },
+            "version": 4,
+            "category": "unknown",
+            "method": "result_fields",
+            "actions": [],
+            "status": "unknown",
+            "result_basis": [],
+            "redacted": false,
+            "truncated": false,
+            "uncertainty": [
+              "host_result_not_provided"
+            ]
+          },
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "content_status": "not_requested",
+          "input_digest": "2c25f229b9295f48e75a5a8a88c3ce84a6f7e0cdc3332ae7e1199620a9122224",
+          "evidence_digest": "bf4537190a5a31628e28397691fbbbabd84c6cf76ada970b19a1166154e1e497",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "80065",
+          "pidversion": "8971254",
+          "start_us": "1793025254844231",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a178a233a4ec19655893ed25a5",
+        "source_seq": "12",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:34:18.405192Z",
+        "event": {
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "Stop",
+          "kind": "turn.stop",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_agent_id": "solo_agent",
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "content_status": "not_requested",
+          "evidence_digest": "276d9cc3e1d9d6d3fc367009ad1cd904b7e239b56f0d31be0389ab58a556043a",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "80098",
+          "pidversion": "8971359",
+          "start_us": "1793025258388641",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a178a2b4750ea03dfc7bf32d8e",
+        "source_seq": "13",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:34:51.405135Z",
+        "event": {
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "UserPromptSubmit",
+          "kind": "turn.submit",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_agent_id": "solo_agent",
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "contents": [
+            {
+              "kind": "prompt",
+              "source_field": "hook.prompt",
+              "block": 0,
+              "text": "请调用当前项目测试 Skill aidr-probe（AIDR adapter skill probe），按它的说明返回结果。不要访问其他目录、网络或 MCP，不修改任何文件。",
+              "source_bytes": 174,
+              "redacted": false,
+              "truncated": false
+            }
+          ],
+          "content_status": "captured",
+          "evidence_digest": "bc018d736248f3bcb9887a5de30847a59b630e95f05f6abb71753a8863790141",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "80346",
+          "pidversion": "8972114",
+          "start_us": "1793025291327828",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a178a2bfab88f9e1c299b21822",
+        "source_seq": "14",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:34:54.255415Z",
+        "event": {
+          "control_decision": {
+            "decision": "allow",
+            "rule_id": "default",
+            "matched_rule_ids": [],
+            "policy_revision": "1",
+            "code": "aidr_hook_rule_allow"
+          },
+          "command_match": {
+            "schema_version": 1,
+            "policy_revision": "1",
+            "matched": [],
+            "unresolved": []
+          },
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "PreToolUse",
+          "kind": "tool.pre",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_call_id": "call_FlxToRj61yOFTB3EjuuU71DL",
+          "native_agent_id": "solo_agent",
+          "tool": "Skill",
+          "behavior": {
+            "content_status": "not_requested",
+            "policy": {
+              "version": "2",
+              "enabled": true,
+              "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "capture": {
+                "command_body": true,
+                "prompt": true,
+                "tool_output": true,
+                "file_body": false
+              }
+            },
+            "version": 4,
+            "category": "unknown",
+            "method": "unsupported",
+            "actions": [],
+            "status": "unknown",
+            "result_basis": [],
+            "redacted": false,
+            "truncated": false,
+            "uncertainty": [
+              "unsupported_arguments"
+            ]
+          },
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "content_status": "not_requested",
+          "input_digest": "10d790291a0ae5757a387ac98978074c52728a501ea8578fa65e831802713758",
+          "evidence_digest": "efd4e1010f6ec3aa5f54269589d040d767cb73641ba78862763a3183ff5f67c6",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "80380",
+          "pidversion": "8972216",
+          "start_us": "1793025294235165",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a178a2c1c9876e9031a86434a7",
+        "source_seq": "15",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:34:54.794271Z",
+        "event": {
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "PostToolUse",
+          "kind": "tool.post",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_call_id": "call_FlxToRj61yOFTB3EjuuU71DL",
+          "native_agent_id": "solo_agent",
+          "tool": "Skill",
+          "behavior": {
+            "content_status": "unsupported",
+            "policy": {
+              "version": "2",
+              "enabled": true,
+              "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "capture": {
+                "command_body": true,
+                "prompt": true,
+                "tool_output": true,
+                "file_body": false
+              }
+            },
+            "version": 4,
+            "category": "unknown",
+            "method": "result_fields",
+            "actions": [],
+            "status": "unknown",
+            "result_basis": [],
+            "redacted": false,
+            "truncated": false,
+            "uncertainty": [
+              "result_format_unsupported"
+            ]
+          },
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "content_status": "not_requested",
+          "input_digest": "10d790291a0ae5757a387ac98978074c52728a501ea8578fa65e831802713758",
+          "evidence_digest": "05bf228f1af5d4ce079880408fa1ecfd93bde319865bbea000e2c6408e2daeb6",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "80390",
+          "pidversion": "8972254",
+          "start_us": "1793025294773751",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      },
+      {
+        "event_id": "000001a178a2cf65ce9413287e1bd856",
+        "source_seq": "16",
+        "user_scope": "501",
+        "received_at": "2026-10-26T14:34:58.277804Z",
+        "event": {
+          "context": {
+            "cwd": "/test/trae-project",
+            "workspace_roots": [
+              "/test/trae-project"
+            ],
+            "redacted": false,
+            "truncated": false
+          },
+          "schema_version": 2,
+          "agent": "trae",
+          "hook_event": "Stop",
+          "kind": "turn.stop",
+          "session_id": "6adf602d808d0dcdd3d0d567",
+          "native_agent_id": "solo_agent",
+          "policy": {
+            "version": "2",
+            "enabled": true,
+            "receipt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "capture": {
+              "command_body": true,
+              "prompt": true,
+              "tool_output": true,
+              "file_body": false
+            }
+          },
+          "content_status": "not_requested",
+          "evidence_digest": "e17eb077839516625171ddd0ba9f6ed024500d49fd78c9980dbe88cc9fdc27e9",
+          "process_relation": "unknown"
+        },
+        "receiver_instance": "c19958e94d7a9578d01d69fc4766a050",
+        "bridge_process": {
+          "boot_id": "f80468b8-647d-45d2-b08e-fb802b3a99f5",
+          "pid": "80424",
+          "pidversion": "8972353",
+          "start_us": "1793025298264159",
+          "method": "macos_socket_audit_token_sysctl",
+          "role": "ipc_bridge"
+        }
+      }
+    ]
+  },
+  "logs": [
+    {
+      "user_scope": "501",
+      "behavior": {
+        "version": 2,
+        "category": "command",
+        "method": "direct_fields",
+        "actions": [
+          {
+            "tool": "RunCommand",
+            "category": "command",
+            "command": "printf allowed",
+            "cwd": "/test/trae-project",
+            "targets": [],
+            "source_fields": [
+              "command",
+              "cwd"
+            ]
+          }
+        ],
+        "status": "unknown",
+        "result_basis": [],
+        "redacted": false,
+        "truncated": false,
+        "uncertainty": []
+      },
+      "schema_version": 2,
+      "logical_event_id": "27813b0d087b968f1d1d606928a8d04c983bbce7d38bb16ec2bde28440dc0f44",
+      "event_id": "d196ac3631f6f5f4790eddae27268bd4fa2fc86e5092ac4454a85cb0b6b0c218",
+      "source_id": "3d858d715cd69a0a57d4353ab8dcd2887abb26ed991379ebbbed19d33041f9b9",
+      "source_instance_id": "51c44f78ce73d7d8366d23468f585af80bb633f1f8143c3b477c4203d4a48cf3",
+      "source_seq": "43801",
+      "record_offset": "43801",
+      "block": 0,
+      "agent": "trae",
+      "agent_version": "",
+      "source": "agent_log",
+      "session_id": "6adf602d808d0dcdd3d0d567",
+      "turn_id": "",
+      "native_call_id": "call_tZ84sgwwXJ1wgIevdW4G4sqp",
+      "logical_call_id": "625d98926340ca6a234f8f6e5c4cab9da5cc8fe927fdaafe120b8f698b44d45d",
+      "kind": "tool_call",
+      "tool": "RunCommand",
+      "outcome": "unknown",
+      "observed_at": "2026-10-26T14:34:09.301Z",
+      "received_at": "2026-10-26T14:37:58.592991Z",
+      "content_digest": "212bd51557f5a28afb02f0f6138d15d6c68e6e7308d47114b97c9acf334ed2bc",
+      "content_bytes": 199,
+      "evidence_digest": "4fa3f653944b2166b2a4f15e0c05d8291f956e8625df7fbf03759268326ab095",
+      "process_relation": "unknown"
+    },
+    {
+      "user_scope": "501",
+      "behavior": {
+        "version": 2,
+        "category": "unknown",
+        "method": "result_fields",
+        "actions": [],
+        "status": "reported_success",
+        "exit_code": 0,
+        "result_basis": [
+          "structured_exit_code"
+        ],
+        "redacted": false,
+        "truncated": false,
+        "uncertainty": []
+      },
+      "schema_version": 2,
+      "logical_event_id": "94316a557f866981c5d577a997dd8c4b3d19390e99688694df7b759dec80bc4a",
+      "event_id": "10cff9aa539a9d1325c26855605a26556b818a6fec8a0a0d2242fa5eb6c9268c",
+      "source_id": "3d858d715cd69a0a57d4353ab8dcd2887abb26ed991379ebbbed19d33041f9b9",
+      "source_instance_id": "51c44f78ce73d7d8366d23468f585af80bb633f1f8143c3b477c4203d4a48cf3",
+      "source_seq": "45666",
+      "record_offset": "45666",
+      "block": 0,
+      "agent": "trae",
+      "agent_version": "",
+      "source": "agent_log",
+      "session_id": "6adf602d808d0dcdd3d0d567",
+      "turn_id": "",
+      "native_call_id": "call_tZ84sgwwXJ1wgIevdW4G4sqp",
+      "logical_call_id": "625d98926340ca6a234f8f6e5c4cab9da5cc8fe927fdaafe120b8f698b44d45d",
+      "kind": "tool_result",
+      "tool": "RunCommand",
+      "outcome": "unknown",
+      "observed_at": "2026-10-26T14:34:11.586Z",
+      "received_at": "2026-10-26T14:37:58.593176Z",
+      "content_digest": "194e7080eb43c2eb59c337c9e2ae0d676dbab2500285a169e6971b185e053a99",
+      "content_bytes": 1021,
+      "evidence_digest": "722ef20e8f07251698a5e43069ce9409764cf424f25bd751f274144468782433",
+      "process_relation": "unknown"
+    },
+    {
+      "user_scope": "501",
+      "behavior": {
+        "version": 2,
+        "category": "command",
+        "method": "direct_fields",
+        "actions": [
+          {
+            "tool": "RunCommand",
+            "category": "command",
+            "command": "printf denied",
+            "cwd": "/test/trae-project",
+            "targets": [],
+            "source_fields": [
+              "command",
+              "cwd"
+            ]
+          }
+        ],
+        "status": "unknown",
+        "result_basis": [],
+        "redacted": false,
+        "truncated": false,
+        "uncertainty": []
+      },
+      "schema_version": 2,
+      "logical_event_id": "a46edff3ced8067d21a00dca286171459c4a0c75208dff9e08bd75c7910c3dfb",
+      "event_id": "2e4a023be998c9554d750a31939d76bb608cf995a5e505b17d6d3d95c042945a",
+      "source_id": "3d858d715cd69a0a57d4353ab8dcd2887abb26ed991379ebbbed19d33041f9b9",
+      "source_instance_id": "51c44f78ce73d7d8366d23468f585af80bb633f1f8143c3b477c4203d4a48cf3",
+      "source_seq": "48567",
+      "record_offset": "48567",
+      "block": 0,
+      "agent": "trae",
+      "agent_version": "",
+      "source": "agent_log",
+      "session_id": "6adf602d808d0dcdd3d0d567",
+      "turn_id": "",
+      "native_call_id": "call_YHOVlAFpvYct6KMLPxfzdLTY",
+      "logical_call_id": "e4628e1f9fbdd1500ff0527ae2f50098e1892f10cfc52dc7730b71d569ebb18c",
+      "kind": "tool_call",
+      "tool": "RunCommand",
+      "outcome": "unknown",
+      "observed_at": "2026-10-26T14:34:14.659Z",
+      "received_at": "2026-10-26T14:37:58.593289Z",
+      "content_digest": "9f66c16c2318309f9b89f768decca2fea3f0a9c667526730836291b05d05a9bb",
+      "content_bytes": 198,
+      "evidence_digest": "03d82258ac9423399f6b6997538d6266b49575e0fd91135ddbe13ec26b1d8972",
+      "process_relation": "unknown"
+    },
+    {
+      "user_scope": "501",
+      "behavior": {
+        "version": 2,
+        "category": "unknown",
+        "method": "result_fields",
+        "actions": [],
+        "status": "unknown",
+        "result_basis": [],
+        "redacted": false,
+        "truncated": false,
+        "uncertainty": [
+          "result_semantics_unknown"
+        ]
+      },
+      "schema_version": 2,
+      "logical_event_id": "dc231bca0411a826ba0619d9df3f5e374c8a9b0e66c12118a106ac9722b1cbb5",
+      "event_id": "cc860f9da2333e05e26be9d21b939455a4675539f929507c4416aa30c1e93139",
+      "source_id": "3d858d715cd69a0a57d4353ab8dcd2887abb26ed991379ebbbed19d33041f9b9",
+      "source_instance_id": "51c44f78ce73d7d8366d23468f585af80bb633f1f8143c3b477c4203d4a48cf3",
+      "source_seq": "50559",
+      "record_offset": "50559",
+      "block": 0,
+      "agent": "trae",
+      "agent_version": "",
+      "source": "agent_log",
+      "session_id": "6adf602d808d0dcdd3d0d567",
+      "turn_id": "",
+      "native_call_id": "call_YHOVlAFpvYct6KMLPxfzdLTY",
+      "logical_call_id": "e4628e1f9fbdd1500ff0527ae2f50098e1892f10cfc52dc7730b71d569ebb18c",
+      "kind": "tool_result",
+      "tool": "RunCommand",
+      "outcome": "unknown",
+      "observed_at": "2026-10-26T14:34:15.132Z",
+      "received_at": "2026-10-26T14:37:58.593337Z",
+      "content_digest": "bb0abefbbf24e8e2477844409811ea793ecae47a609f358b68be705e06b0db80",
+      "content_bytes": 2,
+      "evidence_digest": "308ac0a5833aac3e087e76ee6cd0d2155ed4d2214a34f54378ef3443e3636209",
+      "process_relation": "unknown"
+    },
+    {
+      "user_scope": "501",
+      "skill_use": {
+        "behavior": "invocation",
+        "name": "aidr-probe",
+        "basis": "tool_input.name"
+      },
+      "behavior": {
+        "version": 2,
+        "category": "unknown",
+        "method": "unsupported",
+        "actions": [],
+        "status": "unknown",
+        "result_basis": [],
+        "redacted": false,
+        "truncated": false,
+        "uncertainty": [
+          "unsupported_arguments"
+        ]
+      },
+      "schema_version": 2,
+      "logical_event_id": "1fef894afb4456fbb44f6c06063550e788d79fa83e05b3e4794b15d544e9fee5",
+      "event_id": "ed2bd324f394794992dbdbb7430f0d7bd4505b2d606a7e4bf78bdd1c8975ca09",
+      "source_id": "3d858d715cd69a0a57d4353ab8dcd2887abb26ed991379ebbbed19d33041f9b9",
+      "source_instance_id": "51c44f78ce73d7d8366d23468f585af80bb633f1f8143c3b477c4203d4a48cf3",
+      "source_seq": "56278",
+      "record_offset": "56278",
+      "block": 0,
+      "agent": "trae",
+      "agent_version": "",
+      "source": "agent_log",
+      "session_id": "6adf602d808d0dcdd3d0d567",
+      "turn_id": "",
+      "native_call_id": "call_FlxToRj61yOFTB3EjuuU71DL",
+      "logical_call_id": "b735c4a0bafb422fb14e20a841b8aec9554b6098a7230615cb39c374e6810e58",
+      "kind": "tool_call",
+      "tool": "Skill",
+      "outcome": "unknown",
+      "observed_at": "2026-10-26T14:34:54.514Z",
+      "received_at": "2026-10-26T14:37:58.593472Z",
+      "content_digest": "6b55185ba3b65376840c902475442addb0491d7e12f7fe09d2903ab13e666100",
+      "content_bytes": 21,
+      "evidence_digest": "7920ac123d5b865815188bdb071647ca624e2cbe73fe150c9d498152700e9ed3",
+      "process_relation": "unknown"
+    },
+    {
+      "user_scope": "501",
+      "skill_use": {
+        "behavior": "invocation",
+        "path": "/test/trae-project/.trae/skills/aidr-probe/SKILL.md",
+        "basis": "result.metadata",
+        "content_digest": "9dcbb6ac1d1c235693d5e4113221b0bfb189bb695ba034d319b4a663e3506441",
+        "content_observed_at": "2026-10-26T14:37:58.594272Z",
+        "phase": "host_loaded"
+      },
+      "behavior": {
+        "version": 2,
+        "category": "unknown",
+        "method": "result_fields",
+        "actions": [],
+        "status": "unknown",
+        "result_basis": [],
+        "redacted": false,
+        "truncated": false,
+        "uncertainty": [
+          "result_semantics_unknown"
+        ]
+      },
+      "schema_version": 2,
+      "logical_event_id": "4fc848c0034b3eb531fd3f36030136d006bdb16ee530371381e3f3ba26868cc1",
+      "event_id": "31b13c456c8f5062e22b99335652ca82f8711aaf628dae0fe6b9995401074be3",
+      "source_id": "3d858d715cd69a0a57d4353ab8dcd2887abb26ed991379ebbbed19d33041f9b9",
+      "source_instance_id": "51c44f78ce73d7d8366d23468f585af80bb633f1f8143c3b477c4203d4a48cf3",
+      "source_seq": "57955",
+      "record_offset": "57955",
+      "block": 0,
+      "agent": "trae",
+      "agent_version": "",
+      "source": "agent_log",
+      "session_id": "6adf602d808d0dcdd3d0d567",
+      "turn_id": "",
+      "native_call_id": "call_FlxToRj61yOFTB3EjuuU71DL",
+      "logical_call_id": "b735c4a0bafb422fb14e20a841b8aec9554b6098a7230615cb39c374e6810e58",
+      "kind": "tool_result",
+      "tool": "Skill",
+      "outcome": "unknown",
+      "observed_at": "2026-10-26T14:34:55.06Z",
+      "received_at": "2026-10-26T14:37:58.594306Z",
+      "content_digest": "9e8edc296f27a33493bab20fd686e0b228f52270ed43c1afeb16062bd16756cd",
+      "content_bytes": 381,
+      "evidence_digest": "be26e7a870e7a0b0eb07af1558e026bb831610d9dab88365f91cf4e70e403b16",
+      "process_relation": "unknown"
+    }
+  ]
+}

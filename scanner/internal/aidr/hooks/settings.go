@@ -26,6 +26,9 @@ func settingsEntries(agent, binary, connection string) map[string]map[string]any
 	out := map[string]map[string]any{}
 	for event := range p.HookEvents {
 		out[event] = map[string]any{"command": shellArg(binary) + " aidr-hook --agent " + shellArg(agent) + " --event " + shellArg(event) + " --connection-file " + shellArg(connection), "timeout": hookAdapters[agent].Settings.Timeout}
+		if p.Approval && IsPreTool(agent, event) {
+			out[event]["timeout"] = 315
+		}
 		if hookAdapters[agent].Settings.Nested {
 			out[event]["type"] = "command"
 		}
@@ -203,6 +206,7 @@ func InspectSettingsHooks(agent, home, binary, connection string) (PluginStatus,
 		return status, code("aidr_plugin_config_invalid")
 	}
 	installed := true
+	currentBudget := true
 	for event, entry := range settingsEntries(agent, binary, connection) {
 		count := 0
 		for _, existing := range groups[event] {
@@ -212,12 +216,18 @@ func InspectSettingsHooks(agent, home, binary, connection string) (PluginStatus,
 					h, _ := child.(map[string]any)
 					if h["command"] == entry["command"] {
 						count++
+						if h["timeout"] != float64(entry["timeout"].(int)) {
+							currentBudget = false
+						}
 					}
 				}
 				continue
 			}
 			if existing["command"] == entry["command"] {
 				count++
+				if existing["timeout"] != float64(entry["timeout"].(int)) {
+					currentBudget = false
+				}
 			}
 		}
 		if count != 1 {
@@ -227,6 +237,9 @@ func InspectSettingsHooks(agent, home, binary, connection string) (PluginStatus,
 	status.Installed = &installed
 	if installed {
 		status.PluginVersion = BundledPluginVersion
+		if !currentBudget {
+			status.PluginVersion = "0.1.2"
+		}
 		status.PluginID = "agent-manager-settings"
 		status.SourceCode = "aidr_hook_configuration_present"
 	}
