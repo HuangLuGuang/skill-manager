@@ -16,6 +16,35 @@ from backend.routers import access_tokens, mcp_gateway
 from backend.sqlite_db import Base, get_db
 
 
+def test_approval_deleted_credential_display(tmp_path, monkeypatch):
+    client, sessions = _client(tmp_path, monkeypatch)
+    with sessions() as db:
+        token = models.AccessToken(name="approval-credential", token_type="mcp_gateway",
+                                   token_hash="deleted-test", token_prefix="amat_test", status="revoked")
+        db.add(token)
+        db.flush()
+        token_id = token.id
+        db.add(models.McpToolApproval(
+            approval_hash="deleted-credential", request_id="deleted-credential", token_id=token_id,
+            gateway_slug="test", tool_name="echo", arguments_hash="hash", status="rejected",
+            expires_at=datetime(2026, 1, 1), created_by="test",
+        ))
+        db.commit()
+    # 吊销与删除分别判断；删除后历史审批仍能查询。
+    for deleted in (False, True):
+        if deleted:
+            assert client.delete(f"/api/v1/access/tokens/{token_id}").status_code == 200
+        detail = client.get("/api/v1/mcp/approval-requests/deleted-credential")
+        listing = client.get("/api/v1/mcp/approval-requests", params={"q": "deleted-credential"})
+        assert detail.status_code == listing.status_code == 200
+        assert listing.json()["total"] == 1
+        for row in (detail.json(), listing.json()["items"][0]):
+            assert row["token_deleted"] is deleted
+            assert row["token_name"] == ("" if deleted else "approval-credential")
+            assert row["token_prefix"] == ("" if deleted else "amat_test")
+            assert row["status"] == "rejected"
+
+
 @pytest.mark.parametrize("day", [
     datetime(2026, 10, 23), datetime(2026, 11, 1), datetime(2027, 1, 1),
 ])
@@ -66,7 +95,76 @@ def test_approval_stats_use_beijing_calendar_day(tmp_path, monkeypatch, day, ela
     assert response.status_code == 200
     assert response.json() == {
         "pending": 1, "approved_today": 9, "rejected_today": 3, "expired": 6,
+        "timed_out_today": 0, "approved_expired_today": 3,
     }
+
+
+@pytest.mark.parametrize("day", [datetime(2026, 10, 28), datetime(2026, 11, 1), datetime(2027, 1, 1)])
+def test_approval_statistics_drilldown_and_display(tmp_path, monkeypatch, day):
+    client, sessions = _client(tmp_path, monkeypatch)
+    start = day - timedelta(hours=8)
+    now = start + timedelta(hours=12)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def utcnow(cls):
+            return now
+
+    monkeypatch.setattr(mcp_gateway, "datetime", FixedDatetime)
+    # 申请日不同于审批日；跨日到期、未审批超时和拒绝分别保留业务含义。
+    fixtures = [
+        ("pending", "pending", None, now + timedelta(seconds=1), "pending", None),
+        ("valid", "approved", start, now + timedelta(hours=1), "approved", "valid"),
+        ("expired", "approved", start, now - timedelta(seconds=1), "approved", "expired"),
+        ("old-approved", "approved", start - timedelta(microseconds=1), now - timedelta(seconds=1), "approved", "expired"),
+        ("rejected", "rejected", start, start, "rejected", None),
+        ("timeout", "pending", None, start, "timed_out", None),
+        ("old-timeout", "expired", None, start - timedelta(microseconds=1), "timed_out", None),
+        ("used", "used", start, now - timedelta(seconds=1), "approved", "used"),
+        ("legacy-used", "used", None, start, "used", "used"),
+        ("cancelled", "cancelled", None, start, "cancelled", None),
+        ("active", "active", None, now + timedelta(hours=1), "active", None),
+        ("boundary", "pending", None, now, "pending", None),
+    ]
+    with sessions() as db:
+        for key, state, reviewed, expires, _, _ in fixtures:
+            db.add(models.McpToolApproval(
+                approval_hash=key, request_id=key, token_id=1,
+                gateway_slug="stats-test", tool_name="test_tool", arguments_hash="hash",
+                status=state, expires_at=expires, created_by="test",
+                reviewed_at=reviewed, created_at=start - timedelta(days=2),
+            ))
+        db.commit()
+    stats = client.get("/api/v1/mcp/approval-requests/stats").json()
+    expected = {
+        "pending": {"pending", "boundary"}, "approved_today": {"valid", "expired", "used"},
+        "rejected_today": {"rejected"}, "timed_out_today": {"timeout"},
+        "approved_expired_today": {"expired"},
+    }
+    for scope, ids in expected.items():
+        response = client.get("/api/v1/mcp/approval-requests", params={"statistic": scope})
+        assert response.status_code == 200
+        assert response.json()["total"] == stats[scope] == len(ids)
+        assert {item["request_id"] for item in response.json()["items"]} == ids
+        paged_ids = set()
+        for page in range(1, len(ids) + 1):
+            data = client.get("/api/v1/mcp/approval-requests", params={"statistic": scope, "page_size": 1, "page": page}).json()
+            assert data["total"] == len(ids)
+            paged_ids.add(data["items"][0]["request_id"])
+        assert paged_ids == ids
+        narrowed = client.get("/api/v1/mcp/approval-requests", params={"statistic": scope, "q": "no-match"}).json()
+        assert narrowed["total"] == 0
+    assert client.get("/api/v1/mcp/approval-requests", params={"statistic": "unknown"}).status_code == 422
+    listed = {row["request_id"]: row for row in client.get("/api/v1/mcp/approval-requests").json()["items"]}
+    for key, _, _, _, result, authorization in fixtures:
+        detail = client.get(f"/api/v1/mcp/approval-requests/{key}")
+        assert detail.status_code == 200
+        for row in (listed[key], detail.json()):
+            assert (row["approval_result"], row["authorization_status"]) == (result, authorization)
+    assert listed["rejected"]["status"] == "rejected"
+    # 派生状态不写回，原生命周期状态和历史审批时间保留。
+    with sessions() as db:
+        assert db.query(models.McpToolApproval).filter_by(request_id="expired").one().reviewed_at == start
 
 
 @pytest.mark.parametrize("status", [None, "pending", "approved,rejected,used,expired,cancelled"])

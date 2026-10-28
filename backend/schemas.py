@@ -830,6 +830,7 @@ class McpApprovalRequestResponse(BaseModel):
     request_id: str
     token_id: int
     token_name: str
+    token_deleted: bool = False
     token_prefix: str
     gateway_slug: str
     gateway_name: Optional[str] = None
@@ -845,6 +846,8 @@ class McpApprovalRequestResponse(BaseModel):
     arguments_revealed: bool = False
     client_ip: Optional[str] = None
     status: str
+    approval_result: str
+    authorization_status: Optional[str] = None
     expires_at: datetime
     created_by: str
     created_at: datetime
@@ -869,6 +872,8 @@ class McpApprovalRequestStatsResponse(BaseModel):
     approved_today: int = 0
     rejected_today: int = 0
     expired: int = 0
+    timed_out_today: int = 0
+    approved_expired_today: int = 0
 
 
 class McpApprovalRuntimeStatusResponse(BaseModel):

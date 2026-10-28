@@ -321,3 +321,7 @@ make sandbox-runtime-build
 - MCP Tool 策略弹窗通过 `toolApprovalRequired` 共用高风险或破坏性的强制条件，`toolApprovalChecked` 统一选中态与保存值；强制时显示开启并禁用，解除强制后保留普通审批草稿。复用现有双语提示及后端规则，接口组合回归见 `test_tool_policy_approval_matches_effective_conditions`；UI按场景人工验收。
 
 - MCP 调试平台网关 Tool 历史通过 `isPendingDebugApproval` 按 `approval_required=true` 与 `status=pending` 识别待审批；历史与本次提示复用 `mcpDebug.pendingApproval` / `pendingApprovalHint`。本次请求已结束，审批后需再次调用；历史保留当次状态及原始响应。直连沿用既有状态逻辑；分类纯数据回归见 `tests/mcp_debug_requests.test.mjs`。
+
+- MCP审批列表/详情通过approval_result和authorization_status分别展示审批结果与授权状态，保留原status执行语义；五张统计卡片和列表statistic共用SQL条件及北京时间边界，今日批准已过期按reviewed_at计入。卡片点击清空普通筛选并保留页大小；分页刷新保留范围，切换页签或清除范围退出。无需数据库迁移，回归覆盖tests/test_mcp_gateway.py。
+
+- MCP审批凭证删除展示使用接口token_deleted布尔值及mcpApproval.credentialDeleted双语资源；列表和详情共用credentialLabel，保留历史审批状态，吊销不等于删除。

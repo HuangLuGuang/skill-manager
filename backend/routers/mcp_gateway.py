@@ -14,7 +14,7 @@ from typing import Literal
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from jsonschema import ValidationError, validate
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -898,8 +898,8 @@ def _append_approval_audit(
         logger.exception("Failed to append MCP approval audit event for %s", row.request_id or row.id)
 
 
-def _expire_approval_requests(db: Session) -> None:
-    now = datetime.utcnow()
+def _expire_approval_requests(db: Session, now: datetime | None = None) -> None:
+    now = now or datetime.utcnow()
     rows = db.query(models.McpToolApproval).filter(
         models.McpToolApproval.request_id.is_not(None),
         models.McpToolApproval.status.in_(["pending", "approved"]),
@@ -914,6 +914,40 @@ def _expire_approval_requests(db: Session) -> None:
         _append_approval_audit(db, row, "mcp.approval.expired", "system", "expire")
 
 
+# 审批结论和授权生命周期分别展示，保留原状态供执行路径使用。
+def _approval_display_state(row: models.McpToolApproval) -> tuple[str, str | None]:
+    if row.status == "expired":
+        return ("approved", "expired") if row.reviewed_at else ("timed_out", None)
+    if row.status == "approved":
+        return "approved", "valid"
+    if row.status == "used":
+        return ("approved" if row.reviewed_at else "used"), "used"
+    return row.status, None
+
+
+ApprovalStatistic = Literal[
+    "pending", "approved_today", "rejected_today", "timed_out_today", "approved_expired_today",
+]
+
+
+def _approval_statistic_conditions(now: datetime) -> dict:
+    # 卡片和列表共用北京时间日界线及 SQL 条件，批准过期按批准日期计入。
+    today = (now + timedelta(hours=8)).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=8)
+    tomorrow = today + timedelta(days=1)
+    row = models.McpToolApproval
+    reviewed_today = and_(row.reviewed_at >= today, row.reviewed_at < tomorrow)
+    return {
+        "pending": and_(row.status == "pending", row.expires_at >= now),
+        "approved_today": and_(row.status.in_(["approved", "used", "expired"]), reviewed_today),
+        "rejected_today": and_(row.status == "rejected", reviewed_today),
+        "timed_out_today": and_(
+            row.status == "expired", row.reviewed_at.is_(None),
+            row.expires_at >= today, row.expires_at < tomorrow, row.expires_at < now,
+        ),
+        "approved_expired_today": and_(row.status == "expired", reviewed_today),
+    }
+
+
 def _approval_request_response(
     db: Session,
     row: models.McpToolApproval,
@@ -924,10 +958,12 @@ def _approval_request_response(
     gateway = db.query(models.McpGateway).filter(models.McpGateway.slug == row.gateway_slug).first()
     tool = db.query(models.McpTool).filter(models.McpTool.id == row.tool_id).first() if row.tool_id else None
     arguments = _approval_arguments(row)
+    approval_result, authorization_status = _approval_display_state(row)
     return schemas.McpApprovalRequestResponse(
         request_id=row.request_id or "",
         token_id=row.token_id,
-        token_name=token.name if token else f"Token #{row.token_id}",
+        token_name=token.name if token else "",
+        token_deleted=token is None,
         token_prefix=token.token_prefix if token else "",
         gateway_slug=row.gateway_slug,
         gateway_name=gateway.name if gateway else None,
@@ -943,6 +979,8 @@ def _approval_request_response(
         arguments_revealed=reveal_arguments,
         client_ip=row.client_ip,
         status=row.status,
+        approval_result=approval_result,
+        authorization_status=authorization_status,
         expires_at=row.expires_at,
         created_by=row.created_by,
         created_at=row.created_at,
@@ -958,24 +996,12 @@ def _approval_request_response(
 
 @admin_router.get("/approval-requests/stats", response_model=schemas.McpApprovalRequestStatsResponse)
 async def approval_request_stats(db: Session = Depends(get_db)):
-    _expire_approval_requests(db)
-    # 按北京时间自然日统计，将日界线转为数据库存储的 UTC 无时区时间。
-    today = datetime.now(timezone(timedelta(hours=8))).replace(hour=0, minute=0, second=0, microsecond=0)
-    today = today.astimezone(timezone.utc).replace(tzinfo=None)
-    tomorrow = today + timedelta(days=1)
+    now = datetime.utcnow()
+    _expire_approval_requests(db, now)
     query = db.query(models.McpToolApproval).filter(models.McpToolApproval.request_id.is_not(None))
+    counts = {key: query.filter(condition).count() for key, condition in _approval_statistic_conditions(now).items()}
     return schemas.McpApprovalRequestStatsResponse(
-        pending=query.filter(models.McpToolApproval.status == "pending").count(),
-        approved_today=query.filter(
-            models.McpToolApproval.status.in_(["approved", "used", "expired"]),
-            models.McpToolApproval.reviewed_at >= today,
-            models.McpToolApproval.reviewed_at < tomorrow,
-        ).count(),
-        rejected_today=query.filter(
-            models.McpToolApproval.status == "rejected",
-            models.McpToolApproval.reviewed_at >= today,
-            models.McpToolApproval.reviewed_at < tomorrow,
-        ).count(),
+        **counts,
         expired=query.filter(models.McpToolApproval.status == "expired").count(),
     )
 
@@ -983,6 +1009,7 @@ async def approval_request_stats(db: Session = Depends(get_db)):
 @admin_router.get("/approval-requests", response_model=schemas.McpApprovalRequestListResponse)
 async def list_approval_requests(
     status: str | None = None,
+    statistic: ApprovalStatistic | None = None,
     gateway_slug: str | None = None,
     tool_name: str | None = None,
     token_name: str | None = None,
@@ -994,12 +1021,15 @@ async def list_approval_requests(
     page_size: int = 20,
     db: Session = Depends(get_db),
 ):
-    _expire_approval_requests(db)
+    now = datetime.utcnow()
+    _expire_approval_requests(db, now)
     page = max(1, page)
     page_size = min(max(1, page_size), 100)
     query = db.query(models.McpToolApproval).outerjoin(
         models.AccessToken, models.AccessToken.id == models.McpToolApproval.token_id
     ).filter(models.McpToolApproval.request_id.is_not(None))
+    if statistic:
+        query = query.filter(_approval_statistic_conditions(now)[statistic])
     if status:
         statuses = [item.strip() for item in status.split(",") if item.strip()]
         if statuses:

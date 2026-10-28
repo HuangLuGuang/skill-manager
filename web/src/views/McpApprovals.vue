@@ -5,20 +5,12 @@
         <a-page-header :title="t('mcpApproval.title')" :sub-title="t('mcpApproval.subtitle')" />
       </template>
 
-    <a-row :gutter="[16, 16]" class="stats-row">
-      <a-col :xs="12" :lg="6">
-        <a-card size="small"><a-statistic :title="t('mcpApproval.pending')" :value="stats.pending" :value-style="{ color: '#cf1322' }" /></a-card>
-      </a-col>
-      <a-col :xs="12" :lg="6">
-        <a-card size="small"><a-statistic :title="t('mcpApproval.approvedToday')" :value="stats.approved_today" :value-style="{ color: '#3f8600' }" /></a-card>
-      </a-col>
-      <a-col :xs="12" :lg="6">
-        <a-card size="small"><a-statistic :title="t('mcpApproval.rejectedToday')" :value="stats.rejected_today" /></a-card>
-      </a-col>
-      <a-col :xs="12" :lg="6">
-        <a-card size="small"><a-statistic :title="t('mcpApproval.expired')" :value="stats.expired" /></a-card>
-      </a-col>
-    </a-row>
+    <div class="stats-row">
+      <button v-for="card in statisticCards" :key="card.key" type="button" class="statistic-card"
+        :class="{ selected: statistic === card.key }" :aria-pressed="statistic === card.key" @click="selectStatistic(card.key)">
+        <a-statistic :title="card.label" :value="stats[card.key]" :value-style="{ color: card.color }" />
+      </button>
+    </div>
 
     <section class="approval-card">
       <a-tabs v-model:activeKey="activeTab" @change="handleTabChange">
@@ -27,6 +19,10 @@
         <a-tab-pane key="all" :tab="t('mcpApproval.all')" />
       </a-tabs>
 
+      <div v-if="statistic" class="statistic-filter">
+        <span>{{ t('mcpApproval.statisticRange') }}：</span>
+        <a-tag color="blue" closable @close.prevent="clearStatistic">{{ statisticCards.find(card => card.key === statistic)?.label }}</a-tag>
+      </div>
       <div class="filter-bar">
         <a-space wrap class="filters">
           <a-input-search
@@ -55,24 +51,33 @@
         :loading="loading"
         :pagination="pagination"
         :locale="{ emptyText: t('mcpApproval.noRequests') }"
-        :scroll="{ x: 1180 }"
+        :scroll="{ x: 1470 }"
         size="middle"
         @change="handleTableChange"
       >
+        <template #headerCell="{ column }">
+          <template v-if="column.key === 'expires_at'">
+            {{ column.title }} <a-tooltip :title="t('mcpApproval.deadlineHelp')"><QuestionCircleOutlined /></a-tooltip>
+          </template>
+        </template>
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'requested_at'">{{ formatDateTime(record.created_at) }}</template>
           <template v-else-if="column.key === 'credential'">
-            <div class="primary-text">{{ record.token_name }}</div>
+            <div class="primary-text">{{ credentialLabel(record) }}</div>
             <div class="secondary-text">{{ record.token_prefix }}</div>
           </template>
           <template v-else-if="column.key === 'target'">
             <div class="primary-text">{{ record.gateway_name || record.gateway_slug }}</div>
             <div class="secondary-text">{{ record.server_slug }} → {{ record.tool_name }}</div>
           </template>
-          <template v-else-if="column.key === 'status'">
-            <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
+          <template v-else-if="column.key === 'approval_result'">
+            <a-tag :color="statusColor(record.approval_result)">{{ statusLabel(record.approval_result) }}</a-tag>
           </template>
-          <template v-else-if="column.key === 'expires_at'">{{ formatDateTime(record.expires_at) }}</template>
+          <template v-else-if="column.key === 'authorization_status'">
+            <a-tag v-if="record.authorization_status" :color="statusColor(record.authorization_status)">{{ statusLabel(record.authorization_status) }}</a-tag>
+            <span v-else>—</span>
+          </template>
+          <template v-else-if="column.key === 'expires_at'">{{ record.approval_result === 'rejected' ? '—' : formatDateTime(record.expires_at) }}</template>
           <template v-else-if="column.key === 'actions'">
             <a-space>
               <a-button type="link" @click="openDetails(record)">{{ t('mcpApproval.details') }}</a-button>
@@ -94,7 +99,7 @@
           <a-alert v-if="detail.schema_changed" type="error" show-icon :message="t('mcpApproval.schemaChanged')" class="detail-alert" />
           <a-descriptions :title="t('mcpApproval.callSource')" bordered :column="2" size="small">
             <a-descriptions-item :label="t('mcpApproval.requestId')" :span="2"><code>{{ detail.request_id }}</code></a-descriptions-item>
-            <a-descriptions-item :label="t('mcpApproval.credential')">{{ detail.token_name }}</a-descriptions-item>
+            <a-descriptions-item :label="t('mcpApproval.credential')">{{ credentialLabel(detail) }}</a-descriptions-item>
             <a-descriptions-item :label="t('mcpApproval.tokenPrefix')">{{ detail.token_prefix }}</a-descriptions-item>
             <a-descriptions-item :label="t('mcpApproval.sourceIp')">{{ detail.client_ip || '-' }}</a-descriptions-item>
             <a-descriptions-item :label="t('mcpApproval.requestedAt')">{{ formatDateTime(detail.created_at) }}</a-descriptions-item>
@@ -121,13 +126,20 @@
           <a-alert v-if="!detail.arguments_revealed" type="warning" show-icon :message="t('mcpApproval.maskedArguments')" :description="t('mcpApproval.rawArgumentsWarning')" class="detail-alert" />
           <pre class="arguments-json">{{ prettyArguments }}</pre>
 
-          <a-descriptions v-if="detail.reviewed_at" :title="t('mcpApproval.reviewInformation')" bordered :column="2" size="small" class="detail-section">
-            <a-descriptions-item :label="t('mcpApproval.status')"><a-tag :color="statusColor(detail.status)">{{ statusLabel(detail.status) }}</a-tag></a-descriptions-item>
-            <a-descriptions-item :label="t('mcpApproval.reviewedBy')">{{ detail.reviewed_by }}</a-descriptions-item>
+          <a-descriptions :title="t('mcpApproval.reviewInformation')" bordered :column="2" size="small" class="detail-section">
+            <a-descriptions-item :label="t('mcpApproval.approvalResult')"><a-tag :color="statusColor(detail.approval_result)">{{ statusLabel(detail.approval_result) }}</a-tag></a-descriptions-item>
+            <a-descriptions-item :label="t('mcpApproval.authorizationStatus')">
+              <a-tag v-if="detail.authorization_status" :color="statusColor(detail.authorization_status)">{{ statusLabel(detail.authorization_status) }}</a-tag><span v-else>—</span>
+            </a-descriptions-item>
+            <a-descriptions-item :label="t('mcpApproval.reviewedBy')">{{ detail.reviewed_by || '—' }}</a-descriptions-item>
             <a-descriptions-item :label="t('mcpApproval.reviewedAt')">{{ formatDateTime(detail.reviewed_at) }}</a-descriptions-item>
             <a-descriptions-item :label="t('mcpApproval.reviewComment')">{{ detail.review_comment || '-' }}</a-descriptions-item>
-            <a-descriptions-item :label="t('mcpApproval.useCount')">{{ detail.use_count || 0 }}</a-descriptions-item>
-            <a-descriptions-item :label="t('mcpApproval.lastUsedAt')">{{ detail.last_used_at ? formatDateTime(detail.last_used_at) : '-' }}</a-descriptions-item>
+            <template v-if="detail.approval_result === 'approved'">
+              <a-descriptions-item :label="t('mcpApproval.authorizationExpiresAt')">{{ formatDateTime(detail.expires_at) }}</a-descriptions-item>
+              <a-descriptions-item :label="t('mcpApproval.useCount')">{{ detail.use_count || 0 }}</a-descriptions-item>
+              <a-descriptions-item :label="t('mcpApproval.lastUsedAt')">{{ detail.last_used_at ? formatDateTime(detail.last_used_at) : '—' }}</a-descriptions-item>
+            </template>
+            <a-descriptions-item v-if="['pending', 'timed_out'].includes(detail.approval_result)" :label="t('mcpApproval.applicationDeadline')">{{ formatDateTime(detail.expires_at) }}</a-descriptions-item>
           </a-descriptions>
 
           <div v-if="detail.status === 'pending'" class="drawer-actions">
@@ -183,6 +195,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
+import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 
 import {
   approveMcpApprovalRequest,
@@ -194,7 +207,7 @@ import {
 } from '../api'
 import { formatBeijingDateTime as formatDateTime } from '../utils/format'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const loading = ref(false)
 const refreshing = ref(false)
@@ -202,6 +215,7 @@ const detailLoading = ref(false)
 const revealing = ref(false)
 const submitting = ref(false)
 const activeTab = ref('pending')
+const statistic = ref(undefined)
 const rows = ref([])
 const gateways = ref([])
 const detail = ref(null)
@@ -210,7 +224,7 @@ const detailVisible = ref(false)
 const approveVisible = ref(false)
 const rejectVisible = ref(false)
 const rejectReason = ref('')
-const stats = reactive({ pending: 0, approved_today: 0, rejected_today: 0, expired: 0 })
+const stats = reactive({ pending: 0, approved_today: 0, rejected_today: 0, timed_out_today: 0, approved_expired_today: 0 })
 const filters = reactive({ q: '', gateway_slug: undefined, tool_name: '', token_name: '', timeRange: [] })
 const approveForm = reactive({ ttl_seconds: 300, comment: '' })
 const pagination = reactive({
@@ -227,16 +241,27 @@ const columns = computed(() => [
   { title: t('mcpApproval.credential'), key: 'credential', width: 180 },
   { title: t('mcpApproval.tool'), key: 'target', width: 280 },
   { title: t('mcpApproval.sourceIp'), dataIndex: 'client_ip', key: 'client_ip', width: 140 },
-  { title: t('mcpApproval.expiresAt'), key: 'expires_at', width: 180 },
-  { title: t('mcpApproval.status'), key: 'status', width: 110 },
+  { title: t('mcpApproval.deadline'), key: 'expires_at', width: 180 },
+  { title: t('mcpApproval.approvalResult'), key: 'approval_result', width: 120 },
+  { title: t('mcpApproval.authorizationStatus'), key: 'authorization_status', width: 180 },
   { title: t('mcpApproval.actions'), key: 'actions', width: 210, fixed: 'right' },
 ])
 
+// 删除状态由接口明确提供，列表和详情共用双语文案。
+const credentialLabel = record => record.token_deleted ? t('mcpApproval.credentialDeleted') : record.token_name
 const prettyArguments = computed(() => JSON.stringify(detail.value?.arguments || {}, null, 2))
 const riskColor = risk => ({ low: 'green', medium: 'orange', high: 'red' }[risk])
-const statusColor = status => ({ pending: 'orange', approved: 'blue', rejected: 'red', used: 'green', expired: 'default', cancelled: 'default', active: 'blue' }[status] || 'default')
-const statusLabel = status => t(`mcpApproval.${status}`)
+const statusColor = status => ({ pending: 'orange', timed_out: 'orange', valid: 'green', approved: 'blue', rejected: 'red', used: 'green', expired: 'default', cancelled: 'default', active: 'blue' }[status] || 'default')
+const statusLabel = status => te(`mcpApproval.${status}`) ? t(`mcpApproval.${status}`) : status
 const statusFilter = () => ({ pending: 'pending', processed: 'approved,rejected,used,expired,cancelled', all: undefined }[activeTab.value])
+
+const statisticCards = computed(() => [
+  { key: 'pending', label: t('mcpApproval.pending'), color: '#cf1322' },
+  { key: 'approved_today', label: t('mcpApproval.approvedToday'), color: '#3f8600' },
+  { key: 'rejected_today', label: t('mcpApproval.rejectedToday') },
+  { key: 'timed_out_today', label: t('mcpApproval.timedOutToday') },
+  { key: 'approved_expired_today', label: t('mcpApproval.approvedExpiredToday') },
+])
 
 const emitStats = () => window.dispatchEvent(new CustomEvent('mcp-approval-stats', { detail: { ...stats } }))
 
@@ -259,6 +284,7 @@ const fetchRows = async () => {
     const timeRange = filters.timeRange || []
     const data = await listMcpApprovalRequests({
       status: statusFilter(),
+      statistic: statistic.value,
       q: filters.q.trim() || undefined,
       gateway_slug: filters.gateway_slug || undefined,
       tool_name: filters.tool_name.trim() || undefined,
@@ -300,7 +326,22 @@ const refreshManually = async () => {
   }
 }
 
-const handleTabChange = () => applyFilters()
+const handleTabChange = () => {
+  statistic.value = undefined
+  return applyFilters()
+}
+const selectStatistic = key => {
+  statistic.value = key
+  activeTab.value = 'all'
+  // 清空后统一查询，取消文本监听产生的防抖任务，保留每页数量。
+  Object.assign(filters, { q: '', gateway_slug: undefined, tool_name: '', token_name: '', timeRange: [] })
+  return applyFilters()
+}
+const clearStatistic = () => {
+  statistic.value = undefined
+  activeTab.value = 'all'
+  return applyFilters()
+}
 const handleTableChange = next => {
   pagination.pageSize = next.pageSize
   // 待执行筛选优先回第一页，避免翻页取消防抖后查询错误页码。
@@ -424,7 +465,11 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.stats-row { margin: 8px 0 16px; }
+.stats-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; margin: 8px 0 16px; }
+.statistic-card { padding: 16px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; text-align: left; cursor: pointer; font: inherit; }
+.statistic-card:hover, .statistic-card.selected { border-color: #1677ff; background: #f0f5ff; }
+.statistic-card:focus-visible { outline: 2px solid #1677ff; outline-offset: 2px; }
+.statistic-filter { margin-bottom: 12px; }
 .approval-card { min-height: 520px; }
 .filter-bar { display: block; width: 100%; margin-bottom: 16px; }
 .filters { display: flex; width: 100%; }
@@ -441,6 +486,7 @@ onUnmounted(() => {
 .drawer-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; padding-top: 16px; border-top: 1px solid #f0f0f0; }
 .modal-alert { margin-bottom: 16px; }
 @media (max-width: 768px) {
+  .stats-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .filters :deep(.ant-space-item) { width: 100%; }
   .search-input, .filter-control, .date-filter { width: 100%; }
 }
