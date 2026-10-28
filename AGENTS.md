@@ -317,3 +317,5 @@ make sandbox-runtime-build
 - MCP调试直连鉴权值纯空白时即时显示 `mcpDebug.authorizationWhitespace` 双语字段错误，保留草稿并在连接前拦截；后端仅在调试schema使用 `mcp.server.invalid_fields` / `whitespace` 拒绝。正常值中的空格、空值复用及临时凭证不写回语义保持。
 
 - MCP 调试历史的直连请求在 `_post_upstream` 实际发送边界记录到本次临时实例，复用审批敏感字段脱敏；成功以 `request`、异常以 `error_params.debug_request` 返回。页面独立展示当次 Endpoint，请求 id 取自发送记录；初始化失败按真实方法展示，缺请求显示 `mcpDebug.requestNotRecorded`。平台网关仅脱敏历史副本，原参数继续发送；后端回归 `test_debug_history_uses_sent_request`，展示数据转换回归 `tests/mcp_debug_requests.test.mjs`。
+
+- MCP Tool 策略弹窗通过 `toolApprovalRequired` 共用高风险或破坏性的强制条件，`toolApprovalChecked` 统一选中态与保存值；强制时显示开启并禁用，解除强制后保留普通审批草稿。复用现有双语提示及后端规则，接口组合回归见 `test_tool_policy_approval_matches_effective_conditions`；UI按场景人工验收。

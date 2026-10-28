@@ -176,8 +176,8 @@
           <a-col :span="12"><a-form-item :label="$t('mcpSecurity.callsPerMinute')"><a-input-number v-model:value="toolPolicyForm.rate_limit_per_minute" :min="1" :max="10000" style="width: 100%" /></a-form-item></a-col>
           <a-col :span="12"><a-form-item :label="$t('mcpSecurity.maximumConcurrency')"><a-input-number v-model:value="toolPolicyForm.max_concurrent" :min="1" :max="100" style="width: 100%" /></a-form-item></a-col>
         </a-row>
-        <a-form-item :label="$t('mcpSecurity.preExecutionApproval')"><a-switch v-model:checked="toolPolicyForm.requires_approval" :disabled="toolPolicyForm.risk_level === 'high' || toolPolicyForm.access_mode === 'destructive'" /></a-form-item>
-        <a-alert v-if="toolPolicyForm.risk_level === 'high' || toolPolicyForm.access_mode === 'destructive'" type="warning" show-icon :message="toolPolicyForm.access_mode === 'destructive' ? $t('mcpSecurity.destructiveApprovalHint') : $t('mcpSecurity.highRiskHint')" />
+        <a-form-item :label="$t('mcpSecurity.preExecutionApproval')"><a-switch v-model:checked="toolApprovalChecked" :disabled="toolApprovalRequired" /></a-form-item>
+        <a-alert v-if="toolApprovalRequired" type="warning" show-icon :message="toolPolicyForm.access_mode === 'destructive' ? $t('mcpSecurity.destructiveApprovalHint') : $t('mcpSecurity.highRiskHint')" />
       </a-form>
     </a-modal>
 
@@ -324,6 +324,12 @@ const stepServerNumber = (field, delta) => {
 }
 const gatewayForm = reactive({ slug: '', name: '', description: '', environment: 'test', execution_mode: 'active_safe', production_tool_denylist: [], status: 'active', tools: [] })
 const toolPolicyForm = reactive({ id: null, access_mode: 'unknown', risk_level: 'low', rate_limit_per_minute: 60, max_concurrent: 5, requires_approval: false })
+const toolApprovalRequired = computed(() => toolPolicyForm.risk_level === 'high' || toolPolicyForm.access_mode === 'destructive')
+// 强制审批即时显示开启，普通条件下保留用户原有草稿。
+const toolApprovalChecked = computed({
+  get: () => toolApprovalRequired.value || toolPolicyForm.requires_approval,
+  set: value => { toolPolicyForm.requires_approval = value },
+})
 
 const serverColumns = computed(() => [
   { title: 'MCP Server', key: 'server' },
@@ -553,7 +559,7 @@ const saveToolPolicy = async () => {
       risk_level: toolPolicyForm.risk_level,
       rate_limit_per_minute: toolPolicyForm.rate_limit_per_minute,
       max_concurrent: toolPolicyForm.max_concurrent,
-      requires_approval: toolPolicyForm.risk_level === 'high' || toolPolicyForm.access_mode === 'destructive' || toolPolicyForm.requires_approval,
+      requires_approval: toolApprovalChecked.value,
     })
     toolPolicyVisible.value = false
     await fetchAll()

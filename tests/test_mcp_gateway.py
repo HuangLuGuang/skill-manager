@@ -1555,3 +1555,25 @@ def test_debug_history_uses_sent_request(tmp_path, monkeypatch, method, params, 
     assert "header-secret" not in response.text
     if method == "tools/call" and failure not in {"initialize", "notification", "destination"}:
         assert "private-input" not in response.text
+
+
+@pytest.mark.parametrize("access_mode", ["unknown", "read", "write", "destructive"])
+@pytest.mark.parametrize("risk_level", ["low", "medium", "high"])
+def test_tool_policy_approval_matches_effective_conditions(tmp_path, monkeypatch, access_mode, risk_level):
+    """审批界面与保存接口共用高风险、破坏性工具的强制审批语义。"""
+    client, sessions = _client(tmp_path, monkeypatch)
+    _configured_gateway(client)
+    tool = client.get("/api/v1/mcp/servers").json()[0]["tools"][0]
+    for draft in (False, True):
+        response = client.put(f"/api/v1/mcp/tools/{tool['id']}/policy", json={
+            "access_mode": access_mode, "risk_level": risk_level,
+            "requires_approval": draft, "rate_limit_per_minute": 60, "max_concurrent": 5,
+        })
+        expected = access_mode == "destructive" or risk_level == "high" or draft
+        assert response.status_code == 200
+        assert response.json()["requires_approval"] is expected
+        with sessions() as db:
+            saved = db.get(models.McpTool, tool["id"])
+            assert saved.requires_approval is expected
+            assert saved.access_mode == access_mode
+            assert saved.risk_level == risk_level
