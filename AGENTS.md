@@ -315,3 +315,5 @@ make sandbox-runtime-build
 - Skill 详情基础信息的结果复用使用 `skillDetail.notReused` / `skillDetail.reused` 显示“未复用 / 已复用”，来源关联集中展示于版本检测记录。
 
 - MCP调试直连鉴权值纯空白时即时显示 `mcpDebug.authorizationWhitespace` 双语字段错误，保留草稿并在连接前拦截；后端仅在调试schema使用 `mcp.server.invalid_fields` / `whitespace` 拒绝。正常值中的空格、空值复用及临时凭证不写回语义保持。
+
+- MCP 调试根级组合、引用、条件及动态对象参数使用原始JSON输入，模式识别和对象解析复用 `web/src/utils/mcpDebug.js`；输入框提供JSON格式示例并说明字段名按实际参数填写，格式错误明确双引号要求；非法JSON或非对象在发送前显示 `mcpDebug` 双语字段错误并保留草稿，合法对象原样提交。普通properties表单及const保持，切换Tool/重置清除原始参数及错误，切换语言保留草稿。
