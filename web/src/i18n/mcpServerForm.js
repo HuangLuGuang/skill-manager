@@ -12,6 +12,7 @@ export const mcpServerFormMessages = {
       "description": "描述"
     },
     "reasons": {
+      "whitespace": "不能仅包含空白字符",
       "required": "不能为空",
       "length": "最多 {limit} 个字符",
       "text": "必须是文本",
@@ -53,6 +54,7 @@ export const mcpServerFormMessages = {
       "description": "Description"
     },
     "reasons": {
+      "whitespace": "must not contain only whitespace",
       "required": "is required",
       "length": "must not exceed {limit} characters",
       "text": "must be text",

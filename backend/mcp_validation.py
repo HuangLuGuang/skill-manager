@@ -21,6 +21,7 @@ FIELDS = {
     "description": ("描述", "Description"),
 }
 REASONS = {
+    "whitespace": ("不能仅包含空白字符", "must not contain only whitespace"),
     "required": ("不能为空", "is required"),
     "length": ("最多 {limit} 个字符", "must not exceed {limit} characters"),
     "text": ("必须是文本", "must be text"),

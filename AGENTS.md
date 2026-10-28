@@ -319,3 +319,6 @@ make sandbox-runtime-build
 - Skill PDF 在“Skill 信息与来源”展示提交时间，在“扫描范围与执行状态”展示当前版本扫描缓存 Key。自动拒绝的操作来源与时间读取本次扫描完成或复用审计事件；策略审核结果展示状态及时间，人工备注展示前30个Unicode字符并悬浮查看全文。历史记录不回写。
 
 - 首次扫描失败的生命周期显示“提交 → 扫描失败 → 拒绝”，详情使用稳定来源 `scan_failed`，拒绝时间读取导致当前失败的审计事件；展示“扫描未完成，无法通过准入。”及原始失败原因（30字符预览、悬浮全文）。标记 `effective_result_preserved` 的失败复扫保留原有效结果和审核时间。历史记录仅在读取时补充来源，不回写。
+- MCP调试直连鉴权值纯空白时即时显示 `mcpDebug.authorizationWhitespace` 双语字段错误，保留草稿并在连接前拦截；后端仅在调试schema使用 `mcp.server.invalid_fields` / `whitespace` 拒绝。正常值中的空格、空值复用及临时凭证不写回语义保持。
+
+- MCP 调试根级组合、引用、条件及动态对象参数使用原始JSON输入，模式识别和对象解析复用 `web/src/utils/mcpDebug.js`；输入框提供JSON格式示例并说明字段名按实际参数填写，格式错误明确双引号要求；非法JSON或非对象在发送前显示 `mcpDebug` 双语字段错误并保留草稿，合法对象原样提交。普通properties表单及const保持，切换Tool/重置清除原始参数及错误，切换语言保留草稿。
