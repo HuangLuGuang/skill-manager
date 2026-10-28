@@ -41,8 +41,8 @@
             <a-form-item :label="$t('legacy.17s488l')"><a-input v-model:value="authorizationHeader" /></a-form-item>
           </a-col>
           <a-col :xs="24" :lg="11">
-            <a-form-item :label="$t('legacy.1iwkwic')">
-              <a-input-password v-model:value="authorizationValue" autocomplete="off" :placeholder="$t('legacy.1479ky1')" />
+            <a-form-item :label="$t('legacy.1iwkwic')" :validate-status="authorizationWhitespace ? 'error' : undefined" :help="authorizationWhitespace ? t('mcpDebug.authorizationWhitespace') : undefined">
+              <a-input-password ref="authorizationInput" v-model:value="authorizationValue" autocomplete="off" :aria-invalid="authorizationWhitespace" :placeholder="$t('legacy.1479ky1')" @change="resetConnection" @pressEnter="connect" />
               <div class="muted">{{ serviceSecretHint }}</div>
             </a-form-item>
           </a-col>
@@ -236,6 +236,9 @@ const endpointInput = ref(null)
 const endpointError = ref('')
 const authorizationHeader = ref('Authorization')
 const authorizationValue = ref('')
+const authorizationInput = ref(null)
+// 校验原始草稿，正常鉴权值中的空格保持原样。
+const authorizationWhitespace = computed(() => !!authorizationValue.value && !authorizationValue.value.trim())
 const timeoutSeconds = ref(30)
 const gatewaySlug = ref()
 const gatewayToken = ref('')
@@ -442,6 +445,10 @@ const request = (method, params = {}, notification = false) => targetMode.value 
 const connect = async () => {
   if (connecting.value) return
   if (targetMode.value === 'service') {
+    if (authorizationWhitespace.value) {
+      authorizationInput.value?.focus()
+      return
+    }
     endpointError.value = validateServiceEndpoint(serviceEndpoint.value)
     if (endpointError.value) {
       endpointInput.value?.focus()
