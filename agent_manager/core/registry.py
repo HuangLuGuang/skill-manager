@@ -1874,6 +1874,8 @@ class Registry:
         since: datetime | None = None,
         skill_id: str | None = None,
         limit: int = 100,
+        event_types: tuple[str, ...] = (),
+        exclude_preserved_failures: bool = False,
     ) -> list[AuditEvent]:
         with self._read_connection() as conn:
             clauses: list[str] = []
@@ -1884,6 +1886,13 @@ class Registry:
             if skill_id:
                 clauses.append("skill_id = ?")
                 params.append(skill_id)
+            if event_types:
+                placeholders = ','.join('?' for _ in event_types)
+                clauses.append(f"event_type IN ({placeholders})")
+                params.extend(event_types)
+            if exclude_preserved_failures:
+                clauses.append("NOT (event_type = 'skill_processing_failed' AND "
+                               "COALESCE(json_extract(payload, '$.details.effective_result_preserved'), 0) = 1)")
             where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
             rows = conn.execute(
                 f"""

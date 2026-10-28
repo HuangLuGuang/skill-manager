@@ -159,6 +159,10 @@
               {{ sandboxTarget }}
             </dd>
           </div>
+          <div class="basic-field skill-description">
+            <dt>{{ $t('skillDetail.description') }}</dt>
+            <dd>{{ detail?.description || '-' }}</dd>
+          </div>
         </dl>
       </a-skeleton>
     </a-card>
@@ -167,13 +171,23 @@
       <div class="lifecycle-row">
         <div class="lifecycle-heading">
           <strong>{{ $t("legacy.1uf97vz") }}</strong>
-          <a-tag :color="statusColor(detail?.status, detail)" :title="detail?.status">{{ summaryStatus(detail) }}</a-tag>
         </div>
 
-        <a-steps :current="stepIndex" size="small" class="lifecycle-steps" :responsive="false">
+        <a-steps :current="stepIndex" size="small" label-placement="horizontal" class="lifecycle-steps" :responsive="false">
           <a-step :title="$t('legacy.ybr38x')" :description="formatDateTime(detail?.submitted_at)" />
-          <a-step :title="$t('legacy.1ws11do')" :description="approvalActor" />
-          <a-step :title="$t('legacy.1tmnt86')" :description="formatDateTime(detail?.approved_at)" />
+          <a-step :title="reviewTitle" :status="scanFailureRejection ? 'error' : undefined" :description="reviewRecorded && !isPolicyReview && !scanFailureRejection ? reviewActor : undefined" />
+          <a-step :title="$t(detail?.status === 'REJECTED' ? 'skillDetail.rejected' : 'skillDetail.approved')" :status="detail?.status === 'REJECTED' ? 'error' : ['APPROVED', 'DEPLOYED'].includes(detail?.status) ? 'finish' : undefined">
+            <template #description>
+              <div v-if="reviewRecorded" class="review-record">
+                <div class="review-time">{{ reviewTime }}</div>
+                <div v-if="scanFailureRejection">{{ $t('skillDetail.scanFailureAdmission') }}</div>
+                <a-tooltip v-if="reviewNote" :title="reviewNote" overlay-class-name="review-note-tooltip">
+                  <span class="review-note">{{ reviewNotePreview }}</span>
+                </a-tooltip>
+              </div>
+              <span v-else>-</span>
+            </template>
+          </a-step>
         </a-steps>
 
         <a-space class="lifecycle-actions" wrap>
@@ -690,43 +704,14 @@
           </a-collapse>
         </a-tab-pane>
 
-        <a-tab-pane key="governance-card" :tab="$t('legacy.11y6y7p')">
-          <a-space style="margin-bottom: 12px" wrap>
-            <a-button @click="fetchGovernanceCard" :loading="loadingGovernanceCard">{{ $t("legacy.12qo56a") }}</a-button>
-            <a-button v-if="hasAccess('skills:update')" type="primary" @click="handleRefreshGovernanceCard" :loading="loadingGovernanceCard"> {{ $t("legacy.1oqld67") }} </a-button>
-            <a-radio-group v-model:value="governanceCardViewMode" button-style="solid">
-              <a-radio-button value="preview">{{ $t("legacy.k2jp4x") }}</a-radio-button>
-              <a-radio-button value="raw">{{ $t("legacy.9lvlaj") }}</a-radio-button>
-            </a-radio-group>
-            <span style="color: #8c8c8c">
-              {{ governanceCard?.generated_at
-                ? text(
-                  `生成时间：${formatDateTime(governanceCard.generated_at)}`,
-                  `Generated: ${formatDateTime(governanceCard.generated_at)}`,
-                )
-                : $t('legacy.1gshff6') }}
-            </span>
-          </a-space>
-          <a-skeleton v-if="loadingGovernanceCard && !governanceCard" active />
-          <template v-else-if="governanceCardViewMode === 'preview'">
-            <div class="markdown-body governance-card-preview" v-html="governanceCardHtml" />
-          </template>
-          <template v-else>
-            <div class="code-preview">
-              <div v-for="line in governanceCardLines" :key="line.no" class="code-line">
-                <span class="line-no">{{ line.no }}</span>
-                <span class="line-text">{{ line.text || ' ' }}</span>
-              </div>
-            </div>
-          </template>
-        </a-tab-pane>
-
         <a-tab-pane key="signature" :tab="$t('legacy.y6whtf')">
           <a-descriptions :column="1" size="small" bordered>
             <!-- 内容指纹在导入时生成，展示使用当前版本的指纹字段。 -->
             <a-descriptions-item :label="$t('skillDetail.fingerprintExists')">{{ detail?.content_fingerprint ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
             <a-descriptions-item :label="$t('skillDetail.fingerprintPreview')">{{ detail?.content_fingerprint ? `${detail.content_fingerprint.slice(0, 24)}...` : '-' }}</a-descriptions-item>
             <a-descriptions-item :label="$t('legacy.1a9csig')">{{ signatureResult ? (signatureResult.valid ? $t('legacy.j666m6') : $t('legacy.12db3qz')) : $t('legacy.39zt54') }}</a-descriptions-item>
+            <a-descriptions-item :label="$t('skillDetail.signatureStatus')">{{ $t(detail?.signature ? 'skillDetail.signed' : 'skillDetail.unsigned') }}</a-descriptions-item>
+            <a-descriptions-item :label="$t('skillDetail.signaturePreview')">{{ detail?.signature ? `${detail.signature.slice(0, 24)}...` : '-' }}</a-descriptions-item>
           </a-descriptions>
         </a-tab-pane>
 
@@ -979,7 +964,7 @@
         </a-tab-pane>
       </a-tabs>
     </a-card>
-
+    <p class="capability-boundary">{{ $t('skillDetail.capabilityBoundary') }}</p>
     </a-card>
 
     <a-modal
@@ -1148,18 +1133,16 @@ import {
   getSkillDetail,
   getSkillFileContent,
   getSkillFiles,
-  getSkillGovernanceCard,
   getSkillScanReport,
   getSkillVersionDiff,
   getSkillVersionScanRuns,
   getSkillVersions,
   listClients,
-  refreshSkillGovernanceCard,
   rejectSkill,
   rescanSkill,
   verifySkillSignature,
 } from '../api'
-import { formatDateTime } from '../utils/format'
+import { formatBeijingDateTime as formatDateTime } from '../utils/format'
 import { parseUnifiedDiff } from '../utils/diff'
 import { analysisState, formatLlmFailureReason, llmFailureReason } from '../utils/decisionFlow'
 import { translateDomain } from '../i18n'
@@ -1214,7 +1197,6 @@ let diffRequestId = 0
 let loadedDiffKey = ''
 let pendingDiffKey = ''
 const loadingScanRuns = ref(false)
-const loadingGovernanceCard = ref(false)
 const verifyingSignature = ref(false)
 const downloadingSkill = ref(false)
 const exportingScanReport = ref(false)
@@ -1223,7 +1205,6 @@ const actionType = ref('')
 const detail = ref(null)
 const auditRows = ref([])
 const scanReport = ref(null)
-const governanceCard = ref(null)
 const skillContent = ref(null)
 const skillFiles = ref([])
 const skillVersions = ref([])
@@ -1241,7 +1222,6 @@ const loadingFileViewer = ref(false)
 const viewingFilePath = ref('')
 const viewedFile = ref(null)
 const contentViewMode = ref('preview')
-const governanceCardViewMode = ref('preview')
 const skillspectorFindingsActiveKey = ref([])
 const approveModalOpen = ref(false)
 const rejectModalOpen = ref(false)
@@ -1523,7 +1503,6 @@ const fetchDetail = async () => {
   scanReport.value = null
   skillContent.value = null
   skillFiles.value = []
-  governanceCard.value = null
   auditRows.value = []
   skillVersions.value = []
   versionDiffItems.value = []
@@ -1532,7 +1511,7 @@ const fetchDetail = async () => {
   diffTargetVersion.value = ''
   versionDiffError.value = false
   loadingVersionDiff.value = false
-  for (const busy of [loadingScanReport, loadingContent, loadingFiles, loadingGovernanceCard, loadingAudit, loadingVersions]) busy.value = false
+  for (const busy of [loadingScanReport, loadingContent, loadingFiles, loadingAudit, loadingVersions]) busy.value = false
   loading.value = true
   try {
     const data = await getSkillDetail(skillId.value)
@@ -1629,37 +1608,16 @@ const fetchSkillFiles = async () => {
     result => { skillFiles.value = result?.files || []; loadedTabs.add('files') }, loadingFiles, phrase('legacy.1rirokg'))
 }
 
-const fetchGovernanceCard = async () => {
-  if (!detail.value || loadingGovernanceCard.value) return
-  return loadDetailResource(() => getSkillGovernanceCard(currentVersionId.value),
-    result => { governanceCard.value = result || null; loadedTabs.add('governance-card') }, loadingGovernanceCard, phrase('legacy.82xq4f'))
-}
-
 const loadedTabs = new Set()
 watch(() => [activeTab.value, detail.value?.version_id, detail.value?.skill_id], () => {
   if (!detail.value || loadedTabs.has(activeTab.value)) return
   if (activeTab.value === 'content') void fetchSkillContent()
   else if (activeTab.value === 'files') void fetchSkillFiles()
-  else if (activeTab.value === 'governance-card') void fetchGovernanceCard()
   else if (activeTab.value === 'audit' && !loadingAudit.value) {
     void loadDetailResource(() => getAudit({ skill_id: currentVersionId.value, since_hours: 720, limit: 50 }),
       result => { auditRows.value = Array.isArray(result) ? result : []; loadedTabs.add('audit') }, loadingAudit, phrase('legacy.qrrlus'))
   }
 })
-
-const handleRefreshGovernanceCard = async () => {
-  if (!detail.value) return
-  loadingGovernanceCard.value = true
-  try {
-    governanceCard.value = await refreshSkillGovernanceCard(currentVersionId.value)
-    await fetchScanReport()
-    message.success(phrase('legacy.1su23nl'))
-  } catch (error) {
-    message.error(error.response?.data?.detail || phrase('legacy.7lzo4d'))
-  } finally {
-    loadingGovernanceCard.value = false
-  }
-}
 
 const handleDownloadSkill = async () => {
   if (!detail.value?.skill_id) return
@@ -1807,6 +1765,7 @@ const stepIndex = computed(() => {
   if (!detail.value) return 0
   const status = detail.value.status
   if (['APPROVED', 'DEPLOYED'].includes(status) && detail.value.approved_at) return 2
+  if (status === 'REJECTED') return 2
   if (status === 'VETTED') return 1
   return 0
 })
@@ -2166,16 +2125,10 @@ const skillspectorRawSeverity = computed(() => skillspectorAnalysis.value?.raw_r
 const hasHighRiskSkillspectorFinding = computed(() =>
   skillspectorFindings.value.some((item) => severityRank(item.severity) >= severityRank('HIGH')),
 )
-const governanceCardHtml = computed(() => {
-  const content = governanceCard.value?.content || ''
-  if (!content) return phrase('legacy.ppdayt')
-  return marked.parse(content)
-})
 const numberedLines = (text) => String(text || '').split('\n').map((line, index) => ({
   no: index + 1,
   text: line,
 }))
-const governanceCardLines = computed(() => numberedLines(governanceCard.value?.content || phrase('legacy.nnioji')))
 const sandboxAnalysis = computed(() => scanReport.value?.sandbox_analysis || null)
 const sandboxDiagnosticCategories = new Set(['dependency', 'probe_input', 'runtime', 'execution', 'credentials'])
 const sandboxAllSignals = computed(() => sandboxAnalysis.value?.signals || sandboxAnalysis.value?.suspicious_events || [])
@@ -2314,11 +2267,30 @@ const sandboxExecutionState = computed(() => {
   if (sandboxAnalysis.value?.executed === false) return 'skipped'
   return 'unrecorded'
 })
-const approvalActor = computed(() => {
-  const actor = detail.value?.approved_by
-  if (actor === 'auto-policy') return t('skillDetail.autoApproval')
-  if (actor === 'auto-policy-cache') return t('skillDetail.cachedAutoApproval')
-  return actor || t(detail.value?.status === 'VETTED' ? 'skillDetail.pendingReview' : 'decisionFlow.unrecorded')
+// 依据本次审批来源展示审核节点；人工备注按 Unicode 字符预览，全文保留。
+const reviewRecorded = computed(() => ['APPROVED', 'DEPLOYED', 'REJECTED'].includes(detail.value?.status) || Boolean(detail.value?.approved_at))
+const reviewActorCode = computed(() => detail.value?.status === 'REJECTED'
+  ? detail.value?.rejected_by : detail.value?.approved_by)
+const isPolicyReview = computed(() => ['auto-policy', 'auto-policy-cache'].includes(reviewActorCode.value))
+const scanFailureRejection = computed(() => detail.value?.status === 'REJECTED' && detail.value?.rejection_source === 'scan_failed')
+const reviewTitle = computed(() => {
+  if (scanFailureRejection.value) return t('skillDetail.scanFailureStep')
+  if (isPolicyReview.value) return t('skillDetail.policyReview')
+  if (reviewActorCode.value || detail.value?.status === 'VETTED') return t('skillDetail.manualReview')
+  return t('skillDetail.review')
+})
+const reviewActor = computed(() => reviewActorCode.value || t('decisionFlow.unrecorded'))
+const reviewTime = computed(() => {
+  const value = detail.value?.status === 'REJECTED' ? detail.value?.rejected_at : detail.value?.approved_at
+  return value ? formatDateTime(value) : t('decisionFlow.unrecorded')
+})
+const reviewNote = computed(() => {
+  if (isPolicyReview.value) return ''
+  return (detail.value?.status === 'REJECTED' ? detail.value?.rejection_reason : detail.value?.approval_note) || ''
+})
+const reviewNotePreview = computed(() => {
+  const characters = Array.from(reviewNote.value)
+  return characters.length > 30 ? `${characters.slice(0, 30).join('')}…` : reviewNote.value
 })
 
 const signatureReasonLabels = {
@@ -2978,6 +2950,17 @@ watch(
 </style>
 
 <style scoped>
+.skill-description { grid-column: 1 / -1; }
+.skill-description dd { white-space: pre-wrap; overflow-wrap: anywhere; }
+.review-record { font-size: 12px; line-height: 1.8; color: #8c8c8c; }
+.review-time { white-space: nowrap; }
+.review-note { white-space: pre-wrap; overflow-wrap: anywhere; }
+:global(.review-note-tooltip .ant-tooltip-inner) { white-space: pre-wrap; max-height: 240px; overflow-y: auto; }
+.lifecycle-steps :deep(.ant-steps-item) { min-width: 180px; }
+.lifecycle-steps :deep(.ant-steps-item:last-child) { min-width: 220px; flex: 1; }
+.lifecycle-steps :deep(.ant-steps-item-description) { max-width: none; }
+.capability-boundary { margin: 14px 6px 4px; color: #8c8c8c; font-size: 12px; white-space: nowrap; overflow-x: auto; }
+
 .basic-info-card :deep(.ant-card-body),
 .lifecycle-card :deep(.ant-card-body) {
   padding: 16px;
@@ -3136,6 +3119,7 @@ watch(
 }
 
 .lifecycle-row {
+  flex-wrap: wrap;
   display: flex;
   gap: 16px;
   align-items: center;
@@ -3157,6 +3141,7 @@ watch(
 .lifecycle-steps {
   flex: 1 1 620px;
   min-width: 0;
+  overflow-x: auto;
 }
 
 .lifecycle-actions {
@@ -3351,12 +3336,6 @@ watch(
   margin-bottom: 8px;
   color: #595959;
   font-weight: 600;
-}
-
-.governance-card-preview {
-  max-width: 100%;
-  overflow-x: auto;
-  word-break: break-word;
 }
 
 .code-preview {

@@ -2,6 +2,17 @@ import { deepScanMessages } from './deepScan.js'
 
 export const skillDetailMessages = {
   'zh-CN': {
+    description: '描述',
+    scanFailureStep: '扫描失败',
+    scanFailureAdmission: '扫描未完成，无法通过准入。',
+    review: '审核', policyReview: '策略审核', manualReview: '人工审核',
+    approved: '批准',
+    rejected: '拒绝',
+    signatureStatus: '数字签名状态',
+    signed: '已签名',
+    unsigned: '未签名',
+    signaturePreview: '签名预览',
+    capabilityBoundary: '能力边界：静态分析可能无法发现仅在运行时分支或二进制载荷中出现的行为。 Sandbox 观察结果仅覆盖实际执行到的探测路径。 LLM 分析仅作为辅助信号，不能替代对高影响命中项的人工审核。',
     deepRules: deepScanMessages['zh-CN'],
     sandboxText: {
       message: {
@@ -140,6 +151,17 @@ export const skillDetailMessages = {
     autoApproval: '策略自动批准', cachedAutoApproval: '复用结果 · 策略自动批准', pendingReview: '待审核',
   },
   'en-US': {
+    description: 'Description',
+    scanFailureStep: 'Scan Failed',
+    scanFailureAdmission: 'The scan did not complete; admission could not be granted.',
+    review: 'Review', policyReview: 'Policy Review', manualReview: 'Manual Review',
+    approved: 'Approved',
+    rejected: 'Rejected',
+    signatureStatus: 'Digital signature status',
+    signed: 'Signed',
+    unsigned: 'Unsigned',
+    signaturePreview: 'Signature preview',
+    capabilityBoundary: 'Capability boundaries: Static analysis may miss behavior that only appears in runtime branches or binary payloads. Sandbox observations only cover the probe paths actually executed. LLM analysis is an auxiliary signal and cannot replace human review of high-impact findings.',
     deepRules: deepScanMessages['en-US'],
     sandboxText: {
       message: {

@@ -827,6 +827,7 @@ def _identity(
         rows = [
             ("Skill 名称", entry.name),
             ("描述", entry.description),
+            ("提交时间", _iso(entry.submitted_at)),
             ("Family ID", entry.family_id),
             ("Version ID", entry.skill_id),
             ("版本", f"v{entry.version_no}"),
@@ -844,6 +845,7 @@ def _identity(
         rows = [
             ("Skill Name", entry.name),
             ("Description", entry.description),
+            ("Submitted At", _iso(entry.submitted_at)),
             ("Family ID", entry.family_id),
             ("Version ID", entry.skill_id),
             ("Version", f"v{entry.version_no}"),
@@ -936,6 +938,7 @@ def _scope(
         [
             ("判定模式", report.get("judgement_mode")),
             ("执行策略", report.get("execution_strategy")),
+            ("扫描缓存 Key", entry.scan_cache_key),
             ("总耗时", f"{float(report.get('scan_duration_seconds') or (entry.vetting.scan_duration_seconds if entry.vetting else 0)):.2f}s"),
             ("Sandbox 已触发", bool(entry.vetting and entry.vetting.sandbox_triggered)),
             ("由策略要求 Sandbox", bool(entry.vetting and entry.vetting.sandbox_required_by_policy)),
@@ -945,6 +948,7 @@ def _scope(
         else [
             ("Judgement Mode", report.get("judgement_mode")),
             ("Execution Strategy", report.get("execution_strategy")),
+            ("Scan Cache Key", entry.scan_cache_key),
             ("Total Duration", f"{float(report.get('scan_duration_seconds') or (entry.vetting.scan_duration_seconds if entry.vetting else 0)):.2f}s"),
             ("Sandbox Triggered", bool(entry.vetting and entry.vetting.sandbox_triggered)),
             ("Sandbox Required by Policy", bool(entry.vetting and entry.vetting.sandbox_required_by_policy)),
