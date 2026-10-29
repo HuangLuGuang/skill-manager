@@ -20,9 +20,31 @@
         </component>
         <a-tooltip :title="t('dashboard.assetHint')"><button class="info-button asset-help" :aria-label="t('dashboard.assetHint')"><InfoCircleOutlined /></button></a-tooltip>
       </section>
-      <a-empty v-else-if="!todoTypes.length && !hasRuntime && !data.trend && !data.activity_sources.length" :description="t('dashboard.noAccess')" />
-      <div class="work-grid" :class="{ 'single-column': !hasRuntime || !todoTypes.length }">
-        <section v-if="todoTypes.length" class="surface pending-panel" :aria-label="t('dashboard.todos')">
+      <a-empty v-else-if="!todoTypes.length && !hasRuntime && !data.trend" :description="t('dashboard.noAccess')" />
+      <DashboardAgentAnalytics :overview="data">
+        <template #behavior>
+          <section v-if="data.trend" class="surface chart-panel">
+            <div class="panel-heading"><h2>{{ t('dashboard.trend') }}</h2><a-radio-group :value="days" button-style="solid" :disabled="loading" @change="load($event.target.value)">
+              <a-radio-button :value="7">{{ t('dashboard.sevenDays') }}</a-radio-button><a-radio-button :value="30">{{ t('dashboard.thirtyDays') }}</a-radio-button>
+            </a-radio-group></div>
+            <div class="chart-metric"><span class="secondary">{{ t('dashboard.todayRequests') }} <a-tooltip :title="t('dashboard.trendHint')"><button class="info-button" :aria-label="t('dashboard.trendHint')"><InfoCircleOutlined /></button></a-tooltip></span><strong>{{ number(todayRequests) }}</strong></div>
+            <div role="img" :aria-label="t('dashboard.trend')"><Chart :options="trendOptions" height="250px" /></div>
+            <p v-if="!trendTotal" class="chart-empty-note">{{ t('dashboard.noRequests') }}</p>
+            <footer v-if="pageAllowed('/model-gateway/stats')" class="chart-footer"><a-button type="link" @click="navigate('/model-gateway/stats')">{{ t('dashboard.viewModelStats') }}<ArrowRightOutlined /></a-button></footer>
+          </section>
+        </template>
+        <template #risk>
+          <section v-if="data.skills" class="surface chart-panel risk-panel">
+            <div class="panel-heading"><h2>{{ t('dashboard.riskDistribution') }}</h2><span class="secondary">{{ t('dashboard.snapshot') }}</span></div>
+            <div v-if="data.skills.total" role="img" :aria-label="t('dashboard.riskDistribution')"><Chart :options="riskOptions" height="275px" /></div>
+            <a-empty v-else class="risk-empty" :description="t('dashboard.noSkills')" />
+            <ul class="risk-legend"><li v-for="item in riskItems" :key="item.key"><span class="legend-dot" :style="{ background: item.color }" /><span>{{ item.name }}</span><strong>{{ number(item.value) }}</strong></li></ul>
+            <footer v-if="pageAllowed('/skills')" class="chart-footer"><a-button type="link" @click="navigate('/skills')">{{ t('dashboard.viewSkills') }}<ArrowRightOutlined /></a-button></footer>
+          </section>
+        </template>
+        <template #footer="{ tab }">
+      <div v-if="(tab === 'risk' && todoTypes.length) || (tab === 'behavior' && hasRuntime)" class="work-grid single-column">
+        <section v-if="tab === 'risk' && todoTypes.length" class="surface pending-panel" :aria-label="t('dashboard.todos')">
           <div class="panel-heading"><h2>{{ t('dashboard.todos') }} <span class="count">{{ number(totalTodos) }}</span></h2>
             <a-button v-if="pageAllowed(activeQueuePath)" type="primary" @click="navigate(activeQueuePath)">{{ t('dashboard.viewTodos') }}</a-button>
           </div>
@@ -48,7 +70,7 @@
           </a-table>
           <p class="table-note">{{ t('dashboard.todoScope', { limit: data.todos.limit_per_type }) }}</p>
         </section>
-        <section v-if="hasRuntime" class="surface runtime-panel" :aria-label="t('dashboard.runtime')">
+        <section v-if="tab === 'behavior' && hasRuntime" class="surface runtime-panel" :aria-label="t('dashboard.runtime')">
           <div class="panel-heading"><h2>{{ t('dashboard.runtime') }}</h2><a-tooltip :title="t('dashboard.utcHint')"><button class="info-button" :aria-label="t('dashboard.utcHint')"><InfoCircleOutlined /></button></a-tooltip></div>
           <component :is="pageAllowed(item.path) ? 'button' : 'div'" v-for="item in runtimeItems" :key="item.key" class="runtime-row" @click="navigate(item.path)">
             <span class="runtime-icon"><component :is="item.icon" /></span>
@@ -64,39 +86,8 @@
           </div>
         </section>
       </div>
-      <section v-if="data.activity_sources.length" class="surface activity-panel" :aria-label="t('dashboard.recent')">
-        <div class="panel-heading"><h2>{{ t('dashboard.recent') }}</h2><a-tooltip :title="t('dashboard.activityHint')"><button class="info-button" :aria-label="t('dashboard.activityHint')"><InfoCircleOutlined /></button></a-tooltip></div>
-        <a-table :columns="activityColumns" :data-source="data.activity" row-key="id" size="small" :scroll="{ x: 640 }"
-          :pagination="{ pageSize: 3, size: 'small', hideOnSinglePage: true, showSizeChanger: false }" :locale="{ emptyText: t('dashboard.noActivity') }">
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'time'"><span class="secondary">{{ formatDateTime(record.created_at) }}</span></template>
-            <template v-else-if="column.key === 'event'"><span class="event-cell"><component :is="eventIcon(record)" :class="['event-icon', eventTone(record)]" />{{ eventLabel(record) }}</span></template>
-            <template v-else-if="column.key === 'source'"><a-tag>{{ t('dashboard.' + record.source + 'Source') }}</a-tag></template>
-            <template v-else-if="column.key === 'name'"><router-link v-if="pageAllowed(activityPath(record).path)" class="object-name" :to="activityPath(record)">{{ record.name || '—' }}</router-link><span v-else>{{ record.name || '—' }}</span></template>
-          </template>
-        </a-table>
-      </section>
-      <section v-if="data.trend || data.skills" class="analytics-section" :aria-label="t('dashboard.analytics')">
-        <header class="analytics-heading"><h2>{{ t('dashboard.analytics') }}</h2><p>{{ t('dashboard.analyticsHint') }}</p></header>
-        <div class="charts-grid" :class="{ 'single-column': !data.trend || !data.skills }">
-          <section v-if="data.trend" class="surface chart-panel">
-            <div class="panel-heading"><h2>{{ t('dashboard.trend') }}</h2><a-radio-group :value="days" button-style="solid" :disabled="loading" @change="load($event.target.value)">
-              <a-radio-button :value="7">{{ t('dashboard.sevenDays') }}</a-radio-button><a-radio-button :value="30">{{ t('dashboard.thirtyDays') }}</a-radio-button>
-            </a-radio-group></div>
-            <div class="chart-metric"><span class="secondary">{{ t('dashboard.todayRequests') }} <a-tooltip :title="t('dashboard.trendHint')"><button class="info-button" :aria-label="t('dashboard.trendHint')"><InfoCircleOutlined /></button></a-tooltip></span><strong>{{ number(todayRequests) }}</strong></div>
-            <div role="img" :aria-label="t('dashboard.trend')"><Chart :options="trendOptions" height="250px" /></div>
-            <p v-if="!trendTotal" class="chart-empty-note">{{ t('dashboard.noRequests') }}</p>
-            <footer v-if="pageAllowed('/model-gateway/stats')" class="chart-footer"><a-button type="link" @click="navigate('/model-gateway/stats')">{{ t('dashboard.viewModelStats') }}<ArrowRightOutlined /></a-button></footer>
-          </section>
-          <section v-if="data.skills" class="surface chart-panel risk-panel">
-            <div class="panel-heading"><h2>{{ t('dashboard.riskDistribution') }}</h2><span class="secondary">{{ t('dashboard.snapshot') }}</span></div>
-            <div v-if="data.skills.total" role="img" :aria-label="t('dashboard.riskDistribution')"><Chart :options="riskOptions" height="275px" /></div>
-            <a-empty v-else class="risk-empty" :description="t('dashboard.noSkills')" />
-            <ul class="risk-legend"><li v-for="item in riskItems" :key="item.key"><span class="legend-dot" :style="{ background: item.color }" /><span>{{ item.name }}</span><strong>{{ number(item.value) }}</strong></li></ul>
-            <footer v-if="pageAllowed('/skills')" class="chart-footer"><a-button type="link" @click="navigate('/skills')">{{ t('dashboard.viewSkills') }}<ArrowRightOutlined /></a-button></footer>
-          </section>
-        </div>
-      </section>
+        </template>
+      </DashboardAgentAnalytics>
     </template>
   </div>
 </template>
@@ -105,8 +96,9 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { ApiOutlined, AppstoreOutlined, ArrowRightOutlined, BookOutlined, CheckCircleFilled, ClockCircleOutlined, CloudServerOutlined, DatabaseOutlined, DesktopOutlined, ExclamationCircleFilled, FileTextOutlined, InfoCircleOutlined, ReloadOutlined, RightOutlined, RobotOutlined, SafetyCertificateOutlined } from '@ant-design/icons-vue'
+import { ApiOutlined, AppstoreOutlined, ArrowRightOutlined, BookOutlined, CloudServerOutlined, DatabaseOutlined, DesktopOutlined, FileTextOutlined, InfoCircleOutlined, ReloadOutlined, RightOutlined, RobotOutlined, SafetyCertificateOutlined } from '@ant-design/icons-vue'
 import Chart from '../components/Chart.vue'
+import DashboardAgentAnalytics from '../components/DashboardAgentAnalytics.vue'
 import { getDashboardOverview } from '../api'
 import { pageAllowed } from '../access'
 import { formatDateTime } from '../utils/format'
@@ -146,10 +138,7 @@ const todoColumns = computed(() => [
   { title: t('dashboard.risk'), key: 'risk', width: 100 }, { title: t('dashboard.waiting'), key: 'waiting', width: 100 },
   { title: t('dashboard.action'), key: 'action', width: 75, fixed: 'right' },
 ])
-const activityColumns = computed(() => [
-  { title: t('dashboard.time'), key: 'time', width: 185 }, { title: t('dashboard.source'), key: 'source', width: 90 },
-  { title: t('dashboard.event'), key: 'event', width: 230 }, { title: t('dashboard.name'), key: 'name' },
-])
+
 const riskColor = risk => ({ benign: 'green', low: 'green', suspicious: 'orange', medium: 'orange', malicious: 'red', high: 'red', critical: 'red' }[risk] || 'default')
 const riskLabel = risk => te('domain.risk.' + risk) ? t('domain.risk.' + risk) : t('dashboard.unknown')
 const waiting = value => {
@@ -165,16 +154,7 @@ const runtimeItems = computed(() => [
   { key: 'mcpDenied', field: 'mcp_denied_today', icon: ApiOutlined, path: '/mcp-governance/audit' },
 ].filter(item => data.value?.runtime[item.field] !== undefined).map(item => ({ ...item, value: data.value.runtime[item.field] })))
 const hasRuntime = computed(() => runtimeItems.value.length > 0 || Boolean(data.value?.runtime.aidr))
-const eventLabel = row => {
-  const key = row.source === 'skill' ? 'domain.auditEvent.' + row.event : 'dashboard.' + row.source + 'Events.' + row.event
-  return te(key) ? t(key) : row.event
-}
-const eventTone = row => ['denied', 'error', 'failed', 'timed_out', 'blocked', 'skill_rejected', 'skill_load_blocked', 'tool_blocked', 'skill_tamper_detected'].includes(row.event) ? 'danger'
-  : ['success', 'succeeded', 'skill_approved', 'skill_deployed', 'skill_load_allowed', 'skill_signature_verified'].includes(row.event) ? 'success' : 'neutral'
-const eventIcon = row => ({ danger: ExclamationCircleFilled, success: CheckCircleFilled, neutral: ClockCircleOutlined }[eventTone(row)])
-const activityPath = row => row.source === 'scan'
-  ? { path: '/agent-security/scans', query: { stage: 'tasks', task_id: row.target_id } }
-  : { path: row.source === 'mcp' ? '/mcp-governance/audit' : '/audit' }
+
 const todayRequests = computed(() => data.value?.trend?.series.at(-1)?.requests || 0)
 const trendTotal = computed(() => data.value?.trend?.series.reduce((sum, row) => sum + row.requests, 0) || 0)
 const trendOptions = computed(() => ({
@@ -248,7 +228,7 @@ button.asset:hover, button.runtime-row:hover { background: #f8faff; }
 .asset-help { position: absolute; right: 8px; top: 6px; }
 .info-button { border: 0; background: transparent; padding: 2px; color: #78869f; line-height: 1; cursor: help; font-size: 13px; }
 .work-grid { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(290px, 1fr); gap: 18px; align-items: stretch; margin-bottom: 18px; }
-.pending-panel, .runtime-panel, .activity-panel, .chart-panel { padding: 22px; }
+.pending-panel, .runtime-panel, .chart-panel { padding: 22px; }
 .panel-heading { margin-bottom: 18px; gap: 12px; }
 .panel-heading h2 { display: flex; align-items: center; gap: 12px; }
 .count { color: #2563eb; font-size: 24px; font-variant-numeric: tabular-nums; }
@@ -279,10 +259,10 @@ a.object-name:hover { color: #2563eb; }
 .record-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 6px; background: #f7f8fb; padding: 10px; font-size: 12px; margin-bottom: 12px; }
 .record-summary strong { font-size: 16px; }
 .aidr-content > .ant-btn { color: #2563eb; border-color: #b7cdfb; height: auto; min-height: 32px; white-space: normal; }
-.event-cell { display: flex; gap: 10px; align-items: center; }
-.event-icon { font-size: 16px; flex-shrink: 0; }
+
+
 .success { color: #16a34a; }.danger { color: #e5484d; }.neutral { color: #d99000; }
-.activity-panel { margin-bottom: 26px; }
+
 .analytics-heading { margin-bottom: 16px; }
 .analytics-heading h2 { font-size: 23px; }
 .analytics-heading p { font-size: 13px; }
@@ -301,7 +281,7 @@ a.object-name:hover { color: #2563eb; }
 .work-grid.single-column, .charts-grid.single-column { grid-template-columns: minmax(0, 1fr); }
 .refresh-warning { margin-bottom: 16px; }
 .dashboard button:focus-visible, .dashboard a:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
-@media (max-width: 1200px) { .asset { padding-inline: 12px; gap: 10px; flex-basis: 130px; }.asset strong { font-size: 24px; }.asset-icon { font-size: 26px; }.work-grid { grid-template-columns: minmax(0, 1.65fr) minmax(260px, 1fr); }.pending-panel, .runtime-panel, .activity-panel, .chart-panel { padding: 18px; }.aidr-content { margin-left: 0; margin-top: 12px; } }
+@media (max-width: 1200px) { .asset { padding-inline: 12px; gap: 10px; flex-basis: 130px; }.asset strong { font-size: 24px; }.asset-icon { font-size: 26px; }.work-grid { grid-template-columns: minmax(0, 1.65fr) minmax(260px, 1fr); }.pending-panel, .runtime-panel, .chart-panel { padding: 18px; }.aidr-content { margin-left: 0; margin-top: 12px; } }
 @media (max-width: 1000px) { .work-grid, .charts-grid { grid-template-columns: minmax(0, 1fr); }.asset { flex-basis: 180px; }.asset-strip { gap: 14px 0; }.updated { flex-basis: 100%; }.heading-actions { justify-content: flex-start; }.runtime-row { padding-block: 16px; }.aidr-content { margin-left: 62px; } }
-@media (max-width: 600px) { h1 { font-size: 24px; }.dashboard-heading { gap: 12px; }.asset-strip { padding: 16px 8px; }.asset { flex-basis: 45%; padding: 8px; }.asset:nth-child(even) { border-inline-end: 0; }.asset-label { font-size: 12px; }.asset strong { font-size: 23px; }.asset-icon { font-size: 24px; }.pending-panel, .runtime-panel, .activity-panel, .chart-panel { padding: 16px; }.panel-heading h2 { font-size: 17px; }.aidr-content { margin-left: 0; }.dashboard-heading p { font-size: 14px; }.chart-panel :deep(.ant-radio-button-wrapper) { padding-inline: 12px; }.risk-legend { gap: 10px; } }
+@media (max-width: 600px) { h1 { font-size: 24px; }.dashboard-heading { gap: 12px; }.asset-strip { padding: 16px 8px; }.asset { flex-basis: 45%; padding: 8px; }.asset:nth-child(even) { border-inline-end: 0; }.asset-label { font-size: 12px; }.asset strong { font-size: 23px; }.asset-icon { font-size: 24px; }.pending-panel, .runtime-panel, .chart-panel { padding: 16px; }.panel-heading h2 { font-size: 17px; }.aidr-content { margin-left: 0; }.dashboard-heading p { font-size: 14px; }.chart-panel :deep(.ant-radio-button-wrapper) { padding-inline: 12px; }.risk-legend { gap: 10px; } }
 </style>

@@ -3177,25 +3177,33 @@ Skill 证据回查在 SQLite 内按设备、产品入口、会话和原生调用
 **English:** Session Skill activity combines entry-specific evidence using strong native identities. Server-side, policy-controlled registry/signature/instance checks create deduplicated client alerts. Missing evidence remains pending and tools are never blocked by this audit feature. Public names are unified while internal IDs remain compatible; see the linked integration matrix for actual verification scope.
 ## 平台总览 / Platform overview
 
+资产页的智能体产品分布统计产品实例，共用 Skills 目录保留在上报资产中；产品实例按可见客户端及本地实例 ID 去重，重复记录取最近上报时间及记录 ID 最新的一条；历史缺少本地实例 ID 时沿用产品类型标识。前 8 个产品单独展示，其余合并为其他，缺少产品类型显示未知。点击产品或其他打开对应实例的服务端分页弹窗，展示客户端、本地实例 ID、产品、版本、安装路径和最近上报时间。统计与明细共用权限范围及去重口径，只读取库存元数据。
+
+Shared Skills directories remain in reported assets. The asset tab groups reported product instances by product, deduplicated by visible client and local instance ID. Duplicates use the latest report time and row ID; legacy records without a local ID use the product type. The top 8 products are shown separately and the rest as Other; missing types appear as Unknown. Clicking a bar opens server-paginated instance metadata with the same visibility and deduplication rules, including client, local ID, product, version, installation path and last report time.
+
 平台总览按当前账号的模块权限展示注册智能体、受管 Skill、MCP 服务、配置模型和在线客户端。智能体及客户端沿用现有归属范围；超级管理员可查看全量，其他账号只统计本人创建的智能体及本人注册的客户端。客户端在线依据最近 10 分钟心跳。
 
 客户端和智能体列表按最多 200 个可见对象分组读取关联信息，策略、部门、凭证和告警在每次请求中重新查询。客户端告警仍按客户端、Agent 类型和 Skill 的最新事件判断，并保留分类治理与 AIDR 活跃告警的原有计数规则。总览按客户端汇总各来源的有效证据后合并计数；运行链路普通事件列表只读取脱敏内容，原文查看继续使用独立授权与审计入口。页面 API 的隔离测试口径及人工验收项目见[页面查询基准](benchmarks/2026-10-17-page-queries.md)。
 
 **English:** Client and Agent lists load related metadata in groups of up to 200 visible entities. Policies, departments, credentials and alerts are read afresh on each request. Client issues retain the latest-event, classification-governance and active-AIDR-alert rules. The overview groups retained evidence by client before combining sources. Ordinary trace event pages read redacted payloads; raw content retains its separate authorization and audit path. See the linked page-query benchmark for measurement limits and manual checks.
 
-待处理事项汇总 Skill 人工审核与未过期的 MCP 调用审批。标签展示完整待办数量，列表每类展示最近 20 条并分页；高风险提示只统计当前标签下已加载的待办。点击 MCP 待办直接打开对应审批详情。最近活动展示近 7 天最新 8 条 Skill / MCP 审计及安全扫描任务状态，仅包含事件、对象和时间等摘要；扫描任务沿用所属用户、用户组及安全审计角色的可见范围，入口打开对应任务。
+待处理事项汇总 Skill 人工审核与未过期的 MCP 调用审批。标签展示完整待办数量，列表每类展示最近 20 条并分页；高风险提示只统计当前标签下已加载的待办。点击 MCP 待办直接打开对应审批详情。
 
 运行观察的今日模型阻断与 MCP 拒绝分别按审计中的 `blocked`、`denied` 状态统计，使用 UTC 自然日。AIDR 展示最近 24 小时收到且仍保留的日志 / Hook 记录数和去重上报客户端数，采集能力标记为“正在测试中”。计数单位为各通道收到的原始记录。
 
-底部提供近 7 天 / 30 天模型调用趋势及 Skill 风险分布。趋势统计已写入 `LlmUsageMetric` 的请求，按 UTC 自然日补齐无记录日期；风险分布按每个 Skill 的最新版本统计，未判定或未知风险单列。页面标注更新时间，支持刷新；刷新失败保留上次数据并明确提示，首次读取失败提供重试。
+资产卡片下按“资产 / 行为 / 风险”切换内容；待处理事项仅在风险页展示，运行观察仅在行为页展示。平台登记资产与智能体上报资产分开展示；上报资产覆盖智能体实例、Skill 发现记录、MCP、插件及插件内 Skill，沿用客户端可见范围。资产分布可打开对应管理列表，客户端在线分布可下钻查看在线或离线客户端。行为页按所选日志或 Hook 来源统计已投影去重的工具调用，展示趋势、命令/其他调用构成、工具排行及命令程序名排行。命令按出现次数统计，复用完整小时的汇总表与边界小时的调用投影，避免解析原始日志；下钻按包含该命令的调用分页；活跃智能体按客户端与产品组合计数。风险页区分当前未处置存量和按发现日期统计的期间新增量，展示趋势、等级、类型、客户端/产品排行及处置状态。检测信号不代表攻击成功，未覆盖或未启用的检测不产生发现项。统计准备中或延迟时页面提示数据可能不完整。
+
+行为和风险图表点击后打开明细弹窗，携带来源、客户端、UTC 日期及对应分类条件，支持表头筛选、排序和服务端分页；切换 Tab 保留各自状态。风险详情使用居中弹窗，集中展示风险状态、对象、时间、执行反馈及处置入口；有内容时展示命中规则、原始证据和处置历史，沿用客户端详情的授权和审计。近 7 天 / 30 天模型调用趋势放在行为页，Skill 风险分布放在风险页。模型趋势统计已写入 `LlmUsageMetric` 的请求，按 UTC 自然日补齐无记录日期；Skill 风险分布按最新版本统计，未判定或未知风险单列。刷新失败保留上次数据并提示，首次读取失败可重试。
 
 **English:** The overview shows registered agents, managed Skills, MCP servers, configured models and online clients according to module permissions. Agent and client counts follow existing ownership rules: super administrators see all, while other accounts see agents they created and clients they registered. Online status uses a heartbeat within 10 minutes.
 
-Pending work combines Skill reviews and unexpired MCP call approvals. Tabs show complete totals; each type lists its latest 20 items with pagination. The high-risk notice counts loaded items under the current tab. MCP items open the corresponding approval details. Recent activity contains the latest 8 Skill / MCP audit summaries and security scan task states from the past 7 days. Scan tasks retain user, group and security-reader visibility rules and link to the corresponding task.
+Pending work combines Skill reviews and unexpired MCP call approvals. Tabs show complete totals; each type lists its latest 20 items with pagination. The high-risk notice counts loaded items under the current tab. MCP items open the corresponding approval details.
 
 Runtime counters use the UTC calendar day and the audit statuses `blocked` for models and `denied` for MCP. AIDR shows retained log / Hook records received in the past 24 hours and distinct reporting clients, with an “In testing” label. Records do not equal unique operations or enforcement coverage.
 
-The charts show 7 / 30 UTC calendar days of requests recorded in `LlmUsageMetric`, including zero-filled dates, and current Skill risk distribution by latest version. Unassessed or unknown risk remains separate. The page shows its refresh time, retains previous data with an explicit warning on refresh failure, and offers retry when initial loading fails.
+Assets, Behavior and Risks tabs sit below the asset cards. Pending work appears only under Risks, and runtime observations only under Behavior. Platform registrations and agent-reported inventory are shown separately. Reported inventory covers discovered agent instances, Skill records, MCP configurations, plugins and plugin Skills within visible clients. Asset charts open the corresponding lists; connectivity opens online/offline clients. Behavior counts projected, deduplicated calls separately for logs and Hooks, with trends, command/other composition, tool rankings and command-program occurrence rankings. Command rankings reuse complete-hour buckets plus boundary-hour operation projections, without parsing raw logs. Their drilldown lists calls containing the selected program. Active agents are distinct client/product pairs. Risk charts distinguish current open findings from new detections in the selected UTC period, with severity, type, client/product ranking and disposition. Findings are signals, not confirmed exploitation; disabled or uncovered detection produces no findings. Preparation and delayed updates are indicated.
+
+Chart drilldowns carry source, client, dates and category into a modal with a paginated metadata table with immediate header filters and sorting. Each tab retains its state. Risk details use a centered modal with status, object, time, execution feedback and disposition actions. Rule matches, evidence and history appear when available, retaining client-scoped authorization and audit. Behavior retains the 7 / 30 UTC-day model request trend from `LlmUsageMetric`; Risks retains latest-version Skill risk distribution, including unknown risks. Refresh failures retain the last successful data with a warning; initial failures can be retried.
 
 ### Codex 跨轮次 Hook 与会话证据分类
 

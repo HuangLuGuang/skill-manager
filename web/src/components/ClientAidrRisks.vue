@@ -1,5 +1,6 @@
 <template>
   <section class="risk-panel">
+    <template v-if="!detailOnly">
     <p v-if="detectionTime && filters.detected_since">{{ t('riskOverview.detectionFilter', { start: stamp(filters.detected_since), end: stamp(filters.detected_before) }) }}</p>
     <a-alert v-if="error" type="error" show-icon :message="errorText(error)" />
     <a-table size="small" :columns="columns" :data-source="items" row-key="id" :loading="loading" :scroll="{ x: 980 }" :pagination="{ current: page, pageSize, total, showTotal: value => t('riskOverview.total', { count: value }), showSizeChanger: true }" @change="paginate" :locale="{ emptyText: tr(error ? 'readFailed' : 'empty') }">
@@ -32,38 +33,34 @@
         <template v-else-if="column.key === 'actions'"><a-button type="link" @click="showDetail(record.id)">{{ tr('view') }}</a-button></template>
       </template>
     </a-table>
-    <a-drawer v-model:open="detailOpen" :title="tr('details')" width="min(820px, 100vw)" @close="closeDetail">
+    </template>
+    <a-modal v-model:open="detailOpen" :title="detail ? tr(`codes.${detail.risk_code}`) : tr('details')" width="min(920px, calc(100vw - 32px))" :footer="null" :z-index="1200" centered :body-style="{ maxHeight: '72vh', overflow: 'auto' }" @cancel="closeDetail">
       <a-spin :spinning="detailLoading"><a-alert v-if="detailError" type="error" show-icon :message="errorText(detailError)" />
         <template v-if="detail">
-          <h3>{{ tr(`codes.${detail.risk_code}`) }}</h3>
-          <section class="detection-trace">
+          <div class="risk-summary"><a-space wrap><a-tag :color="detail.severity === 'high' ? 'red' : 'orange'">{{ tr(`severity.${detail.severity}`) }}</a-tag><a-tag>{{ tr(`disposition.states.${detail.disposition}`) }}</a-tag><span>{{ tr(`sources.${detail.source}`) }}</span></a-space><a-tooltip :title="!can('clients:update') ? tr('disposition.permission') : undefined"><a-button v-if="!dispositionEditing" size="small" :disabled="!can('clients:update')" @click="dispositionEditing = true">{{ tr('disposition.edit') }}</a-button></a-tooltip></div>
+          <section v-if="detail.detection_matches?.length" class="detection-trace">
             <h4>{{ tr('commandRules.trace') }}</h4>
             <AidrDetectionMatches v-if="detail.detection_matches?.length" :matches="detail.detection_matches" />
-            <p v-else>{{ tr('commandRules.noTrace') }}</p>
             <small v-if="detail.detection_matches?.length && !evidenceLoaded">{{ tr('commandRules.traceHelp') }}</small>
           </section>
           <dl class="risk-meta">
-            <dt>{{ tr('severityLabel') }}</dt><dd>{{ tr(`severity.${detail.severity}`) }}</dd>
-            <template v-if="detail.detection_source"><dt>{{ tr('settings.ruleSource') }}</dt><dd>{{ tr(detail.detection_source === 'inherit' ? 'settings.globalRules' : 'settings.clientRules') }}</dd></template>
             <dt>{{ tr('agent') }}</dt><dd>{{ products.find(product => product.id === detail.agent)?.name || detail.agent || tr('unknown') }}</dd>
-            <dt>{{ tr('session') }}</dt><dd>{{ detail.session_id || tr('unknown') }}</dd>
+            <template v-if="detail.session_id"><dt>{{ tr('session') }}</dt><dd>{{ detail.session_id }}</dd></template>
             <dt>{{ tr('time') }}</dt><dd>{{ stamp(detail.occurred_at) }}</dd>
+            <template v-if="detail.tool"><dt>{{ tr('tool') }}</dt><dd>{{ detail.tool }}</dd></template>
             <dt>{{ tr('result') }}</dt><dd>{{ executionResult }}</dd>
             <template v-if="detail.control_status && detail.control_status !== 'unknown'"><dt>{{ tr('control') }}</dt><dd>{{ status(detail.control_status) }}<small v-if="controlReason(detail.control_code)">{{ controlReason(detail.control_code) }}</small></dd></template>
           </dl>
-          <section class="risk-disposition">
-            <h4>{{ tr('disposition.label') }}: {{ tr(`disposition.states.${detail.disposition}`) }}</h4>
+          <section v-if="dispositionEditing || dispositionError" class="risk-disposition">
             <a-alert v-if="dispositionError" type="error" show-icon :message="errorText(dispositionError)" />
-            <a-button v-if="can('clients:update') && !dispositionEditing" @click="dispositionEditing = true">{{ tr('disposition.edit') }}</a-button>
             <a-form v-if="can('clients:update') && dispositionEditing" :model="dispositionDraft" layout="vertical" @finish="saveDisposition">
               <a-form-item :label="tr('disposition.target')" required><a-select v-model:value="dispositionDraft.status" :aria-label="tr('disposition.target')" :disabled="disposing"><a-select-option v-for="value in dispositionStates" :key="value" :value="value" :disabled="value === detail.disposition">{{ tr(`disposition.states.${value}`) }}</a-select-option></a-select></a-form-item>
               <a-form-item :label="tr('disposition.reason')" required :validate-status="reasonCount > 1000 ? 'error' : undefined" :help="reasonCount > 1000 ? tr('disposition.tooLong', { count: reasonCount - 1000 }) : undefined"><a-textarea v-model:value="dispositionDraft.reason" :aria-label="tr('disposition.reason')" :rows="2" :disabled="disposing" /><small class="reason-count">{{ reasonCount }} / 1000</small></a-form-item>
               <a-space class="disposition-actions" wrap><a-button type="primary" html-type="submit" :loading="disposing" :disabled="!dispositionValid || disposing || detailLoading">{{ tr('disposition.save') }}</a-button><a-button :disabled="disposing" @click="dispositionEditing = false">{{ tr('disposition.cancel') }}</a-button><a-button v-if="dispositionError" :disabled="disposing || detailLoading" @click="reloadDisposition">{{ tr('disposition.reload') }}</a-button></a-space>
             </a-form>
-            <p v-if="!can('clients:update')">{{ tr('disposition.permission') }}</p>
           </section>
           <a-alert v-for="value in detail.limitations.filter(value => value !== 'result_unverified')" :key="value" type="warning" :message="tr(`limitations.${value}`)" />
-          <h4>{{ tr('evidence') }}</h4><p v-if="!evidenceLoaded">{{ tr('evidenceCount', { count: detail.evidence.length }) }}</p>
+          <section v-if="detail.evidence.length || detail.detection_matches?.length" class="evidence-section"><h4>{{ tr('evidence') }}</h4>
           <a-button v-if="can('clients:read-audit-content') && !evidenceLoaded" :loading="detailLoading" :disabled="detailLoading || disposing" @click="showDetail(detail.id, true)">{{ tr('loadEvidence') }}</a-button><p v-else-if="!can('clients:read-audit-content')">{{ tr('contentPermission') }}</p>
           <article v-for="item in evidenceLoaded ? detail.evidence : []" :key="`${item.source}:${item.record_id}`" class="risk-evidence"><strong>{{ tr(`sources.${item.source}`) }} · #{{ item.record_id }}</strong><p v-if="item.expired">{{ tr('expired') }}</p><p v-else-if="item.changed">{{ tr('evidenceChanged') }}</p>
             <template v-if="item.event">
@@ -72,18 +69,18 @@
               <pre v-if="item.event.argv?.length">{{ item.event.argv.join('\n') }}</pre><p v-if="item.event.path">{{ tr('target') }}: <code>{{ item.event.path }}</code></p><p v-if="item.event.destination_path">{{ tr('destination') }}: <code>{{ item.event.destination_path }}</code></p>
             </template>
           </article>
-          <section class="risk-history">
+          </section>
+          <section v-if="historyLoading || historyError || historyTotal" class="risk-history">
             <h4>{{ tr('disposition.history') }}</h4>
             <a-alert v-if="historyError" type="error" :message="errorText(historyError)" />
             <a-button v-if="historyError" @click="loadHistory()">{{ tr('refresh') }}</a-button>
-            <p v-if="!historyLoading && !historyError && historyTotal === 0">{{ tr('noHistory') }}</p>
-            <a-table v-else size="small" :columns="historyColumns" :data-source="history" row-key="revision" :loading="historyLoading" :scroll="{ x: 650 }" :pagination="{ current: historyPage, pageSize: 10, total: historyTotal, showSizeChanger: false }" @change="value => loadHistory(value.current)">
+            <a-table size="small" :columns="historyColumns" :data-source="history" row-key="revision" :loading="historyLoading" :scroll="{ x: 650 }" :pagination="{ current: historyPage, pageSize: 10, total: historyTotal, showSizeChanger: false }" @change="value => loadHistory(value.current)">
               <template #bodyCell="{ column, record }"><template v-if="column.key === 'transition'">{{ tr(`disposition.states.${record.previous}`) }} → {{ tr(`disposition.states.${record.status}`) }}</template><template v-else-if="column.key === 'created_at'">{{ stamp(record.created_at) }}</template><template v-else-if="column.key === 'reason'"><span class="disposition-reason">{{ record.reason }}</span></template></template>
             </a-table>
           </section>
         </template>
       </a-spin>
-    </a-drawer>
+    </a-modal>
 
   </section>
 </template>
@@ -98,7 +95,7 @@ import { can } from '../access'
 import { formatDateTime } from '../utils/format'
 import { localizeApiError } from '../i18n/errors'
 import { getClientAidrRisks, getClientAidrRiskSummary, getClientAidrRisk, getClientAidrRiskDispositions, setClientAidrRiskDisposition } from '../api'
-const props = defineProps({ clientId: { type: String, required: true }, initialAgent: { type: String, default: '' }, fixedAgent: { type: String, default: '' }, initialFilters: { type: Object, default: null } })
+const props = defineProps({ clientId: { type: String, required: true }, detailOnly: Boolean, initialAgent: { type: String, default: '' }, fixedAgent: { type: String, default: '' }, initialFilters: { type: Object, default: null } })
 const emit = defineEmits(['changed', 'filters-cleared'])
 const detectionTime = computed(() => props.initialFilters !== null)
 const { t, te, locale } = useI18n(), tr = (key, values) => t(`aidrRisk.${key}`, values || {})
@@ -134,6 +131,7 @@ const executionResult = computed(() => {
 const errorText = value => localizeApiError({ code: value?.apiErrorCode, params: value?.apiErrorParams, message: value?.response?.data?.detail || tr('readFailed') }, locale.value)
 const columns = computed(() => [['time', 'time'], ['risk', 'type'], ['agent', 'agent'], ['source', 'source'], ['disposition', 'disposition.label'], ['actions', 'details']].map(([key, title]) => ({ key, title: key === 'time' && detectionTime.value ? t('riskOverview.detected') : tr(title), ...(key !== 'actions' && !(key === 'agent' && props.fixedAgent) ? { customFilterDropdown: true, filtered: activeFilters.value[key] } : {}), ...(sortFields[key] ? { sorter: true, sortDirections: ['ascend', 'descend', 'ascend'], sortOrder: sortState.value.key === key ? sortState.value.order : null } : {}) })))
 async function refresh() {
+  if (props.detailOnly) return
   const epoch = ++generation; loading.value = true; error.value = null
   try { const params = { ...filters.value, ...(props.fixedAgent ? { agent_type: props.fixedAgent, agent: '', unknown_agent: false } : {}), detected_since: filters.value.detected_since || undefined, detected_before: filters.value.detected_before || undefined, since: filters.value.since ? new Date(filters.value.since).toISOString() : undefined, until: filters.value.until ? new Date(filters.value.until).toISOString() : undefined, sort_by: detectionTime.value && sortState.value.key === 'time' ? 'detected_at' : sortFields[sortState.value.key], sort_order: sortState.value.order === 'ascend' ? 'asc' : 'desc', page: page.value, page_size: pageSize.value }; const [list, stats] = await Promise.all([getClientAidrRisks(props.clientId, params), getClientAidrRiskSummary(props.clientId)]); if (epoch !== generation) return; items.value = list.items; total.value = list.total; summary.value = stats }
   catch (cause) { if (epoch === generation) { error.value = cause; items.value = []; total.value = 0; summary.value = null } }
@@ -192,7 +190,7 @@ defineExpose({ showDetail })
 <style scoped>
 .risk-panel { overflow: auto; min-height: 0; padding-bottom: 16px; }
 .risk-disposition .ant-form { margin-top: 16px; }
-.risk-disposition { padding: 20px 0; border-block: 1px solid #eee; margin: 20px 0; }
+.risk-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }.risk-disposition { padding: 16px; background: #fafbfc; border-radius: 8px; margin: 16px 0; }.detection-trace,.evidence-section { margin: 16px 0; }.risk-meta { padding: 16px; background: #f7f9fc; border-radius: 8px; }
 .risk-history { margin-top: 24px; }.risk-history h4 { margin-bottom: 12px; }.reason-count { text-align: right; margin-top: 4px; }.disposition-actions { margin-top: 4px; }
 .disposition-reason { white-space: pre-wrap; overflow-wrap: anywhere; }
 .risk-header-actions { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
