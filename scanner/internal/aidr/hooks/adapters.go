@@ -43,21 +43,27 @@ type nativePluginAdapter struct {
 }
 
 type settingsFormat struct {
-	Path    string
-	Nested  bool
-	Version int
-	Timeout int
+	EventsEnvelope bool
+	Path           string
+	Nested         bool
+	Version        int
+	Timeout        int
 }
 
 var hookAdapters map[string]hookAdapter
 
 func init() {
 	hookAdapters = map[string]hookAdapter{
+		"zcode":       zcodeHookAdapter(),
+		"trae":        traeHookAdapter(".trae"),
+		"trae-cn":     traeHookAdapter(".trae-cn"),
 		"claude":      claudeHookAdapter(),
 		"teleagent":   teleAgentHookAdapter(),
 		"codex":       codexHookAdapter(),
 		"cursor":      cursorHookAdapter(),
 		"workbuddy":   workbuddyHookAdapter(),
+		"codebuddy":   codeBuddyHookAdapter(),
+		"qwenwork":    qwenWorkHookAdapter(),
 		"qoder-hooks": qoderHookAdapter(),
 		"qoder-work":  qoderWorkHookAdapter(),
 	}

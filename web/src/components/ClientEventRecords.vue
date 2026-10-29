@@ -1,6 +1,5 @@
 <template>
   <section class="event-records" :aria-label="ui('title')">
-    <div class="event-toolbar"><div><h3>{{ ui('title') }}</h3><p class="muted">{{ ui('subtitle') }}</p></div><a-button :loading="loading" @click="load">{{ ui('refresh') }}</a-button></div>
     <div class="event-filters">
       <label class="event-search"><span>{{ ui('search') }}</span><a-input-search v-model:value="filters.keyword" :maxlength="200" :placeholder="ui('search')" allow-clear @input="searchLater" @search="filter" /></label>
       <label><span>Agent</span><a-select v-model:value="filters.agent" :options="options(agents, value => agentLabel(value))" @change="filter" /></label>
@@ -8,6 +7,7 @@
       <label><span>{{ ui('handling') }}</span><a-select v-model:value="filters.status" :options="options(states, value => ui('state_' + value))" @change="filter" /></label>
       <label><span>{{ ui('days') }}</span><a-select v-model:value="filters.days" :options="[0,1,7,30].map((value, index) => ({ value, label:ui(['allTime','day','week','month'][index]) }))" @change="filter" /></label>
       <a-button @click="reset">{{ ui('reset') }}</a-button>
+      <a-button :loading="loading" @click="load">{{ ui('refresh') }}</a-button>
     </div>
     <a-alert v-if="error" type="error" :message="ui('loadFailed')" show-icon />
     <a-table :data-source="rows" :columns="columns" row-key="id" :loading="loading" :pagination="pagination" :scroll="{ x:830 }" :locale="{ emptyText:ui('empty') }" :custom-row="rowProps" @change="changePage">
@@ -70,8 +70,6 @@ defineExpose({ refresh:load })
 </script>
 
 <style scoped>
-.event-toolbar { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:16px; }
-.event-toolbar h3 { margin:0 0 4px; } .event-toolbar p { margin:0; }
 .muted, small, dt { color:#697586; } small { display:block; font-size:12px; line-height:1.6; margin-top:5px; }
 .event-filters { display:flex; align-items:flex-end; flex-wrap:wrap; gap:12px; margin-bottom:20px; }
 .event-filters label { display:flex; flex-direction:column; gap:6px; flex:1 1 155px; min-width:0; }

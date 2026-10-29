@@ -22,7 +22,7 @@ func discoverModelVersion(home, kind, binary string) string {
 	if err != nil {
 		return ""
 	}
-	if kind == "claude-desktop" && runtime.GOOS == "darwin" && info.IsDir() {
+	if (kind == "claude-desktop" || kind == "qwenwork" || kind == "zcode") && runtime.GOOS == "darwin" && info.IsDir() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		command := configureWindowsCommand(exec.CommandContext(ctx, "/usr/bin/plutil", "-extract", "CFBundleShortVersionString", "raw", "-o", "-", filepath.Join(binary, "Contents", "Info.plist")))

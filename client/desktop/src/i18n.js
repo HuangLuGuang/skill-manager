@@ -1586,6 +1586,15 @@
     'ui.settings.client_name_placeholder': { 'zh-CN': '研发客户端', 'en-US': 'Development Client' },
     'ui.settings.cancel': { 'zh-CN': '取消', 'en-US': 'Cancel' },
     'ui.settings.test_and_save': { 'zh-CN': '测试并保存', 'en-US': 'Test and save' },
+    'ui.settings.edit_saved_hint': { 'zh-CN': '保存此连接的地址与凭证，切换时验证连接。凭证留空表示保留此连接的现有凭证。', 'en-US': 'Save this connection’s address and credential. The connection is validated when switching. Leave the credential blank to keep its saved value.' },
+    'ui.settings.save_connection': { 'zh-CN': '保存连接', 'en-US': 'Save connection' },
+    'ui.settings.saving_connection': { 'zh-CN': '正在保存…', 'en-US': 'Saving…' },
+    'ui.settings.testing_connection': { 'zh-CN': '正在测试…', 'en-US': 'Testing…' },
+    'ui.settings.save_connection_failed': { 'zh-CN': '保存连接失败', 'en-US': 'Failed to save connection' },
+    'ui.settings.error.connection_profile_not_found': { 'zh-CN': '该连接已不存在，请刷新后重试。', 'en-US': 'This connection no longer exists. Refresh and try again.' },
+    'ui.settings.error.connection_profile_active': { 'zh-CN': '该连接已成为当前连接，请重新打开编辑窗口。', 'en-US': 'This connection is now active. Reopen the editor.' },
+    'ui.settings.error.connection_profile_exists': { 'zh-CN': '该平台地址已存在，请编辑对应连接。', 'en-US': 'This platform address already exists. Edit that connection instead.' },
+    'ui.settings.error.connection_address_invalid': { 'zh-CN': '请输入有效的 HTTP 或 HTTPS 平台地址，不包含用户信息、查询参数或片段。', 'en-US': 'Enter a valid HTTP or HTTPS platform address without user information, query parameters or fragments.' },
     'ui.settings.current_connection': { 'zh-CN': '当前连接', 'en-US': 'Current' },
     'ui.settings.switch': { 'zh-CN': '切换', 'en-US': 'Switch' },
     'ui.settings.switch_title': { 'zh-CN': '切换 Agent Manager', 'en-US': 'Switch Agent Manager' },
@@ -2347,6 +2356,8 @@
 
   const connectionErrorText = value => {
     let source = String(value ?? '').trim().replace(/^error:\s*/i, '')
+    const savedConnectionErrorKey = `ui.settings.error.${source}`
+    if (semanticMessages[savedConnectionErrorKey]) return t(savedConnectionErrorKey)
     let detail = ''
     let errorCode = ''
     const jsonStart = source.indexOf('{')

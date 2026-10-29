@@ -70,8 +70,12 @@ deploy-35:
       '
 
       install -m 0644 docker-compose.yaml "$DEPLOY_DIR/docker-compose.yaml"
+      install -m 0644 docker-compose.https.yaml "$DEPLOY_DIR/docker-compose.https.yaml"
+      install -m 0644 docker-compose.model-gateway.yaml "$DEPLOY_DIR/docker-compose.model-gateway.yaml"
       install -d "$DEPLOY_DIR/deploy/nginx"
       install -m 0644 deploy/nginx/default.conf "$DEPLOY_DIR/deploy/nginx/default.conf"
+      install -m 0644 deploy/nginx/model-gateway.conf "$DEPLOY_DIR/deploy/nginx/model-gateway.conf"
+      install -m 0644 deploy/nginx/https.sh deploy/nginx/certificates.py "$DEPLOY_DIR/deploy/nginx/"
 
       if grep -q '^TAG=' "$DEPLOY_DIR/.env"; then
         sed -i "s/^TAG=.*/TAG=${IMAGE_TAG}/" "$DEPLOY_DIR/.env"
@@ -80,6 +84,16 @@ deploy-35:
       fi
 
       cd "$DEPLOY_DIR"
+      page_url=http://127.0.0.1/
+      export COMPOSE_FILE=docker-compose.yaml
+      if grep -q '^DEPLOY_PROTOCOL=https$' .env; then
+        export COMPOSE_FILE=docker-compose.yaml:docker-compose.https.yaml
+        export COMPOSE_PROFILES=https
+        page_url=https://127.0.0.1/
+      fi
+      if grep -q '^MODEL_GATEWAY_HTTP_ENABLED=true$' .env; then
+        export COMPOSE_FILE="$COMPOSE_FILE:docker-compose.model-gateway.yaml"
+      fi
       docker compose run --rm --no-deps --pull never --entrypoint python backend -m backend.aidr_signing
       docker compose up -d --remove-orphans
       docker compose up -d --force-recreate --no-deps nginx
@@ -89,7 +103,7 @@ deploy-35:
         aig_service_id="$(docker compose ps -q aig-scan-service)"
         worker_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$worker_id" 2>/dev/null || true)"
         aig_service_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$aig_service_id" 2>/dev/null || true)"
-        if curl --fail --silent --show-error --max-time 5 http://127.0.0.1/ >/dev/null \
+        if curl --insecure --fail --silent --show-error --max-time 5 "$page_url" >/dev/null \
           && [ "$worker_health" = "healthy" ] \
           && [ "$aig_service_health" = "healthy" ]; then
           break

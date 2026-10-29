@@ -40,7 +40,7 @@ class SkillUse(BaseModel):
     behavior: Literal['invocation', 'file_access']
     name: str = Field(default='', max_length=256)
     path: str = Field(default='', max_length=1024)
-    basis: Literal['tool_input.skill', 'tool_input.name', 'tool_input.file_path', 'tool_input.path', 'literal_cat', 'result.base_directory', 'result.metadata']
+    basis: Literal['tool_input.skill', 'tool_input.name', 'tool_input.command', 'tool_input.file_path', 'tool_input.path', 'literal_cat', 'result.base_directory', 'result.metadata']
     phase: Literal['host_loaded'] | None = None
     content_digest: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     content_observed_at: str | None = Field(default=None, max_length=40)
@@ -71,7 +71,7 @@ class SkillUse(BaseModel):
         if self.content_reason and self.content_status not in {'unavailable', 'disabled'}:
             raise ValueError('skill_content_status_invalid')
         if self.behavior == 'invocation':
-            if not ((self.name and not self.path and self.basis in {'tool_input.skill','tool_input.name'} and self.phase is None) or (self.path and self.basis in {'result.base_directory', 'result.metadata'} and self.phase == 'host_loaded')):
+            if not ((self.name and not self.path and self.basis in {'tool_input.skill','tool_input.name','tool_input.command'} and self.phase is None) or (self.path and self.basis in {'result.base_directory', 'result.metadata'} and self.phase == 'host_loaded')):
                 raise ValueError('skill_invocation_invalid')
         elif not self.path.endswith('/SKILL.md') or self.basis not in {'tool_input.path', 'tool_input.file_path', 'literal_cat'} or self.phase:
             raise ValueError('skill_access_invalid')

@@ -7,7 +7,7 @@
     element.className = className; element.textContent = text
     return element
   }
-  const icons = { claude: 'claude-color.svg', codex: 'codex.png', workbuddy: 'workbuddy.png', qoder: 'qoder.png', cursor: 'cursor.svg', opencode: 'opencode.svg' }
+  const icons = { claude: 'claude-color.svg', codex: 'codex.png', workbuddy: 'workbuddy.png', codebuddy: 'codebuddy-color.svg', teleagent: 'teleagent.png', doubaowork: 'doubaowork.png', qwenwork: 'qwenwork.png', zcode: 'zcode.png', qoder: 'qoder.png', cursor: 'cursor.svg', opencode: 'opencode.svg', openclaw: 'openclaw-color.svg', trae: 'trae.svg', 'trae-cn': 'trae.svg', traework: 'trae.svg' }
   const groupId = id => id.startsWith('qoder-') ? 'qoder' : id
   const logo = id => {
     const img = node('img', 'governance-product-logo')

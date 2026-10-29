@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
@@ -17,7 +18,7 @@ import (
 
 var Version = "dev"
 
-const InventoryCacheVersion = "10"
+const InventoryCacheVersion = "12"
 
 type Skill struct {
 	Governance    *SkillObservation `json:"governance,omitempty"`
@@ -92,7 +93,8 @@ func adapters() []adapter {
 		{agentType: "qoder", displayName: "Qoder", skillRoots: []string{".qoder/skills"}, supportsSkill: true},
 		{agentType: "qoder-cn", displayName: "Qoder CN", skillRoots: []string{".qoder-cn/skills"}, supportsSkill: true},
 		{agentType: "qoderwork", displayName: "QoderWork", skillRoots: []string{".qoderwork/skills"}, supportsSkill: true},
-		{agentType: "zcode", displayName: "ZCode", skillRoots: []string{".zcode/skills"}, supportsSkill: true},
+		{agentType: "qwenwork", displayName: "QwenWork CN", appPaths: []string{"/Applications/QwenWorkCN.app", "Applications/QwenWorkCN.app"}, skillRoots: []string{".qwenworkcn/skills", ".qwenworkcn/identity-data/v1/*/skills"}, supportsSkill: true},
+		{agentType: "zcode", displayName: "ZCode", appPaths: []string{"/Applications/ZCode.app", "Applications/ZCode.app"}, skillRoots: []string{".zcode/skills"}, supportsSkill: true},
 		{agentType: "claude-code", binaries: []string{"claude"}, skillRoots: []string{".claude/skills"}, supportsSkill: true},
 		{agentType: "claude-desktop", displayName: "Claude Desktop", appPaths: []string{"/Applications/Claude.app", "Applications/Claude.app"}},
 		{agentType: "codex", appPaths: []string{"/Applications/Codex.app", "Applications/Codex.app"}, binaries: []string{"codex"}, skillRoots: []string{".codex/skills"}, supportsSkill: true},
@@ -102,10 +104,10 @@ func adapters() []adapter {
 		{agentType: "hermes", binaries: []string{"hermes"}, skillRoots: []string{".hermes/skills"}, supportsSkill: true},
 		{agentType: "pi", displayName: "Pi", binaries: []string{"pi"}, skillRoots: []string{".pi/agent/skills"}, supportsSkill: true},
 		{agentType: "grokbuild", displayName: "Grok Build", binaries: []string{"grok"}, skillRoots: []string{".grok/skills"}, supportsSkill: true},
-		{agentType: "trae-cn", appPaths: []string{"/Applications/Trae CN.app", "Applications/Trae CN.app"}, binaries: []string{"trae-cn"}, skillRoots: []string{".trae-cn/skills"}, supportsSkill: true},
-		{agentType: "trae", appPaths: []string{"/Applications/Trae.app", "Applications/Trae.app", "/Applications/TRAE.app", "Applications/TRAE.app"}, binaries: []string{"trae"}, skillRoots: []string{".trae/skills"}, supportsSkill: true},
+		{agentType: "trae-cn", appPaths: []string{"/Applications/Trae CN.app", "Applications/Trae CN.app"}, binaries: []string{"trae-cn"}, skillRoots: []string{".trae-cn/skills", ".trae-cn/builtin_skills"}, supportsSkill: true},
+		{agentType: "trae", appPaths: []string{"/Applications/Trae.app", "Applications/Trae.app", "/Applications/TRAE.app", "Applications/TRAE.app"}, binaries: []string{"trae"}, skillRoots: []string{".trae/skills", ".trae/builtin_skills"}, supportsSkill: true},
 		{agentType: "cursor", appPaths: []string{"/Applications/Cursor.app", "Applications/Cursor.app"}, binaries: []string{"cursor"}, skillRoots: []string{".cursor/skills"}, supportsSkill: true},
-		{agentType: "codebuddy", appPaths: []string{"/Applications/CodeBuddy.app", "Applications/CodeBuddy.app"}, binaries: []string{"codebuddy"}, skillRoots: []string{".codebuddy/skills"}, supportsSkill: true},
+		{agentType: "codebuddy", displayName: "CodeBuddy", appPaths: []string{"/Applications/CodeBuddy CN.app", "/Applications/CodeBuddy.app", "Applications/CodeBuddy CN.app", "Applications/CodeBuddy.app"}, binaries: []string{"codebuddy", "buddycn", "buddy"}, skillRoots: []string{".codebuddy/skills"}, supportsSkill: true},
 		{agentType: "workbuddy", appPaths: []string{"/Applications/WorkBuddy.app", "Applications/WorkBuddy.app"}, binaries: []string{"workbuddy"}, skillRoots: []string{".workbuddy/skills"}, supportsSkill: true},
 		{agentType: "teleagent", displayName: "TeleAgent", appPaths: []string{"/Applications/TeleAgent.app", "Applications/TeleAgent.app"}, skillRoots: []string{".config/TeleAgent/users/*/skills"}, supportsSkill: true},
 	}
@@ -304,6 +306,9 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 		}
 	}
 	agent.Capabilities["installed"] = agent.InstallPath != ""
+	if spec.agentType == "qwenwork" || spec.agentType == "zcode" {
+		agent.Version = discoverModelVersion(home, spec.agentType, agent.InstallPath)
+	}
 	if _, ok := modelAdapters[spec.agentType]; ok {
 		agent.Version = discoverModelVersion(home, spec.agentType, agent.InstallPath)
 		if agent.Capabilities["model_config_auto_apply"] == true {
@@ -311,6 +316,40 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 		}
 	}
 	agent.AssetInventory = discoverAssets(home, spec.agentType, roots)
+	if spec.agentType == "zcode" {
+		collector := &assetCollector{result: agent.AssetInventory}
+		projects := collector.zcodeProjects(home)
+		if relatedDirectoryFound || agent.InstallPath != "" {
+			projects = append(projects, home)
+		}
+		for _, project := range projects {
+			for _, dir := range []string{".zcode/skills", ".agents/skills"} {
+				root := filepath.Join(project, dir)
+				if info, err := os.Stat(root); err == nil && info.IsDir() && !slices.Contains(roots, root) {
+					roots = append(roots, root)
+				}
+			}
+		}
+	}
+	if spec.agentType == "trae" || spec.agentType == "trae-cn" {
+		collector := &assetCollector{result: agent.AssetInventory}
+		for _, project := range collector.traeProjects(home, spec.agentType) {
+			root := filepath.Join(project, ".trae/skills")
+			if info, err := os.Stat(root); err == nil && info.IsDir() && !slices.Contains(roots, root) {
+				roots = append(roots, root)
+			}
+		}
+	}
+
+	if spec.agentType == "codebuddy" {
+		collector := &assetCollector{result: agent.AssetInventory}
+		for _, project := range collector.codeBuddyProjects(home) {
+			root := filepath.Join(project, ".codebuddy/skills")
+			if info, err := os.Stat(root); err == nil && info.IsDir() && !slices.Contains(roots, root) {
+				roots = append(roots, root)
+			}
+		}
+	}
 	if len(agent.AssetInventory.MCPServers) > 0 || len(agent.AssetInventory.Plugins) > 0 {
 		relatedDirectoryFound = true
 	}

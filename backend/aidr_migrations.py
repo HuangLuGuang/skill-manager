@@ -16,6 +16,9 @@ def upgrade_aidr_schema(engine):
         conn.commit()
         try:
             conn.exec_driver_sql("BEGIN IMMEDIATE")
+            turn_columns = {r[1] for r in conn.exec_driver_sql('PRAGMA table_info("aidr_event_turns")')}
+            if turn_columns and 'message_phase' not in turn_columns:
+                conn.exec_driver_sql("ALTER TABLE aidr_event_turns ADD COLUMN message_phase VARCHAR(16) NOT NULL DEFAULT ''")
             risk_columns = {r[1] for r in conn.exec_driver_sql('PRAGMA table_info("aidr_risk_findings")')}
             if risk_columns and 'control_code' not in risk_columns:
                 conn.exec_driver_sql("ALTER TABLE aidr_risk_findings ADD COLUMN control_code VARCHAR(128) NOT NULL DEFAULT ''")

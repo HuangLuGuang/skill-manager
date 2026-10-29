@@ -10,7 +10,7 @@
     <a-alert v-if="data?.state === 'delayed'" type="warning" show-icon :message="tr('delayed')" />
     <div v-if="!data && loading || data?.state === 'preparing'" class="preparing" role="status"><a-spin /><span>{{ data ? tr('preparing') : tr('working') }}</span><a-skeleton active :paragraph="{ rows: 4 }" /></div>
     <div v-else-if="data && !error" :class="{ refreshing: loading }">
-      <div class="metrics"><button v-for="(key, i) in metricKeys" :key="key" class="metric" :class="{ failure: key === 'failures' }" @click="openDetails(key)"><span><component :is="icons[i]" /> {{ tr(key) }}</span><strong>{{ data.totals[key].toLocaleString(locale) }}</strong><small>{{ tr(key + 'Hint') }}</small></button></div>
+      <div class="metrics"><button v-for="(key, i) in metricKeys" :key="key" class="metric" :class="{ failure: key === 'failures' }" @click="openDetails(key)"><span><component :is="icons[i]" /> {{ tr(key) }}</span><strong>{{ data.totals[key].toLocaleString(locale) }}</strong></button></div>
       <div class="charts">
         <section class="panel trend-panel"><header><h4>{{ tr('trend') }}</h4><div class="legend"><span><i />{{ tr('commands') }}</span><span><i class="other" />{{ tr('otherTools') }}</span></div></header>
           <div class="bars" v-if="data.totals.tools"><a-tooltip v-for="bar in bars" :key="bar.at" :title="`${time(bar.at)} · ${bar.commands + bar.other}`" :mouse-enter-delay="0" :mouse-leave-delay="0" :trigger="['hover', 'focus']"><button :aria-label="`${time(bar.at)} · ${bar.commands + bar.other}`" @click="openDetails('', '', bar.at, bar.until)"><span class="other" :style="{ height: `${bar.other / peak * 100}%` }" /><span :style="{ height: `${bar.commands / peak * 100}%` }" /></button></a-tooltip></div>

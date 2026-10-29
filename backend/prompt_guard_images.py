@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .api_errors import ApiError
-from .prompt_guard import SEMANTIC_RULES
+from .prompt_guard import CheckCode
 
 MAX_IMAGES = 3
 MAX_IMAGE_BYTES = 2 * 1024 * 1024
@@ -45,7 +45,7 @@ def collect_images(messages):
 
 class ImageFinding(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
-    category: Literal[tuple(SEMANTIC_RULES)]
+    category: CheckCode
     severity: Literal['LOW', 'MEDIUM', 'HIGH']
     image_index: int = Field(ge=0)
     evidence: str = Field(min_length=1, max_length=500)

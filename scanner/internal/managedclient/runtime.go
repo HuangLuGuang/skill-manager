@@ -543,7 +543,7 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 			if modelBaseURL == "" || credentialSource != "external_gateway" || verificationMode != "client_call" {
 				return fmt.Errorf("model_config.external_contract_invalid")
 			}
-		} else {
+		} else if modelBaseURL == "" {
 			modelBaseURL = api.server
 		}
 		if id, found, err := store.State(fmt.Sprintf("model-change:%d", task.ID)); err != nil {

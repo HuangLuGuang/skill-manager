@@ -9,6 +9,7 @@ import (
 )
 
 type ApprovalSubmission struct {
+	Expires  int64  `json:"expires_at"`
 	Stream   string `json:"stream_id"`
 	Event    string `json:"event_id"`
 	Receiver string `json:"receiver_instance"`
@@ -37,7 +38,7 @@ func (s *Store) BeginApproval(ctx context.Context, record Record, now time.Time)
 	}
 	raw, _ := json.Marshal(scope)
 	var oldScope, state, reason string
-	err = s.db.QueryRowContext(ctx, `SELECT scope,state,code FROM hook_attempts WHERE event_id=?`, record.EventID).Scan(&oldScope, &state, &reason)
+	err = s.db.QueryRowContext(ctx, `SELECT scope,state,code,expires_at FROM hook_attempts WHERE event_id=?`, record.EventID).Scan(&oldScope, &state, &reason, &d.Expires)
 	if err == nil {
 		if oldScope != string(raw) {
 			return deny, nil
@@ -66,7 +67,12 @@ func (s *Store) BeginApproval(ctx context.Context, record Record, now time.Time)
 	if count >= 10000 {
 		return deny, code("aidr_hook_attempt_capacity")
 	}
-	expires := now.Add(45 * time.Second).Unix()
+	wait := 45
+	if s.controlPolicy.Schema == 4 {
+		wait = s.controlPolicy.ApprovalWaitSeconds
+	}
+	expires := now.Add(time.Duration(wait) * time.Second).Unix()
+	d.Expires = expires
 	_, err = s.db.ExecContext(ctx, `INSERT INTO hook_attempts(event_id,receiver,user_scope,scope,expires_at) VALUES(?,?,?,?,?)`, record.EventID, s.instance, record.User, string(raw), expires)
 	d.Code = "aidr_hook_approval_pending"
 	return d, err
@@ -107,6 +113,7 @@ func (s *Store) PollApproval(ctx context.Context, id, user string, cancel bool, 
 		return d, code("aidr_hook_scope_unverified")
 	}
 	d.Revision = scope.PolicyRevision
+	d.Expires = expires
 	d.Rule = scope.Rule
 	finish := func(reason string, allow bool) (ToolDecision, error) {
 		d.Code = reason
@@ -127,7 +134,7 @@ func (s *Store) PollApproval(ctx context.Context, id, user string, cancel bool, 
 	if expires <= now.Unix() {
 		return finish("aidr_hook_approval_timeout", false)
 	}
-	if s.controlPolicy == nil || s.controlPolicy.Revision != scope.PolicyRevision {
+	if s.controlPolicy == nil || (s.controlPolicy.Revision != scope.PolicyRevision && !s.compatiblePolicyRevisions[scope.PolicyRevision]) {
 		return finish("aidr_hook_policy_changed", false)
 	}
 	// BeginApproval persisted the evaluated rule and exact input digest. The
@@ -160,7 +167,8 @@ func (s *Store) PendingApproval(ctx context.Context, now time.Time) (*ApprovalSu
 		return nil, err
 	}
 	var raw string
-	err := s.db.QueryRowContext(ctx, `SELECT scope FROM hook_attempts WHERE receiver=? AND state='pending' AND approval_id='' ORDER BY last_try,event_id LIMIT 1`, s.instance).Scan(&raw)
+	var expires int64
+	err := s.db.QueryRowContext(ctx, `SELECT scope,expires_at FROM hook_attempts WHERE receiver=? AND state='pending' AND approval_id='' ORDER BY last_try,event_id LIMIT 1`, s.instance).Scan(&raw, &expires)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -174,7 +182,7 @@ func (s *Store) PendingApproval(ctx context.Context, now time.Time) (*ApprovalSu
 	if _, err = s.db.ExecContext(ctx, `UPDATE hook_attempts SET last_try=? WHERE event_id=?`, now.UnixNano(), scope.Attempt); err != nil {
 		return nil, err
 	}
-	return &ApprovalSubmission{scope.Stream, scope.Attempt, scope.Receiver, scope.PolicyRevision, scope.Rule}, nil
+	return &ApprovalSubmission{Expires: expires, Stream: scope.Stream, Event: scope.Attempt, Receiver: scope.Receiver, Revision: scope.PolicyRevision, Rule: scope.Rule}, nil
 }
 
 func (s *Store) BindApproval(ctx context.Context, event, id string, scope ToolScope) error {

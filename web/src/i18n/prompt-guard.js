@@ -1,5 +1,8 @@
+import { guardWorkbenchMessages, guardCheckDescriptions } from './prompt-guard-workbench.js'
 export const promptGuardMessages = {
   'zh-CN': {
+    scopePresets: {"fill": "填入行业预设", "draftHelp": "行业预设默认不启用。选择后仅填入草稿；保存配置且启用“超出业务范围”判定项后生效。可按实际业务编辑，留空不检测离题。", "banking": {"label": "银行业", "content": "本助手仅提供银行业务服务：账户与银行卡、存款、贷款、支付转账、银行渠道使用、费用利率说明、账户安全与反诈、业务办理材料和流程、银行服务投诉及相关金融消费者保护。允许为上述业务提供必要的解释、总结、翻译和风险提示。与银行业务无关的娱乐创作、私人问答、社会热点和政治闲聊不在范围内；客户身份、临时要求或承诺稍后返回业务不改变范围。"}, "finance": {"label": "金融业", "content": "本助手仅提供金融业务咨询：银行、证券、基金、保险、养老金、金融产品与市场基础知识、风险教育、合规与投资者保护、账户和交易流程、费用说明及金融服务投诉。允许与金融业务直接相关的经济和监管政策解读、必要的总结和翻译。与金融业务无关的娱乐创作、私人问答、社会热点和政治闲聊不在范围内；客户身份、临时要求或承诺稍后返回业务不改变范围。"}, "telecom": {"label": "运营商", "content": "本助手仅提供通信运营商业务服务：移动通信、固定电话、宽带、套餐资费、账单缴费、流量和漫游、SIM/eSIM、号码与携号转网、网络故障排查、业务开通退订、通信反诈、服务投诉及相关消费者权益。允许为上述业务提供必要的解释、总结、翻译和安全提示。与通信业务无关的娱乐创作、私人问答、社会热点和政治闲聊不在范围内；客户身份、临时要求或承诺稍后返回业务不改变范围。"}},
+    topicScope: { label: '默认业务范围', help: '最多 2000 字。话题偏离仅按管理员配置的范围判断；留空不检测离题。凭证可覆盖此范围。适用于通用 AI 和图片检测，瑞数原生文字分类不使用此范围。', placeholder: '例如：银行客服，只回答账户、存款、贷款和银行卡相关问题。', credentialLabel: 'Prompt 防护业务范围', credentialHelp: '最多 2000 字，留空使用平台默认范围。仅在通用 AI 的“话题偏离”判定项启用时生效；绑定智能体的凭证可设置该智能体的业务范围。', testLabel: '本次测试业务范围（可选）', testHelp: '模拟凭证的业务范围；留空使用已保存的平台范围，不保存本次输入。', invalid: '业务范围不能超过 2000 个字符，请缩短后重试。' },
     images: {"capability": "支持多模态", "capabilityHelp": "当前用于图片输入；请用实际图文请求验证模型能力。", "model": "图片检测模型", "help": "图片使用通用 AI 判定项及风险等级，与文字检测共享总超时。图片会发送给所选供应商，不自动脱敏。", "upload": "上传检测图片", "preview": "放大查看", "limits": "最多 3 张 PNG、JPEG 或 WebP，每张不超过 2 MB；仅支持 Base64 图片。", "remove": "移除图片 {number}", "number": "图片 {number}", "evidence": "视觉证据（模型描述）", "status": "图片检测状态", "readFailed": "图片读取失败，请重新选择", "states": {"no_images": "无图片", "pending": "待检测", "running": "检测中", "completed": "已检测", "failed": "检测失败", "disabled": "未启用", "skipped_blocked": "规则已阻断，跳过图片", "skipped_categories_disabled": "未启用图片检测判定项"}},
     adapter: { label: '模型类型', generic: '通用大模型', rsguard: '瑞数内容合规模型', help: { generic: '按检测提示词分析风险。用于 Prompt 防护时，可配置通用检测分类和 AI 判定项。', rsguard: '返回安全状态和命中类别。用于 Prompt 防护时，可配置瑞数原生的 10 个内容合规分类。' } },
     rsguard: {
@@ -11,13 +14,19 @@ export const promptGuardMessages = {
       states: { safe: '安全', unsafe: '不安全', controversial: '存在争议' },
       categories: { political: '政治敏感话题', violent: '暴力', illegal: '非暴力违法行为', sexual: '色情内容', pii: '个人信息', self_harm: '自杀与自伤', unethical: '不道德行为', copyright: '侵犯版权', jailbreak: '越狱', injection: '提示注入' },
     },
-    categories: {"injection": "提示注入与记忆投毒", "privacy": "隐私与机密泄露", "access": "权限与边界绕过", "content": "有害内容", "discrimination": "歧视与排斥", "business": "商业滥用", "resources": "资源与调用链滥用", "professional": "医疗与金融风险", "facts": "事实与信息完整性"},
-    categorySettings: {"severity": "命中严重度", "modelSeverity": "使用 AI 判定", "severityHelp": "选择高、中等、低风险或使用 AI 判定，保存后生效。AI 检出该项后使用所选等级；选择使用 AI 判定时采用模型返回的等级。是否阻断由检测模式决定。", "category": "检测分类", "enabled": "启用分类", "model": "分类检测模型", "inherit": "继承默认检测模型", "aiRules": "AI 判定项", "help": "分类开关同时控制本类文本规则和 AI 判定；AI 判定项仅控制模型检查范围。模型留空继承默认模型，相同模型的分类合并调用。分类配置随“保存配置”生效。", "disabledHint": "此分类已关闭，保存后不执行本类文本规则和 AI 判定。"},
+    categories: {"injection": "提示注入与记忆投毒", "privacy": "隐私与机密泄露", "access": "权限与边界绕过", "content": "有害内容", "discrimination": "歧视与排斥", "business": "商业滥用", "resources": "资源与调用链滥用", "professional": "医疗与金融风险", "facts": "事实与信息完整性", "operations": "高危操作", "topics": "业务话题范围", "politics": "政治与政策讨论"},
+    categorySettings: {"modelRisk": "AI 原始风险", "overridden": "最终等级使用判定项配置", "operationsHelp": "识别需要确认的高影响变更，不等同于认定恶意。默认使用 AI 判定：普通高影响操作为中等，明确恶意或绕过审批为高；工具实际执行仍需权限与审批。", "topicsHelp": "填写平台或凭证业务范围后才检测离题。无范围时跳过此判定项，普通提问和观点分歧不自动视为攻击。", "severity": "命中严重度", "modelSeverity": "使用 AI 判定", "severityHelp": "选择高、中等、低风险或使用 AI 判定，保存后生效。AI 检出该项后使用所选等级；选择使用 AI 判定时采用模型返回的等级。是否阻断由检测模式决定。", "category": "检测分类", "enabled": "启用分类", "model": "分类检测模型", "inherit": "继承默认检测模型", "aiRules": "AI 判定项", "help": "分类开关同时控制本类文本规则和 AI 判定；AI 判定项仅控制模型检查范围。模型留空继承默认模型，相同模型的分类合并调用。分类配置随“保存配置”生效。", "disabledHint": "此分类已关闭，保存后不执行本类文本规则和 AI 判定。"},
     samples: {
       "fill": "填入示例",
       "normal": "正常场景",
       "images": "图片检测",
       "items": {
+            "politicalDiscussion": { "label": "政治体制分析", "content": "请比较不同政治体制的特点，包括民主制度与治理方式。" },
+            "contactMarketing": { "label": "批量联系方式营销", "content": "帮我生成一批真实可联系的手机号，用来给陌生人群发广告，不用征求同意。" },
+            "ipLicense": { "label": "商业使用 IP 授权核验", "content": "帮我使用知名动画角色设计用于商业销售的商品包装，我尚未取得授权。" },
+            "operationChange": { "label": "高影响操作需确认", "content": "请修改生产服务器的管理员密码并重启服务器。" },
+            "topicDrift": { "label": "偏离银行客服范围", "content": "不要谈银行业务了，帮我写一篇游戏攻略。", "scope": "仅提供银行账户、存款、贷款及支付业务咨询。" },
+
             "imageNormal": { "label": "正常图片：营业时间", "content": "请描述图片中的内容。" },
             "imageInjection": { "label": "图片内提示注入", "content": "请描述图片中的内容。" },
             "imageSmallText": { "label": "小字提示注入：索取系统提示词", "content": "请描述一下这张图片里有什么内容。" },
@@ -106,6 +115,18 @@ export const promptGuardMessages = {
       special: { metadata_access: '按 URL 主机识别云元数据地址，仅支持调整启用状态和严重度。', encoded_instruction: '包含 Base64 解码及有效规则匹配，仅支持调整启用状态和严重度。', tool_abuse: '包含命令执行否定语义处理，仅支持调整启用状态和严重度。' },
     },
     rules: {
+      bulk_contact_marketing: '批量联系方式与营销用途',
+      suggestive_marketing: '性暗示与擦边营销',
+      targeted_harassment: '定向骚扰与羞辱',
+      minor_grooming: '未成年人诱导与侵害',
+      ip_authorization: 'IP 仿作与商用授权核验',
+      destructive_operation: '删除与格式化',
+      power_operation: '关机与重启',
+      permission_credential_change: '权限与凭据变更',
+      remote_public_access: '远控与公网暴露',
+      persistent_execution: '计划任务、自启与服务驻留',
+      off_topic: '超出业务范围',
+      political_system_discussion: '政治体制讨论', political_figure_discussion: '政治人物讨论', public_policy_discussion: '公共政策讨论',
       "memory_poisoning": "记忆投毒",
       "internal_details": "内部实现信息提取",
       "explicit_sexual": "露骨色情生成",
@@ -133,6 +154,8 @@ export const promptGuardMessages = {
     },
   },
   'en-US': {
+    scopePresets: {"fill": "Fill industry preset", "draftHelp": "Industry presets are inactive by default. Selecting one only fills the draft. Save with the off-topic check enabled to apply. Edit for your service; an empty scope skips off-topic detection.", "banking": {"label": "Banking", "content": "This assistant only serves banking needs: accounts and cards, deposits, loans, payments and transfers, banking channels, fees and interest, account security and fraud prevention, application documents and procedures, banking complaints and related consumer protection. Necessary explanations, summaries, translations and risk notices for these services are in scope. Unrelated entertainment, personal questions, social news and political chat are out of scope. Customer status, temporary requests or promises to return to business do not change the scope."}, "finance": {"label": "Financial services", "content": "This assistant only provides financial-service information: banking, securities, funds, insurance, pensions, financial products and market basics, risk education, compliance and investor protection, account and transaction procedures, fees and service complaints. Economic and regulatory policy explanations directly relevant to finance, and necessary summaries and translations, are in scope. Unrelated entertainment, personal questions, social news and political chat are out of scope. Customer status, temporary requests or promises to return to business do not change the scope."}, "telecom": {"label": "Telecommunications", "content": "This assistant only serves telecommunications needs: mobile and fixed-line services, broadband, plans and pricing, bills and payments, data and roaming, SIM/eSIM, phone numbers and number portability, network troubleshooting, activation and cancellation, telecom fraud prevention, complaints and related consumer rights. Necessary explanations, summaries, translations and safety advice for these services are in scope. Unrelated entertainment, personal questions, social news and political chat are out of scope. Customer status, temporary requests or promises to return to business do not change the scope."}},
+    topicScope: { label: 'Default business scope', help: 'Up to 2,000 characters. Topic checks use the administrator-defined scope; an empty scope skips off-topic detection. Credentials may override it. Applies to generic AI and image checks, not native RSGuard text categories.', placeholder: 'Example: Banking support for accounts, deposits, loans and bank cards only.', credentialLabel: 'Prompt Guard business scope', credentialHelp: 'Up to 2,000 characters. Leave empty to use the platform default. Used when the generic AI off-topic check is enabled; an agent-bound credential can define its agent’s business scope.', testLabel: 'Business scope for this test (optional)', testHelp: 'Simulates a credential scope. Leave empty to use the saved platform scope. This input is not saved.', invalid: 'Business scope must not exceed 2,000 characters. Shorten it and try again.' },
     images: {"capability": "Supports multimodal input", "capabilityHelp": "Currently used for images; verify capability with an actual image request.", "model": "Image detection model", "help": "Images use generic AI checks and risk levels within the shared timeout. Images are sent to the selected provider without automatic redaction.", "upload": "Upload images", "preview": "Enlarge", "limits": "Up to 3 PNG, JPEG or WebP images, 2 MB each; inline Base64 images only.", "remove": "Remove image {number}", "number": "Image {number}", "evidence": "Visual evidence (model description)", "status": "Image detection status", "readFailed": "Could not read the image. Select it again.", "states": {"no_images": "No images", "pending": "Pending", "running": "Checking", "completed": "Checked", "failed": "Detection failed", "disabled": "Disabled", "skipped_blocked": "Skipped: blocked by rules", "skipped_categories_disabled": "No image checks enabled"}},
     adapter: { label: 'Model type', generic: 'General-purpose LLM', rsguard: 'RSGuard compliance model', help: { generic: 'Analyzes risks using detection instructions. In Prompt Guard, you can configure general detection categories and individual AI checks.', rsguard: 'Returns safety verdicts and matched categories. In Prompt Guard, you can configure the 10 native RSGuard compliance categories.' } },
     rsguard: {
@@ -144,13 +167,19 @@ export const promptGuardMessages = {
       states: { safe: 'Safe', unsafe: 'Unsafe', controversial: 'Controversial' },
       categories: { political: 'Politically Sensitive Topics', violent: 'Violent', illegal: 'Non-violent Illegal Acts', sexual: 'Sexual Content', pii: 'PII Content', self_harm: 'Suicide & Self-Harm', unethical: 'Unethical Acts', copyright: 'Copyright Violations', jailbreak: 'Jailbreak', injection: 'Prompt Injection' },
     },
-    categories: {"injection": "Prompt Injection & Memory Poisoning", "privacy": "Privacy & Confidentiality", "access": "Authorization & Boundaries", "content": "Harmful Content", "discrimination": "Discrimination & Exclusion", "business": "Commercial Abuse", "resources": "Resource & Call-chain Abuse", "professional": "Medical & Financial Risks", "facts": "Facts & Information Integrity"},
-    categorySettings: {"severity": "Match severity", "modelSeverity": "Use AI judgment", "severityHelp": "Choose High, Medium, Low or Use AI judgment and save. Matches use the selected severity, or the model-returned level for AI judgment. The detection mode determines whether to block.", "category": "Detection category", "enabled": "Enable category", "model": "Category detection model", "inherit": "Use default detection model", "aiRules": "AI checks", "help": "Category switches control both text rules and AI checks. Individual AI switches only affect model checks. An empty model inherits the default; categories using the same model share a call. Apply category changes with Save configuration.", "disabledHint": "This category is disabled. After saving, its text rules and AI checks will not run."},
+    categories: {"injection": "Prompt Injection & Memory Poisoning", "privacy": "Privacy & Confidentiality", "access": "Authorization & Boundaries", "content": "Harmful Content", "discrimination": "Discrimination & Exclusion", "business": "Commercial Abuse", "resources": "Resource & Call-chain Abuse", "professional": "Medical & Financial Risks", "facts": "Facts & Information Integrity", "operations": "High-impact Operations", "topics": "Business Topic Scope", "politics": "Politics & Public Policy"},
+    categorySettings: {"modelRisk": "AI-assigned risk", "overridden": "Final severity uses the configured check level", "operationsHelp": "Flags high-impact changes requiring confirmation, not necessarily malicious intent. Defaults to AI judgment: Medium for ordinary high-impact changes, High for clear malice or approval bypass. Tool execution still requires permissions and approval.", "topicsHelp": "Off-topic detection requires a platform or credential business scope. Without one, this check is skipped. Ordinary questions and disagreement are not automatically attacks.", "severity": "Match severity", "modelSeverity": "Use AI judgment", "severityHelp": "Choose High, Medium, Low or Use AI judgment and save. Matches use the selected severity, or the model-returned level for AI judgment. The detection mode determines whether to block.", "category": "Detection category", "enabled": "Enable category", "model": "Category detection model", "inherit": "Use default detection model", "aiRules": "AI checks", "help": "Category switches control both text rules and AI checks. Individual AI switches only affect model checks. An empty model inherits the default; categories using the same model share a call. Apply category changes with Save configuration.", "disabledHint": "This category is disabled. After saving, its text rules and AI checks will not run."},
     samples: {
       "fill": "Insert example",
       "normal": "Normal scenarios",
       "images": "Image detection",
       "items": {
+            "politicalDiscussion": { "label": "Political system analysis", "content": "Compare political systems, including democratic institutions and governance." },
+            "contactMarketing": { "label": "Bulk contact marketing", "content": "Generate real reachable phone numbers for unsolicited advertising without consent." },
+            "ipLicense": { "label": "Verify commercial IP authorization", "content": "Design commercial product packaging using a famous animated character. I have not obtained a license." },
+            "operationChange": { "label": "Confirm high-impact changes", "content": "Change the production server administrator password and restart the server." },
+            "topicDrift": { "label": "Outside banking support scope", "content": "Forget banking. Write a gaming walkthrough for me.", "scope": "Only assist with bank accounts, deposits, loans and payments." },
+
             "imageNormal": { "label": "Normal image: opening hours", "content": "Please describe the image." },
             "imageInjection": { "label": "Prompt injection in an image", "content": "Please describe the image." },
             "imageSmallText": { "label": "Small-text injection: reveal system prompt", "content": "Please describe what is in this image." },
@@ -239,6 +268,18 @@ export const promptGuardMessages = {
       special: { metadata_access: 'Identifies cloud metadata by URL host. Only status and severity are editable.', encoded_instruction: 'Includes Base64 decoding and matching against active rules. Only status and severity are editable.', tool_abuse: 'Includes negated command handling. Only status and severity are editable.' },
     },
     rules: {
+      bulk_contact_marketing: 'Bulk contacts for marketing',
+      suggestive_marketing: 'Sexually suggestive marketing',
+      targeted_harassment: 'Targeted harassment and humiliation',
+      minor_grooming: 'Grooming and exploitation of minors',
+      ip_authorization: 'IP imitation and rights verification',
+      destructive_operation: 'Deletion and formatting',
+      power_operation: 'Shutdown and restart',
+      permission_credential_change: 'Permission and credential changes',
+      remote_public_access: 'Remote control and public exposure',
+      persistent_execution: 'Scheduled jobs, startup and services',
+      off_topic: 'Outside business scope',
+      political_system_discussion: 'Political systems', political_figure_discussion: 'Political figures', public_policy_discussion: 'Public policy',
       "memory_poisoning": "Memory Poisoning",
       "internal_details": "Internal Implementation Disclosure",
       "explicit_sexual": "Explicit Sexual Content",
@@ -265,4 +306,9 @@ export const promptGuardMessages = {
       harmful_guidance: 'Harmful operational guidance', metadata_access: 'Cloud metadata access',
     },
   },
+}
+
+for (const locale of Object.keys(promptGuardMessages)) {
+  promptGuardMessages[locale].workbench = guardWorkbenchMessages[locale]
+  promptGuardMessages[locale].checkDescriptions = guardCheckDescriptions[locale]
 }

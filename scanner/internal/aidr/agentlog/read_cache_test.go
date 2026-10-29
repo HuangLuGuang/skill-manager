@@ -187,6 +187,44 @@ func TestReadCacheRegularRewriteRotationAndMissing(t *testing.T) {
 	}
 }
 
+func TestReadCacheDoubaoSnapshotTracksDataFiles(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(base, "IndexedDB")
+	folder := filepath.Join(root, doubaoChatDB)
+	if err := os.MkdirAll(folder, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(folder, "CURRENT")
+	if err := os.WriteFile(path, []byte("MANIFEST-000001\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	wal := filepath.Join(folder, "000001.log")
+	if err := os.WriteFile(wal, doubaoTestWAL(t, false), 0600); err != nil {
+		t.Fatal(err)
+	}
+	src, _ := NewSource("doubaowork", root, path)
+	policy := AuditPolicy{Version: "7", Receipt: strings.Repeat("a", 32), MessageSchema: 1, Capture: &CaptureScope{Prompt: true, ModelResponse: true}}
+	var cache ReadCache
+	first, err := cache.Read(context.Background(), src, Cursor{}, DefaultBudget(), time.Unix(0, 0), &policy, nil)
+	if err != nil || len(first.Events) != 4 || !first.Cursor.ScanComplete {
+		t.Fatalf("snapshot: %+v %v", first.Coverage, err)
+	}
+	second, err := cache.Read(context.Background(), src, first.Cursor, DefaultBudget(), time.Unix(0, 0), &policy, nil)
+	if err != nil || len(second.Events) != 0 {
+		t.Fatal("unchanged snapshot replayed", err)
+	}
+	if err := os.WriteFile(wal, doubaoTestWAL(t, true), 0600); err != nil {
+		t.Fatal(err)
+	}
+	third, err := cache.Read(context.Background(), src, second.Cursor, DefaultBudget(), time.Unix(0, 0), &policy, nil)
+	if err != nil || third.Coverage.Status != "unavailable" {
+		t.Fatal("unchanged CURRENT hid a changed WAL", third.Coverage, err)
+	}
+}
+
 func TestReadStampRejectsReplacedParentAndLeaf(t *testing.T) {
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {

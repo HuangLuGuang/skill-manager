@@ -14,6 +14,9 @@
       <a-button type="link" class="back-link" @click="chooseScenario('')"><ArrowLeftOutlined />{{ t('agentIntegration.back') }}</a-button>
       <h2>{{ t(`agentIntegration.scenarios.${scenario}.title`) }}</h2>
       <p class="muted">{{ t(`agentIntegration.scenarios.${scenario}.description`) }}</p>
+      <a-alert v-if="gatewayError && (scenario === 'model' || capabilities.includes('model'))" type="error" show-icon :message="t('agentIntegration.gatewayLoadFailed')">
+        <template #action><a-button :loading="gatewayLoading" @click="loadGateway">{{ t('agentIntegration.refresh') }}</a-button></template>
+      </a-alert>
 
       <template v-if="scenario === 'client'">
         <a-alert type="info" show-icon :message="t('agentIntegration.sources.client_discovery')" :description="t('agentIntegration.client.intro')" />
@@ -98,7 +101,7 @@
                       <p>{{ t(isExternal ? 'agentIntegration.modelExternal' : 'agentIntegration.modelInternal') }}</p>
                       <label v-if="!isExternal" class="protocol-picker">{{ t('agentIntegration.protocol') }}<a-select v-model:value="protocol" :options="protocols" /></label>
                       <pre>{{ modelConfig }}</pre>
-                      <a-button @click="copyConfig(modelConfig)">{{ t('agentIntegration.copy') }}</a-button>
+                      <a-button :disabled="!modelConfig" @click="copyConfig(modelConfig)">{{ t('agentIntegration.copy') }}</a-button>
                       <p class="muted help-note">{{ t('agentIntegration.templateHelp') }}</p>
                     </template>
                     <p v-else class="muted">{{ t(capabilities.includes('model') ? 'agentIntegration.modelEmpty' : 'agentIntegration.modelUnselected') }}</p>
@@ -152,7 +155,7 @@
           <template v-if="scenario === 'model'">
             <label class="protocol-picker">{{ t('agentIntegration.protocol') }}<a-select v-model:value="protocol" :options="protocols" /></label>
             <pre>{{ ordinaryModelConfig }}</pre>
-            <a-button @click="copyConfig(ordinaryModelConfig)">{{ t('agentIntegration.copy') }}</a-button>
+            <a-button :disabled="!ordinaryModelConfig" @click="copyConfig(ordinaryModelConfig)">{{ t('agentIntegration.copy') }}</a-button>
             <p class="muted help-note">{{ t('agentIntegration.templateHelp') }}</p>
           </template>
           <a-button v-else-if="pageAllowed('/mcp-governance/gateways')" @click="router.push('/mcp-governance/gateways')">{{ t('agentIntegration.gateway.openMcp') }}</a-button>
@@ -170,7 +173,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeftOutlined, CodeOutlined, DesktopOutlined, ApiOutlined, CloudOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
-import { listAgents } from '../api'
+import { listAgents, getSystemCapabilities } from '../api'
 import AgentMcpGateways from './AgentMcpGateways.vue'
 import AgentSkillVerifierGuide from './AgentSkillVerifierGuide.vue'
 import { can as hasAccess, pageAllowed } from '../access'
@@ -186,6 +189,16 @@ const agentId = computed(() => typeof route.query.agent_id === 'string' ? route.
 const agents = ref([]), loading = ref(false), loadError = ref(false)
 const agent = computed(() => agents.value.find(item => item.agent_id === agentId.value))
 const isExternal = computed(() => agent.value?.default_model_source === 'external_gateway')
+const gatewayOrigin = ref(''), gatewayLoading = ref(false), gatewayError = ref(false)
+const loadGateway = async () => {
+  if (gatewayLoading.value) return
+  gatewayLoading.value = true
+  gatewayError.value = false
+  try {
+    const capabilities = await getSystemCapabilities()
+    gatewayOrigin.value = capabilities.model_gateway_url || runtimeApiOrigin()
+  } catch { gatewayOrigin.value = ''; gatewayError.value = true } finally { gatewayLoading.value = false }
+}
 const caller = ref('agent'), step = ref(0), capabilities = ref([]), protocol = ref('chat')
 const capabilityKeys = Object.keys(integrationCapabilities)
 const stepKeys = computed(() => ['credential', ...['model', 'skill', 'mcp'].filter(key => capabilities.value.includes(key)), 'verify'])
@@ -197,8 +210,8 @@ const suggestedScopes = computed(() => integrationScopes(capabilities.value))
 const endpoint = computed(() => ({ chat: '/v1/chat/completions', responses: '/v1/responses', messages: '/v1/messages' }[protocol.value]))
 const modelConfig = computed(() => isExternal.value
   ? `GET ${runtimeApiOrigin()}/api/v1/runtime/external-model/credential\nAuthorization: Bearer <AGENT_RUNTIME_TOKEN>`
-  : `Base URL: ${runtimeApiOrigin()}${protocol.value === 'messages' ? '' : '/v1'}\nAPI Key: <AGENT_RUNTIME_TOKEN>\nModel: ${agent.value?.default_model || '<MODEL_NAME>'}\nRequest URL: ${runtimeApiOrigin()}${endpoint.value}`)
-const ordinaryModelConfig = computed(() => `Base URL: ${runtimeApiOrigin()}${protocol.value === 'messages' ? '' : '/v1'}\nAPI Key: <MODEL_CREDENTIAL>\nModel: <ALLOWED_MODEL>\nRequest URL: ${runtimeApiOrigin()}${endpoint.value}`)
+  : gatewayOrigin.value ? `Base URL: ${gatewayOrigin.value}${protocol.value === 'messages' ? '' : '/v1'}\nAPI Key: <AGENT_RUNTIME_TOKEN>\nModel: ${agent.value?.default_model || '<MODEL_NAME>'}\nRequest URL: ${gatewayOrigin.value}${endpoint.value}` : '')
+const ordinaryModelConfig = computed(() => gatewayOrigin.value ? `Base URL: ${gatewayOrigin.value}${protocol.value === 'messages' ? '' : '/v1'}\nAPI Key: <MODEL_CREDENTIAL>\nModel: <ALLOWED_MODEL>\nRequest URL: ${gatewayOrigin.value}${endpoint.value}` : '')
 const skillConfig = computed(() => `POST /api/v1/access/runtime/verify-skill-signature\nContent-Type: application/json\n{\n  "skill_name": "<skill_name>",\n  "local_signature": "<LOCAL_CONTENT_DIGEST>"\n}\n\nGET /api/v1/access/runtime/can-load/<skill_name>\nGET /api/v1/access/runtime/check-tool?skill_name=<skill_name>&tool_name=<tool_name>\n\nAuthorization: Bearer <AGENT_RUNTIME_TOKEN>\nX-Agent-ID: ${agentId.value}`)
 const verificationLinks = computed(() => [
   { key: 'model', description: isExternal.value ? 'agentIntegration.verifyExternalModel' : 'agentIntegration.verifyModel', label: 'agentIntegration.modelRecords', path: isExternal.value ? null : '/pipeline-trace' },
@@ -238,6 +251,7 @@ const copyConfig = async value => {
   try { await copyText(value); message.success(t('agentIntegration.copied')) } catch { message.warning(t('clipboard.copyFailed')); promptManualCopy(value, t('clipboard.manualCopyPrompt')) }
 }
 onMounted(loadAgents)
+onMounted(loadGateway)
 </script>
 
 <style scoped>

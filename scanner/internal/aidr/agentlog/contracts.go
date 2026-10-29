@@ -72,35 +72,38 @@ type CallTurn struct {
 	ContentDigest string `json:"content_digest,omitempty"`
 }
 type Cursor struct {
-	DoubaoMessages           bool          `json:"doubao_messages,omitempty"`
-	DoubaoTurns              string        `json:"doubao_turns,omitempty"`
-	CompletionSchema         int           `json:"completion_schema,omitempty"`
-	ScanComplete             bool          `json:"scan_complete,omitempty"`
-	QoderLinks               []QoderLink   `json:"qoder_links,omitempty"`
-	ModelHeaderRead          bool          `json:"model_header_read,omitempty"`
-	ModelContext             *ModelContext `json:"model_context,omitempty"`
-	ModelProvider            string        `json:"model_provider,omitempty"`
-	ModelTurn                string        `json:"model_turn,omitempty"`
-	ContextRepairVersion     int           `json:"context_repair_version,omitempty"`
-	ContextRepair            *Cursor       `json:"context_repair,omitempty"`
-	RecoveryGaps             []Gap         `json:"recovery_gaps,omitempty"`
-	RecoveryDetailsTruncated bool          `json:"recovery_details_truncated,omitempty"`
-	ProjectionVersion        int           `json:"projection_version,omitempty"`
-	CallTurns                []CallTurn    `json:"call_turns,omitempty"`
-	SchemaVersion            int           `json:"schema_version"`
-	ParserVersion            string        `json:"parser_version"`
-	SourceID                 string        `json:"source_id"`
-	FileIdentity             string        `json:"file_identity"`
-	Generation               uint64        `json:"generation,string"`
-	Discarding               bool          `json:"discarding_oversized_record"`
-	DiscardStart             int64         `json:"discard_start,string"`
-	Offset                   int64         `json:"offset,string"`
-	Anchor                   string        `json:"anchor"`
-	Session                  string        `json:"session_id"`
-	Turn                     string        `json:"turn_id"`
-	AgentVersion             string        `json:"agent_version"`
-	Since                    time.Time     `json:"since"`
-	Gaps                     []string      `json:"gap_codes"`
+	CodeBuddyWorkspace       string           `json:"codebuddy_workspace,omitempty"`
+	TraeHooks                map[string]int64 `json:"trae_hooks,omitempty"`
+	TraeInput                string           `json:"trae_input,omitempty"`
+	DoubaoMessages           bool             `json:"doubao_messages,omitempty"`
+	DoubaoTurns              string           `json:"doubao_turns,omitempty"`
+	CompletionSchema         int              `json:"completion_schema,omitempty"`
+	ScanComplete             bool             `json:"scan_complete,omitempty"`
+	QoderLinks               []QoderLink      `json:"qoder_links,omitempty"`
+	ModelHeaderRead          bool             `json:"model_header_read,omitempty"`
+	ModelContext             *ModelContext    `json:"model_context,omitempty"`
+	ModelProvider            string           `json:"model_provider,omitempty"`
+	ModelTurn                string           `json:"model_turn,omitempty"`
+	ContextRepairVersion     int              `json:"context_repair_version,omitempty"`
+	ContextRepair            *Cursor          `json:"context_repair,omitempty"`
+	RecoveryGaps             []Gap            `json:"recovery_gaps,omitempty"`
+	RecoveryDetailsTruncated bool             `json:"recovery_details_truncated,omitempty"`
+	ProjectionVersion        int              `json:"projection_version,omitempty"`
+	CallTurns                []CallTurn       `json:"call_turns,omitempty"`
+	SchemaVersion            int              `json:"schema_version"`
+	ParserVersion            string           `json:"parser_version"`
+	SourceID                 string           `json:"source_id"`
+	FileIdentity             string           `json:"file_identity"`
+	Generation               uint64           `json:"generation,string"`
+	Discarding               bool             `json:"discarding_oversized_record"`
+	DiscardStart             int64            `json:"discard_start,string"`
+	Offset                   int64            `json:"offset,string"`
+	Anchor                   string           `json:"anchor"`
+	Session                  string           `json:"session_id"`
+	Turn                     string           `json:"turn_id"`
+	AgentVersion             string           `json:"agent_version"`
+	Since                    time.Time        `json:"since"`
+	Gaps                     []string         `json:"gap_codes"`
 }
 type Event struct {
 	Completion         *ToolCompletion `json:"completion,omitempty"`
@@ -159,6 +162,7 @@ type TurnLink struct {
 	CallID         string `json:"native_call_id"`
 	TurnID         string `json:"turn_id"`
 	ContentDigest  string `json:"content_digest"`
+	MessagePhase   string `json:"message_phase,omitempty"`
 }
 
 func ValidateTurnLink(link TurnLink) bool {
@@ -167,7 +171,7 @@ func ValidateTurnLink(link TurnLink) bool {
 			return false
 		}
 	}
-	return token(link.SessionID) != "" && token(link.CallID) != "" && token(link.TurnID) != ""
+	return token(link.SessionID) != "" && token(link.CallID) != "" && token(link.TurnID) != "" && (link.MessagePhase == "" || link.MessagePhase == "commentary" || link.MessagePhase == "final")
 }
 
 type Budget struct {
@@ -177,6 +181,7 @@ type Budget struct {
 	Duration  time.Duration
 	// Local resume boundary, not part of the platform policy or source cursor.
 	CollectionResumeAt time.Time
+	RetainedTurns      map[string]string
 }
 
 func DefaultBudget() Budget {
@@ -196,6 +201,9 @@ func digest(parts ...string) string {
 }
 func validAgent(agent string) bool { return catalog.Log(agent) }
 func ValidateCursor(c Cursor, s Source) error {
+	if len(c.CodeBuddyWorkspace) > 2048 {
+		return errors.New("aidr_log_cursor_invalid")
+	}
 	if c.ContextRepairVersion < 0 || c.ContextRepairVersion > contextRepairVersion {
 		return errors.New("aidr_log_cursor_invalid")
 	}

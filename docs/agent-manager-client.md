@@ -113,6 +113,17 @@ Subsequent pacing changes use actual delivery completion and defer unsent record
 
 ### 手动配置模型 / Manual model configuration
 
+内置模型使用平台发布的 `MODEL_GATEWAY_PUBLIC_URL`，未配置时复用客户端管理地址。
+例如管理地址为 `https://server`，模型地址可以是 `http://server:8000`；OpenAI-compatible 配置追加 `/v1`。
+模型切换预览显示目标地址，配置完成后的模型页显示实际读取地址，手动配置引导使用同一平台地址。
+启用专用入口后需升级客户端并重新应用现有 Agent 配置；注册、心跳和凭证领取仍走管理地址。
+HTTP 仅用于客户批准的内网，部署步骤见[模型专用 HTTP 入口](offline-deployment.md#模型专用-http-入口)。
+
+English: Built-in models use the platform's `MODEL_GATEWAY_PUBLIC_URL`, or the Client management address
+when unset. Switch previews show the target address; the model page reads the actual configuration, and manual
+setup uses the published address. Upgrade clients and reapply existing Agent configurations after enabling
+the dedicated entry. Management traffic keeps its own address. Restrict plaintext HTTP to approved networks.
+
 在“模型切换”选择没有自动配置适配器的 Agent，打开“手动配置引导”：
 
 1. 在 Agent 自身设置中确认自定义 Base URL、API Key、模型名称和协议选项，选择实际支持的协议。
@@ -1580,13 +1591,13 @@ Qoder 轮次采集使用原生 request-set ID 与日志 UUID 父子关系；同�
 
 ### Hook 工具规则持续有效 / Persistent Hook tool rules
 
-Hook 工具规则发布后持续有效，管理员更新时以更高版本替换；客户端离线和重启继续使用已验证签名的缓存。仅审计模式不执行这些拦截规则，切换模式不改写规则内容。界面不再提供规则有效期。新发布使用签名协议 `aidr.tool-policy/2`，不含 `expires_at`；新版客户端兼容已有 v1 签名规则，并按持续有效的配置解释，保留原始签名和历史版本。旧管理台的 `lifetime_seconds` 仅作输入兼容，不参与新规则的期限计算。先升级客户端，再发布 v2 规则；旧客户端无法识别 v2，拦截模式需要升级后使用。本机开发组件已构建，既有模式保持仅审计。
+Hook 工具规则发布后持续有效，管理员更新时以更高版本替换；客户端离线和重启继续使用已验证签名的缓存。仅审计模式不执行这些拦截规则，切换模式不改写规则内容。界面不再提供规则有效期。新发布使用签名协议 `aidr.tool-policy/4`，包含 `approval_wait_seconds`，不含策略 `expires_at`；新版客户端兼容已有 v1–v3 签名规则，并按持续有效的配置解释，保留原始签名和历史版本。旧管理台的 `lifetime_seconds` 仅作输入兼容，不参与新规则的期限计算。先升级客户端，再发布 v4 规则；旧客户端无法识别 v4，拦截模式需要升级后使用。
 
-单次人工审批仍绑定具体调用及一次性授权：本地等待 45 秒、平台审批窗口最多 300 秒，拒绝、撤销、策略版本更新和授权消耗继续生效。它不是规则配置的有效期。系统采集仍沿用已有独立签名和设备认证续签链路。
+单次人工审批仍绑定具体调用及一次性授权：平台全局或客户端覆盖配置等待时长，默认180秒、范围30–300秒；平台审批记录与客户端使用同一本次截止时间，拒绝、撤销、策略版本更新和授权消耗继续生效。它不是规则配置的有效期。系统采集仍沿用已有独立签名和设备认证续签链路。
 
-**English:** Published Hook tool rules persist until a higher signed revision replaces them, including offline and restart use. Audit mode does not enforce the rules. New `aidr.tool-policy/2` payloads omit expiry; upgraded collectors accept previously signed v1 rule configurations without changing their original signatures or history. Legacy UI lifetime input is accepted for compatibility but does not give new rules an expiry. Upgrade collectors before publishing v2: old collectors cannot interpret it. Exact-call, single-use approval windows remain bounded (45 seconds locally and at most 300 seconds on the platform). System collection retains its separate signed device renewal mechanism.
+**English:** Published Hook tool rules persist until a higher signed revision replaces them, including offline and restart use. Audit mode does not enforce the rules. New `aidr.tool-policy/4` payloads include `approval_wait_seconds` and omit policy expiry; upgraded collectors accept previously signed v1–v3 rule configurations without changing their original signatures or history. Legacy UI lifetime input is accepted for compatibility but does not give new rules an expiry. Upgrade collectors before publishing v4: old collectors cannot interpret it. Exact-call, single-use approval windows remain bounded (180 seconds by default, configurable from 30 to 300 seconds globally or per client, with the same deadline on the client and platform). System collection retains its separate signed device renewal mechanism.
 
-本次验证：中英文规则页面均无有效期输入，平台与客户端均报告仅审计；隔离后端和 Go 测试覆盖长期规则、旧签名兼容、离线缓存、重启及版本替换。时间推进由测试完成，并未等待实际跨日；新版真实 Agent 拦截审批尚未重新验收。/ Verified in this run: both rule forms omit lifetime and platform/client reports confirm audit mode. Isolated backend and Go tests cover persistent rules, legacy signatures, offline cache, restart and revision replacement. Time advancement is tested, not an actual multi-day run; real-Agent enforcement approval has not been revalidated with the new protocol.
+验证范围：自动化覆盖长期规则、旧签名兼容、离线缓存、重启和版本替换；TRAE / TRAE CN 的真实审批结果见文末180秒验收记录。/ Validation covers persistent rules, legacy signatures, offline caches, restarts and revision replacement. See the 180-second acceptance results below for live TRAE / TRAE CN approval evidence.
 
 人工验收 / Manual checks（不新增 UI 单元测试）：
 - 中英文工具规则编辑不显示有效期，发布后显示等待客户端获取，不能代替实际生效回执。
@@ -1665,9 +1676,34 @@ Command completion is separately negotiated using `X-AIDR-Command-Completion: 1`
 
 **English — turns:** Native tool IDs are joined through the runtime agent ID and frontend request metadata to the originating message ID. Both legacy receive events and local-office lifecycle start events are supported. Missing or conflicting identities remain unassigned, including transcript messages without native message IDs. Changes trigger resumable metadata-only history enrichment through existing `turn_links`, without restoring expired content or duplicating tools. Upgrade server and client together. The metadata index caches for 15 seconds and scans at most 128 MiB; unavailable metadata leaves transcript collection running. A fresh two-prompt command conversation verified distinct native turns. MCP's frontend, runtime and transcript IDs still lack a verified join and remain unassigned.
 
-本地 2.33.1/2.33.3 样本没有执行时间戳，`observed_at_source=collection` 表示采集时间。首次启用和历史补采按预算读取保留的轨迹，不能用采集起点筛掉更早执行的记录，补采时间也不代表原始对话发生时间。结果已返回与执行成功分开：保留返回内容，成败保持未知，不从任意输出文字推断退出码。不提供 Hook 阻断；飞书内置伙伴不属于此来源。豆包升级改变日志格式时需重新验证。
+本地 2.33.1/2.33.3 样本没有执行时间戳，`observed_at_source=collection` 表示采集时间。首次启用和历史补采按预算读取保留的轨迹，不能用采集起点筛掉更早执行的记录，补采时间也不代表原始对话发生时间。结果已返回与执行成功分开：保留返回内容，成败保持未知，不从任意输出文字推断退出码。不提供 Hook 阻断。豆包升级改变日志格式时需重新验证。
 
-**English:** Select **Doubao Work** (`doubaowork`) in the macOS runtime log policy. File operations, Bash and deferred MCP calls reuse checkpoints, deduplication and batch delivery. User input and assistant replies follow the existing prompt/model-response switches, redaction, limits and protected content access. With message capture negotiated, upgrading automatically replays retained trajectories in resumable batches, adding messages without duplicating tool records. Disabled content retains metadata only; system messages and questions absent from the original log are not reconstructed. Full session IDs appear below session titles. Times represent collection, including historical backfill, rather than original execution. Returned content does not establish success. Feishu's embedded companion and Hook enforcement remain outside this adapter.
+**English:** Select **Doubao Work** (`doubaowork`) in the macOS runtime log policy. File operations, Bash and deferred MCP calls reuse checkpoints, deduplication and batch delivery. User input and assistant replies follow the existing prompt/model-response switches, redaction, limits and protected content access. With message capture negotiated, upgrading automatically replays retained trajectories in resumable batches, adding messages without duplicating tool records. Disabled content retains metadata only; system messages and questions absent from the original log are not reconstructed. Full session IDs appear below session titles. Times represent collection, including historical backfill, rather than original execution. Returned content does not establish success. Hook enforcement remains outside this adapter.
+
+### macOS 飞书内豆包工作的本地电脑模式
+
+已闭合的原生工具交换可补充消息轮次和回复阶段：以用户记录分段，段内全部工具调用 ID 必须准确归到同一提问、全部结果返回后，末尾不再请求工具的唯一回答标记为最终回复；携带工具调用的正文标记为过程回复。缺少首条用户记录的初始段仍需完整调用 ID 链。缺 ID、冲突、未返回或中断段保留未归属，不按文字或时间匹配。这里的“最终回复”表示该段模型回答结束，不表示业务任务成功。
+
+更新后的服务端与客户端通过 `message_link_schema=1` 协商元数据补充能力；历史记录按原事件身份补轮次/阶段，原始正文、摘要和事件数量不变。旧服务端继续按原能力采集。桌面轮次导航直接显示序号；未归属记录单独保留入口。
+
+飞书缓存被替换后，客户端复用仍在保留期内、已按完整工具事件身份保存的轮次关联补充轨迹消息；确认上传后释放正文不会丢失这项关联。没有保存过的关联不能凭顺序或相同文本恢复，仍归入未归属。
+
+**English — retained associations:** After Feishu replaces its cache, retained tool-event identities can recover previously verified turn associations for transcript enrichment, even after acknowledged bodies are released. Associations never captured cannot be reconstructed from ordering or matching text and remain unassigned.
+
+**English:** Closed native tool exchanges can enrich message turns and phases. All call IDs in a user-delimited segment must resolve to one native prompt, and all results must return before its sole terminal answer without tool requests. Tool-bearing prose is progress; the terminal answer is final for that exchange, not proof of business success. Missing IDs, conflicts, incomplete results and interrupted segments remain unassigned. Metadata enrichment is negotiated with `message_link_schema=1` and preserves original event bodies, hashes and counts. Desktop navigation shows explicit round numbers alongside the unassigned entry.
+
+
+飞书本地电脑模式复用 **Doubao Work**（`doubaowork`）日志来源和现有采集开关、正文开关、脱敏、保留期、本地队列及批量上报。自动发现只枚举 `~/Library/Application Support/LarkShell/aha/users/` 下最多 16 个配置目录，并分别读取：
+
+- `doubao/.doubao/agent_mode/workspace/.sessions/<会话>/agents/<代理>/system/trajectory.jsonl`：文件操作、命令、MCP 原生调用及返回内容；无原生消息 ID 的轨迹正文保留未归属。
+- `profile_explorer/IndexedDB/https_www.doubao.com_0.indexeddb.leveldb`：已发送提问、明确结束且可见的回复正文、MCP 操作块。仅接收任务元数据指向当前飞书本地工作区的消息；普通飞书聊天和云电脑任务不作为本地执行采集。兼容消息时间的秒数字符串及毫秒数值。
+- `sdk_storage/log/agent_infra/agent_infra_*.log`：原生 `tcid → agent_id`，结合消息缓存 `reply_unique_key → reply_id`，将命令和文件工具归到原生提问消息 ID。关联索引缓存 15 秒；新增关联沿用 `turn_links` 补充保留的历史事件。字段缺失、冲突、缓存清理或预算超限时保留未归属。
+
+同一操作系统用户下，两端同步的缓存消息沿用独立版逻辑身份（会话 ID、原生消息 ID、正文块 ID），MCP 消息块使用 `cache-mcp:<消息 ID>:<块 ID>` 标识，并按调用/结果分别保存。相同 ID 和内容只入队一次，物理来源分别作为证据保留；不按文字去重，因此不同轮次的同内容调用仍分别保留。缓存中的 MCP 操作块包含参数和结果并能归轮；它与轨迹原生调用 ID 尚无可靠映射，二者保留为不同证据，不按工具名、参数或结果强行合并。来源目录表示采集位置；同步副本不证明在该客户端执行过。
+
+历史补采限于本机仍保留的记录。正在生成或存在正文冲突的缓存块不作为完整回复；原轨迹仍可保留其已记录正文。采集不修改飞书缓存、不注册 Hook、不阻断工具。验收应检查多轮命令的调用/结果归属、MCP 消息块与未归属原生证据、两端同步去重、正文开关及脱敏、暂停/恢复、重启后的补采与重复上报情况。
+
+**English:** Feishu local-computer tasks on macOS reuse the **Doubao Work** log source and its existing collection, content, redaction, retention and upload controls. Discovery is limited to 16 profile entries under `LarkShell/aha/users`, their Doubao trajectories and the Doubao WebView IndexedDB. Only task metadata identifying the profile's local workspace is accepted from the cache. Native runtime call IDs join through request IDs and message `reply_unique_key`/`reply_id`; missing or conflicting links remain unassigned. The 15-second correlation index enriches retained history via existing turn links. Synced cache messages and MCP blocks share logical identities across clients while retaining separate source evidence; identical content with different native IDs is not deduplicated. Finished MCP blocks provide parameters, results and a message turn, but are not merged with native trajectory calls without a verified ID join. A synced cache does not establish execution on the reading client. Historical recovery is limited to retained data; unfinished/conflicting reply blocks are not complete replies. No cache writes or Hook enforcement are introduced.
 
 本地 Skill 列表按内容区域宽度自动切换四列或紧凑两行布局；长名称省略显示，可悬浮查看完整名称。全选旁的帮助提示说明跨页选择与筛选清空规则，窗口缩放不改变选择。
 
@@ -1721,6 +1757,35 @@ The log store uses an 8 MiB SQLite page-cache budget and maintenance indexes, in
 
 Private configuration reads still validate permissions and file identity, reusing unchanged bytes where change-time metadata is available and normalizing binding configuration from one read. Repeated identical sync errors avoid writes; recovery and other tasks' success timestamps remain recorded. Daemon health checks run every second, with successful health timestamps provided by the atomically replaced, synchronized health file; failures and recovery remain in the database. Ordinary-event uploads watch only `events-wake`, recreating its watch after removal or rename and retaining the 30-second durable-queue repair check. Collection, heartbeat, upload and health-check intervals remain unchanged.
 
+日志发现器在每轮有界探测中合并提交文件和目录元数据；失败时回滚并重新枚举，保持原有探测周期。豆包会话关联每 15 秒检查 SDK 日志，按文件复用解析索引：支持变更时间的系统上，文件身份、大小、修改时间和变更时间均未变化时复用；变化的文件重新解析，删除文件的关联从合并结果中移除。无法取得变更时间时继续重新解析。关联冲突、日志读取上限和路径校验保持。历史清理使用确认时间、源关联索引；首次升级需要在本地数据库创建索引，会增加少量磁盘占用和启动时间，既有审计数据与保留规则不变。
+
+Each bounded discovery pass commits file and directory metadata together. Failures roll back and restart enumeration without changing the probe interval. Doubao correlation checks SDK logs every 15 seconds and reuses per-file parsing indexes when identity, size, modification time and filesystem change time are unchanged. Changed files are reparsed; deleted files are removed from the merged index. Systems without change-time metadata continue reparsing. Conflict handling, read limits and path validation remain in place. Retention queries use acknowledgement-time and source indexes. The first upgrade builds these local indexes, adding some disk usage and startup work while preserving audit data and retention rules.
+
 Skill 监听保留配置根目录的直接父目录监听，用于发现同名目录替换；父目录不存在时监听最近的现存祖先，无关路径事件不触发扫描。目录删除、重命名及携带明确路径的异步路径消失错误，复用 300 毫秒事件合并窗口重新注册受影响根目录并请求补偿扫描。无法确认监听完整性的错误立即重建监听器；连续失败按 1、2、4 秒递增退避，最长 30 秒，恢复后请求补偿扫描。健康监听器不启动周期重试定时器。
 
 Skill monitoring retains the direct parent watch of each configured root to detect replacement at the same path; if the parent is absent, it watches the nearest existing ancestor. Unrelated paths do not trigger scans. Directory removal, rename, and asynchronous missing-path errors with an identifiable path use the existing 300 ms coalescing window to re-register affected roots and request a compensating scan. Errors that leave watch integrity uncertain trigger an immediate rebuild; repeated failures back off from 1 to 2 to 4 seconds, capped at 30 seconds, with a compensating scan after recovery. Healthy monitors have no periodic retry timer.
+
+审批等待时长由签名工具策略下发。升级客户端后，在全局或单机安全规则页保存以发布新等待时长；旧配置显示默认180秒时也可直接保存完成升级。旧接收器缺少能力报告时拒绝发布并提示升级。仅修改时长保留已有申请的原截止时间，规则变化或接收器重启仍使旧申请失效。CLI在本次截止后保留5秒返回预算；支持审批的受管PreToolUse宿主配置使用315秒上限，覆盖300秒最大等待及通信开销，不随每次配置变更重启宿主。平台列表及详情每秒显示剩余等待，过期禁用审批，详情自动同步回执。
+
+
+2026-10-28 本机 TRAE CN 3.4.9 实测：浏览器在申请后 89 秒批准、100 秒拒绝均有效；自然超时的原生 PreToolUse 持续 180.126 秒并拒绝执行。仅批准标记文件存在，平台倒计时与客户端截止时间一致，超时回执自动刷新。现用全局/客户端“安全规则”页均可配置时长；本机最终全局与客户端覆盖均为 180 秒。此结果限定本次 TRAE CN 宿主版本。
+
+2026-10-28 本机 TRAE 3.6.4 两个入口完成 180 秒审批回归：SOLO / Work 在申请后 95 秒批准、85 秒拒绝，专用自然超时 180.243 秒；切换 IDE 界面后在 74 秒批准、93 秒拒绝，专用自然超时 179.730 秒（截止时间按整数秒）。批准、拒绝由平台浏览器完成，平台倒计时和回执与实际文件结果一致。两个界面复用同一宿主会话引擎，各次工具调用及审批独立；本结论不扩展到独立旧产品 TraeWork。临时测试规则已移除。
+
+## 千问办公（QwenWork CN）
+
+macOS 客户端可以发现 /Applications/QwenWorkCN.app，从 Info.plist 读取版本，并发现共享与 identity-data/v1/*/skills 个人 Skill 目录。日志与 Hook 在产品目录中独立启用；本机 Hook 设置位于 ~/.qwenworkcn/settings.json，安装后开启新会话。共享 plugins/plugins-custom 只报告已安装包，启用状态未知；身份加密 MCP 配置不读取。验收版本为 1.4.0（26102705），其他平台及引擎不作支持承诺。参见 [长期接入说明](external-agent-integration.md#千问办公--qwenwork-cnqwenwork)。
+
+**English:** On macOS, the client discovers QwenWorkCN.app and its bundle version, shared Skills and identity-scoped personal Skills. Enable logs and Hooks separately, install user settings, then start a new conversation. Shared plugin packages retain unknown enablement; encrypted connector settings are not read. The verified host is CN 1.4.0 (26102705). Upgrade the platform, sidecar and desktop together.
+
+## ZCode 客户端接入
+
+macOS 通过 /Applications/ZCode.app 和 Info.plist 发现 ZCode 及版本。日志来源为 ~/.zcode/cli/db/db.sqlite，Hook 用户配置为 ~/.zcode/cli/config.json 的 hooks.events。启用采集、安装 Hook 后新建会话；原生运行程序只在会话加载时读取 Hook 配置。先验证接收器、平台 ACK 和真实执行结果，再使用执行前策略及审批。
+
+用户/已知工作区 Skill、MCP 配置、插件目录和安装记录分别展示，未明确的启用状态保持未知。Hook 安装/移除保留其他配置；宿主 Hook 进程失败可能继续执行，移除接入不能仅停止服务。完整范围和三端升级说明见 [ZCode 接入](external-agent-integration.md#zcodezcode)。
+
+撤回接入前检查客户端的“采集与接入 → 安装、更新与重试”：管理员仍指定 ZCode 且启用自动安装时，后续策略应用会重新安装已移除的 Hook。需要保留产品范围、由用户控制安装时选择手动安装，再在桌面移除 Hook 配置。移除后分别确认本机配置、桌面“未安装”和平台插件接入状态；历史事件仍然保留。完整平台与 macOS 桌面按钮验收记录见 `outputs/zcode-acceptance/full-ui/验收报告.md`。
+
+**English:** Discover the macOS ZCode bundle, enable SQLite logs, install user Hooks, then start a new session. Check receiver health, platform ACK and actual tool execution separately. Inventory distinguishes configuration, installation and enablement. Native Hook failures may fail open. Upgrade the server, Go client and desktop together.
+
+If ZCode remains an administrator-selected product with automatic installation, a subsequent policy application can reinstall removed Hooks. Select manual installation when users should control installation within that scope. After removal, verify the local configuration, desktop status and platform plugin status separately; historical events remain available.

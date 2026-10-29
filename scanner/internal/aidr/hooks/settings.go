@@ -26,6 +26,9 @@ func settingsEntries(agent, binary, connection string) map[string]map[string]any
 	out := map[string]map[string]any{}
 	for event := range p.HookEvents {
 		out[event] = map[string]any{"command": shellArg(binary) + " aidr-hook --agent " + shellArg(agent) + " --event " + shellArg(event) + " --connection-file " + shellArg(connection), "timeout": hookAdapters[agent].Settings.Timeout}
+		if p.Approval && IsPreTool(agent, event) {
+			out[event]["timeout"] = 315
+		}
 		if hookAdapters[agent].Settings.Nested {
 			out[event]["type"] = "command"
 		}
@@ -87,8 +90,17 @@ func MergeSettingsHooks(agent, home, binary, connection string, remove bool) (Pl
 	if raw, ok := doc["version"]; hookAdapters[agent].Settings.Version != 0 && ok && (json.Unmarshal(raw, &version) != nil || version != hookAdapters[agent].Settings.Version) {
 		return PluginStatus{}, code("aidr_plugin_interface_unavailable")
 	}
+	var envelope map[string]json.RawMessage
+	groupsRaw := doc["hooks"]
+	if hookAdapters[agent].Settings.EventsEnvelope {
+		envelope = map[string]json.RawMessage{}
+		if len(groupsRaw) > 0 && (json.Unmarshal(groupsRaw, &envelope) != nil || envelope == nil) {
+			return PluginStatus{}, code("aidr_plugin_config_invalid")
+		}
+		groupsRaw = envelope["events"]
+	}
 	var groups map[string][]map[string]any
-	if raw, ok := doc["hooks"]; ok {
+	if raw := groupsRaw; len(raw) > 0 {
 		decoder := json.NewDecoder(bytes.NewReader(raw))
 		decoder.UseNumber()
 		if decoder.Decode(&groups) != nil || groups == nil {
@@ -155,6 +167,38 @@ func MergeSettingsHooks(agent, home, binary, connection string, remove bool) (Pl
 		doc["version"], _ = json.Marshal(hookAdapters[agent].Settings.Version)
 	}
 	doc["hooks"], _ = json.Marshal(groups)
+	if envelope != nil {
+		const previous = "_agent_manager_hooks_previous_enabled"
+		if !remove {
+			if _, ok := doc[previous]; !ok {
+				old := envelope["enabled"]
+				if len(old) == 0 {
+					old = json.RawMessage("null")
+				}
+				doc[previous] = old
+			}
+			envelope["enabled"] = json.RawMessage("true")
+		} else if old, ok := doc[previous]; ok {
+			if string(envelope["enabled"]) == "true" {
+				if string(old) == "null" {
+					delete(envelope, "enabled")
+				} else {
+					envelope["enabled"] = old
+				}
+			}
+			delete(doc, previous)
+		}
+		if len(groups) == 0 {
+			delete(envelope, "events")
+		} else {
+			envelope["events"] = doc["hooks"]
+		}
+		if len(envelope) == 0 {
+			delete(doc, "hooks")
+		} else {
+			doc["hooks"], _ = json.Marshal(envelope)
+		}
+	}
 	after, _ := json.MarshalIndent(doc, "", "  ")
 	after = append(after, '\n')
 	if !bytes.Equal(before, after) {
@@ -199,10 +243,21 @@ func InspectSettingsHooks(agent, home, binary, connection string) (PluginStatus,
 		return status, code("aidr_plugin_source_unreadable")
 	}
 	var groups map[string][]map[string]any
-	if raw, ok := doc["hooks"]; ok && json.Unmarshal(raw, &groups) != nil {
+	raw := doc["hooks"]
+	rootEnabled := true
+	if hookAdapters[agent].Settings.EventsEnvelope && len(raw) > 0 {
+		var envelope map[string]json.RawMessage
+		if json.Unmarshal(raw, &envelope) != nil || envelope == nil {
+			return status, code("aidr_plugin_config_invalid")
+		}
+		rootEnabled = string(envelope["enabled"]) == "true"
+		raw = envelope["events"]
+	}
+	if len(raw) > 0 && json.Unmarshal(raw, &groups) != nil {
 		return status, code("aidr_plugin_config_invalid")
 	}
-	installed := true
+	installed := rootEnabled
+	currentBudget := true
 	for event, entry := range settingsEntries(agent, binary, connection) {
 		count := 0
 		for _, existing := range groups[event] {
@@ -212,12 +267,18 @@ func InspectSettingsHooks(agent, home, binary, connection string) (PluginStatus,
 					h, _ := child.(map[string]any)
 					if h["command"] == entry["command"] {
 						count++
+						if h["timeout"] != float64(entry["timeout"].(int)) {
+							currentBudget = false
+						}
 					}
 				}
 				continue
 			}
 			if existing["command"] == entry["command"] {
 				count++
+				if existing["timeout"] != float64(entry["timeout"].(int)) {
+					currentBudget = false
+				}
 			}
 		}
 		if count != 1 {
@@ -227,6 +288,9 @@ func InspectSettingsHooks(agent, home, binary, connection string) (PluginStatus,
 	status.Installed = &installed
 	if installed {
 		status.PluginVersion = BundledPluginVersion
+		if !currentBudget {
+			status.PluginVersion = "0.1.2"
+		}
 		status.PluginID = "agent-manager-settings"
 		status.SourceCode = "aidr_hook_configuration_present"
 	}

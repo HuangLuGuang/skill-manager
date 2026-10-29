@@ -8,6 +8,7 @@ import (
 // AuditPolicy identifies a server-issued policy for one device collection stream.
 // Version zero is the initial fail-closed policy, not a server override.
 type AuditPolicy struct {
+	MessageLinkSchema  int               `json:"message_link_schema,omitempty"`
 	CompletionSchema   int               `json:"completion_schema,omitempty"`
 	SkillAudit         *SkillAuditPolicy `json:"skill_audit,omitempty"`
 	ModelContextSchema int               `json:"model_context_schema,omitempty"`
@@ -53,7 +54,7 @@ func (p AuditPolicy) Equal(other AuditPolicy) bool {
 	if (p.SkillAudit == nil) != (other.SkillAudit == nil) || (p.SkillAudit != nil && *p.SkillAudit != *other.SkillAudit) {
 		return false
 	}
-	if p.CompletionSchema != other.CompletionSchema || p.ModelContextSchema != other.ModelContextSchema || p.MessageSchema != other.MessageSchema || p.Version != other.Version || p.Enabled != other.Enabled || p.Receipt != other.Receipt {
+	if p.MessageLinkSchema != other.MessageLinkSchema || p.CompletionSchema != other.CompletionSchema || p.ModelContextSchema != other.ModelContextSchema || p.MessageSchema != other.MessageSchema || p.Version != other.Version || p.Enabled != other.Enabled || p.Receipt != other.Receipt {
 		return false
 	}
 	if (p.Lifecycle == nil) != (other.Lifecycle == nil) || (p.Lifecycle != nil && *p.Lifecycle != *other.Lifecycle) {
@@ -71,6 +72,9 @@ var policyVersion = regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
 var policyReceipt = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 func (p AuditPolicy) Valid() bool {
+	if p.MessageLinkSchema < 0 || p.MessageLinkSchema > 1 || (p.MessageLinkSchema == 1 && p.MessageSchema != 1) {
+		return false
+	}
 	if p.SkillAudit != nil && (p.Version == "0" || !p.SkillAudit.Valid()) {
 		return false
 	}

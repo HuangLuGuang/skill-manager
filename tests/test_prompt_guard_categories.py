@@ -114,7 +114,7 @@ def test_provider_severity_case_is_normalized_without_accepting_unknown_values()
     assert SemanticFinding.model_validate(finding('financial_risk', 'medium')).severity == 'MEDIUM'
     with pytest.raises(ValidationError):
         SemanticFinding.model_validate(finding('financial_risk', 'critical'))
-    assert sum(len(rules) for rules in PromptGuardConfig().model_rules().values()) == len(SEMANTIC_RULES)
+    assert sum(len(rules) for rules in PromptGuardConfig(business_scope="banking").model_rules().values()) == len(SEMANTIC_RULES)
 
 
 @pytest.mark.parametrize('mode', ['log', 'warn', 'block', 'off'])
@@ -184,3 +184,68 @@ def test_default_severities_preserve_explicit_settings():
     assert PromptGuardConfig(timeout_seconds=180).timeout_seconds == 180
     with pytest.raises(ValidationError):
         PromptGuardConfig(timeout_seconds=181)
+
+
+def test_scope_required_and_new_risk_defaults():
+    config = PromptGuardConfig()
+    assert 'off_topic' not in {r for rules in config.model_rules().values() for r in rules}
+    assert config.category_config('operations').rule_severities['destructive_operation'] == 'AI'
+    for category, rule in [('privacy', 'bulk_contact_marketing'), ('business', 'ip_authorization'), ('content', 'suggestive_marketing')]:
+        assert config.category_config(category).rule_severities[rule] == 'MEDIUM'
+    with pytest.raises(ValidationError):
+        PromptGuardConfig(business_scope='x' * 2001)
+
+
+def test_scope_override_is_request_local(tmp_path, monkeypatch):
+    client, _, factory, model = setup_guard(tmp_path, monkeypatch)
+    config = {'enabled': True, 'model_id': model, 'business_scope': 'banking', 'categories': {key: {'enabled': key == 'topics'} for key in CATEGORIES}}
+    assert client.put('/v1/prompt-guard/config', json=config).status_code == 200
+    prompts = []
+    async def fake(db, selected, payload, **kwargs):
+        prompts.append(payload['messages'][0]['content'])
+        return reply([finding('off_topic', 'MEDIUM')])
+    monkeypatch.setattr(gateway, '_call_upstream', fake)
+    for scope in ['', 'insurance']:
+        response = client.post('/v1/prompt-guard/test', json={'mode': 'block', 'business_scope': scope, 'messages': [{'role': 'user', 'content': 'sample'}]})
+        assert response.status_code == 200
+        assert response.json()['action'] == 'warn'
+        assert (scope or 'banking') in prompts[-1]
+    assert client.get('/v1/prompt-guard/config').json()['business_scope'] == 'banking'
+    response = client.post('/v1/prompt-guard/test', json={'business_scope': 'x' * 2001, 'messages': [{'role': 'user', 'content': 'sample'}]})
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize('risk,action', [('MEDIUM', 'warn'), ('HIGH', 'block')])
+def test_operation_ai_risk_controls_action(tmp_path, monkeypatch, risk, action):
+    client, _, _, model = setup_guard(tmp_path, monkeypatch)
+    assert client.put('/v1/prompt-guard/config', json={'enabled': True, 'model_id': model}).status_code == 200
+    async def fake(*args, **kwargs):
+        return reply([finding('destructive_operation', risk)])
+    monkeypatch.setattr(gateway, '_call_upstream', fake)
+    result = client.post('/v1/prompt-guard/test', json={'mode': 'block', 'messages': [{'role': 'user', 'content': 'sample'}]}).json()
+    assert result['action'] == action
+    assert result['findings'][0]['severity'] == risk
+
+
+def test_gateway_uses_saved_credential_scope_and_audits_risk(tmp_path, monkeypatch):
+    client, token, factory, model = setup_guard(tmp_path, monkeypatch)
+    assert client.put('/v1/prompt-guard/config', json={'enabled': True, 'model_id': model, 'business_scope': 'platform banking'}).status_code == 200
+    with factory() as db:
+        db.query(models.LlmApiKey).first().prompt_guard_business_scope = 'credential insurance'
+        db.commit()
+    async def fake(db, selected, payload, **kwargs):
+        if kwargs.get('prompt_guard_review'):
+            assert 'credential insurance' in payload['messages'][0]['content']
+            assert 'platform banking' not in payload['messages'][0]['content']
+            return reply([finding('off_topic', 'MEDIUM')])
+        return {'choices': [{'message': {'role': 'assistant', 'content': 'ok'}}], 'usage': {}}
+    monkeypatch.setattr(gateway, '_call_upstream', fake)
+    payload = {'model': 'mock-model', 'messages': [{'role': 'user', 'content': 'sample'}]}
+    headers = {'Authorization': f'Bearer {token}'}
+    assert client.post('/v1/chat/completions', headers=headers, json={**payload, 'business_scope': 'caller scope'}).status_code == 422
+    response = client.post('/v1/chat/completions', headers=headers, json=payload)
+    assert response.status_code == 200, response.text
+    with factory() as db:
+        audit = db.query(models.LlmRequestAudit).order_by(models.LlmRequestAudit.id.desc()).first()
+        result = json.loads(audit.prompt_guard_result_json)
+        assert result['action'] == 'warn' and result['findings'][0]['rule'] == 'off_topic'

@@ -1,0 +1,14 @@
+{
+  "role": "user",
+  "message": "{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"<additional_data>\\nBelow are some potentially helpful/relevant pieces of information for figuring out how to respond:\\n\\ncurrent_date: Monday, October 26, 2026\\n</additional_data>\\n\\n<system_reminder>{\\\"continue\\\": true}\\n</system_reminder>\\n\\n<user_query>\\n继续可控测试：请使用当前项目的 aidr-probe Skill，按其内容回复。不要读取其他文件或调用网络。\\n</user_query>\"}]}",
+  "id": "f7395e84d13d471ab00ddf8be7928b53",
+  "references": [
+    {
+      "type": "memory",
+      "enabled": true,
+      "memories": []
+    }
+  ],
+  "extra": "{\"requestId\":\"807651315b9c4de1a46a7f7e749d7dca\",\"modelId\":\"auto\",\"modelName\":\"Auto\",\"isHelperMessage\":false,\"sourceContentBlocks\":[{\"type\":\"text\",\"text\":\"继续可控测试：请使用当前项目的 aidr-probe Skill，按其内容回复。不要读取其他文件或调用网络。\",\"_meta\":{\"displayAsContext\":false}}],\"traceId\":\"7c882c50e729dac12f57bd69eb4d8a46\",\"inputPhrase\":[{\"type\":\"normal\",\"content\":\"继续可控测试：请使用当前项目的 aidr-probe Skill，按其内容回复。不要读取其他文件或调用网络。\",\"expandContent\":\"继续可控测试：请使用当前项目的 aidr-probe Skill，按其内容回复。不要读取其他文件或调用网络。\"}],\"selectionContexts\":[],\"command\":\"\"}",
+  "createdAt": "2026-10-26T13:59:27.654Z"
+}

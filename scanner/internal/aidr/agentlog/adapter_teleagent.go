@@ -36,7 +36,7 @@ func ReadOffset(s Source, c Cursor) int64 {
 	return c.Offset
 }
 
-type teleAgentRecord struct {
+type sqlitePartRecord struct {
 	ID, Session, Version, Cwd string
 	Created                   int64
 	Message                   json.RawMessage
@@ -47,6 +47,10 @@ type teleAgentRecord struct {
 // snapshot cycles revisit rows rather than assuming an append-only timestamp.
 // Stable evidence/logical IDs let the common store deduplicate unchanged rows.
 func readTeleAgent(ctx context.Context, s Source, old Cursor, b Budget, since time.Time, policy *AuditPolicy, observer *SkillObserver) (ReadBatch, error) {
+	return readSQLiteParts(ctx, s, old, b, since, policy, observer, parseTeleAgent)
+}
+
+func readSQLiteParts(ctx context.Context, s Source, old Cursor, b Budget, since time.Time, policy *AuditPolicy, observer *SkillObserver, parse func(sqlitePartRecord) ([]draft, error)) (ReadBatch, error) {
 	out := ReadBatch{SchemaVersion: SchemaVersion, Source: s, Cursor: old, Events: []Event{}, Coverage: Coverage{Status: "complete", Reasons: []string{}}}
 	expected, err := NewSource(s.Agent, s.Root, s.Path)
 	if err != nil || expected.ID != s.ID || !b.valid() {
@@ -133,7 +137,7 @@ func readTeleAgent(ctx context.Context, s Source, old Cursor, b Budget, since ti
 			break
 		}
 		var row int64
-		var r teleAgentRecord
+		var r sqlitePartRecord
 		var message, part, turn string
 		if rows.Scan(&row, &r.ID, &r.Session, &r.Version, &r.Cwd, &r.Created, &message, &part, &turn) != nil {
 			return out, errors.New("aidr_log_io_error")
@@ -153,7 +157,7 @@ func readTeleAgent(ctx context.Context, s Source, old Cursor, b Budget, since ti
 			out.Coverage.mark("partial", "aidr_log_read_budget")
 			break
 		}
-		drafts, err := parseTeleAgent(r)
+		drafts, err := parse(r)
 		if err != nil {
 			out.Coverage.mark("partial", err.Error())
 			c.Offset = row
@@ -176,8 +180,8 @@ func readTeleAgent(ctx context.Context, s Source, old Cursor, b Budget, since ti
 			e := &out.Events[i]
 			e.SourceInstanceID = digest(s.ID, identity, "sqlite/1")
 			e.EventID = digest("sqlite/1", s.ID, identity, r.ID, strconv.Itoa(e.Block), string(raw))
-			if token(turn) != "" {
-				out.TurnLinks = append(out.TurnLinks, TurnLink{e.LogicalEventID, e.SessionID, e.CallID, turn, e.ContentDigest})
+			if s.Agent == "teleagent" && token(turn) != "" {
+				out.TurnLinks = append(out.TurnLinks, TurnLink{e.LogicalEventID, e.SessionID, e.CallID, turn, e.ContentDigest, ""})
 			}
 		}
 		c = candidate
@@ -208,7 +212,7 @@ func readTeleAgent(ctx context.Context, s Source, old Cursor, b Budget, since ti
 	return out, nil
 }
 
-func parseTeleAgent(r teleAgentRecord) ([]draft, error) {
+func parseTeleAgent(r sqlitePartRecord) ([]draft, error) {
 	var m struct {
 		Role, Finish, ModelID, ProviderID string
 		Time                              struct{ Created, Completed int64 }

@@ -4,8 +4,8 @@
     <a-tab-pane key="assets" :tab="t('overviewTabs.assets')">
       <p class="muted">{{ tr('snapshotScope') }}</p>
       <div class="metrics">
-        <button v-for="row in assets" :key="row.key" @click="openAsset(row.key)"><span>{{ row.label }}</span><strong>{{ row.count ?? '—' }}</strong><small>{{ row.count == null ? t('localAssets.unreported') : t('overviewTabs.snapshot') }}</small></button>
-        <button @click="emit('configure')"><span>{{ tr('configuredModel') }}</span><strong class="model">{{ agent?.capabilities?.model_config_state?.model || tr('modelNoReport') }}</strong><small>{{ t('overviewTabs.snapshot') }}</small></button>
+        <button v-for="row in assets" :key="row.key" @click="openAsset(row.key)"><span>{{ row.label }}</span><strong>{{ row.count ?? '—' }}</strong><small v-if="row.count == null">{{ t('localAssets.unreported') }}</small></button>
+        <button @click="emit('configure')"><span>{{ tr('configuredModel') }}</span><strong class="model">{{ agent?.capabilities?.model_config_state?.model || tr('modelNoReport') }}</strong></button>
       </div>
       <div class="charts">
         <section class="panel"><h4>{{ tr('assetDistribution') }}</h4><Chart v-if="assets.some(row => row.count > 0)" :options="assetChart" height="240px" :navigation-label="t('overviewTabs.chartKeyboard',{name:tr('assetDistribution')})" @select="value => openAsset(assets[value.dataIndex].key)" /><a-empty v-else :description="tr('empty')" /></section>

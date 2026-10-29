@@ -170,13 +170,12 @@ const renderSavedConnections = () => {
       <span class="saved-connection-main"><strong>${escapeHtml(label)}</strong><small>${escapeHtml(item.server)}</small></span>
       ${item.active ? `<span class="saved-connection-active">${escapeHtml(t('ui.settings.current_connection'))}</span>` : ''}
       <span class="saved-connection-actions">
-        ${item.active
-          ? `<button type="button" class="icon-button icon-edit" data-edit-active-connection>${escapeHtml(t('ui.settings.edit_connection'))}</button>`
-          : `<button type="button" class="primary icon-button icon-connect" data-switch-connection="${index}">${escapeHtml(t('ui.settings.switch'))}</button>`}
+        <button type="button" class="icon-button icon-edit" data-edit-connection="${index}">${escapeHtml(t('ui.settings.edit_connection'))}</button>
+        ${!item.active ? `<button type="button" class="primary icon-button icon-connect" data-switch-connection="${index}">${escapeHtml(t('ui.settings.switch'))}</button>` : ''}
       </span>
     </div>`
   }).join('')
-  element.querySelector('[data-edit-active-connection]')?.addEventListener('click', () => editConnection())
+  element.querySelectorAll('[data-edit-connection]').forEach(button => button.addEventListener('click', () => editConnection(false, savedConnections[Number(button.dataset.editConnection)])))
   element.querySelectorAll('[data-switch-connection]').forEach(button => button.addEventListener('click', () => beginConnectionSwitch(Number(button.dataset.switchConnection))))
 }
 
@@ -514,12 +513,20 @@ const renderDisconnected = () => {
   $('#panel-title').textContent = t('ui.wu8jgp')
   syncSettingsControls()
 }
-const editConnection = (add = false) => {
-  $('#edit-connection-form').dataset.mode = add ? 'add' : 'edit'
+const editConnection = (add = false, target = connection) => {
+  const savedOnly = !add && target?.active === false
+  $('#edit-connection-form').dataset.mode = add ? 'add' : savedOnly ? 'saved' : 'edit'
+  $('#edit-connection-form').dataset.originalServer = target?.server || ''
   $('#edit-connection-title').textContent = t(add ? 'ui.settings.add_connection_title' : 'ui.settings.edit_connection_title')
-  $('#edit-connection-description').textContent = t(add ? 'ui.settings.add_connection_hint' : 'ui.settings.edit_connection_hint')
-  $('#edit-server').value = add ? '' : connection?.server || ''
-  $('#edit-client-name').value = add ? '' : connection?.name || connection?.platform?.name || ''
+  const hintKey = add ? 'ui.settings.add_connection_hint' : savedOnly ? 'ui.settings.edit_saved_hint' : 'ui.settings.edit_connection_hint'
+  $('#edit-connection-description').dataset.i18n = hintKey
+  $('#edit-connection-description').textContent = t(hintKey)
+  const submit = $('#edit-connection-form button[type="submit"]')
+  submit.dataset.i18n = savedOnly ? 'ui.settings.save_connection' : 'ui.settings.test_and_save'
+  submit.dataset.busyKey = savedOnly ? 'ui.settings.saving_connection' : 'ui.settings.testing_connection'
+  submit.textContent = t(submit.dataset.i18n)
+  $('#edit-server').value = add ? '' : target?.server || ''
+  $('#edit-client-name').value = add ? '' : target?.name || target?.platform?.name || ''
   $('#edit-token').value = ''
   $('#edit-token').required = add
   $('#edit-token').placeholder = t(add ? 'ui.settings.credential_required' : 'ui.settings.keep_credential')
@@ -529,6 +536,22 @@ const editConnection = (add = false) => {
 
 $('#edit-connection-form').addEventListener('submit', async event => {
   event.preventDefault()
+  if (event.currentTarget.dataset.mode === 'saved') {
+    const button = event.submitter
+    if (button.disabled) return
+    setBusy(button, true)
+    try {
+      await run('edit-connection', ['--original-server', event.currentTarget.dataset.originalServer, '--server', $('#edit-server').value, '--token', $('#edit-token').value, '--name', $('#edit-client-name').value])
+      await loadSavedConnections()
+      $('#edit-token').value = ''
+      $('#edit-connection-dialog').close()
+    } catch (error) {
+      showMessageDialog(t('ui.settings.save_connection_failed'), connectionErrorText(error))
+    } finally {
+      setBusy(button, false)
+    }
+    return
+  }
   await saveConnection({
     button: event.submitter,
     server: $('#edit-server').value,
@@ -1117,11 +1140,15 @@ const beginModelSwitch = (agent, model, button, gatewaySource = '') => {
   const contract = agent.capabilities?.model_config_contract || {}
   const fields = contract.parameters || {}
   const state = modelConfigState(agent)
+  const permission = connection?.platform?.model_configuration || {}
+  const gatewayURL = gatewaySource === 'external'
+    ? permission.external_gateway?.model_base_url || ''
+    : permission.gateway_url || connection?.server || ''
   $('#model-config-fields').innerHTML = (contract.parameter_status === 'version_unverified' ? `<p>${escapeHtml(t('ui.modelConfig.versionUnverified'))} <code>${escapeHtml((contract.parameter_versions || []).join(', '))}</code></p>` : '') + Object.entries(fields).map(([key, field]) => `<label>${escapeHtml(t(`ui.modelConfig.parameters.${key}`))}
     ${field.enum ? `<select data-model-parameter="${escapeHtml(key)}"><option value="">${escapeHtml(t('ui.modelConfig.unset'))}</option>${field.enum.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}</select>` : `<input data-model-parameter="${escapeHtml(key)}" type="number" min="${field.min}" max="${field.max}" step="${field.type === 'integer' ? 1 : 'any'}" placeholder="${escapeHtml(t('ui.modelConfig.unset'))}">`}
     <small><code>${escapeHtml(field.path)}</code> → <code>${escapeHtml(field.wire)}</code></small></label>`).join('')
   const values = () => Object.fromEntries([...dialog.querySelectorAll('[data-model-parameter]')].filter(input => input.value !== '').map(input => [input.dataset.modelParameter, input.type === 'number' ? Number(input.value) : input.value]))
-  const preview = () => { $('#model-config-preview').textContent = JSON.stringify({ path: state.config_path, before: { model: state.model, gateway_source: state.gateway_source || 'internal', parameters: state.parameters || {} }, after: { model, gateway_source: gatewaySource || 'internal', parameters: { ...(state.parameters || {}), ...Object.fromEntries(Object.entries(values()).filter(([, value]) => value !== null)) } } }, null, 2) }
+  const preview = () => { $('#model-config-preview').textContent = JSON.stringify({ path: state.config_path, before: { model: state.model, gateway_url: state.gateway_url, gateway_source: state.gateway_source || 'internal', parameters: state.parameters || {} }, after: { model, gateway_url: gatewayURL, gateway_source: gatewaySource || 'internal', parameters: { ...(state.parameters || {}), ...Object.fromEntries(Object.entries(values()).filter(([, value]) => value !== null)) } } }, null, 2) }
   dialog.querySelectorAll('[data-model-parameter]').forEach(input => input.addEventListener('input', preview))
   preview()
   $('#confirm-model-config').onclick = async () => {
@@ -3461,6 +3488,8 @@ function agentLabel(value) {
     'global-skills': t('ui.13u0v7i'),
     codebuddy: 'CodeBuddy',
     workbuddy: 'WorkBuddy',
+    qwenwork: 'QwenWork CN',
+    zcode: 'ZCode',
     teleagent: 'TeleAgent',
   }[value] || value
 }

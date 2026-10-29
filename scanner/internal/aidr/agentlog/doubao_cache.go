@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,28 +23,58 @@ var doubaoMessageID = regexp.MustCompile(`^[1-9][0-9]{1,30}$`)
 type doubaoCacheMessage struct {
 	Session, ID, Turn, Role, Text string
 	At                            time.Time
+	Request, Tool                 string
+	Payload                       json.RawMessage
 }
 
 func doubaoCacheSource(root, path string) bool {
-	return filepath.Base(root) == "IndexedDB" && filepath.Clean(path) == filepath.Join(root, doubaoChatDB, "CURRENT")
+	return filepath.Base(root) == "IndexedDB" && filepath.Clean(path) == filepath.Join(root, doubaoCacheDirs(root)[0], "CURRENT")
 }
 
 func doubaoObject(x any) map[string]any { m, _ := x.(map[string]any); return m }
 func doubaoString(x any) string         { s, _ := x.(string); return s }
 
-func doubaoCachedMessages(state map[string]any, add func(doubaoCacheMessage)) {
+func doubaoMessageTime(value any) time.Time {
+	ms, ok := value.(float64)
+	if s, stringValue := value.(string); stringValue {
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return time.Time{}
+		}
+		ms, ok = float64(n), true
+		if n >= 946684800 && n <= 4102444800 {
+			ms *= 1000
+		}
+	}
+	if !ok || !(ms >= 946684800000 && ms <= 4102444800000) {
+		return time.Time{}
+	}
+	return time.UnixMilli(int64(ms)).UTC()
+}
+
+func doubaoCachedRecords(state map[string]any, profile string, add func(doubaoCacheMessage)) {
 	for _, v := range doubaoObject(doubaoObject(state["state"])["mainTaskDataMap"]) {
 		task := doubaoObject(v)
 		for _, side := range []string{"sentMessages", "receivedMessages"} {
 			for id, v := range doubaoObject(task[side]) {
 				m := doubaoObject(v)
 				e := doubaoObject(m["extra"])
+				ext := doubaoObject(e["ext"])
+				if profile != "" {
+					var task map[string]any
+					_ = json.Unmarshal([]byte(doubaoString(ext["general_task_param"])), &task)
+					option := doubaoObject(task["client_option"])
+					workspace := doubaoString(doubaoObject(option["agent_workspace"])["agent_workspace"])
+					if task["runtime_type"] != float64(2) || workspace != filepath.Join(profile, filepath.FromSlash(feishuWorkspace)) {
+						continue
+					}
+				}
 				session := doubaoString(e["conversation_id"])
 				if !doubaoMessageID.MatchString(id) || doubaoString(e["message_id"]) != id || !doubaoMessageID.MatchString(session) {
 					continue
 				}
-				ms, _ := e["create_time"].(float64)
-				if !(ms >= 946684800000 && ms <= 4102444800000) {
+				at := doubaoMessageTime(e["create_time"])
+				if at.IsZero() {
 					continue
 				}
 				role, turn := "user", id
@@ -59,6 +90,11 @@ func doubaoCachedMessages(state map[string]any, add func(doubaoCacheMessage)) {
 					}
 				}
 				blocks := doubaoObject(e["content_blocks_v2"])
+				request := token(doubaoString(ext["reply_unique_key"]))
+				// Correlation metadata can arrive before the first finished text block.
+				if request != "" && turn != "" {
+					add(doubaoCacheMessage{Session: session, ID: id, Turn: turn, Role: "context", At: at, Request: request})
+				}
 				keys := make([]string, 0, len(blocks))
 				for k := range blocks {
 					keys = append(keys, k)
@@ -73,6 +109,9 @@ func doubaoCachedMessages(state map[string]any, add func(doubaoCacheMessage)) {
 				var prompt []string
 				for _, k := range keys {
 					b := doubaoObject(blocks[k])
+					if role == "assistant" {
+						doubaoMCPBlock(b, doubaoCacheMessage{Session: session, ID: id, Turn: turn, At: at, Request: request}, add)
+					}
 					if b["block_type"] != float64(10000) {
 						continue
 					}
@@ -89,12 +128,12 @@ func doubaoCachedMessages(state map[string]any, add func(doubaoCacheMessage)) {
 					if b["is_finish"] != true || doubaoObject(b["control_info"])["is_visible"] == false || doubaoString(b["parent_id"]) != "" || token(block) == "" || len(block) > 100 {
 						continue
 					}
-					add(doubaoCacheMessage{session, id + ":" + block, turn, role, text, time.UnixMilli(int64(ms)).UTC()})
+					add(doubaoCacheMessage{Session: session, ID: id + ":" + block, Turn: turn, Role: role, Text: text, At: at, Request: request})
 				}
 				if role == "user" && len(prompt) > 0 {
 					text := strings.Join(prompt, "\n")
 					if len(text) <= 2<<20 {
-						add(doubaoCacheMessage{session, id, turn, role, text, time.UnixMilli(int64(ms)).UTC()})
+						add(doubaoCacheMessage{Session: session, ID: id, Turn: turn, Role: role, Text: text, At: at, Request: request})
 					}
 				}
 			}
@@ -105,31 +144,49 @@ func doubaoCachedMessages(state map[string]any, add func(doubaoCacheMessage)) {
 func doubaoCacheSnapshot(ctx context.Context, root string) ([]doubaoCacheMessage, error) {
 	values := map[string]doubaoCacheMessage{}
 	conflicts := map[string]bool{}
+	requestConflicts := map[string]bool{}
+	turnConflicts := map[string]bool{}
 	var retained int
 	var overflow bool
 	add := func(m doubaoCacheMessage) {
 		key := m.Session + ":" + m.Role + ":" + m.ID
-		if len(values) >= 10000 || retained+len(m.Text) > 8<<20 {
+		if len(values) >= 10000 || retained+len(m.Text)+len(m.Payload) > 8<<20 {
 			overflow = true
 			return
 		}
 		if old, ok := values[key]; ok {
-			retained -= len(old.Text)
+			retained -= len(old.Text) + len(old.Payload)
 		}
-		retained += len(m.Text)
+		retained += len(m.Text) + len(m.Payload)
 		if old, ok := values[key]; ok {
-			if old.Text != m.Text || old.Turn != m.Turn {
+			if old.Text != m.Text || string(old.Payload) != string(m.Payload) || old.Tool != m.Tool {
 				conflicts[key] = true
+			}
+			if m.Turn == "" {
+				m.Turn = old.Turn
+			} else if old.Turn != "" && old.Turn != m.Turn {
+				turnConflicts[key] = true
 			}
 			// The two WebViews stamp arrival separately; IDs and body establish identity.
 			if old.At.Before(m.At) {
 				m.At = old.At
 			}
+			if m.Request == "" {
+				m.Request = old.Request
+			} else if old.Request != "" && old.Request != m.Request {
+				requestConflicts[key] = true
+			}
+		}
+		if requestConflicts[key] {
+			m.Request = ""
+		}
+		if turnConflicts[key] {
+			m.Turn = ""
 		}
 		values[key] = m
 	}
 	consume := func(k, v []byte) error {
-		if !doubaoStateKey(k) {
+		if !doubaoStateKeyFor(k, feishuProfile(root) != "") {
 			return nil
 		}
 		raw, err := doubaoUnwrap(v)
@@ -140,14 +197,14 @@ func doubaoCacheSnapshot(ctx context.Context, root string) ([]doubaoCacheMessage
 		if err != nil {
 			return err
 		}
-		doubaoCachedMessages(state, add)
+		doubaoCachedRecords(state, feishuProfile(root), add)
 		if overflow {
 			return errDoubaoCache
 		}
 		return nil
 	}
 	var total int64
-	for _, dir := range []string{doubaoChatDB, doubaoLauncherDB} {
+	for _, dir := range doubaoCacheDirs(root) {
 		folder := filepath.Join(root, dir)
 		if err := checkPath(folder); errors.Is(err, os.ErrNotExist) && dir == doubaoLauncherDB {
 			continue
@@ -169,15 +226,9 @@ func doubaoCacheSnapshot(ctx context.Context, root string) ([]doubaoCacheMessage
 			if checkPath(path) != nil {
 				return nil, errDoubaoCache
 			}
-			f, err := openLog(path)
+			raw, err := readDoubaoFile(ctx, path, &total)
 			if err != nil {
 				return nil, err
-			}
-			raw, err := io.ReadAll(io.LimitReader(f, 32<<20+1))
-			f.Close()
-			total += int64(len(raw))
-			if err != nil || len(raw) > 32<<20 || total > 64<<20 {
-				return nil, errDoubaoCache
 			}
 			if strings.HasSuffix(path, ".log") {
 				err = doubaoWAL(ctx, raw, consume)
@@ -203,6 +254,23 @@ func doubaoCacheSnapshot(ctx context.Context, root string) ([]doubaoCacheMessage
 	return result, nil
 }
 
+func readDoubaoFile(ctx context.Context, path string, total *int64) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f, err := openLog(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, 32<<20+1))
+	*total += int64(len(raw))
+	if err != nil || len(raw) > 32<<20 || *total > 64<<20 {
+		return nil, errDoubaoCache
+	}
+	return raw, ctx.Err()
+}
+
 func readDoubaoCache(ctx context.Context, s Source, old Cursor, b Budget, since time.Time, p *AuditPolicy, observer *SkillObserver) (ReadBatch, error) {
 	out := ReadBatch{SchemaVersion: SchemaVersion, Source: s, Cursor: old, Events: []Event{}, Coverage: Coverage{Status: "complete", Reasons: []string{}}}
 	expected, err := NewSource(s.Agent, s.Root, s.Path)
@@ -215,7 +283,7 @@ func readDoubaoCache(ctx context.Context, s Source, old Cursor, b Budget, since 
 		}
 		since = old.Since
 	}
-	if p == nil || !p.CollectionEnabled() || p.MessageSchema != 1 || p.Capture == nil {
+	if p == nil || !p.CollectionEnabled() {
 		out.Coverage.mark("unavailable", "aidr_audit_collection_disabled")
 		return out, nil
 	}
@@ -251,12 +319,28 @@ func readDoubaoCache(ctx context.Context, s Source, old Cursor, b Budget, since 
 			phase = "commentary"
 		}
 		d, ok := messageDraft(m.Role, phase, "indexeddb:"+m.ID, m.Turn, body, m.At)
+		if m.Tool != "" {
+			d = draft{Call: "cache-mcp:" + m.ID, Turn: m.Turn, Kind: m.Role, Tool: m.Tool, Content: m.Payload, Time: m.At, Outcome: "unknown"}
+			if m.Role == "tool_result" {
+				d.ResultProjection = doubaoResult
+			}
+			ok = true
+		}
 		if ok {
 			c.Session = m.Session
 			evidence, _ := json.Marshal(m)
+			start := len(out.Events)
 			projectDrafts(ctx, s, []draft{d}, &c, c, identity, evidence, p, b, observer, time.Now().Add(b.Duration), 0, &out)
-			if len(out.Events) > 0 {
-				out.Events[len(out.Events)-1].ObservedAtSource = ""
+			if len(out.Events) > start {
+				e := &out.Events[len(out.Events)-1]
+				e.ObservedAtSource = ""
+				scope := doubaoMessageScope(s)
+				if e.Message != nil {
+					e.LogicalEventID = digest("message/1", s.Agent, scope, m.Session, d.Call, d.MessageRole, d.MessagePhase, e.ContentDigest)
+				} else {
+					e.LogicalEventID = digest("doubao-cache-tool/1", scope, m.Session, d.Call, d.Kind, d.Tool, e.ContentDigest)
+				}
+				e.LogicalCallID = digest(s.Agent, scope, m.Session, d.Call)
 			}
 		}
 		c.Offset++

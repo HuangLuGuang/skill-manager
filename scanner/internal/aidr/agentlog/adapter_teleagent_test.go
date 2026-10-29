@@ -13,8 +13,12 @@ import (
 )
 
 func TestTeleAgentMutableSQLiteAndReadOnly(t *testing.T) {
+	testMutableSQLiteParts(t, "teleagent", "teleagent.db")
+}
+
+func testMutableSQLiteParts(t *testing.T, agent, filename string) {
 	root, _ := filepath.EvalSymlinks(t.TempDir())
-	path := filepath.Join(root, "teleagent.db")
+	path := filepath.Join(root, filename)
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
@@ -32,7 +36,7 @@ func TestTeleAgentMutableSQLiteAndReadOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	src, err := NewSource("teleagent", root, path)
+	src, err := NewSource(agent, root, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +45,11 @@ func TestTeleAgentMutableSQLiteAndReadOnly(t *testing.T) {
 	if err != nil || len(first.Events) != 0 || !first.Cursor.ScanComplete {
 		t.Fatalf("pending: %+v %v", first, err)
 	}
-	_, err = db.Exec(`UPDATE part SET data=? WHERE id='p'`, `{"type":"tool","callID":"call","tool":"write","state":{"status":"completed","input":{"filePath":"/workspace/a.txt","content":"SYNTHETIC_BODY"},"output":"written","time":{"start":1791714600000,"end":1791714601000}}}`)
+	inputPath := "filePath"
+	if agent == "zcode" {
+		inputPath = "file_path"
+	}
+	_, err = db.Exec(`UPDATE part SET data=? WHERE id='p'`, `{"type":"tool","callID":"call","tool":"write","state":{"status":"completed","input":{"`+inputPath+`":"/workspace/a.txt","content":"SYNTHETIC_BODY"},"output":"written","time":{"start":1791714600000,"end":1791714601000}}}`)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,7 +6,7 @@ import pytest
 from backend import aidr_risk as risk, aidr_hook_control as hook, aidr_tool_policy_scope as scope, auth, iam, models
 from backend.routers import aidr
 from tests.test_aidr_api import service
-from tests.test_aidr_enforcement import control
+from tests.test_aidr_hook_control import base_control, control
 
 GLOBAL = '/api/v1/aidr/security-rules'
 CLIENT = '/api/v1/clients/one/aidr/security-rules'
@@ -376,3 +376,39 @@ def test_multi_agent_approval_capabilities_are_atomic(unified):
     result = client.put(GLOBAL, json=body)
     assert result.status_code == 200, result.text
     assert all(r['decision'] == 'ask' for r in result.json()['control']['policy']['rules'])
+
+
+def test_unified_approval_wait_global_override_and_legacy_save(unified):
+    client, _ = unified
+    body = unified_payload(client.get(GLOBAL).json())
+    body['approval_wait_seconds'] = 180
+    result = client.put(GLOBAL, json=body)
+    assert result.status_code == 200, result.text
+    assert result.json()['control']['policy']['approval_wait_seconds'] == 180
+    revision = result.json()['control']['revision']
+    body = unified_payload(result.json())
+    body['approval_wait_seconds'] = 180
+    result = client.put(GLOBAL, json=body)
+    assert result.status_code == 200, result.text
+    assert result.json()['control']['revision'] == revision
+    body = unified_payload(result.json())
+    body['approval_wait_seconds'] = 240
+    result = client.put(GLOBAL, json=body)
+    assert result.status_code == 200, result.text
+    assert result.json()['control']['policy']['approval_wait_seconds'] == 240
+    body = unified_payload(client.get(CLIENT).json())
+    body['approval_wait_seconds'] = 180
+    result = client.put(CLIENT, json=body)
+    assert result.status_code == 200, result.text
+    assert result.json()['control']['policy']['approval_wait_seconds'] == 180
+    body = unified_payload(result.json())
+    body['approval_wait_seconds'] = 301
+    assert client.put(CLIENT, json=body).status_code == 422
+    del body['approval_wait_seconds']
+    result = client.put(CLIENT, json=body)
+    assert result.status_code == 200, result.text
+    assert result.json()['control']['policy']['approval_wait_seconds'] == 180
+    body = unified_payload(client.get(GLOBAL).json())
+    result = client.put(GLOBAL, json=body)
+    assert result.status_code == 200, result.text
+    assert result.json()['control']['policy']['approval_wait_seconds'] == 240

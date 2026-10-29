@@ -5,6 +5,7 @@ import sqlite3
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
+import pytest
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -82,7 +83,8 @@ def _client(tmp_path, manager=None):
     return TestClient(app)
 
 
-def test_mcp_plugin_inventory_round_trip_and_agent_instance_scope(tmp_path):
+@pytest.mark.parametrize("plugin_format", ["codex", "trae", "vscode_extension", "future_plugin_v2", "x" * 512])
+def test_mcp_plugin_inventory_round_trip_and_agent_instance_scope(tmp_path, plugin_format):
     from backend.routers import agents as agent_routes
 
     client = _client(tmp_path)
@@ -95,7 +97,7 @@ def test_mcp_plugin_inventory_round_trip_and_agent_instance_scope(tmp_path):
                          'endpoint_origin': 'https://user:URL_SECRET@example.com/PATH_SECRET?token=QUERY_SECRET',
                          'source_path': '/home/test/.codex/config.toml', 'enabled': False,
                          'headers': {'Authorization': 'HEADER_SECRET'}, 'args': ['ARG_SECRET']}],
-        'plugins': [{'id': 'plugin', 'name': 'reports', 'format': 'codex', 'state': 'installed',
+        'plugins': [{'id': 'plugin', 'name': 'reports', 'format': plugin_format, 'state': 'installed',
                      'path': '/plugins/reports', 'source_path': '/plugins/installed_plugins.json',
                      'skills': [{'name': 'report', 'path': '/plugins/reports/skills/report/SKILL.md'}],
                      'mcp_servers': [{'id': 'bundled', 'name': 'db', 'transport': 'stdio',
@@ -117,6 +119,11 @@ def test_mcp_plugin_inventory_round_trip_and_agent_instance_scope(tmp_path):
     assert 'SECRET' not in response.text
     inventory = {item['local_agent_id']: item for item in response.json()['agents']}
     stored = inventory['codex-a']['asset_inventory']
+    assert stored['plugins'][0]['format'] == plugin_format
+    reported = client.post('/api/v1/clients/asset-host/inventory', headers=headers, json={'agents': local_agents})
+    assert reported.status_code == 200, reported.text
+    refreshed = client.get('/api/v1/clients/asset-host/inventory').json()
+    assert next(item for item in refreshed['agents'] if item['local_agent_id'] == 'codex-a')['asset_inventory']['plugins'][0]['format'] == plugin_format
     assert stored['mcp_servers'][0]['endpoint_origin'] == 'https://example.com'
     assert stored['mcp_servers'][0]['enabled'] is False
     assert stored['plugins'][0]['mcp_servers'][0]['executable'] == ''
@@ -162,6 +169,18 @@ def test_mcp_plugin_inventory_round_trip_and_agent_instance_scope(tmp_path):
     legacy = client.get('/api/v1/clients/asset-host/inventory')
     assert 'BYPASS_SECRET' not in legacy.text
     assert legacy.json()['agents'][0]['asset_inventory'] is None
+
+
+def test_plugin_format_keeps_type_and_length_validation():
+    from pydantic import ValidationError
+    from backend.client_assets import PluginAsset
+
+    plugin = {'id': 'plugin', 'name': 'reports', 'state': 'installed', 'source_path': '/plugins'}
+    assert PluginAsset.model_validate(plugin).format == 'unknown'
+    for invalid in ('x' * 513, 123, None, ['codex']):
+        with pytest.raises(ValidationError) as error:
+            PluginAsset.model_validate({**plugin, 'format': invalid})
+        assert error.value.errors()[0]['loc'] == ('format',)
 
 
 def test_compare_reuses_platform_skill_signature(monkeypatch):
@@ -819,7 +838,9 @@ def test_client_register_inventory_and_task_round_trip(tmp_path):
     database.close()
 
 
-def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_path):
+@pytest.mark.parametrize("gateway_url", ["", "http://models.example.test:8000"])
+def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_path, monkeypatch, gateway_url):
+    monkeypatch.setattr(settings, "MODEL_GATEWAY_PUBLIC_URL", gateway_url)
     client = _client(tmp_path)
     client_credential = client.post(
         "/api/v1/access/tokens",
@@ -965,6 +986,7 @@ def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_pat
                 "managed_agent_id": managed_agent_id,
                 "model": "claude-sonnet",
                 "parameters": {},
+                **({"model_base_url": gateway_url} if gateway_url else {}),
             },
         }
     ]
@@ -1126,7 +1148,9 @@ def test_client_can_issue_task_bound_agent_runtime_credential_when_explicitly_al
     database.close()
 
 
-def test_client_model_switch_catalog_binding_and_task_credential_are_self_service(tmp_path):
+@pytest.mark.parametrize("gateway_url", ["", "http://models.example.test:18000"])
+def test_client_model_switch_catalog_binding_and_task_credential_are_self_service(tmp_path, monkeypatch, gateway_url):
+    monkeypatch.setattr(settings, "MODEL_GATEWAY_PUBLIC_URL", gateway_url)
     client = _client(tmp_path)
     database = next(client.app.dependency_overrides[get_db]())
     provider = models.ModelProvider(
@@ -1202,6 +1226,7 @@ def test_client_model_switch_catalog_binding_and_task_credential_are_self_servic
     assert [item["name"] for item in status.json()["model_configuration"]["models"]] == ["codex-allowed"]
     assert status.json()["model_configuration"]["models"][0]["upstream_name"] == "shared-model"
     assert status.json()["model_configuration"]["models"][0]["provider_name"] == "gateway-provider"
+    assert status.json()["model_configuration"]["gateway_url"] == gateway_url
     assert "available_managed_agents" not in status.json()
 
     task = client.post(
@@ -1217,6 +1242,7 @@ def test_client_model_switch_catalog_binding_and_task_credential_are_self_servic
     assert task.status_code == 200
     assert task.json()["task_type"] == "apply_model_config"
     assert task.json()["payload"]["auto_issue_credential"] is True
+    assert task.json()["payload"].get("model_base_url", "") == gateway_url
     assert "token" not in task.json()["payload"]
 
     denied = client.post(
@@ -2401,7 +2427,7 @@ def test_discovery_catalog_save_validation_and_client_sync(tmp_path):
     assert heartbeat.json()['policy']['agent_discovery'] == saved.json()
     empty = client.put(url, json={'expected_version': current, 'agents': []})
     assert empty.status_code == 200, empty.text
-    assert [item['agent_type'] for item in empty.json()['agents']] == ['teleagent']
+    assert {item['agent_type'] for item in empty.json()['agents']} == {'qwenwork', 'teleagent'}
     tasks = client.get('/api/v1/clients/discovery-host/tasks', headers=headers).json()
     discovery_tasks = [task for task in tasks if task['payload'].get('agent_discovery_version')]
     assert len(discovery_tasks) == 1

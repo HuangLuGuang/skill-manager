@@ -10,7 +10,7 @@ from backend.aidr_hook_control import HookPolicyRow
 from backend.aidr_hook_runtime import HookRuntimeRow
 from backend.aidr_tool_policy_scope import ToolPolicyConfig, initialize_global_policy
 from tests.test_aidr_api import service
-from tests.test_aidr_enforcement import control
+from tests.test_aidr_hook_control import control, base_control
 
 GLOBAL = '/api/v1/aidr/tool-policy'
 ROOT = '/api/v1/clients/one/aidr'
@@ -147,10 +147,9 @@ def test_command_capability_pending_keeps_previous_and_resumes(control):
     with factory() as db:
         assert db.query(HookPolicyRow).count() == 1
         assert db.query(HookPolicyRow).first().envelope == json.dumps(original, sort_keys=True, separators=(',', ':'))
-        db.add(HookRuntimeRow(client_id='one', stream_id='b' * 32, receiver_instance='e' * 32, sequence=1,
-            payload=json.dumps({'command_rules_schema': 1}), received_at=int(time.time())))
+        db.query(HookRuntimeRow).filter_by(client_id='one').update({'payload': json.dumps({'command_rules_schema': 1, 'approval_wait_schema': 1, 'control_revision': '', 'control_mode': 'audit'})})
         db.commit()
-    assert json.loads(base64.b64decode(sync(client)['policy']['payload']))['schema'] == 3
+    assert json.loads(base64.b64decode(sync(client)['policy']['payload']))['schema'] == 4
 
 
 def test_global_permissions_preview_and_pending_approval_rejection(control):

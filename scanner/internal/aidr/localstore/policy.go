@@ -58,6 +58,7 @@ func (s *Store) SavePolicy(ctx context.Context, p agentlog.AuditPolicy) error {
 		previous := *s.policy
 		previous.ModelContextSchema = p.ModelContextSchema
 		previous.CompletionSchema = p.CompletionSchema
+		previous.MessageLinkSchema = p.MessageLinkSchema
 		if !p.Equal(previous) {
 			return ErrInvalid
 		}
@@ -84,6 +85,11 @@ func (s *Store) SavePolicy(ctx context.Context, p agentlog.AuditPolicy) error {
 	if err == nil {
 		if p.CompletionSchema > 0 && (s.policy == nil || s.policy.CompletionSchema < p.CompletionSchema) {
 			_, err = tx.ExecContext(ctx, `UPDATE discovery_files SET pending=1 WHERE agent='codex'`)
+		}
+	}
+	if err == nil {
+		if p.MessageLinkSchema > 0 && (s.policy == nil || s.policy.MessageLinkSchema < p.MessageLinkSchema) {
+			_, err = tx.ExecContext(ctx, `UPDATE discovery_files SET pending=1 WHERE agent='doubaowork'`)
 		}
 	}
 	if err == nil {

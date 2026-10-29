@@ -3,7 +3,7 @@
     <nav class="policy-navigation" :aria-label="t('clientPolicy.navigation')">
       <button v-for="item in sections" :key="item.key" type="button" :aria-pressed="modelValue === item.key" @click="item.key === 'tools' ? emit('configure') : emit('update:modelValue', item.key)">
         <component :is="item.icon" class="nav-icon" aria-hidden="true" />
-        <span><strong>{{ t(`clientPolicy.${item.key}`) }}</strong><small>{{ t(`clientPolicy.${item.key}Hint`) }}</small></span>
+        <span><strong>{{ t(`clientPolicy.${item.key}`) }}</strong></span>
         <RightOutlined class="nav-arrow" aria-hidden="true" />
       </button>
     </nav>
@@ -35,9 +35,8 @@ watch(() => props.modelValue, value => { if (value === 'system') systemVisited.v
 .policy-navigation button:hover { border-color: #9bb6f6; background: #fafcff; }
 .policy-navigation button[aria-pressed=true] { border-color: #3265df; background: #f3f7ff; box-shadow: inset 0 3px #3265df; }
 .policy-navigation button:focus-visible { outline: 2px solid #3265df; outline-offset: 3px; }
-.policy-navigation strong, .policy-navigation small { display: block; }
+.policy-navigation strong { display: block; }
 .policy-navigation strong { font-size: 14px; font-weight: 600; }
-.policy-navigation small { margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--policy-muted); }
 .nav-icon { font-size: 20px; color: #66809f; }
 [aria-pressed=true] .nav-icon { color: #3265df; }
 .nav-arrow { margin-left: auto; font-size: 10px; color: #8090a7; }

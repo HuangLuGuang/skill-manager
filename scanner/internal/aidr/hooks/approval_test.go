@@ -87,10 +87,23 @@ func TestTwentyConcurrentScopesCannotExchangeGrants(t *testing.T) {
 }
 
 func TestGrantExactScopeAtomicUseAndReceiverRestart(t *testing.T) {
+	for _, agent := range []string{"codex", "codebuddy"} {
+		t.Run(agent, func(t *testing.T) { testGrantExactScope(t, agent) })
+	}
+}
+
+func testGrantExactScope(t *testing.T, agent string) {
 	ctx := context.Background()
 	dir := storeDirectory(t)
 	s := openTestStore(t, dir, 100)
-	record, err := s.Receive(ctx, testID(1), "501", "codex", "PreToolUse", []byte(storeInput))
+	raw := []byte(storeInput)
+	if agent == "qwenwork" {
+		raw = []byte(`{"hook_event_name":"PreToolUse","session_id":"session","tool_use_id":"native-call","tool_name":"mcp__qw-builtin__mcp_workspace_bash","tool_input":{"command":"printf approved","dir_path":"/tmp"}}`)
+	}
+	if agent == "codebuddy" {
+		raw = []byte(`{"hook_event_name":"PreToolUse","session_id":"session","generation_id":"turn","tool_name":"Bash","tool_input":{"command":"printf approved"}}`)
+	}
+	record, err := s.Receive(ctx, testID(1), "501", agent, "PreToolUse", raw)
 	if err != nil {
 		t.Fatal(err)
 	}

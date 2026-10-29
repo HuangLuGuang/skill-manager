@@ -1,5 +1,63 @@
 window.aidrProducts = [
   {
+    "id": "zcode", "name": "ZCode", "entry": "desktop", "os": ["darwin"],
+    "logs": "zcode-sqlite", "roots": [".zcode/cli/db"],
+    "hooks": "zcode-settings", "hook_setup": {"host_authorization": false, "host_enablement": false},
+    "block": true, "approval": true, "evidence": "local-source-and-log-sample",
+    "docs": ["https://zcode.z.ai/en/docs/hooks"],
+    "hook_events": {"SessionStart": "session.start", "UserPromptSubmit": "turn.submit", "PreToolUse": "tool.pre", "PostToolUse": "tool.post", "PostToolUseFailure": "tool.failure", "Stop": "turn.stop"},
+    "managed": false, "sample_versions": ["macOS 3.16.3.8992, embedded 0.17.0"],
+    "log_os": ["darwin"], "hook_os": ["darwin"],
+    "skill_usage": {"invocation": true, "file_access": true, "result_source": "unverified", "new_call_e2e": "unverified"}
+  },
+  {
+    "id": "qwenwork",
+    "name": "QwenWork CN",
+    "entry": "desktop",
+    "os": [
+      "darwin"
+    ],
+    "logs": "qwenwork-jsonl",
+    "roots": [
+      ".qwenworkcn/projects"
+    ],
+    "hooks": "qwenwork-settings",
+    "hook_setup": {
+      "host_authorization": false,
+      "host_enablement": false
+    },
+    "block": true,
+    "approval": true,
+    "evidence": "local-source-and-log-sample",
+    "docs": [
+      "https://docs.qwenwork.cn/desktop/hooks",
+      "https://docs.qwenwork.ai/zh/desktop/hooks"
+    ],
+    "hook_events": {
+      "SessionStart": "session.start",
+      "UserPromptSubmit": "turn.submit",
+      "PreToolUse": "tool.pre",
+      "PostToolUse": "tool.post",
+      "Stop": "turn.stop"
+    },
+    "managed": false,
+    "sample_versions": [
+      "CN 1.4.0 (26102705), embedded 1.1.71"
+    ],
+    "log_os": [
+      "darwin"
+    ],
+    "hook_os": [
+      "darwin"
+    ],
+    "skill_usage": {
+      "invocation": true,
+      "file_access": true,
+      "result_source": "unverified",
+      "new_call_e2e": "passed_macos_1.4.0_2026-10-28"
+    }
+  },
+  {
     "id": "claude",
     "name": "Claude Code",
     "entry": "cli",
@@ -154,6 +212,56 @@ window.aidrProducts = [
       "result_source": "native_base_directory",
       "new_call_e2e": "passed_macos_5.6.2_2026-10-07"
     }
+  },
+  {
+    "id": "codebuddy",
+    "name": "CodeBuddy IDE",
+    "entry": "ide",
+    "os": [
+      "darwin"
+    ],
+    "logs": "codebuddy-session-json",
+    "roots": [
+      "Library/Application Support/CodeBuddyExtension/Data"
+    ],
+    "hooks": "codebuddy-settings",
+    "hook_setup": {
+      "host_authorization": false,
+      "host_enablement": false
+    },
+    "block": true,
+    "approval": true,
+    "evidence": "local-source-and-log-sample",
+    "docs": [
+      "https://www.codebuddy.cn/docs/ide/Features/Hooks",
+      "https://www.codebuddy.cn/docs/ide/Features/Skills"
+    ],
+    "hook_events": {
+      "SessionStart": "session.start",
+      "SessionEnd": "session.end",
+      "UserPromptSubmit": "turn.submit",
+      "PreToolUse": "tool.pre",
+      "PostToolUse": "tool.post",
+      "PreCompact": "context.compact.start",
+      "Stop": "turn.stop"
+    },
+    "managed": false,
+    "sample_versions": [
+      "4.12.2"
+    ],
+    "log_os": [
+      "darwin"
+    ],
+    "hook_os": [
+      "darwin"
+    ],
+    "skill_usage": {
+      "invocation": true,
+      "file_access": true,
+      "result_source": "native_base_directory",
+      "new_call_e2e": "passed_macos_4.12.2_2026-10-26"
+    },
+    "enrollment_log_source": "codebuddy"
   },
   {
     "id": "qoder-cli",
@@ -507,5 +615,100 @@ window.aidrProducts = [
       "new_call_e2e": "unverified"
     },
     "enrollment_log_source": "doubaowork"
+  },
+  {
+    "id": "trae",
+    "name": "TRAE",
+    "entry": "desktop",
+    "os": [
+      "darwin"
+    ],
+    "logs": "trae-hook-log",
+    "roots": [
+      "Library/Application Support/Trae/logs"
+    ],
+    "hooks": "trae-settings",
+    "hook_setup": {
+      "host_authorization": true,
+      "host_enablement": true
+    },
+    "block": true,
+    "approval": true,
+    "evidence": "local-source-and-hook-sample",
+    "docs": [
+      "https://docs.trae.cn/ide_hook-configuration-reference"
+    ],
+    "hook_events": {
+      "SessionStart": "session.start",
+      "UserPromptSubmit": "turn.submit",
+      "PreToolUse": "tool.pre",
+      "PostToolUse": "tool.post",
+      "Stop": "turn.stop",
+      "Notification": "notification"
+    },
+    "managed": false,
+    "sample_versions": [
+      "3.6.4"
+    ],
+    "log_os": [
+      "darwin"
+    ],
+    "hook_os": [
+      "darwin"
+    ],
+    "skill_usage": {
+      "invocation": true,
+      "file_access": true,
+      "result_source": "result.metadata",
+      "new_call_e2e": "host-hook-and-log"
+    }
+  },
+  {
+    "id": "trae-cn",
+    "name": "TRAE CN",
+    "entry": "desktop",
+    "os": [
+      "darwin"
+    ],
+    "logs": "trae-hook-log",
+    "roots": [
+      "Library/Application Support/Trae CN/logs"
+    ],
+    "hooks": "trae-settings",
+    "hook_setup": {
+      "host_authorization": true,
+      "host_enablement": true
+    },
+    "block": true,
+    "approval": true,
+    "evidence": "local-source-and-hook-sample",
+    "docs": [
+      "https://docs.trae.cn/ide_hook-configuration-reference"
+    ],
+    "hook_events": {
+      "SessionStart": "session.start",
+      "UserPromptSubmit": "turn.submit",
+      "PreToolUse": "tool.pre",
+      "PostToolUse": "tool.post",
+      "Stop": "turn.stop",
+      "Notification": "notification"
+    },
+    "managed": false,
+    "sample_versions": [
+      "3.3.99",
+      "3.4.9"
+    ],
+    "log_os": [
+      "darwin"
+    ],
+    "hook_os": [
+      "darwin"
+    ],
+    "skill_usage": {
+      "invocation": true,
+      "file_access": true,
+      "result_source": "result.metadata",
+      "new_call_e2e": "unverified"
+    }
   }
 ];

@@ -1,0 +1,583 @@
+[
+  {
+    "ID": "part_mvrq4uro_2f6cecc1-29d3-4c97-aed3-ed39201d5e08",
+    "Session": "sess_125a610b-4265-4897-96d6-4a642bc4a100",
+    "Version": "0.17.0",
+    "Cwd": "/test/zcode/project",
+    "Created": 1793168345797,
+    "Message": {
+      "role": "assistant",
+      "time": {
+        "created": 1793168345719
+      },
+      "modelId": "aidr-test",
+      "providerId": "local",
+      "semantics": {
+        "origin": "agent_runtime",
+        "kind": "assistant_response",
+        "uiVisibility": "visible",
+        "providerVisibility": "visible",
+        "transcriptVisibility": "visible"
+      },
+      "anchor": {
+        "turnId": "turn_c131142a-3b89-440f-baa6-e8046dc5ca1f"
+      }
+    },
+    "Part": {
+      "type": "tool",
+      "callID": "call_aidr_probe",
+      "declarationIndex": 0,
+      "tool": "Bash",
+      "metadata": {},
+      "state": {
+        "status": "running",
+        "input": {
+          "command": "printf x >> /test/zcode/project/aidr-1793168330279089000-marker-2",
+          "description": "Create isolated test marker"
+        },
+        "title": "Bash",
+        "metadata": {},
+        "time": {
+          "start": 1793168345799
+        }
+      }
+    }
+  },
+  {
+    "ID": "part_mvrq4upc_cc574781-fa53-443b-9237-b0cba274853d",
+    "Session": "sess_125a610b-4265-4897-96d6-4a642bc4a100",
+    "Version": "0.17.0",
+    "Cwd": "/test/zcode/project",
+    "Created": 1793168345712,
+    "Message": {
+      "role": "user",
+      "time": {
+        "created": 1793168345712
+      },
+      "modelSelection": {
+        "providerId": "local",
+        "modelId": "aidr-test",
+        "options": {
+          "reasoningLevel": "enabled"
+        }
+      },
+      "semantics": {
+        "origin": "real_user",
+        "kind": "user_prompt",
+        "uiVisibility": "visible",
+        "providerVisibility": "visible",
+        "transcriptVisibility": "visible"
+      },
+      "anchor": {
+        "turnId": "turn_c131142a-3b89-440f-baa6-e8046dc5ca1f",
+        "origin": "realUser",
+        "sourceCommandId": "query_83ba6e41-23c7-4a95-9260-6c723b5cc3ee"
+      }
+    },
+    "Part": {
+      "type": "text",
+      "text": "AIDR_REQUEST_2: Run the single harmless test command.",
+      "time": {
+        "start": 1793168345712,
+        "end": 1793168345712
+      }
+    }
+  },
+  {
+    "ID": "part_mvrq4to8_8d992915-e78e-4da6-9e98-6da60c5c4844",
+    "Session": "sess_cf897d94-7ef7-4aae-aa0d-43c8afe1f1e8",
+    "Version": "0.17.0",
+    "Cwd": "/test/zcode/project",
+    "Created": 1793168344341,
+    "Message": {
+      "role": "assistant",
+      "time": {
+        "created": 1793168344341,
+        "completed": 1793168344381
+      },
+      "modelId": "aidr-test",
+      "providerId": "local",
+      "finish": "stop",
+      "semantics": {
+        "origin": "agent_runtime",
+        "kind": "assistant_response",
+        "uiVisibility": "visible",
+        "providerVisibility": "visible",
+        "transcriptVisibility": "visible"
+      },
+      "anchor": {
+        "turnId": "turn_bb64e113-ea83-41fe-ac7e-2100875c9fec",
+        "historyRoundCount": 2,
+        "orderedMessageIds": [
+          "msg_mvrq4r0e_6bf2151f-4550-4ecd-8a1b-fb60fcd096af",
+          "msg_mvrq4r1b_aa0a8329-87ca-46ca-ab58-2cc197e37f5a",
+          "msg_mvrq4r1e_c4befa98-ebf4-4e7b-8a8f-99bdd764c05d",
+          "msg_mvrq4tn9_8543a4f0-b65d-47da-80b6-afc1816a0c69"
+        ],
+        "boundaryMessageId": "msg_mvrq4tn9_8543a4f0-b65d-47da-80b6-afc1816a0c69",
+        "goalBoundary": {
+          "kind": "none"
+        }
+      }
+    },
+    "Part": {
+      "type": "text",
+      "text": "AIDR test complete",
+      "time": {
+        "start": 1793168344341,
+        "end": 1793168344376
+      }
+    }
+  },
+  {
+    "ID": "part_mvrq4r3x_df4e6f26-8428-44d4-a65a-5f6daf248ae1",
+    "Session": "sess_cf897d94-7ef7-4aae-aa0d-43c8afe1f1e8",
+    "Version": "0.17.0",
+    "Cwd": "/test/zcode/project",
+    "Created": 1793168341053,
+    "Message": {
+      "role": "assistant",
+      "time": {
+        "created": 1793168340963,
+        "completed": 1793168344339
+      },
+      "modelId": "aidr-test",
+      "providerId": "local",
+      "finish": "tool-calls",
+      "semantics": {
+        "origin": "agent_runtime",
+        "kind": "assistant_response",
+        "uiVisibility": "visible",
+        "providerVisibility": "visible",
+        "transcriptVisibility": "visible"
+      },
+      "anchor": {
+        "turnId": "turn_bb64e113-ea83-41fe-ac7e-2100875c9fec"
+      }
+    },
+    "Part": {
+      "type": "tool",
+      "callID": "call_aidr_probe",
+      "declarationIndex": 0,
+      "tool": "Bash",
+      "metadata": {},
+      "state": {
+        "status": "error",
+        "input": {
+          "command": "printf x >> /test/zcode/project/aidr-1793168330279089000-marker-1",
+          "description": "Create isolated test marker"
+        },
+        "error": "aidr_hook_grant_deny",
+        "metadata": {},
+        "time": {
+          "start": 1793168344337,
+          "end": 1793168344337
+        }
+      }
+    }
+  },
+  {
+    "ID": "part_mvrq4r16_302e65c5-b461-4daf-b605-f2a7814699d2",
+    "Session": "sess_cf897d94-7ef7-4aae-aa0d-43c8afe1f1e8",
+    "Version": "0.17.0",
+    "Cwd": "/test/zcode/project",
+    "Created": 1793168340954,
+    "Message": {
+      "role": "user",
+      "time": {
+        "created": 1793168340954
+      },
+      "modelSelection": {
+        "providerId": "local",
+        "modelId": "aidr-test",
+        "options": {
+          "reasoningLevel": "enabled"
+        }
+      },
+      "semantics": {
+        "origin": "real_user",
+        "kind": "user_prompt",
+        "uiVisibility": "visible",
+        "providerVisibility": "visible",
+        "transcriptVisibility": "visible"
+      },
+      "anchor": {
+        "turnId": "turn_bb64e113-ea83-41fe-ac7e-2100875c9fec",
+        "origin": "realUser",
+        "sourceCommandId": "query_aa982040-753c-4c9c-9825-ab3dc22c8a18"
+      }
+    },
+    "Part": {
+      "type": "text",
+      "text": "AIDR_REQUEST_1: Run the single harmless test command.",
+      "time": {
+        "start": 1793168340954,
+        "end": 1793168340954
+      }
+    }
+  },
+  {
+    "ID": "part_mvrq4q5l_a463a8b8-57f7-409f-ad84-d54a61413a1c",
+    "Session": "sess_313a8711-de2f-4e06-aa45-606aad4776bd",
+    "Version": "0.17.0",
+    "Cwd": "/test/zcode/project",
+    "Created": 1793168339795,
+    "Message": {
+      "role": "assistant",
+      "time": {
+        "created": 1793168339795,
+        "completed": 1793168339821
+      },
+      "modelId": "aidr-test",
+      "providerId": "local",
+      "finish": "stop",
+      "semantics": {
+        "origin": "agent_runtime",
+        "kind": "assistant_response",
+        "uiVisibility": "visible",
+        "providerVisibility": "visible",
+        "transcriptVisibility": "visible"
+      },
+      "anchor": {
+        "turnId": "turn_4bf6746d-e71a-4b99-81cb-6b5eb6f3c67e",
+        "historyRoundCount": 2,
+        "orderedMessageIds": [
+          "msg_mvrq4ltr_c44a2088-add0-45dd-bb55-688caa7115da",
+          "msg_mvrq4lud_e027f5bd-4076-450d-87d0-15d8b816ab0f",
+          "msg_mvrq4lug_cb8c36df-39aa-4fbb-99e9-2b3ea4affb22",
+          "msg_mvrq4q4z_a7c1e2de-19b4-4f56-bd03-f812991e0123"
+        ],
+        "boundaryMessageId": "msg_mvrq4q4z_a7c1e2de-19b4-4f56-bd03-f812991e0123",
+        "goalBoundary": {
+          "kind": "none"
+        }
+      }
+    },
+    "Part": {
+      "type": "text",
+      "text": "AIDR test complete",
+      "time": {
+        "start": 1793168339795,
+        "end": 1793168339817
+      }
+    }
+  },
+  {
+    "ID": "part_mvrq4lx7_0f7e73f9-12c1-4df0-9277-3a872a21f9f7",
+    "Session": "sess_313a8711-de2f-4e06-aa45-606aad4776bd",
+    "Version": "0.17.0",
+    "Cwd": "/test/zcode/project",
+    "Created": 1793168334334,
+    "Message": {
+      "role": "assistant",
+      "time": {
+        "created": 1793168334232,
+        "completed": 1793168339793
+      },
+      "modelId": "aidr-test",
+      "providerId": "local",
+      "finish": "tool-calls",
+      "semantics": {
+        "origin": "agent_runtime",
+        "kind": "assistant_response",
+        "uiVisibility": "visible",
+        "providerVisibility": "visible",
+        "transcriptVisibility": "visible"
+      },
+      "anchor": {
+        "turnId": "turn_4bf6746d-e71a-4b99-81cb-6b5eb6f3c67e"
+      }
+    },
+    "Part": {
+      "type": "tool",
+      "callID": "call_aidr_probe",
+      "declarationIndex": 0,
+      "tool": "Bash",
+      "metadata": {},
+      "state": {
+        "status": "completed",
+        "input": {
+          "command": "printf x >> /test/zcode/project/aidr-1793168330279089000-marker-0",
+          "description": "Create isolated test marker"
+        },
+        "output": "(Bash completed with no output)",
+        "title": "Bash",
+        "metadata": {
+          "schemaVersion": 1,
+          "serialization": {
+            "truncated": false,
+            "originalBytes": 0,
+            "returnedBytes": 31,
+            "budgetStrategy": "artifact"
+          }
+        },
+        "time": {
+          "start": 1793168338364,
+          "end": 1793168339790
+        }
+      }
+    }
+  },
+  {
+    "ID": "part_mvrputyg_66e14b6e-21e2-4f38-b2e9-8f761b7e74c8",
+    "Session": "sess_e7ab52bc-989d-4f33-92bb-782045459927",
+    "Version": "0.17.0",
+    "Cwd": "/test/zcode/project",
+    "Created": 1793167878184,
+    "Message": {
+      "role": "assistant",
+      "time": {
+        "created": 1793167878020,
+        "completed": 1793167880054
+      },
+      "modelId": "aidr-test",
+      "providerId": "local",
+      "finish": "tool-calls",
+      "semantics": {
+        "origin": "agent_runtime",
+        "kind": "assistant_response",
+        "uiVisibility": "visible",
+        "providerVisibility": "visible",
+        "transcriptVisibility": "visible"
+      },
+      "anchor": {
+        "turnId": "turn_fa59f61b-dc33-416d-aeb4-050b7f200fce"
+      }
+    },
+    "Part": {
+      "type": "tool",
+      "callID": "call_aidr_probe",
+      "declarationIndex": 0,
+      "tool": "Bash",
+      "metadata": {},
+      "state": {
+        "status": "completed",
+        "input": {
+          "command": "touch /test/zcode/project/failure-timeout-1793167876659397000"
+        },
+        "output": "(Bash completed with no output)",
+        "title": "Bash",
+        "metadata": {
+          "schemaVersion": 1,
+          "serialization": {
+            "truncated": false,
+            "originalBytes": 0,
+            "returnedBytes": 31,
+            "budgetStrategy": "artifact"
+          }
+        },
+        "time": {
+          "start": 1793167878402,
+          "end": 1793167880051
+        }
+      }
+    }
+  },
+  {
+    "ID": "part_mvrpuq0t_124ff882-d519-4884-a713-f6a22d68cadf",
+    "Session": "sess_a6a690f0-c4fe-4a00-9d60-ab925d87b90f",
+    "Version": "0.17.0",
+    "Cwd": "/test/zcode/project",
+    "Created": 1793167873085,
+    "Message": {
+      "role": "assistant",
+      "time": {
+        "created": 1793167873007,
+        "completed": 1793167873120
+      },
+      "modelId": "aidr-test",
+      "providerId": "local",
+      "finish": "tool-calls",
+      "semantics": {
+        "origin": "agent_runtime",
+        "kind": "assistant_response",
+        "uiVisibility": "visible",
+        "providerVisibility": "visible",
+        "transcriptVisibility": "visible"
+      },
+      "anchor": {
+        "turnId": "turn_3faa9361-bc90-41cc-b077-ed36a89d6c4d"
+      }
+    },
+    "Part": {
+      "type": "tool",
+      "callID": "call_aidr_probe",
+      "declarationIndex": 0,
+      "tool": "Bash",
+      "metadata": {},
+      "state": {
+        "status": "error",
+        "input": {
+          "command": "touch /test/zcode/project/failure-exit2-1793167871714504000"
+        },
+        "error": "Hook blocked execution",
+        "metadata": {},
+        "time": {
+          "start": 1793167873118,
+          "end": 1793167873118
+        }
+      }
+    }
+  },
+  {
+    "ID": "part_mvrpmglo_65c3d0a9-8ee9-49c6-b945-f8dd46ae1b92",
+    "Session": "sess_d9914c7f-e6f0-4e7b-99be-10756e3fa9f1",
+    "Version": "0.17.0",
+    "Cwd": "/test/zcode/project",
+    "Created": 1793167487629,
+    "Message": {
+      "role": "assistant",
+      "time": {
+        "created": 1793167487530,
+        "completed": 1793167487686
+      },
+      "modelId": "aidr-test",
+      "providerId": "local",
+      "finish": "tool-calls",
+      "semantics": {
+        "origin": "agent_runtime",
+        "kind": "assistant_response",
+        "uiVisibility": "visible",
+        "providerVisibility": "visible",
+        "transcriptVisibility": "visible"
+      },
+      "anchor": {
+        "turnId": "turn_fc967d9b-4cb3-4e5d-b0ee-bf010292fb0e"
+      }
+    },
+    "Part": {
+      "type": "tool",
+      "callID": "call_aidr_probe",
+      "declarationIndex": 0,
+      "tool": "mcp__aidr_probe__ping",
+      "metadata": {},
+      "state": {
+        "status": "completed",
+        "input": {},
+        "output": "AIDR_MCP_CALLED",
+        "title": "mcp__aidr_probe__ping",
+        "metadata": {
+          "schemaVersion": 1,
+          "display": {
+            "kind": "mcp_tool",
+            "serverName": "aidr_probe",
+            "toolName": "ping",
+            "description": "Harmless AIDR test"
+          },
+          "serialization": {
+            "truncated": false,
+            "originalBytes": 15,
+            "returnedBytes": 15,
+            "budgetStrategy": "truncate"
+          }
+        },
+        "time": {
+          "start": 1793167487658,
+          "end": 1793167487683
+        }
+      }
+    }
+  },
+  {
+    "ID": "part_mvrpmez4_c77cce62-e5bc-4e1e-bfa8-fc11ddc4a169",
+    "Session": "sess_48b934bc-d120-46ff-8be0-8327e35a5740",
+    "Version": "0.17.0",
+    "Cwd": "/test/zcode/project",
+    "Created": 1793167485521,
+    "Message": {
+      "role": "assistant",
+      "time": {
+        "created": 1793167485378,
+        "completed": 1793167485627
+      },
+      "modelId": "aidr-test",
+      "providerId": "local",
+      "finish": "tool-calls",
+      "semantics": {
+        "origin": "agent_runtime",
+        "kind": "assistant_response",
+        "uiVisibility": "visible",
+        "providerVisibility": "visible",
+        "transcriptVisibility": "visible"
+      },
+      "anchor": {
+        "turnId": "turn_52641d35-10f0-444c-a635-d747c21d6ee8"
+      }
+    },
+    "Part": {
+      "type": "tool",
+      "callID": "call_aidr_probe",
+      "declarationIndex": 0,
+      "tool": "Skill",
+      "metadata": {},
+      "state": {
+        "status": "completed",
+        "input": {
+          "skill": "aidr-probe"
+        },
+        "output": "<skill_content name=\"aidr-probe\">\n# Skill: aidr-probe\nReturn AIDR_SKILL_LOADED. Do not access files or network.\nBase directory for this skill: /test/zcode/home/.zcode/skills/aidr-probe\nRelative paths in this skill are relative to this base directory.\n</skill_content>",
+        "title": "Skill",
+        "metadata": {
+          "schemaVersion": 1,
+          "serialization": {
+            "truncated": false,
+            "originalBytes": 288,
+            "returnedBytes": 288,
+            "budgetStrategy": "truncate"
+          }
+        },
+        "time": {
+          "start": 1793167485567,
+          "end": 1793167485621
+        }
+      }
+    }
+  },
+  {
+    "ID": "part_mvrpmd5e_a1313e6f-2236-4fdd-8413-b155beda9d1a",
+    "Session": "sess_d8ff5bdc-83b4-4f79-a7d0-62439f2bfd5e",
+    "Version": "0.17.0",
+    "Cwd": "/test/zcode/project",
+    "Created": 1793167483155,
+    "Message": {
+      "role": "assistant",
+      "time": {
+        "created": 1793167482997,
+        "completed": 1793167483183
+      },
+      "modelId": "aidr-test",
+      "providerId": "local",
+      "finish": "tool-calls",
+      "semantics": {
+        "origin": "agent_runtime",
+        "kind": "assistant_response",
+        "uiVisibility": "visible",
+        "providerVisibility": "visible",
+        "transcriptVisibility": "visible"
+      },
+      "anchor": {
+        "turnId": "turn_6d85c48a-ce5a-4926-b21a-15d1b6051d98"
+      }
+    },
+    "Part": {
+      "type": "tool",
+      "callID": "call_aidr_probe",
+      "declarationIndex": 0,
+      "tool": "Write",
+      "metadata": {},
+      "state": {
+        "status": "error",
+        "input": {
+          "file_path": "/test/zcode/project/aidr-1793167424370292000-denied-write",
+          "content": "must not exist"
+        },
+        "error": "aidr_hook_rule_deny",
+        "metadata": {},
+        "time": {
+          "start": 1793167483180,
+          "end": 1793167483180
+        }
+      }
+    }
+  }
+]

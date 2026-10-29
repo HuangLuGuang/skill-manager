@@ -261,8 +261,12 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 		if d.Decision == "ask" {
 			wait, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			// Allow the 45-second attempt deadline to produce the durable timeout receipt.
-			wait, end := context.WithTimeout(wait, 50*time.Second)
+			// Leave time after the receiver deadline to persist and return its denial.
+			deadline := time.Now().Add(50 * time.Second)
+			if d.Expires > 0 {
+				deadline = time.Unix(d.Expires, 0).Add(5 * time.Second)
+			}
+			wait, end := context.WithDeadline(wait, deadline)
 			defer end()
 			ticker := time.NewTicker(250 * time.Millisecond)
 			defer ticker.Stop()

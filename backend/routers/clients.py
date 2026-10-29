@@ -1388,6 +1388,7 @@ def get_client_runtime_status(
         if item.managed_agent_id
     ]
     result["model_configuration"] = {
+        "gateway_url": settings.MODEL_GATEWAY_PUBLIC_URL,
         "adapters": MODEL_ADAPTERS,
         "can_configure_models": can_configure_models,
         "can_export_manual_credentials": can_configure_models and bool(token.allow_manual_credential_export),
@@ -1509,7 +1510,8 @@ def manual_model_options(client_id: str, body: schemas.ClientExternalModelCatalo
         query = db.query(models.ModelEndpoint).join(models.ModelProvider).filter(models.ModelEndpoint.enabled.is_(True), models.ModelProvider.enabled.is_(True))
         if allowed:
             query = query.filter(models.ModelEndpoint.name.in_(allowed))
-        result = {"source": "internal", "models": [{"name": item.name, "display_name": item.display_name or item.name} for item in query.order_by(models.ModelEndpoint.name).all()]}
+        result = {"source": "internal", "gateway_url": settings.MODEL_GATEWAY_PUBLIC_URL,
+                  "models": [{"name": item.name, "display_name": item.display_name or item.name} for item in query.order_by(models.ModelEndpoint.name).all()]}
     result["handoff"] = _manual_handoff(db, client_id, token.id, local.local_agent_id, result["source"])
     db.commit()
     return result
@@ -1585,7 +1587,7 @@ def manual_model_credential(client_id: str, body: schemas.ClientManualModelCrede
     value = {**body.model_dump(exclude={"replace_request_id"}), "issuer_id": token.id, "bound_agent_id": agent.agent_id,
              "credential_id": credential.id if credential else None, "key_id": binding.key_id if binding else None,
              "expires_at": credential.expires_at.isoformat() + "Z" if credential and credential.expires_at else None,
-             "gateway_url": gateway.model_base_url if source == "external_gateway" else None}
+             "gateway_url": gateway.model_base_url if source == "external_gateway" else settings.MODEL_GATEWAY_PUBLIC_URL}
     db.add(models.ClientTask(client_id=client_id, task_type="manual_model_credential", request_key=key,
                             status="succeeded", payload_json=_dump(value), finished_at=datetime.utcnow()))
     db.add(models.ClientEvent(client_id=client_id, agent_type=local.agent_type, event_type="manual_model_credential_issued", details_json=_dump({**value, "status": "succeeded"})))
@@ -2095,6 +2097,8 @@ def request_model_configuration(
         })
     else:
         payload["auto_issue_credential"] = True
+        if settings.MODEL_GATEWAY_PUBLIC_URL:
+            payload["model_base_url"] = settings.MODEL_GATEWAY_PUBLIC_URL
     task = models.ClientTask(
         client_id=client_id,
         task_type="apply_model_config",
@@ -3058,8 +3062,11 @@ def create_task(
                 "credential_type": "external_gateway_api_key",
                 "verification_mode": "client_call",
             })
-        elif issuance_token:
-            task_payload["auto_issue_credential"] = True
+        else:
+            if settings.MODEL_GATEWAY_PUBLIC_URL:
+                task_payload["model_base_url"] = settings.MODEL_GATEWAY_PUBLIC_URL
+            if issuance_token:
+                task_payload["auto_issue_credential"] = True
         payload = task_payload
         client_agent.desired_model = model_name
         client_agent.model_config_status = "pending"

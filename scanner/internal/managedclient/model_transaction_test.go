@@ -38,12 +38,15 @@ func TestModelChangeRestoreAndConflict(t *testing.T) {
 				t.Fatal(err)
 			}
 			before, rev, _ := readModelFiles(home, kind)
-			change, err = ApplyModelConfigRevision(home, "https://gateway.example", kind, kind, "model-b", "new-key", rev)
+			change, err = ApplyModelConfigRevision(home, "http://gateway.example:18000", kind, kind, "model-b", "new-key", rev)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got := InspectModelConfig(home, kind).Model; got != "model-b" {
 				t.Fatal(got)
+			}
+			if got := InspectModelConfig(home, kind).GatewayURL; !strings.HasPrefix(got, "http://gateway.example:18000") {
+				t.Fatalf("HTTP gateway was not read back: %s", got)
 			}
 			if err := RestoreModelConfig(home, change.ID); err != nil {
 				t.Fatal(err)

@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"skill-manager/scanner/internal/platformtls"
 )
 
 type API struct {
@@ -136,7 +138,7 @@ func NewAPI(server, token string, timeout time.Duration) API {
 	return API{
 		server: strings.TrimRight(server, "/"),
 		token:  strings.TrimSpace(token),
-		http:   &http.Client{Timeout: timeout},
+		http:   &http.Client{Timeout: timeout, Transport: platformtls.New(http.DefaultTransport.(*http.Transport).Clone())},
 	}
 }
 

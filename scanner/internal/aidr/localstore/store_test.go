@@ -120,6 +120,8 @@ func TestContextRepairProgressStaysLocal(t *testing.T) {
 	r.ContextRepairVersion = 1
 	next := c.Cursor
 	next.QoderLinks = r.QoderLinks
+	next.TraeHooks = map[string]int64{"native-hook": 1793024046944}
+	next.TraeInput = "native-hook"
 	next.ContextRepair = &r
 	next.ContextRepairVersion = 0
 	next.ModelContext = &agentlog.ModelContext{Model: "example", Source: "codex.turn_context"}
@@ -133,7 +135,7 @@ func TestContextRepairProgressStaysLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := string(coverageJSON(t, s, coverageID))
-	if strings.Contains(payload, "context_repair") || strings.Contains(payload, "model_") || strings.Contains(payload, "qoder_links") {
+	if strings.Contains(payload, "context_repair") || strings.Contains(payload, "model_") || strings.Contains(payload, "qoder_links") || strings.Contains(payload, "trae_") {
 		t.Fatal("local repair state leaked to upload contract")
 	}
 }

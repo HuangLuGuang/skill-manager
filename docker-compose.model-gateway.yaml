@@ -1,0 +1,9 @@
+services:
+  backend:
+    environment:
+      MODEL_GATEWAY_PUBLIC_URL: ${MODEL_GATEWAY_PUBLIC_URL:?Set the client-accessible model gateway origin, e.g. http://server:8000}
+  nginx:
+    ports:
+      - "${MODEL_GATEWAY_HTTP_PORT:-8000}:8000"
+    volumes:
+      - ./deploy/nginx/model-gateway.conf:/etc/nginx/conf.d/model-gateway.conf:ro

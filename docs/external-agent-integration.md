@@ -984,6 +984,11 @@ sequenceDiagram
 
 外部应用或 Agent 可以把 Agent Manager 当作 OpenAI-compatible 或 Anthropic-compatible 模型网关使用。
 
+部署设置 `MODEL_GATEWAY_PUBLIC_URL` 后，模型地址可以与管理地址分开，例如模型使用
+`http://服务器地址:8000/v1`，注册、凭证领取、MCP 和 Skill 校验仍使用管理地址。
+管理台接入指引和新版客户端模型切换使用平台发布的地址，未配置时保持原行为。
+启用步骤及明文传输边界见[模型专用 HTTP 入口](offline-deployment.md#模型专用-http-入口)。
+
 如果客户已有独立 AI 网关，客户端也可以按平台默认策略直接使用外部网关，不经过 Agent Manager 内置模型代理。Agent 注册、一次性 Key、动态 `/v1/models` 目录和 Skill 治理边界见 [外部 AI 网关接入与 Skill 治理](external-ai-gateway-integration.md)。
 
 在“智能体管理”中创建的平台 Agent 不需要客户端。选择外部 AI 网关后，平台直接注册外部身份、拉取模型目录并保存默认模型；运行时由绑定该 Agent 且包含 `model:chat` 的 Agent 运行凭证调用 `/api/v1/runtime/external-model/credential` 领取当前外部模型连接信息。
@@ -1302,7 +1307,8 @@ Local verification on 2026-10-08: real Codex tool Hook record #13229 retained th
 | Cursor IDE / 本地 Agents | [官方 Hooks](https://cursor.com/docs/hooks) | 未接入，不读取内部会话数据库 | `~/.cursor/hooks.json` version 1；7 类通用事件；`permission: allow/deny`；不提供审批 | 本机 3.12.30 本地 Agents 的真实提交、工具成功、工具失败及轮次结束已入库并在平台查看；SessionEnd 尚未实测。CLI、Cloud、Windows 未完成实机验收 |
 | OpenCode CLI（仅兼容旧接入） | 本机 1.1.51 存储样本、[插件接口](https://opencode.ai/docs/plugins/) | `~/.local/share/opencode/storage/part` 完整 JSON 快照，以原生 message/session ID 读取元数据 | 官方有插件接口，当前尚未接入 | 真实历史快照解析通过；不宣称支持新版 SQLite 存储或流式插件。等待 assistant message 完成后采集文本 |
 | OpenClaw Gateway | [内部 Hooks](https://docs.openclaw.ai/automation/hooks)、[插件 Hooks](https://docs.openclaw.ai/plugins/hooks) | 未接入 | 能力已文档核对，未实现适配 | 本机未发现环境。内部事件与工具插件钩子是不同接口，需要目标版本原生样本与实机验证 |
-| TraeWork | [产品入口](https://www.trae.ai/work) | 未接入 | 未取得足够的公开契约或本机样本 | 已安装 Trae / Trae CN IDE 不证明 TraeWork 具备行为审计接口 |
+| TRAE / TRAE CN macOS | [原生 Hook 协议](https://docs.trae.cn/ide_hook-configuration-reference)、本机 3.6.4 测试日志 | 原生 `agent-hooks.log`；提交、最终回复、工具输入/结果、Skill 名称和目录；依赖 Hook 日志生成 | 用户目录 `.trae/hooks.json` / `.trae-cn/hooks.json`；6 类事件；原生 deny/ask 响应，复用平台决策流程 | TRAE 3.6.4、CN 3.4.9 真实日志、签名策略阻断及180秒审批通过；超过60秒批准/拒绝和自然超时已实测。空 PostToolUse 不等于成功；复杂 shell 命令条件可能 unresolved，继续其他规则/默认决策 |
+| 旧独立 TraeWork | [融合说明](https://docs.trae.cn/ide_traework-to-traecode-data-migration) | 待验证 | 待验证 | 新 TRAE 的 IDE/Agent 窗口实测不能外推到旧独立版本；库存和治理入口保持区分 |
 
 OpenCode 当前不作为新增采集入口展示。官方插件支持工具前后、消息和会话事件，但本项目尚无对应 Hook 适配；现有日志解析仅有 1.1.51 JSON 快照依据。目录中的 `collection_visible: false` 只控制采集入口展示，不移除产品 ID、旧策略、解析器、队列或历史事件。已配置来源继续报告实际状态；新接入需另行完成目标版本适配和真实链路验收。
 
@@ -1464,6 +1470,14 @@ Dify 1.15.0（graphon 0.5.3）通过 [Runtime Adapter 接入包](../integrations
 
 豆包 IM 的 IndexedDB 缓存补充带原生消息 ID 的已发送提问和已结束的可见回复正文块；回复按 `reply_id` 归入提问轮次。沿用现有日志开关、脱敏和上报，不需要 Hook。缓存中的未完成回复与已被清理的历史不补造，原轨迹无 ID 的消息仍保留未归属。
 
+macOS 飞书内豆包工作的本地电脑模式也复用 `doubaowork` 来源：限定读取飞书用户配置中的豆包工作区、Doubao WebView 缓存及 AgentInfra 日志。工具通过 `tcid → agent_id → reply_unique_key → reply_id` 归轮；MCP 消息块自带所属回复和结果，但与原生轨迹调用缺少已验证的 ID 映射时分别保留证据。飞书和独立版缓存中的同会话、消息与块 ID 复用逻辑身份，只入队一次，物理来源仍保留；同步副本不证明再次执行。普通飞书聊天、云电脑执行和 Hook 阻断不在本次范围。具体路径、历史补采限制与验收项见[客户端说明](agent-manager-client.md#macos-飞书内豆包工作的本地电脑模式)。
+
+**English — Feishu local mode:** The macOS Feishu local-computer entry uses the existing `doubaowork` source, policy and upload pipeline. Discovery is restricted to Doubao task workspaces, its WebView cache and native AgentInfra metadata. Native request/message IDs establish turns; absent or conflicting joins remain unassigned. MCP message blocks retain their own turn/results without inventing a join to trajectory IDs. Synced cache records share logical IDs across the two clients while retaining physical evidence, so a synchronized copy is not counted as a second execution. Ordinary Feishu chat, cloud execution and Hook enforcement are outside this integration.
+
+闭合轨迹中的最终回答可通过同段完整工具调用 ID 链关联提问并标记最终回复；历史补关联复用已保存的原生工具归属，保留原始证据、采集开关与脱敏。缺少或冲突的链条保留未归属，详见客户端说明中的判定条件。
+
+**English — final replies:** A closed transcript exchange can identify its final answer and prompt through a complete native tool-call chain. Historical enrichment reuses retained tool associations while preserving evidence, capture controls and redaction. Missing or conflicting chains remain unassigned; see the client guide for the criteria.
+
 **English — message cache:** Doubao's local IndexedDB IM cache supplies acknowledged prompts and finished visible reply blocks with native IDs. Replies use `reply_id` to identify the prompt turn. Existing log controls, redaction and delivery apply without a Hook. Incomplete replies and removed history are not reconstructed; ID-less transcript messages remain unassigned.
 
 **English — turns:** Doubao native tool, runtime-task and frontend message IDs enrich retained history through `turn_links`, preserving original events. Missing/conflicting identities, transcript messages without native message IDs and MCP calls without a verified identity chain remain unassigned.
@@ -1474,6 +1488,91 @@ Dify 1.15.0（graphon 0.5.3）通过 [Runtime Adapter 接入包](../integrations
 
 ### WorkBuddy 平台人工审批 / Platform approval
 
-升级到包含 WorkBuddy 审批能力的客户端后，在安全规则中选择 WorkBuddy 并设置执行前动作为“需要审批”。执行前 Hook 使用现有平台审批与签名授权链路；本地等待约 45 秒，批准后仅恢复本次调用，拒绝或超时则停止。每次新调用需要独立审批，已消费的授权不可复用。平台收到客户端超时回执后，列表与详情统一显示“审批已超时”，不再提供批准、拒绝或撤销操作；审批接口拒绝后续变更。历史平台决定保留，已存在的超时回执也适用。
+升级到包含 WorkBuddy 审批能力的客户端后，在安全规则中选择 WorkBuddy 并设置执行前动作为“需要审批”。执行前 Hook 使用现有平台审批与签名授权链路；按平台配置等待，默认180秒（30–300秒，支持全局继承与客户端覆盖），批准后仅恢复本次调用，拒绝或超时则停止。每次新调用需要独立审批，已消费的授权不可复用。平台收到客户端超时回执后，列表与详情统一显示“审批已超时”，不再提供批准、拒绝或撤销操作；审批接口拒绝后续变更。历史平台决定保留，已存在的超时回执也适用。
 
-After upgrading to a client with WorkBuddy approval support, select WorkBuddy in Security rules and choose Require approval. The pre-tool Hook uses existing platform approvals and signed grants. Local attempts wait about 45 seconds; approval resumes only that attempt, while denial or timeout stops it. Each new call needs its own approval and consumed grants cannot be reused. After receiving a client timeout receipt, both list and detail show Approval timed out and offer no approval, denial or revocation actions. The decision API rejects further changes. Historical platform decisions are retained; existing timeout receipts also apply.
+After upgrading to a client with WorkBuddy approval support, select WorkBuddy in Security rules and choose Require approval. The pre-tool Hook uses existing platform approvals and signed grants. Local attempts default to 180 seconds (30–300 seconds through global policy or client overrides); approval resumes only that attempt, while denial or timeout stops it. Each new call needs its own approval and consumed grants cannot be reused. After receiving a client timeout receipt, both list and detail show Approval timed out and offer no approval, denial or revocation actions. The decision API rejects further changes. Historical platform decisions are retained; existing timeout receipts also apply.
+
+### CodeBuddy IDE（macOS，CN 4.12.2）
+
+在客户端采集配置中选择 CodeBuddy IDE，分别启用日志与 Hook。Hook 配置合并到用户 `.codebuddy/settings.json`，保留既有配置；项目同名设置可能覆盖用户设置，应检查实际项目并发起新操作。移除只删除本客户端生成的 Hook。支持 SessionStart、SessionEnd、UserPromptSubmit、PreToolUse、PostToolUse、PreCompact、Stop，执行前规则支持允许、拒绝与平台人工审批。
+
+日志读取 `~/Library/Application Support/CodeBuddyExtension/Data/*/CodeBuddyIDE/*/history/*/*/index.json` 及同会话 `messages/*.json`。以原生 request ID 关联轮次，完成请求后采集工具与响应，支持分页、重启去重及消息单独更新。模型保留原生 `modelId`，如 `auto`，不推断实际供应商。工具 Hook 使用 `generation_id` 关联轮次；该版本没有可靠的原生工具调用 ID，且工具 Hook 的 `cwd=/` 不是工作区，因此不据此构造调用关联或相对路径依据。
+
+安全规则选择 CodeBuddy IDE 并将执行前动作设为“需要审批”。客户端与服务端配套升级后，复用平台审批和签名授权；按平台配置等待，默认180秒（30–300秒，支持全局继承与客户端覆盖），批准仅放行当前尝试，拒绝或超时停止本次工具。授权绑定设备、用户、接收器、会话、轮次、工具参数摘要及唯一事件尝试，原生调用 ID 保持空值；同一轮次的相同命令再次调用仍需独立审批。已消费授权不可重用，消费回执不代表工具执行成功。收到超时回执后不可再批准。
+
+MCP 分派器 `mcp_call_tool` 按明确的 `serverName`、`toolName` 映射为 `mcp__{server}__{tool}`，用于单工具规则。Skill 的 `command` 参数记录调用尝试，原生 `use_skill_tool_result` 中的基目录记录宿主加载来源，复用平台 Skill 审计链路。命令退出码来自结构化宿主结果，拒绝事件与执行结果分别保留。
+
+资产发现读取用户 `~/.codebuddy/mcp.json`、项目根 `.mcp.json`、用户和项目 `.codebuddy/skills`，以及插件启用设置、marketplace 安装位置、声明源目录和 `.codebuddy-plugin/plugin.json`。从 IDE workspaceStorage 发现项目；插件缓存不代表已安装，缺失源目录显示配置态。MCP 配置发现不代表连接成功；IDE 项目 MCP 需宿主审批后启动。凭据值不进入资产清单。
+
+本机 CN 4.12.2 已验证读取、命令放行/拒绝、Skill 加载、MCP 放行/拒绝，以及真实日志和 Hook 批次在隔离后端入库、重放和时间线查询。目录能力仅声明 macOS IDE；Windows/Linux、独立 CLI 和系统级进程采集未纳入本次适配。
+
+**English:** Select CodeBuddy IDE separately for logs and Hooks. Settings Hooks preserve existing configuration; project settings can override user settings. Native session JSON supplies request IDs, tool calls/results, messages and the reported model ID. Tool Hooks supply `generation_id` but no reliable native call ID; their root cwd is omitted. Explicit MCP dispatcher server/tool fields become `mcp__{server}__{tool}` for per-tool rules. Skill invocation and native source-directory evidence use the existing audit pipeline. Inventory reads user MCP configuration, project-root `.mcp.json`, Skill directories and declared marketplace plugins, without credential values. Project MCP activation requires host approval. macOS CN 4.12.2 was tested with real allow/deny, Skill and local MCP calls plus isolated backend ingestion/replay/timelines. Other operating systems, standalone CLI and system-process collection are outside this adapter's declared capabilities.
+
+CodeBuddy platform approval uses signed grants scoped to the device, user, receiver, session, turn, tool input digest and unique event attempt. The native call ID stays empty. Each invocation requires a separate decision, including identical commands in one turn. Local waits default to 180 seconds (30–300 seconds through global policy or client overrides); denial or timeout stops the call. Consuming a grant does not prove tool execution. Upgrade both client and server.
+
+平台人工审批等待配置统一使用 `approval_wait_seconds`，默认180秒，整数范围30–300。接收器报告 `approval_wait_schema=1` 后可接收新版签名策略；申请上报本地持久化的 `expires_at`，平台校验策略预算并保存同一截止时间。CLI等待至该截止时间后5秒以留出拒绝回执预算，审批宿主PreToolUse配置为315秒。等待时长单独变更只影响新申请，规则变更仍使旧申请失效。
+
+## 千问办公 / QwenWork CN（qwenwork）
+
+2026-10-28 在 macOS 27.0.1 arm64、千问办公 1.4.0（26102705）、内嵌引擎 1.1.71 上完成隔离验收。安装位置为 `/Applications/QwenWorkCN.app`，bundle ID 为 `cn.qwenwork.desktop.mac`。本适配对应桌面默认引擎；安装包中的 `bin/qwenwork` 是服务/工具管理入口，`qoderclicn` 是内嵌引擎，不能把独立 CLI 或 IDE 自动归入桌面能力。
+
+| 能力 | 官方资料声明 | 本机已验证 | 源码/样本依据与边界 |
+|---|---|---|---|
+| Hook | 国内文档描述企业 HTTP Hook；国际文档描述本地命令 Hook | 用户 `~/.qwenworkcn/settings.json`、项目 `.qoder/settings.json` 的命令 Hook 在新会话生效 | 两种协议分别核实，本适配只安装本地命令配置；配置冲突优先级、local 层未验收 |
+| 事件 | 各版本/套餐事件列表不同 | SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、Stop | 只声明这五种实测事件 |
+| 原生标识 | 以实际输入为准 | session_id、cwd、tool_use_id；提交 request_set_id，Stop parent_request_set_id | 工具 Hook 缺少轮次字段时保持缺失；只按同产品/会话/原生调用证据关联日志 |
+| 执行前控制 | PreToolUse 可决策 | 空对象允许；hookSpecificOutput.permissionDecision=deny 阻断，拒绝目标未创建 | 保留工具原名；内置 shell 是 `mcp__qw-builtin__mcp_workspace_bash`，不能把它当外部业务 MCP |
+| 人工审批 | 由平台接入层提供签名授权 | 同一命令四次独立调用：批准、拒绝、30 秒超时、再批准；两次授权消费、四份回执 ACK | 复用设备/用户/接收器/会话/调用/参数摘要/事件绑定；不填造 turn_id |
+| 失败行为 | 命令 Hook 与 HTTP Hook 分别处理 | 命令超时、exit 1 放行；exit 2、非法 JSON 阻断 | 宿主失败放行是能力边界。315 秒宿主预算覆盖平台 30–300 秒审批等待及回执预算，不能保证进程被外部杀死时阻断 |
+| 日志 | 不以别的产品路径代替 | `~/.qwenworkcn/projects/<project>/<session>.jsonl` 随真实会话更新 | requestSetId/uuid/parentUuid 原生关系；entrypoint=cli 是内嵌记录字段，产品身份仍为 qwenwork；模型 flash 保留原值 |
+| Skill | 安装与运行调用分别判断 | 个人 `~/.qwenworkcn/identity-data/v1/*/skills` 被界面发现，真实 Skill 调用产生扩展别名 | 共享 `~/.qwenworkcn/skills` 为受管/内置来源；普通项目 Skill 文件读取不能冒充 Skill 调用；返回未给出可信源目录，不猜测路径或签名归属 |
+| 插件 | 本地插件与身份扩展来源不同 | 本地文件布局已检查；共享目录当前无可用安装包 | 源码确认 plugins、plugins-custom 的 qoder/claude manifest；适配只报告共享已安装包，enabled 为未知；缓存不是安装，企业身份扩展未覆盖 |
+| MCP | 官方连接器界面支持自定义配置 | JSON 导入测试服务返回 LOCAL_IDENTITY_PHASE_RESTRICTED，服务未启动 | 身份连接器 config.enc 为加密存储，不解密；不宣称完整 MCP 资产发现或真实调用已验证 |
+
+官方来源：[国内桌面 Hook](https://docs.qwenwork.cn/desktop/hooks)、[国内企业 Hook 指南](https://qwenwork.cn/docs/developer/premium/guide-hooks)、[国际版本地 Hook](https://docs.qwenwork.ai/zh/desktop/hooks)、[连接器说明](https://help.aliyun.com/zh/qwenwork/desktop-connectors)。国际版文档不能单独证明国内版行为；上表本机结论由实际安装包和隔离事件补证。
+
+### 接入与升级
+
+1. 同时升级平台、Go sidecar 和桌面客户端，使三端产品目录包含 qwenwork。使用现有 runtime protocol 5、tool-policy schema 4、approval_wait_schema=1、command_rules_schema=1；不新增线协议版本。新增产品枚举、模型来源及行为字段 dir_path 需要新版服务端校验，旧服务端不能接收这些记录。
+2. 在客户端策略分别选择千问办公日志和 Hook；保留现有队列、ACK、游标、去重及签名公钥下发流程。默认日志根仅为 .qwenworkcn/projects，不读取诊断 segments 或身份数据库作为会话替代来源。
+3. 从桌面现有安装入口写入用户 settings。安装/移除只合并或移除属于本接入的命令，保留其他配置和用户 Hook。新会话中确认接收器健康、平台 ACK、原生工具事件后再验收控制规则。
+4. 按实际原生工具名设置规则；命令规则支持上述内置 shell。审批必须有在线接收器、有效签名策略和平台审批权限。配置存在、授权消费及工具实际执行分别核验。
+5. 退出接入使用现有移除操作；已采集证据按既有保留策略管理。其他操作系统、国际版、企业 HTTP Hook、独立 CLI、IDE、替代引擎及原生受管安装均未由本适配宣称支持。
+
+完整平台接入时，在客户端“行为审计 → 采集状态”核对设备上报许可；未允许时点击“允许上报”，凭证仍须绑定设备并具备 aidr:heartbeat、aidr:report-events。采集策略启用和设备上报许可是独立条件。2026-10-28 本地完整平台已验证菜单访问、千问安装任务、客户端规则覆盖/恢复继承及 75 条日志、5 条 Hook 入库展示。关闭 Hook 通道保留配置；远程移除命令尚未实现，退出接入使用桌面移除并保留用户配置。
+
+In the full platform, check device reporting permission under Behavior audit → Collection status. Allow reporting for the bound device using credentials with the two AIDR scopes. Collection policy and reporting permission are separate conditions. Full local-platform acceptance covered navigation, installation tasks, client override/inheritance, and 75 log records plus 5 Hooks. Disabling the Hook channel retains configuration; remote uninstall is not implemented. Use desktop removal to disconnect while preserving user configuration.
+
+2026-10-28 补充 UI 验收：隔离后端上的真实平台能力、规则与审批组件完成中英文及 390px 检查；桌面实际 900×620 最小窗口完成安装/移除并保留已有配置。浏览器批准、拒绝及 30 秒超时分别得到真实千问工具执行/阻断和客户端回执。平台完整登录导航、全局规则继承和资产/审计页仍待验收；组件入口不替代完整页面覆盖。规则及审批错误保存语义键和稳定错误码，切换语言时重新渲染，保留草稿。
+
+UI acceptance: Real platform components were checked in Chinese/English at 390px against an isolated backend. The native desktop was checked at its 900×620 minimum, including configuration-preserving Hook installation/removal. Browser approval, denial and a 30-second timeout produced native execution/blocking and client receipts. Full login/navigation, global inheritance, asset and audit pages remain pending. Error messages follow locale changes without discarding the draft.
+
+**English:** QwenWork CN desktop 1.4.0 on macOS uses verified local command Hooks and native JSONL transcripts under .qwenworkcn/projects. The five declared callbacks, direct allow/deny and four independent approval attempts were exercised against an isolated backend. Missing IDs remain absent; native request-set ancestry and call IDs supply exact correlation. Personal Skills are discovered under identity-data/v1/*/skills; invocation keeps the native extension alias without inferring a source directory or signature. Shared plugin packages are inventoried with unknown enablement. Encrypted connector settings are not decrypted; custom MCP import was rejected by the host with LOCAL_IDENTITY_PHASE_RESTRICTED. Command Hook timeout/exit 1 fails open, while exit 2 and malformed JSON block in the tested host. Upgrade server, sidecar and desktop together; use runtime protocol 5 and existing signed policy schema 4. Start a new conversation after installation and verify native execution plus platform ACK. Windows/Linux, enterprise HTTP Hooks, other engines and standalone CLI/IDE remain unverified.
+
+平台新增产品后，必须同步更新实际运行的 Go 后台服务及桌面随包客户端；同为 runtime protocol 5 或组件版本 0.1.3，不代表内嵌产品目录相同。若策略包含旧二进制不认识的日志产品，客户端会拒绝整份策略，表现为 `aidr_desktop_task_invalid` / `aidr_log_policy_invalid`。先核对运行二进制的产品目录，更新客户端并确认新策略任务成功，不通过删除用户已选产品或放宽校验处理。千问自动接入需同时开启 Hook 通道、将 `qwenwork` 加入 Hook 产品并选择自动安装；仅选择日志产品不会安装 Hook。安装方式作用于该客户端所有指定 Hook 产品，手动更新设置可继续保留。
+
+**English:** Update both the running Go service and the desktop sidecar when adding products. Runtime protocol 5 and component version 0.1.3 alone do not identify the embedded product catalog. A policy containing a log product unknown to an older binary is rejected as `aidr_desktop_task_invalid` / `aidr_log_policy_invalid`; update the client and confirm successful reconciliation without removing selected products or weakening validation. QwenWork automatic installation requires the Hook channel, `qwenwork` in the Hook host list, and automatic installation. Selecting a log source alone does not install Hooks. Installation mode applies to all selected Hook hosts on that client; plugin updates may remain manual.
+
+千问日常客户端已通过完整平台按钮验证规则拒绝、人工批准、人工拒绝及原有 180 秒预算自然超时。验收时按产品和完整测试命令参数限制规则范围；批准需同时核对平台决定、`aidr_hook_approval_consumed` 回执及原生工具/文件结果，拒绝和超时分别核对 `aidr_hook_grant_deny`、`aidr_hook_approval_timeout` 及未执行证据。模型最终回复可能引用错误命令，不能替代原始工具记录。临时规则撤回后确认客户端报告新的规则版本，日常 Hook 可继续启用。
+
+**English:** The daily QwenWork client was verified through the full platform UI for rule denial, human approval, human denial, and natural expiry under the existing 180-second budget. Scope test rules to the product and exact test arguments. Confirm approval with the platform decision, consumed receipt, and native execution evidence; confirm denial or timeout with the corresponding receipt and evidence that execution did not occur. Model summaries may quote the wrong command and are not execution evidence. Remove temporary rules and verify the restored policy revision while keeping normal Hook collection enabled.
+
+## ZCode（zcode）
+
+已验收范围：macOS arm64 的 ZCode 3.16.3.8992（/Applications/ZCode.app），内置 Agent 运行程序 glm/zcode.cjs 0.17.0。产品 ID 统一为小写 zcode。独立 CLI 发行版、IDE 扩展、其他 Agent 引擎和 Windows/Linux 未验收。桌面真实会话已观察到 Bash 完成；全链路控制验收使用同一安装包运行程序、独立测试目录、本地模型桩和隔离后端。
+
+用户配置为 ~/.zcode/cli/config.json；默认会话库为 ~/.zcode/cli/db/db.sqlite。SQLite message/part 可原地更新，采集复用有界快照、持久化队列、ACK 和服务端幂等去重，并观察 WAL。会话、轮次、调用关联只使用原生 session_id/sessionId、turnId/anchor.turnId、tool_use_id/callID；缺失字段保留缺失。用户消息模型取 modelSelection，助手消息取 modelId/providerId，不从时间窗口补关联。
+
+Hook 安装到用户 hooks.events，保留已有事件和其他配置，移除只删除本客户端命令并恢复安装前 enabled 值（若期间未被修改）。安装后新建会话。接入 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、PostToolUseFailure、Stop；PermissionRequest 虽有官方声明，本适配以 PreToolUse 控制，不注册该事件。原生输入混用 snake_case 与 camelCase；决策复用现有 Hook JSON 协议及签名授权、调用范围、一次性消费和审批回执。命令 Hook timeout 为秒、process timeoutMs 为毫秒；适配安装为前置调用预留 315 秒。平台等待超时明确返回拒绝，宿主进程退出 1、无效 JSON stdout 或宿主 Hook 超时却可能继续执行；测试中退出 2 会阻断。因此必须分别检查接收器健康、Hook 到达和工具执行结果。
+
+资产发现读取 mcp.servers、plugins.dirs、plugins.enabled/ enabledPlugins、plugins/installed_plugins.json 的当前数组格式，以及 .zcode-plugin/plugin.json（兼容 .claude-plugin）。明确目录为 configured，注册表包为 installed，启用状态无法确认时为 unknown；配置或安装不代表调用。Skill 扫描用户和已知会话项目的 .zcode/skills、.agents/skills；项目列表来自只读会话库。Skill 工具参数 skill 与 mcp__<server>__<tool> 原生事件提供调用证据，不据名称猜测签名或唯一来源。自定义 storage/skills.roots、旧插件注册表及内置插件包的完整自动发现尚未覆盖；应使用已有显式来源设置并单独核验。
+
+接入顺序：
+1. 配套升级平台、Go 客户端和桌面产品目录；沿用仓库当前协议和签名策略结构，无 ZCode 专属协议版本分支。旧服务端不认识该产品/资产类型，旧客户端没有解析器，不能只更新能力目录。
+2. 在客户端启用 ZCode 日志来源并确认默认数据库可读，启用 Hook 接收器，安装用户 Hook；使用新会话。
+3. 在隔离项目依次验证允许、拒绝和平台审批，核对实际文件/命令结果、平台事件和 ACK。
+4. 移除时使用客户端 Hook 移除操作，检查原有用户配置；停止接收器不能替代移除 Hook。
+
+官方资料：[Hooks](https://zcode.z.ai/en/docs/hooks)、[Skills](https://zcode.z.ai/en/docs/skill)、[Plugins](https://zcode.z.ai/en/docs/plugin)。当前网站对项目 Hook 的说明与已安装版本内置项目授权代码存在差异，本适配只安装已验证的用户层级。版本升级后应重新核验配置加载及失败行为。
+
+**English:** zcode covers the verified macOS ZCode 3.16.3 desktop and its bundled 0.17.0 runtime. It reads mutable SQLite sessions and installs six user-level Hooks, preserving native identities and existing settings. Signed pre-tool rules and independent approvals reuse the existing protocol, queue, ACK and receipts. Native Hook failures can fail open even though platform approval timeout returns deny. Installed/configured/enabled assets and actual Skill/MCP calls remain separate evidence. Upgrade server, Go client and desktop together; start a new session after installation. Other distributions, custom storage/Skill roots and complete bundled-plugin discovery require separate validation.

@@ -1,14 +1,13 @@
 <template>
   <section class="system-selection" :aria-busy="loading">
-    <header><div><h3>{{ tr('title') }}</h3><a-tag>{{ t(`clientGovernance.runtime.mode_${state.mode || 'audit'}`) }}</a-tag></div><a-button :loading="loading" :disabled="loading || saving" @click="load(true)"><ReloadOutlined />{{ tr('reload') }}</a-button></header>
+    <header><a-tag>{{ t(`clientGovernance.runtime.mode_${state.mode || 'audit'}`) }}</a-tag><a-button :loading="loading" :disabled="loading || saving" @click="load(true)"><ReloadOutlined />{{ tr('reload') }}</a-button></header>
     <p class="runtime-state"><a-badge :status="['active', 'collecting'].includes(status.state) ? 'success' : 'default'" />{{ t(`aidr.enforcement.states.${status.state || 'unknown'}`) }}<span v-if="status.last_received_at">{{ tr('lastReport', { time: time(status.last_received_at) }) }}</span></p>
     <a-alert v-if="error" type="error" show-icon :message="tr('failed')" :description="errorText" />
     <a-alert v-if="status.platform_support && status.platform_support !== 'macos_endpoint_security'" type="info" show-icon :message="t(`aidr.enforcement.setup.platforms.${status.platform_support}`)" />
     <section class="requirements">
-      <h4>{{ tr('requirements') }}</h4>
       <p v-if="loaded && !state.configured && state.configured_roots?.length" class="field-note">{{ tr('adoptionHint') }}</p>
       <a-form layout="horizontal" :disabled="!editable || saving || loading" :label-col="{ flex: '180px' }" :wrapper-col="{ flex: 'auto' }">
-        <a-form-item :label="tr('enabled')"><a-switch v-model:checked="draft.enabled" /><span class="field-hint">{{ tr('enabledHint') }}</span></a-form-item>
+        <a-form-item :label="tr('enabled')"><a-switch v-model:checked="draft.enabled" /></a-form-item>
         <a-form-item :label="tr('owner')"><a-radio-group v-model:value="draft.requirements.selection_mode" button-style="solid"><a-radio-button value="client">{{ tr('clientSelect') }}</a-radio-button><a-radio-button value="platform">{{ tr('platformSelect') }}</a-radio-button></a-radio-group><p class="field-note">{{ tr(draft.requirements.selection_mode === 'client' ? 'clientHint' : 'platformHint') }}</p></a-form-item>
         <a-form-item :label="tr('products')"><a-checkbox-group v-model:value="draft.requirements.products"><a-space wrap><a-checkbox v-for="product in products" :key="product.id" :value="product.id">{{ product.name }}</a-checkbox></a-space></a-checkbox-group></a-form-item>
       </a-form>
@@ -27,9 +26,9 @@
       </a-table>
     </section>
     <footer><p>{{ tr('saveHint') }}</p><a-button type="primary" :loading="saving" :disabled="!editable || saving || loading || !loaded || (draft.enabled && !draft.requirements.products.length)" @click="save">{{ tr('save') }}</a-button></footer>
-    <details class="diagnostics"><summary>{{ tr('diagnostics') }}</summary><p>{{ tr('evidenceHint') }}</p><p>{{ t('aidr.enforcement.target') }}: {{ status.target_revision || '0' }} · {{ t('aidr.enforcement.applied') }}: {{ status.reported_revision || '—' }}</p><p v-for="path in state.configured_roots || []" :key="path"><code>{{ path }}</code></p><p v-if="status.health?.reason_code"><code>{{ status.health.reason_code }}</code></p></details>
+    <details class="diagnostics"><summary>{{ tr('diagnostics') }}</summary><p>{{ t('aidr.enforcement.target') }}: {{ status.target_revision || '0' }} · {{ t('aidr.enforcement.applied') }}: {{ status.reported_revision || '—' }}</p><p v-for="path in state.configured_roots || []" :key="path"><code>{{ path }}</code></p><p v-if="status.health?.reason_code"><code>{{ status.health.reason_code }}</code></p></details>
     <a-drawer :open="!!selected" :title="selected ? productName(selected.product) : ''" width="min(520px, 94vw)" @close="selected = null">
-      <template v-if="selected"><a-descriptions :column="1" layout="vertical"><a-descriptions-item :label="tr('path')"><code class="program-path">{{ selected.path }}</code></a-descriptions-item><a-descriptions-item :label="tr('source')">{{ tr(`sourceType.${selected.source}`) }}</a-descriptions-item><a-descriptions-item :label="tr('availabilityLabel')">{{ tr(`availability.${selected.availability}`) }}</a-descriptions-item><a-descriptions-item :label="tr('configuration')">{{ tr(state.configured_roots?.includes(selected.path) ? 'signed' : 'unselected') }}</a-descriptions-item></a-descriptions><p>{{ tr('evidenceHint') }}</p></template>
+      <template v-if="selected"><a-descriptions :column="1" layout="vertical"><a-descriptions-item :label="tr('path')"><code class="program-path">{{ selected.path }}</code></a-descriptions-item><a-descriptions-item :label="tr('source')">{{ tr(`sourceType.${selected.source}`) }}</a-descriptions-item><a-descriptions-item :label="tr('availabilityLabel')">{{ tr(`availability.${selected.availability}`) }}</a-descriptions-item><a-descriptions-item :label="tr('configuration')">{{ tr(state.configured_roots?.includes(selected.path) ? 'signed' : 'unselected') }}</a-descriptions-item></a-descriptions></template>
     </a-drawer>
   </section>
 </template>
@@ -95,15 +94,15 @@ onBeforeUnmount(() => { generation++; clearInterval(timer) })
 .product-label { display: flex; align-items: center; gap: 10px; }.product-icon { width: 24px; height: 24px; flex-shrink: 0; }
 header, header > div, footer { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 header { justify-content: space-between; }
-h3 { font-size: 22px; margin: 0; } h4 { font-size: 15px; margin: 0; }
+h4 { font-size: 15px; margin: 0; }
 .runtime-state { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0 24px; color: #64748b; }
 .runtime-state span:last-child { font-size: 12px; }
 .requirements, .discovery { border: 1px solid #e4eaf2; border-radius: 8px; padding: 20px; margin: 18px 0; }
-.requirements h4 { margin-bottom: 24px; }.requirements :deep(.ant-form-item:last-child) { margin-bottom: 0; }
-.field-hint { margin-left: 14px; color: #718096; font-size: 12px; }.field-note { color: #718096; font-size: 12px; margin: 8px 0 0; }
+.requirements :deep(.ant-form-item:last-child) { margin-bottom: 0; }
+.field-note { color: #718096; font-size: 12px; margin: 8px 0 0; }
 .discovery { padding: 16px 16px 6px; }.discovery header { margin-bottom: 14px; }.muted { font-size: 12px; color: #718096; }
 footer { justify-content: flex-end; }footer p { color: #718096; font-size: 12px; margin: 0; }
 .diagnostics { margin-top: 24px; color: #718096; font-size: 12px; }.diagnostics summary { cursor: pointer; }.diagnostics code, .program-path { overflow-wrap: anywhere; }
 .system-selection :deep(.ant-alert) { margin-bottom: 14px; }
-@media(max-width: 650px) { .requirements, .discovery { padding: 14px; }.requirements :deep(.ant-form-item-row) { display: block; }.requirements :deep(.ant-form-item-label) { text-align: left; }.field-hint { display: block; margin: 8px 0 0; } footer { align-items: stretch; flex-direction: column; } .requirements :deep(.ant-radio-button-wrapper) { height: auto; white-space: normal; } }
+@media(max-width: 650px) { .requirements, .discovery { padding: 14px; }.requirements :deep(.ant-form-item-row) { display: block; }.requirements :deep(.ant-form-item-label) { text-align: left; } footer { align-items: stretch; flex-direction: column; } .requirements :deep(.ant-radio-button-wrapper) { height: auto; white-space: normal; } }
 </style>

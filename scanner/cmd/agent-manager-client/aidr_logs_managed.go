@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"skill-manager/scanner/internal/aidr/agentlog"
 	"skill-manager/scanner/internal/aidr/catalog"
 	"skill-manager/scanner/internal/aidr/localstore"
 	"skill-manager/scanner/internal/aidr/upload"
@@ -56,6 +57,12 @@ func automaticLogPlan(home string, policy managedclient.Policy) (logRunPlan, err
 	for _, agent := range sources {
 		if agent != "claude" && agent != "codex" {
 			product, _ := catalog.Get(agent)
+			if agent == "doubaowork" && catalog.SupportedLogOS(product) {
+				for _, path := range agentlog.DefaultRoots(agent, home) {
+					p.roots = append(p.roots, upload.Root{Agent: agent, Path: path})
+				}
+				continue
+			}
 			for _, relative := range product.Roots {
 				root := upload.Root{Agent: agent, Path: filepath.Join(home, relative)}
 				if !catalog.SupportedLogOS(product) {

@@ -78,11 +78,19 @@ func (index *doubaoTurnIndex) consume(line string) {
 }
 
 var doubaoLogName = regexp.MustCompile(`^saman(_frontend)?_[0-9]{4}\.[0-9]{4}\.[0-9]+\.log$`)
+
+type doubaoIndexedFile struct {
+	info  os.FileInfo
+	bytes int64
+	index *doubaoTurnIndex
+}
+
 var doubaoTurnCache struct {
 	sync.Mutex
 	root  string
 	at    time.Time
 	index *doubaoTurnIndex
+	files map[string]doubaoIndexedFile
 }
 
 func doubaoTurns(ctx context.Context, root, session string) (map[string]string, string) {
@@ -95,6 +103,7 @@ func doubaoTurns(ctx context.Context, root, session string) (map[string]string, 
 	defer doubaoTurnCache.Unlock()
 	if doubaoTurnCache.root != logRoot || time.Since(doubaoTurnCache.at) > 15*time.Second {
 		index := newDoubaoTurnIndex()
+		files := map[string]doubaoIndexedFile{}
 		entries, err := os.ReadDir(logRoot)
 		if err != nil || checkPath(logRoot) != nil {
 			return nil, ""
@@ -112,23 +121,51 @@ func doubaoTurns(ctx context.Context, root, session string) (map[string]string, 
 			if err != nil {
 				return nil, ""
 			}
-			scan := bufio.NewScanner(f)
-			scan.Buffer(make([]byte, 64<<10), 2<<20)
-			for scan.Scan() {
-				bytes += int64(len(scan.Bytes()))
-				if ctx.Err() != nil || bytes > 128<<20 || len(index.requests)+len(index.calls) > 100000 {
-					f.Close()
-					return nil, ""
-				}
-				index.consume(scan.Text())
+			info, err := f.Stat()
+			if err != nil {
+				f.Close()
+				return nil, ""
 			}
-			err = scan.Err()
+			cached := doubaoTurnCache.files[path]
+			if doubaoTurnCache.root != logRoot || !sameLogFileVersion(cached.info, info) {
+				cached = doubaoIndexedFile{info: info, index: newDoubaoTurnIndex()}
+				scan := bufio.NewScanner(f)
+				scan.Buffer(make([]byte, 64<<10), 2<<20)
+				for scan.Scan() {
+					cached.bytes += int64(len(scan.Bytes()))
+					if ctx.Err() != nil || bytes+cached.bytes > 128<<20 || len(cached.index.requests)+len(cached.index.calls) > 100000 {
+						f.Close()
+						return nil, ""
+					}
+					cached.index.consume(scan.Text())
+				}
+				err = scan.Err()
+			}
 			f.Close()
 			if err != nil {
 				return nil, ""
 			}
+			bytes += cached.bytes
+			if ctx.Err() != nil || bytes > 128<<20 {
+				return nil, ""
+			}
+			// Preserve ambiguous IDs across files; deletion or rotation rebuilds the merged view.
+			for _, pair := range [][2]map[string]string{{index.requests, cached.index.requests}, {index.calls, cached.index.calls}} {
+				for key, value := range pair[1] {
+					if value == "" {
+						pair[0][key] = ""
+					} else {
+						uniqueDoubaoID(pair[0], key, value)
+					}
+				}
+			}
+			if len(index.requests)+len(index.calls) > 100000 {
+				return nil, ""
+			}
+			files[path] = cached
 		}
 		doubaoTurnCache.root, doubaoTurnCache.at, doubaoTurnCache.index = logRoot, time.Now(), index
+		doubaoTurnCache.files = files
 	}
 	turns := map[string]string{}
 	for key, agent := range doubaoTurnCache.index.calls {

@@ -58,12 +58,13 @@ func positiveDecimal(s string) (int64, bool) {
 func (s ToolScope) valid() bool {
 	_, rev := positiveDecimal(s.PolicyRevision)
 	product, _ := products.Get(s.Agent)
-	if !validID(s.Device, true) || !eventID.MatchString(s.Stream) || !eventID.MatchString(s.Receiver) || !validID(s.User, true) || !product.Approval || !validID(s.Session, true) || !validID(s.Turn, false) || !validID(s.Call, true) || !validID(s.Subagent, false) || !validID(s.Tool, true) || !hexDigest.MatchString(s.InputDigest) || !eventID.MatchString(s.Attempt) || !validID(s.Rule, true) || !rev || s.ExecutionPoint != "plugin_pre_tool" {
+	if !validID(s.Device, true) || !eventID.MatchString(s.Stream) || !eventID.MatchString(s.Receiver) || !validID(s.User, true) || !product.Approval || !validID(s.Session, true) || !validID(s.Turn, false) || !validID(s.Call, s.Agent != "codebuddy") || !validID(s.Subagent, false) || !validID(s.Tool, true) || !hexDigest.MatchString(s.InputDigest) || !eventID.MatchString(s.Attempt) || !validID(s.Rule, true) || !rev || s.ExecutionPoint != "plugin_pre_tool" {
 		return false
 	}
 	// Codex call identity requires its native turn namespace. Claude's tool-use
 	// IDs are scoped by session and may have no separate prompt ID.
-	return s.Agent != "codex" || s.Turn != ""
+	// CodeBuddy has no native call ID; its receiver attempt and input digest bind the grant.
+	return (s.Agent != "codex" && s.Agent != "codebuddy") || s.Turn != ""
 }
 
 func (s *Store) ScopeFor(record Record, rule, revision string) (ToolScope, error) {

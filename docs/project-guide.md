@@ -1,5 +1,9 @@
 # Agent Manager Project Guide
 
+内置模型网关可通过部署配置 `MODEL_GATEWAY_PUBLIC_URL` 与管理地址分离。可选 HTTP 入口默认关闭，
+由 Nginx 仅转发模型接口；新版客户端切换、手动配置和管理台接入指引使用平台发布的模型地址。
+详见[模型网关](model-gateway.md#独立模型接入地址--dedicated-model-entry)和[部署步骤](offline-deployment.md#模型专用-http-入口)。
+
 ## 客户端界面配置 / Client interface configuration
 
 默认客户端策略和单客户端策略提供“客户端界面 → 菜单显示”。概览固定保留，其余四个侧边栏菜单支持全局显示开关与单客户端逐项“跟随全局 / 显示 / 隐藏”。复用策略预览、版本校验、审计、任务下发和客户端缓存，隐藏入口不改变后台功能权限。仅菜单修改不触发额外扫描或运行治理重新应用；状态区分未支持、待同步和配置已同步。配置同步状态依据客户端缓存回执；桌面在读取配置后更新界面。操作及人工验收清单见 [客户端说明](agent-manager-client.md#客户端菜单显示--client-menu-visibility)。
@@ -645,6 +649,10 @@ flowchart TB
 
 平台“刷新发现”发送发现请求，由运行中的新版桌面客户端轮询处理；页面保留上次报告时间。运行中的采集对象修改通过“应用修改”签发新版本，并等待执行器报告。范围收窄会从签名目标中移除不再允许的程序；关闭系统采集后执行器在下一次配置检查时停止。已有路径策略首次切换到选择配置前，应先完成设备发现。上线顺序为平台、客户端；启动时创建 `aidr_system_selections` 表，不改写已有系统策略。
 
+系统策略页直接展示运行模式、状态、采集范围表单与设备发现结果；“策略诊断”提供平台及执行器版本、已配置路径和异常码。对象选择方式保留各自的操作说明，保存按钮旁提供客户端启动路径。高级规则保留程序路径要求、授权步骤、规则生效条件及发布提示，发布提示位于发布按钮前。
+
+**English:** System policy shows the mode, runtime status, collection scope and discovered programs. Policy diagnostics contains platform and executor revisions, configured paths and diagnostic codes. Each selection mode retains its instructions, and the save action includes the client startup location. Advanced rules retain executable requirements, authorization steps, rule activation conditions and publishing guidance beside the publish action.
+
 客户端另有开发阶段的 macOS 运行时只读入口 `agent-manager-client runtime-watch`：
 普通用户通过本地 Unix socket 接收单独启动的特权 ES 采集器事件及健康状态。
 桌面进程归属信息统一展示在“系统采集”的最近事件及事件诊断中。上述开发命令的协议见 [客户端使用说明](agent-manager-client.md#macos-运行时只读连接开发阶段)。
@@ -802,6 +810,30 @@ Upgrade creates a partial index for non-expired session messages, avoiding scans
 会话首屏性能人工验收：进入页面后确认只显示选中轮次；切换来源、快速切换会话、搜索及清空搜索、刷新和加载更多后确认记录未混入其他会话；轮次加载失败时确认重试及全部轮次仍可用。
 
 ### 采集状态与来源诊断
+
+智能体详情按页签展示资产、配置、审计和策略；资产概览统一标明最新上报，未报告项保留提示。平台注册详情的状态与来源并列展示，Skill 数量、模型和运行凭证在对应页签查看。客户端发现详情保留安装入口与产品共享记录的范围、权限、读取失败、配置生效边界及操作风险。
+
+**English:** Agent details organize assets, configuration, audit and policies into tabs. Asset overview identifies the latest report once and retains missing-report indicators. Platform-registered agents show status beside origin, with Skill counts, models and runtime credentials in their respective tabs. Discovered-agent details retain installation and shared-product scope, permissions, load failures, application boundaries and operation risks.
+
+客户端配置弹窗通过页签、分组标题和字段表达配置用途；继承与覆盖、已保存值、平台默认值、独立保存范围和客户端应用状态保留在相应位置。菜单显示说明区分界面入口与后台任务，模型配置说明保留凭据影响范围，Skill 分类说明保留恶意优先和检测异常的处置边界。发现配置恢复全局时清除覆盖及本客户端专属定义的提示、正文采集和脱敏风险、权限与错误提示均保留。
+
+配置页签保持单行，空间不足时横向滚动；表单宽屏使用两列，窄屏使用一列。内容与脱敏的继承控制独立成行，首组无顶部分隔线；字节上限和保留期限均采用上方标签。Agent 发现的搜索与恢复全局操作同栏，客户端界面的报告时间与重置操作同栏。各页保存入口统一放在弹窗底部，Skill 使用审计仍进入独立确认弹窗，分类处置仍先预览再保存。
+
+影响范围预览按客户端界面、运行防护和模型配置分组，普通摘要直接展示；Skill 处置统一按“当前 → 预计”对比。客户端覆盖、无法预估、兼容性问题、重新检查步骤和卸载风险仍在相关位置展示。
+
+内容与脱敏、Skill 使用审计的确认弹窗统一按“当前配置 → 本次配置”展示字段，单客户端保留继承来源。同步时机、旧客户端兼容性及告警总开关关系保留；扩大采集、关闭脱敏和缩短保留期限仍需确认风险后保存。
+
+**English:** Content/redaction and Skill usage audit confirmations compare current and proposed values, retaining inheritance for individual clients. Sync timing, older-client compatibility and the alert master switch remain explained. Expanding collection, disabling redaction or shortening retention still requires risk acknowledgement before saving.
+
+**English:** Impact preview groups desktop menus, runtime protection and model settings, with plain summaries and a shared “current → expected” direction for Skill actions. Client overrides, unavailable estimates, compatibility issues, recheck steps and uninstall risks remain visible where relevant.
+
+**English:** Tabs stay on one horizontally scrollable row. Forms use two columns on wide screens and one on narrow screens. Inheritance occupies its own row; the first content section has no top divider. Byte limits and retention use labels above their inputs. Discovery search shares a toolbar with reset, and menu report time shares a row with reset. Save actions remain in the modal footer; Skill usage audit retains its separate confirmation dialog, while classification retains preview before saving.
+
+**English:** Client settings use tabs, group headings and fields to explain their purpose. Inheritance, overrides, saved values, platform defaults, separate save scopes and client application status remain visible where relevant. Menu guidance distinguishes entry visibility from background tasks; model guidance retains credential scope; Skill guidance retains malicious priority and scan-error boundaries. Reset consequences, content collection and redaction risks, permissions and errors remain visible.
+
+客户端详情以页签、产品分组和操作入口表达页面用途。插件接入保留接入方式、状态及授权步骤；采集状态保留异常、来源证据和处理入口，自动刷新说明在刷新按钮提示中查看。概览将最新上报的资产与所选期间创建的治理任务分区展示；Skill 目录计数口径在指标提示中查看，行为指标的去重和计数规则集中在“统计口径”。会话 ID 在会话信息弹层中查看和复制。共享的采集状态与行为统计组件在智能体详情中使用相同展示方式。
+
+**English:** Client details use tabs, product groups and actions to explain their purpose. Plugin access retains integration types, status and authorization steps. Collection status retains issues, source evidence and next actions; the refresh tooltip explains automatic updates. Overview separates the latest reported assets from governance tasks created in the selected period. The Skill metric tooltip explains directory counting, and Counting rules contains activity counting and deduplication rules. View and copy the session ID in the session information popover. Agent details use the same shared collection and activity components.
 
 行为审计下的会话活动、系统事件、采集状态共用固定高度布局及相同的设备头部、抽屉内边距和页签间距。切换三页时页签位置保持一致；系统事件列表在自己的内容区滚动，顶部导航不跟随滚动。
 
@@ -3097,6 +3129,24 @@ Filters support severity, type, source, product and inclusive local calendar dat
 
 ### AIDR 多产品适配目录
 
+CodeBuddy IDE 已接入 macOS 日志、设置型 Hook、执行前允许/拒绝/人工审批规则及插件/MCP/Skill 资产发现；本机验证版本为 CN 4.12.2。配置、原生证据字段与验收边界见 [CodeBuddy IDE 接入](external-agent-integration.md#codebuddy-idemacoscn-4122)。客户端和服务端需配套更新；在客户端策略中选择对应日志产品与 Hook 宿主后生效。
+
+**English:** CodeBuddy IDE supports macOS native logs, settings Hooks, pre-tool allow/deny/approval rules and plugin/MCP/Skill inventory. CN 4.12.2 was verified locally. Upgrade both client and server, then select CodeBuddy in the log and Hook collection policies. See the CodeBuddy integration section for evidence fields and validation scope.
+
+TRAE macOS 使用 `trae`（国际版）和 `trae-cn`（国内版）两个入口。资产发现读取产品的用户 MCP 配置、已知工作区 `.trae/mcp.json`、用户/内置/项目 Skills、Agent 插件清单与 `.trae-plugin/plugin.json`、IDE 扩展目录。插件附带的 Skills 和 MCP 作为插件组件展示；配置存在和启用状态不代表连接成功或本次已加载。IDE 扩展的启用状态保持未知。
+
+TRAE / TRAE CN 人工审批复用平台签名授权流程：在工具规则中选择“需要审批”，执行前 Hook 持续等待平台决策，批准后继续原调用，拒绝、取消或超时返回原生 deny。授权绑定设备、接收器实例、会话、原生 tool_use_id、输入摘要和本次申请，无原生 turn_id 时保留为空；批准仅消费一次。人工审批等待时长默认180秒，平台全局工具规则可配置30–300秒，客户端可随规则覆盖。新申请保存客户端实际截止时间并在平台倒计时；CLI保留5秒返回预算，受管PreToolUse宿主配置为315秒以覆盖最大等待及通信开销。仅调整等待时长不改变已有申请截止时间；改变规则仍取消旧申请。2026-10-26专项自动化验证覆盖两种产品的批准/拒绝签名、CLI真实IPC等待、超时/取消拒绝、并发单次消费、策略变更及接收器重启。2026-10-28 已完成 TRAE 3.6.4 的 SOLO / Work、IDE 界面和 TRAE CN 3.4.9 的平台联动验收：超过60秒后批准和拒绝均生效，自然超时拦截，页面倒计时与实际截止时间一致。
+
+**English — approval:** TRAE and TRAE CN wait for a platform-signed, single-use grant before continuing the original tool call. Scope binds the device, receiver, session, native call ID, input digest and attempt; an absent native turn ID remains empty. Denial, cancellation and timeout return native deny. Local attempts default to 180 seconds, configurable from 30 to 300 seconds globally or per client. Client and platform share the attempt deadline; the CLI allows five additional seconds for the final response and managed PreToolUse Hooks use a 315-second host timeout. Timeout-only changes affect new attempts; rule changes invalidate pending attempts. Live platform approval, rejection after 60 seconds and natural timeout were verified on TRAE 3.6.4 and TRAE CN 3.4.9 on 2026-10-28.
+
+Hook 安装向 `~/.trae/hooks.json` 或 `~/.trae-cn/hooks.json` 合并六类原生事件，保留用户条目；宿主授权与启用需在 TRAE 确认。日志采集读取 `Library/Application Support/Trae[ CN]/logs/**/agent-hooks.log`，依赖宿主实际生成 Hook 日志，不读取加密会话数据库。支持用户提交、最终回复、工具输入/结果及 Skill 调用证据；正文遵守既有采集策略。`Skill` 的名称来源为 `tool_input.name`，加载目录来源为结果 `skill_path`，内容摘要是采集时观察值。拒绝后的空 `PostToolUse` 结果保持未知，拒绝依据单独保存为控制决策。
+
+2026-10-26 国际版 3.6.4 实机：真实客户端、Unix 接收器与签名策略允许 `printf allowed`，拒绝 `printf denied`；Skill 测试得到名称、目录与内容摘要。原生测试日志及客户端报文已保留为回归样本。带重定向的命令超出现有命令条件解析范围，会标记 unresolved 并继续其他规则/默认决策；默认允许不构成兜底阻断。需要全面限制终端时使用不依赖命令解析的工具级规则。国内版 3.4.9 已完成真实日志、Hook 拦截和平台人工审批验收；旧独立 TraeWork 入口保持待验证，新 TRAE 的 IDE/Agent 窗口不能作为旧产品验收依据。
+
+UI 手工复验 Todo：旧策略保持默认180秒直接保存升级、切换全局继承/客户端覆盖/保持混合继承后的时长回填；平台和桌面客户端中英文采集入口、Hook 授权/启用提示；资产页插件组件及禁用 MCP；会话页拒绝决策与空结果；Skill 名称、目录、内容核验状态；窄屏布局。本次同时修改安全规则等待时长配置和审批倒计时/回执刷新，未新增 UI 单元测试。Windows/Linux、云任务及独立新建 Agent 任务尚未实机验收。
+
+**English — TRAE:** macOS adapters `trae` and `trae-cn` discover MCP configuration, Skills, Agent plugins and IDE extensions. Hook installation preserves user entries and requires host authorization/enablement. Collection reads native `agent-hooks.log`, not encrypted conversation databases. Native 3.6.4 tests confirmed signed-policy command denial and Skill name/path evidence. Empty post-tool results remain unknown; control decisions are separate. Shell syntax outside the command parser falls through to other rules/default policy. TRAE CN 3.4.9 and TRAE 3.6.4 SOLO / Work and IDE views passed live approval/rejection after 60 seconds and natural timeout on 2026-10-28. Legacy standalone TraeWork, cloud tasks and other operating systems remain unverified. Manually verify saving the displayed 180-second default for legacy policies, wait values after switching inheritance modes, and both languages and narrow layouts for collection settings, assets, sessions and Skill details.
+
 AIDR 产品入口、日志格式/根目录、Hook 事件及决策能力统一维护在 `backend/aidr_products.json`；运行 `python3 scripts/sync-aidr-products.py` 更新 Go 与两端 UI 的随包副本，`--check` 检查一致性。新增产品先提供官方契约或匿名样本，再新增 `scanner/internal/aidr/agentlog/` 解析模块或 `hooks/` 宿主协议；公共脱敏、上传、ACK、存储沿用原链路。完整文件快照不当作 JSONL 追加流。
 
 客户端策略可多选日志产品和 Hook 宿主。协议 5 才应用新增产品目标；旧策略未指定 `log_sources` 时继续采集 Claude / Codex。平台和桌面“产品与采集能力”按产品分组，组内按入口列出适配及样本范围，实际生效由安装、授权、事件和 ACK 另行确认。逐产品矩阵与限制见 [外部 Agent 集成](external-agent-integration.md#aidr-多产品适配与证据范围2026-10-07)。
@@ -3171,25 +3221,33 @@ Skill 证据回查在 SQLite 内按设备、产品入口、会话和原生调用
 **English:** Session Skill activity combines entry-specific evidence using strong native identities. Server-side, policy-controlled registry/signature/instance checks create deduplicated client alerts. Missing evidence remains pending and tools are never blocked by this audit feature. Public names are unified while internal IDs remain compatible; see the linked integration matrix for actual verification scope.
 ## 平台总览 / Platform overview
 
+资产页的智能体产品分布统计产品实例，共用 Skills 目录保留在上报资产中；产品实例按可见客户端及本地实例 ID 去重，重复记录取最近上报时间及记录 ID 最新的一条；历史缺少本地实例 ID 时沿用产品类型标识。前 8 个产品单独展示，其余合并为其他，缺少产品类型显示未知。点击产品或其他打开对应实例的服务端分页弹窗，展示客户端、本地实例 ID、产品、版本、安装路径和最近上报时间。统计与明细共用权限范围及去重口径，只读取库存元数据。
+
+Shared Skills directories remain in reported assets. The asset tab groups reported product instances by product, deduplicated by visible client and local instance ID. Duplicates use the latest report time and row ID; legacy records without a local ID use the product type. The top 8 products are shown separately and the rest as Other; missing types appear as Unknown. Clicking a bar opens server-paginated instance metadata with the same visibility and deduplication rules, including client, local ID, product, version, installation path and last report time.
+
 平台总览按当前账号的模块权限展示注册智能体、受管 Skill、MCP 服务、配置模型和在线客户端。智能体及客户端沿用现有归属范围；超级管理员可查看全量，其他账号只统计本人创建的智能体及本人注册的客户端。客户端在线依据最近 10 分钟心跳。
 
 客户端和智能体列表按最多 200 个可见对象分组读取关联信息，策略、部门、凭证和告警在每次请求中重新查询。客户端告警仍按客户端、Agent 类型和 Skill 的最新事件判断，并保留分类治理与 AIDR 活跃告警的原有计数规则。总览按客户端汇总各来源的有效证据后合并计数；运行链路普通事件列表只读取脱敏内容，原文查看继续使用独立授权与审计入口。页面 API 的隔离测试口径及人工验收项目见[页面查询基准](benchmarks/2026-10-17-page-queries.md)。
 
 **English:** Client and Agent lists load related metadata in groups of up to 200 visible entities. Policies, departments, credentials and alerts are read afresh on each request. Client issues retain the latest-event, classification-governance and active-AIDR-alert rules. The overview groups retained evidence by client before combining sources. Ordinary trace event pages read redacted payloads; raw content retains its separate authorization and audit path. See the linked page-query benchmark for measurement limits and manual checks.
 
-待处理事项汇总 Skill 人工审核与未过期的 MCP 调用审批。标签展示完整待办数量，列表每类展示最近 20 条并分页；高风险提示只统计当前标签下已加载的待办。点击 MCP 待办直接打开对应审批详情。最近活动展示近 7 天最新 8 条 Skill / MCP 审计及安全扫描任务状态，仅包含事件、对象和时间等摘要；扫描任务沿用所属用户、用户组及安全审计角色的可见范围，入口打开对应任务。
+待处理事项汇总 Skill 人工审核与未过期的 MCP 调用审批。标签展示完整待办数量，列表每类展示最近 20 条并分页；高风险提示只统计当前标签下已加载的待办。点击 MCP 待办直接打开对应审批详情。
 
 运行观察的今日模型阻断按 `blocked` 和 UTC 自然日统计，MCP 今日拒绝按 `denied` 和北京时间自然日统计。AIDR 展示最近 24 小时收到且仍保留的日志 / Hook 记录数和去重上报客户端数，采集能力标记为“正在测试中”。计数单位为各通道收到的原始记录。
 
-底部提供近 7 天 / 30 天模型调用趋势及 Skill 风险分布。趋势统计已写入 `LlmUsageMetric` 的请求，按 UTC 自然日补齐无记录日期；风险分布按每个 Skill 的最新版本统计，未判定或未知风险单列。页面标注更新时间，支持刷新；刷新失败保留上次数据并明确提示，首次读取失败提供重试。
+资产卡片下按“资产 / 行为 / 风险”切换内容；待处理事项仅在风险页展示，运行观察仅在行为页展示。平台登记资产与智能体上报资产分开展示；上报资产覆盖智能体实例、Skill 发现记录、MCP、插件及插件内 Skill，沿用客户端可见范围。资产分布可打开对应管理列表，客户端在线分布可下钻查看在线或离线客户端。行为页按所选日志或 Hook 来源统计已投影去重的工具调用，展示趋势、命令/其他调用构成、工具排行及命令程序名排行。命令按出现次数统计，复用完整小时的汇总表与边界小时的调用投影，避免解析原始日志；下钻按包含该命令的调用分页；活跃智能体按客户端与产品组合计数。风险页区分当前未处置存量和按发现日期统计的期间新增量，展示趋势、等级、类型、客户端/产品排行及处置状态。检测信号不代表攻击成功，未覆盖或未启用的检测不产生发现项。统计准备中或延迟时页面提示数据可能不完整。
+
+行为和风险图表点击后打开明细弹窗，携带来源、客户端、UTC 日期及对应分类条件，支持表头筛选、排序和服务端分页；切换 Tab 保留各自状态。风险详情使用居中弹窗，集中展示风险状态、对象、时间、执行反馈及处置入口；有内容时展示命中规则、原始证据和处置历史，沿用客户端详情的授权和审计。近 7 天 / 30 天模型调用趋势放在行为页，Skill 风险分布放在风险页。模型趋势统计已写入 `LlmUsageMetric` 的请求，按 UTC 自然日补齐无记录日期；Skill 风险分布按最新版本统计，未判定或未知风险单列。刷新失败保留上次数据并提示，首次读取失败可重试。
 
 **English:** The overview shows registered agents, managed Skills, MCP servers, configured models and online clients according to module permissions. Agent and client counts follow existing ownership rules: super administrators see all, while other accounts see agents they created and clients they registered. Online status uses a heartbeat within 10 minutes.
 
-Pending work combines Skill reviews and unexpired MCP call approvals. Tabs show complete totals; each type lists its latest 20 items with pagination. The high-risk notice counts loaded items under the current tab. MCP items open the corresponding approval details. Recent activity contains the latest 8 Skill / MCP audit summaries and security scan task states from the past 7 days. Scan tasks retain user, group and security-reader visibility rules and link to the corresponding task.
+Pending work combines Skill reviews and unexpired MCP call approvals. Tabs show complete totals; each type lists its latest 20 items with pagination. The high-risk notice counts loaded items under the current tab. MCP items open the corresponding approval details.
 
 Runtime counters use the UTC calendar day and the audit statuses `blocked` for models and `denied` for MCP. AIDR shows retained log / Hook records received in the past 24 hours and distinct reporting clients, with an “In testing” label. Records do not equal unique operations or enforcement coverage.
 
-The charts show 7 / 30 UTC calendar days of requests recorded in `LlmUsageMetric`, including zero-filled dates, and current Skill risk distribution by latest version. Unassessed or unknown risk remains separate. The page shows its refresh time, retains previous data with an explicit warning on refresh failure, and offers retry when initial loading fails.
+Assets, Behavior and Risks tabs sit below the asset cards. Pending work appears only under Risks, and runtime observations only under Behavior. Platform registrations and agent-reported inventory are shown separately. Reported inventory covers discovered agent instances, Skill records, MCP configurations, plugins and plugin Skills within visible clients. Asset charts open the corresponding lists; connectivity opens online/offline clients. Behavior counts projected, deduplicated calls separately for logs and Hooks, with trends, command/other composition, tool rankings and command-program occurrence rankings. Command rankings reuse complete-hour buckets plus boundary-hour operation projections, without parsing raw logs. Their drilldown lists calls containing the selected program. Active agents are distinct client/product pairs. Risk charts distinguish current open findings from new detections in the selected UTC period, with severity, type, client/product ranking and disposition. Findings are signals, not confirmed exploitation; disabled or uncovered detection produces no findings. Preparation and delayed updates are indicated.
+
+Chart drilldowns carry source, client, dates and category into a modal with a paginated metadata table with immediate header filters and sorting. Each tab retains its state. Risk details use a centered modal with status, object, time, execution feedback and disposition actions. Rule matches, evidence and history appear when available, retaining client-scoped authorization and audit. Behavior retains the 7 / 30 UTC-day model request trend from `LlmUsageMetric`; Risks retains latest-version Skill risk distribution, including unknown risks. Refresh failures retain the last successful data with a warning; initial failures can be retried.
 
 ### Codex 跨轮次 Hook 与会话证据分类
 
@@ -3250,9 +3308,9 @@ English: ZIP uploads, Scanner submissions, and network ZIP imports unpack only t
 
 Open **Clients → Global client settings → Security rules**, or **Client details → Client settings → Security rules**. One Add rule entry and one shared editor configure conditions, Agent/OS scope, a referenced path set, risk recording, pre-execution action and enabled state. Search and filters update immediately; name and severity are sortable.
 
-Path sets are independently named collections shared by multiple rules. Editing a set updates all references; referenced sets cannot be deleted. Explicit paths match themselves and descendants; built-in paths retain OS and exact-file/directory matching. Custom commands reference explicit paths. Actions require all operating systems; current Hook command actions support one POSIX path prefix, preserving all-segment/all-target matching for allow rules. Built-in complex behaviors and Windows-specific conditions support risk recording; action choices follow current Hook capabilities. Native tool calls can record risks and apply actions together. WorkBuddy, Claude Code, Codex and Qoder Hooks support platform approval. Products without approval support disable Require approval; Allow and Deny remain available. The server validates every selected product before saving.
+Path sets are independently named collections shared by multiple rules. Editing a set updates all references; referenced sets cannot be deleted. Explicit paths match themselves and descendants; built-in paths retain OS and exact-file/directory matching. Custom commands reference explicit paths. Actions require all operating systems; current Hook command actions support one POSIX path prefix, preserving all-segment/all-target matching for allow rules. Built-in complex behaviors and Windows-specific conditions support risk recording; action choices follow current Hook capabilities. Native tool calls can record risks and apply actions together. WorkBuddy, CodeBuddy IDE, TRAE, TRAE CN, Claude Code, Codex and Qoder Hooks support platform approval. Products without approval support disable Require approval; Allow and Deny remain available. The server validates every selected product before saving.
 
-WorkBuddy、Claude Code、Codex 和 Qoder Hooks 支持平台人工审批；未接入审批的智能体禁用“需要审批”，可使用允许或拒绝。服务端保存前逐一校验所选智能体，失败时保留原配置。
+WorkBuddy、CodeBuddy IDE、TRAE、TRAE CN、Claude Code、Codex 和 Qoder Hooks 支持平台人工审批；未接入审批的智能体禁用“需要审批”，可使用允许或拒绝。服务端保存前逐一校验所选智能体，失败时保留原配置。
 
 Clients can inherit global rules or maintain a complete override. Legacy mixed inheritance remains dynamic under Keep current inheritance; inherited entries are read-only. Risk recording can independently inherit, enable or disable. Migration retains separate legacy entries, original tool-rule IDs, signatures, defaults and historical risk snapshots. Opening the page does not publish. A unified document is validated and saved atomically with optimistic revision checks, permissions and receiver capabilities; unchanged execution policies are not re-signed. Legacy APIs remain compatible and their updates are reflected in the unified view. Failed saves retain the draft.
 
@@ -3262,15 +3320,19 @@ Test rules parses the current draft without executing commands, publishing polic
 
 Risk lists and details join approval receipts by device, stream and event identity. Grant consumption and denial feedback are separate from execution results, which require post-tool evidence. Historical rule snapshots are preserved.
 
-WorkBuddy 人工审批复用执行前 Hook：本地请求等待最多约 45 秒，Hook 外层等待预算 50 秒，宿主配置超时 60 秒。批准仅授权本次调用并一次性消费；拒绝或超时停止本次调用。再次发起同一命令仍需新的审批。平台审批记录与客户端回执分别保留，授权已使用不等同于工具执行成功。旧客户端需要升级后才能执行 WorkBuddy 审批；保存配置不代表设备已应用。
+WorkBuddy 人工审批复用执行前 Hook：本地请求按已发布的人工审批等待时长等待，默认180秒、范围30–300秒；CLI按本次截止时间额外保留5秒返回预算，受管PreToolUse配置超时315秒。批准仅授权本次调用并一次性消费；拒绝或超时停止本次调用。再次发起同一命令仍需新的审批。平台审批记录与客户端回执分别保留，授权已使用不等同于工具执行成功。旧客户端需要升级后才能执行 WorkBuddy 审批；保存配置不代表设备已应用。
 
-WorkBuddy approval uses the pre-tool Hook and existing signed grants. Local attempts expire after about 45 seconds, within the 50-second bridge budget and 60-second host timeout. Approval authorizes only that attempt and is consumed once; denial or timeout stops it. Repeating a command requires a new approval. Platform decisions and client receipts remain separate, and grant consumption does not establish execution success. Older clients must be upgraded; saving a policy does not establish device application.
+WorkBuddy approval uses the pre-tool Hook and existing signed grants. Local attempts default to 180 seconds, configurable from 30 to 300 seconds globally or per client, with five additional seconds for the CLI response and a 315-second managed PreToolUse timeout. Approval authorizes only that attempt and is consumed once; denial or timeout stops it. Repeating a command requires a new approval. Platform decisions and client receipts remain separate, and grant consumption does not establish execution success. Older clients must be upgraded; saving a policy does not establish device application.
 
 风险列表不展示动作结果列。详情保留明确执行结果；收到后置反馈但缺少结果状态时显示“未采集到执行结果”，未收到后置反馈时显示“未采集到执行反馈”。审批与拦截反馈单独展示，证据冲突保留冲突状态。检测修订号保留在接口追溯数据中，不在正文展示。点击“处理风险”展开处理方式与原因，取消收起并保留本次草稿；保存成功后收起。规则快照及原始证据按原权限查看，命令和用户规则名称保持原文。
 
 Risk lists omit the action-result column. Details retain explicit outcomes, show Execution result not captured when feedback lacks an outcome, and Execution feedback not captured when no feedback arrived. Approval and denial feedback remain separate; conflicting evidence retains its conflict status. Detection revisions remain in trace metadata, outside the detail body. Handle risk opens the resolution form; Cancel collapses it while retaining the draft, and successful saving closes it. Rule snapshots and original evidence retain existing permissions; commands and user-provided rule names remain unchanged.
 
 审批状态读取会按设备、流和事件匹配客户端回执。收到审批超时回执后，列表与详情显示“审批已超时”，详情不提供变更操作，服务端拒绝后续批准；历史平台记录不回写。未收到回执时不推测客户端已超时。
+
+审批详情集中显示审批状态、待审批倒计时、Agent、工具、系统用户、会话、申请时间和授权截止时间，下方保留请求命令、工作目录、目标及有权限读取的审计正文。客户端回执单独显示决定、原因编码及回执生成时间。读取失败时提供重试；已结束状态不再重复展示通用不可操作提示。接收器实例、参数哈希、尝试 ID、策略修订号等内部绑定字段保留在服务端校验中，不在详情逐项展示。
+
+**English:** Approval details focus on status, the pending countdown, Agent, tool, OS user, session, request time and expiry, followed by the requested command, working directory, targets and permission-controlled audit content. The client receipt separately shows its decision, reason code and report time. Failed reads offer Retry; terminal states omit the generic unavailable-action message. Internal binding fields remain part of server validation without occupying the detail view.
 
 Approval reads match client receipts by device, stream and event. A timeout receipt makes both list and detail show Approval timed out, removes decision actions and prevents subsequent approval. Historical platform records remain unchanged. No client timeout is inferred before a receipt arrives.
 
@@ -3321,10 +3383,19 @@ The score is `round(100 × (1 − exp(−W / 60)))`, where `W = open high × 8 +
 
 基础信息展示当前版本描述原文；生命周期三个步骤标题水平对齐：策略审核结果下展示北京时间；人工审核节点下显示审核人，结果下展示北京时间及备注，备注保留前30个Unicode字符，超出以省略号展示并悬浮显示全文，无备注时留空。缺失审核人或时间显示“未记录”。拒绝操作读取当前版本有效检测之后的最近一次拒绝审计记录；重新检测后的结果不沿用此前的拒绝操作。完整性校验展示内容指纹、最近校验结果、数字签名状态及签名预览。检测报告之后以灰色单行文字展示“能力边界：”及三项说明，空间不足时可横向滚动。详情中的治理信息分别在基础信息、生命周期、扫描结果、完整性校验及审计记录查看，报告通过现有 PDF 入口导出。
 
-English: The detail page shows the current version's original description, horizontally aligned lifecycle titles, the reviewer below manual review, and Beijing time below the outcome. Manual remarks show the first 30 Unicode characters with an ellipsis and their full text on hover, and signature status and preview under integrity verification. Missing review fields are shown as Not recorded. Rejection metadata comes from the version's latest rejection event after its effective scan. Capability boundaries appear on one gray line below the report, with horizontal scrolling when needed. Governance information is available in the corresponding detail sections; export uses the existing PDF action.
-
 本次仅增加详情读取字段并调整展示，无数据库结构迁移；Docker 更新前后端镜像，沿用已有数据卷。
 
 - Skill PDF 在“Skill 信息与来源”展示提交时间，在“扫描范围与执行状态”展示当前版本扫描缓存 Key。自动拒绝的操作来源与时间读取本次扫描完成或复用审计事件；策略审核结果展示状态及时间，人工备注展示前30个Unicode字符并悬浮查看全文。历史记录不回写。
 
 - 首次扫描失败的生命周期显示“提交 → 扫描失败 → 拒绝”，详情使用稳定来源 `scan_failed`，拒绝时间读取导致当前失败的审计事件；展示“扫描未完成，无法通过准入。”及原始失败原因（30字符预览、悬浮全文）。标记 `effective_result_preserved` 的失败复扫保留原有效结果和审核时间。历史记录仅在读取时补充来源，不回写。
+## 千问办公接入
+
+产品目录新增 qwenwork（QwenWork CN），范围限定已验证的 macOS 桌面版。复用日志增量队列、Hook 接收器、签名规则和独立人工审批；个人 Skill 使用身份隔离目录，插件安装与启用分开表达。自定义 MCP 导入在本机被产品限制，完整 MCP 配置发现未开放。详细能力、失败行为和三端升级要求见 [外部 Agent 集成](external-agent-integration.md#千问办公--qwenwork-cnqwenwork)。
+
+**English:** qwenwork covers the verified macOS QwenWork CN desktop entry. It reuses incremental collection, signed pre-tool rules and independent approvals. Personal Skills use identity-scoped directories; installed plugins do not imply enablement. Custom MCP import was restricted by the tested host. See the external integration guide for evidence boundaries and coordinated upgrades.
+
+## ZCode 运行时接入
+
+产品目录 zcode 对应已验证的 macOS ZCode 3.16.3 内置 Agent。适配覆盖 SQLite 增量会话、六类用户 Hook、执行前规则和独立平台审批，以及 Skill/MCP/插件资产来源。使用原生身份字段和现有队列、ACK、签名授权及回执，不按时间推断确定关联。桌面真实调用与随包运行程序隔离全链路测试的覆盖范围分别记录；宿主 Hook 失败可能继续执行。参见 [长期接入说明](external-agent-integration.md#zcodezcode)。
+
+**English:** The zcode adapter covers the verified macOS built-in Agent, mutable SQLite sessions, six user Hooks, signed pre-tool decisions and independent approvals. Native identifiers and existing delivery contracts are reused. Asset discovery is distinct from invocation evidence; native Hook failures may fail open.

@@ -100,7 +100,7 @@ def publish_global(db, body, author):
     current = global_view(db)
     if body.expected_revision != current['revision']:
         control.reject('hook_policy_conflict', '全局策略已变化，请刷新', 'Global policy changed; refresh')
-    payload = {'default_action': body.default_action, 'rules': [r.model_dump(exclude_none=True) for r in body.rules]}
+    payload = {'default_action': body.default_action, 'approval_wait_seconds': body.approval_wait_seconds, 'rules': [r.model_dump(exclude_none=True) for r in body.rules]}
     # Leave room for the device envelope, including the largest device ID.
     if len(canonical(payload).encode()) > 23000:
         control.reject('hook_policy_too_large', '工具策略超过大小限制', 'Tool policy exceeds the size limit', 422)

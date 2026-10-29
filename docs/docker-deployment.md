@@ -1,5 +1,11 @@
 # Docker 部署
 
+管理台 HTTPS 与模型 HTTP 可分别部署。在 `.env` 设置 `MODEL_GATEWAY_HTTP_ENABLED=true`、
+`MODEL_GATEWAY_HTTP_PORT=8000` 和客户端实际可访问的 `MODEL_GATEWAY_PUBLIC_URL=http://服务器地址:8000`，
+再运行 `./start.sh --https`。手动 Compose 需追加 `-f docker-compose.model-gateway.yaml`。
+35 的流水线读取同一开关，离线包包含对应配置；默认关闭此入口。仅限批准的内网来源使用 HTTP。
+完整步骤见[模型专用 HTTP 入口](offline-deployment.md#模型专用-http-入口)。
+
 License 状态默认保存在后端持久化 data 卷的 `license/state.db`，可信公钥由镜像内
 `deploy/license/public-keys/` 提供。后端重建/升级保留该卷；自定义路径的多进程必须共享状态文件。
 安装后在 **系统管理 → License 授权** 填写厂商提供的客户编号和客户名称，导出申请文件交给厂商。
@@ -10,10 +16,15 @@ License 状态默认保存在后端持久化 data 卷的 `license/state.db`，�
 `./upgrade.sh /path/to/agent-manager_<版本>_<架构>.tar.gz`。脚本加载包内镜像并检查服务，
 启动和升级使用 Bash、Linux 系统工具及 Docker/Compose。
 升级保留 `.env`、`HTTP_PORT` 和数据卷；业务数据需另行备份。
+`./start.sh --https` 启用 443 和 HTTP → HTTPS 的 308 跳转，`./start.sh --http` 或不带协议参数使用 HTTP。
+先在 `.env` 的 `TLS_HOSTS` 中填写实际访问域名/IP（逗号分隔）；证书自动生成、每天检查、到期前 30 天续签并重载。
+升级和 35 CI 部署保留已保存的 `DEPLOY_PROTOCOL`；证书保存在 `tls_certificates` 卷。
+自签名证书需客户端信任，续签后可能需要更新客户端信任。完整配置见[HTTPS 自签名证书](offline-deployment.md#https-自签名证书)。
 完整步骤见[离线部署现场实施指南](offline-deployment.md)，管理台中英文帮助页对应
 “Docker 部署”和“Docker 运维”。
 
 下文涉及 `build.sh` 的命令用于源码构建环境，在项目根目录执行。
+Linux 源码目录构建或加载镜像后也可运行 `./start.sh --https`；源码模式直接使用现有镜像，离线包模式仍加载并核验包内镜像。
 
 ## 生产环境资源推荐
 
@@ -161,7 +172,7 @@ services:
 不要将包含凭据的完整 Compose 配置保存到普通日志。升级后再次核对自定义挂载仍生效。
 客户平台不持有 License 签发私钥，也不需要联网访问签发系统。
 
-**离线脚本的配置边界：** 当前 `start.sh` / `upgrade.sh` 显式只加载 `docker-compose.yaml`，
+**离线脚本的配置边界：** `start.sh` / `upgrade.sh` 加载 `docker-compose.yaml`，HTTPS 模式额外加载 `docker-compose.https.yaml`，
 不会自动加载上述 override；`upgrade.sh` 还会用安装包替换主 Compose 文件。
 使用这两个脚本且需要自定义公钥挂载时，首次启动前将同一 backend 配置合并到主文件。
 升级前备份现场配置，在维护窗口完成升级后重新合并挂载配置，重建 backend 并检查授权有效，再恢复业务。
@@ -554,11 +565,14 @@ agent-manager_v1.0.0_arm.tar.gz
 
 ```text
 docker-compose.yaml
+docker-compose.https.yaml
 .env.example
 start.sh
 upgrade.sh
 deploy/offline.sh
 deploy/nginx/default.conf
+deploy/nginx/https.sh
+deploy/nginx/certificates.py
 release-provenance.json
 release-info                         # 版本、平台（两行文本）
 docs/offline-deployment.md
@@ -572,6 +586,8 @@ scanner/releases/agent-manager-client-26.03.15.1-linux-x86_64.AppImage
 ```
 
 仓库源码树、测试、构建脚本和开发工具不进入安装包；容器镜像保留应用运行所需的程序。
+上述 HTTPS 文件同时进入 ARM 和 x86 安装包；证书服务复用对应架构的后端镜像，不增加现场联网依赖。
+证书及私钥由现场生成并持久化，不打入交付包。双架构现场验收步骤见[HTTPS 自签名证书](offline-deployment.md#https-自签名证书)。
 打包时将 Compose 的应用镜像引用写为实际发布版本；源码仓库内的 `latest` 开发默认值保持原样。
 现场通过 `./start.sh` 自动加载镜像、初始化缺失的签名密钥、启动并检查服务；
 默认 HTTP 端口为 80；`./start.sh --port 8088` 将端口写入 `.env` 的 `HTTP_PORT`，

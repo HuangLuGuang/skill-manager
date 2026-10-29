@@ -118,3 +118,56 @@ func TestDoubaoHistoricalMessages(t *testing.T) {
 		t.Fatal("truncated backfill did not restart", err)
 	}
 }
+
+func TestDoubaoMessageRepairUsesRetainedToolAnchor(t *testing.T) {
+	s := openStore(t, tempDir(t), DefaultLimits())
+	defer s.Close()
+	root := tempDir(t)
+	path := filepath.Join(root, "session-1", "agents", "agent-1", "system", "trajectory.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	raw := `{"role":"assistant","tool_calls":[{"id":"call-1","function":{"name":"Bash","arguments":{"command":"printf test"}}}]}` + "\n" +
+		`{"role":"tool","tool_call_id":"call-1","content":"test"}` + "\n" +
+		`{"role":"assistant","content":"Finished"}` + "\n"
+	if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
+		t.Fatal(err)
+	}
+	src, err := agentlog.NewSource("doubaowork", root, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := agentlog.AuditPolicy{Version: "1", Receipt: strings.Repeat("a", 32), Enabled: true, MessageSchema: 1, Capture: &agentlog.CaptureScope{ModelResponse: true}}
+	if err := s.SavePolicy(testContext, p); err != nil {
+		t.Fatal(err)
+	}
+	b, err := agentlog.ReadWithPolicy(testContext, src, agentlog.Cursor{}, agentlog.DefaultBudget(), time.Unix(0, 0), &p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range b.Events {
+		if e.Kind == "tool_call" {
+			b.TurnLinks = append(b.TurnLinks, agentlog.TurnLink{LogicalEventID: e.LogicalEventID, SessionID: e.SessionID, CallID: e.CallID, TurnID: "native-user-1", ContentDigest: e.ContentDigest})
+		}
+	}
+	if _, err := s.Commit(testContext, Checkpoint{}, b); err != nil {
+		t.Fatal(err)
+	}
+	// Acknowledged bodies are released; the native tool association survives.
+	if _, err := s.db.Exec(`UPDATE logical_events SET payload=NULL,acked_ns=?`, time.Now().UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+	p.MessageLinkSchema = 1
+	if err := s.SavePolicy(testContext, p); err != nil {
+		t.Fatal(err)
+	}
+	collect(t, s, src)
+	collect(t, s, src)
+	var count int
+	if err := s.db.QueryRow(`SELECT count(*) FROM event_turn_links WHERE turn_id='native-user-1' AND message_phase='final'`).Scan(&count); err != nil || count != 1 {
+		t.Fatal(count, err)
+	}
+	if status(t, s).LogicalEvents != 3 {
+		t.Fatal("repair duplicated original events")
+	}
+}
