@@ -41,8 +41,8 @@
             <a-form-item :label="$t('legacy.17s488l')"><a-input v-model:value="authorizationHeader" /></a-form-item>
           </a-col>
           <a-col :xs="24" :lg="11">
-            <a-form-item :label="$t('legacy.1iwkwic')">
-              <a-input-password v-model:value="authorizationValue" autocomplete="off" :placeholder="$t('legacy.1479ky1')" />
+            <a-form-item :label="$t('legacy.1iwkwic')" :validate-status="authorizationWhitespace ? 'error' : undefined" :help="authorizationWhitespace ? t('mcpDebug.authorizationWhitespace') : undefined">
+              <a-input-password ref="authorizationInput" v-model:value="authorizationValue" autocomplete="off" :aria-invalid="authorizationWhitespace" :placeholder="$t('legacy.1479ky1')" @change="resetConnection" @pressEnter="connect" />
               <div class="muted">{{ serviceSecretHint }}</div>
             </a-form-item>
           </a-col>
@@ -110,7 +110,24 @@
             <div class="tool-title">{{ selectedTool.name }}</div>
             <div class="muted">{{ selectedTool.description || $t('legacy.1qkgodc') }}</div>
             <a-form layout="vertical" style="margin-top: 16px">
-              <a-empty v-if="!toolFields.length" :description="$t('legacy.1en7knw')" />
+              <a-form-item
+                v-if="rawArgumentsMode"
+                :label="t('mcpDebug.rawArguments')"
+                :validate-status="rawArgumentError ? 'error' : undefined"
+                :help="rawArgumentError ? t(rawArgumentError) : undefined"
+              >
+                <a-textarea
+                  ref="rawArgumentInput"
+                  v-model:value="rawArgumentText"
+                  :aria-label="t('mcpDebug.rawArguments')"
+                  :aria-invalid="!!rawArgumentError"
+                  :rows="8"
+                  class="code-input"
+                  @update:value="rawArgumentError = ''"
+                />
+                <div class="field-description">{{ t('mcpDebug.rawArgumentsHelp', { example: '{"name": "张三"}' }) }}</div>
+              </a-form-item>
+              <a-empty v-else-if="!toolFields.length" :description="$t('legacy.1en7knw')" />
               <a-form-item v-for="field in toolFields" :key="field.name" :required="field.required">
                 <template #label>
                   <a-space size="small">
@@ -185,7 +202,7 @@
             </a-form>
             <a-collapse style="margin-top: 16px">
               <a-collapse-panel key="schema" :header="t('mcpDebug.inputSchema')"><pre>{{ pretty(selectedTool.inputSchema || {}) }}</pre></a-collapse-panel>
-              <a-collapse-panel v-if="callResult" key="result" :header="$t('legacy.uqgcyu')"><pre>{{ pretty(callResult) }}</pre></a-collapse-panel>
+              <a-collapse-panel v-if="callResult" key="result" :header="$t('legacy.uqgcyu')"><pre>{{ pretty(localizeDebugResponse(callResult, t)) }}</pre></a-collapse-panel>
             </a-collapse>
           </template>
         </a-card>
@@ -198,11 +215,13 @@
       <a-collapse v-else>
         <a-collapse-panel v-for="item in history" :key="item.key">
           <template #header>
-            <a-space wrap><a-tag :color="item.ok ? 'green' : 'red'">{{ item.ok ? $t('legacy.1rraohc') : $t('legacy.12db3qz') }}</a-tag><span>{{ item.method }}</span><span class="muted">{{ formatDebugDuration(item.duration, t) }} · {{ item.time }}</span></a-space>
+            <a-space wrap><a-tag :color="({ success: 'green', error: 'red', denied: 'orange' })[item.status]">{{ t(`mcpAudit.statuses.${item.status}`) }}</a-tag><span>{{ item.method }}</span><span class="muted">{{ formatDebugDuration(item.duration, t) }} · {{ item.time }}</span></a-space>
           </template>
-          <a-row :gutter="16">
-            <a-col :xs="24" :lg="12"><div class="json-title">Request</div><pre>{{ pretty(item.request) }}</pre></a-col>
-            <a-col :xs="24" :lg="12"><div class="json-title">Response</div><pre>{{ pretty(localizeDebugResponse(item.response, t)) }}</pre></a-col>
+          <a-alert v-if="item.pendingApproval" type="warning" show-icon :message="t('mcpDebug.pendingApprovalHint')" style="margin-bottom: 16px" />
+          <div class="history-endpoint"><strong>Endpoint</strong><span>{{ item.endpoint }}</span></div>
+          <a-row :gutter="[16, 16]">
+            <a-col :xs="24" :lg="12"><div class="json-title">{{ t('mcpDebug.request') }}</div><pre>{{ item.request ? pretty(item.request) : t('mcpDebug.requestNotRecorded') }}</pre></a-col>
+            <a-col :xs="24" :lg="12"><div class="json-title">{{ t('mcpDebug.response') }}</div><pre>{{ pretty(localizeDebugResponse(item.response, t)) }}</pre></a-col>
           </a-row>
         </a-collapse-panel>
       </a-collapse>
@@ -224,7 +243,7 @@ import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { debugMcpUpstream, listMcpGateways, listMcpServers } from '../api'
 import { copyText, promptManualCopy } from '../utils/clipboard'
 import { validateServiceEndpoint } from '../utils/serviceEndpoint'
-import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, validConnectionTimeout } from '../utils/mcpDebug'
+import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, debugCallStatus, isPendingDebugApproval, maskDebugRequest, validConnectionTimeout, usesRawArguments, parseRawArguments } from '../utils/mcpDebug'
 
 const { t } = useI18n()
 const targetMode = ref('service')
@@ -236,6 +255,9 @@ const endpointInput = ref(null)
 const endpointError = ref('')
 const authorizationHeader = ref('Authorization')
 const authorizationValue = ref('')
+const authorizationInput = ref(null)
+// 校验原始草稿，正常鉴权值中的空格保持原样。
+const authorizationWhitespace = computed(() => !!authorizationValue.value && !authorizationValue.value.trim())
 const timeoutSeconds = ref(30)
 const gatewaySlug = ref()
 const gatewayToken = ref('')
@@ -260,6 +282,9 @@ const calling = ref(false)
 const protocolVersion = ref('')
 const tools = ref([])
 const selectedToolName = ref()
+const rawArgumentText = ref('{}')
+const rawArgumentError = ref('')
+const rawArgumentInput = ref(null)
 const argumentValues = ref({})
 const complexArgumentTexts = ref({})
 const callResult = ref(null)
@@ -272,6 +297,7 @@ const activeGateways = computed(() => gateways.value.filter(item => item.status 
 const selectedTool = computed(() => tools.value.find(item => item.name === selectedToolName.value))
 const toolFields = computed(() => {
   const schema = selectedTool.value?.inputSchema || {}
+  if (usesRawArguments(schema)) return []
   const required = new Set(schema.required || [])
   return Object.entries(schema.properties || {}).map(([name, fieldSchema]) => {
     let kind = 'string'
@@ -284,6 +310,7 @@ const toolFields = computed(() => {
     return { name, schema: fieldSchema, required: required.has(name), kind }
   })
 })
+const rawArgumentsMode = computed(() => usesRawArguments(selectedTool.value?.inputSchema || {}))
 const connectionLabel = computed(() => connected.value
   ? (protocolVersion.value
     ? t('mcpDebug.connectedWithProtocol', { version: protocolVersion.value })
@@ -308,6 +335,8 @@ const exampleValue = schema => {
   return ''
 }
 const resetArguments = () => {
+  rawArgumentText.value = '{}'
+  rawArgumentError.value = ''
   const values = {}
   const complex = {}
   toolFields.value.forEach(field => {
@@ -362,29 +391,43 @@ const serviceRequest = async (method, params) => {
   }
   const started = performance.now()
   let response
+  let sentRequest = null
   let ok = false
   try {
     const result = await debugMcpUpstream(request)
+    sentRequest = result.request
     response = result.response
     if (response?.error) throw new Error(response.error.message)
+    if (response?.result?.isError === true) throw new Error(t('mcpAudit.toolFailed'))
     ok = true
     return response
   } catch (error) {
-    response ||= error.response?.data || { error: error.message }
+    const data = error.response?.data
+    sentRequest ||= data?.error_params?.debug_request
+    response ||= data || { error: error.message }
+    // 请求记录单独展示，响应区保留业务错误及其参数。
+    if (response?.error_params && Object.hasOwn(response.error_params, 'debug_request')) {
+      const errorParams = { ...response.error_params }
+      delete errorParams.debug_request
+      response = { ...response, error_params: errorParams }
+    }
     throw error
   } finally {
-    addHistory(method, { endpoint: request.endpoint, params }, response, ok, Math.round(performance.now() - started))
+    addHistory(sentRequest?.method || method, sentRequest, response, ok, Math.round(performance.now() - started), request.endpoint)
   }
 }
 
 const gatewayRequest = async (method, params = {}, notification = false, attempt) => {
   const requestId = notification ? undefined : ++requestSequence
   const payload = { jsonrpc: '2.0', ...(requestId === undefined ? {} : { id: requestId }), method, params }
+  const endpoint = gatewayEndpoint.value.trim()
+  const historyRequest = maskDebugRequest(payload)
   const started = performance.now()
   let responseData
+  let httpStatus
   let ok = false
   try {
-    const response = await fetch(gatewayEndpoint.value.trim(), {
+    const response = await fetch(endpoint, {
       signal: attempt?.signal,
       method: 'POST',
       headers: {
@@ -396,16 +439,20 @@ const gatewayRequest = async (method, params = {}, notification = false, attempt
       },
       body: JSON.stringify(payload),
     })
+    httpStatus = response.status
     const text = await response.text()
     responseData = text ? JSON.parse(text) : null
     if (!response.ok) throw new Error(responseData?.detail || `HTTP ${response.status}`)
     if (responseData?.error) {
       const { message, data } = responseData.error
       // 按稳定编码显示当前语言，历史中的原始响应保持不变。
-      throw new Error(localizeApiError({
+      const error = new Error(localizeApiError({
         code: data?.error_code, params: data?.error_params, message,
       }, getCurrentLocale()))
+      error.pendingApproval = isPendingDebugApproval(method, responseData)
+      throw error
     }
+    if (responseData?.result?.isError === true) throw new Error(t('mcpAudit.toolFailed'))
     ok = true
     return responseData
   } catch (error) {
@@ -421,19 +468,25 @@ const gatewayRequest = async (method, params = {}, notification = false, attempt
     }
     throw new Error(localizeDebugResponse(responseData, t).detail)
   } finally {
-    addHistory(method, payload, responseData, ok, Math.round(performance.now() - started))
+    addHistory(method, historyRequest, responseData, ok, Math.round(performance.now() - started), endpoint, isPendingDebugApproval(method, responseData), debugCallStatus(ok, responseData, true, httpStatus))
   }
 }
 
-const addHistory = (method, request, response, ok, duration) => history.value.unshift({
-  key: ++historySequence,
-  method,
-  request,
-  response,
-  ok,
-  duration,
-  time: new Date().toLocaleTimeString(),
-})
+const addHistory = (method, request, response, ok, duration, endpoint, pendingApproval = false, status = debugCallStatus(ok, response)) => {
+  // 最近结果与历史复用本次响应，工具错误及网络异常同样更新。
+  if (method === 'tools/call') callResult.value = response
+  history.value.unshift({
+    key: ++historySequence,
+    endpoint,
+    method,
+    request,
+    response,
+    status,
+    pendingApproval,
+    duration,
+    time: new Date().toLocaleTimeString(),
+  })
+}
 
 const request = (method, params = {}, notification = false) => targetMode.value === 'service'
   ? serviceRequest(method, params)
@@ -442,6 +495,10 @@ const request = (method, params = {}, notification = false) => targetMode.value 
 const connect = async () => {
   if (connecting.value) return
   if (targetMode.value === 'service') {
+    if (authorizationWhitespace.value) {
+      authorizationInput.value?.focus()
+      return
+    }
     endpointError.value = validateServiceEndpoint(serviceEndpoint.value)
     if (endpointError.value) {
       endpointInput.value?.focus()
@@ -514,7 +571,16 @@ const ping = async () => {
 
 const callTool = async () => {
   if (calling.value || !selectedTool.value) return
-  const args = {}
+  let args = {}
+  if (rawArgumentsMode.value) {
+    const parsed = parseRawArguments(rawArgumentText.value)
+    rawArgumentError.value = parsed.error || ''
+    if (parsed.error) {
+      rawArgumentInput.value?.focus()
+      return
+    }
+    args = parsed.value
+  }
   try {
     for (const field of toolFields.value) {
       // 固定值按原始 JSON 提交，避免空值判断或输入转换改变约束值。
@@ -549,12 +615,14 @@ const callTool = async () => {
   } catch (error) {
     return message.warning(error instanceof SyntaxError ? phrase('legacy.uw6e11') : error.message)
   }
+  callResult.value = null
   calling.value = true
   try {
-    callResult.value = await request('tools/call', { name: selectedTool.value.name, arguments: args })
+    await request('tools/call', { name: selectedTool.value.name, arguments: args })
     message.success(phrase('legacy.bjv336'))
   } catch (error) {
-    message.error(error.response?.data?.detail || error.message || phrase('legacy.1jj1f5k'))
+    if (error.pendingApproval) message.warning(t('mcpDebug.pendingApprovalHint'))
+    else message.error(error.response?.data?.detail || error.message || phrase('legacy.1jj1f5k'))
   } finally {
     calling.value = false
   }
@@ -600,6 +668,7 @@ onMounted(async () => {
 .muted { color: #8c8c8c; }
 .code-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .field-description { margin-top: 4px; color: #8c8c8c; font-size: 12px; }
+.history-endpoint { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; overflow-wrap: anywhere; }
 .json-title { margin-bottom: 8px; font-weight: 600; }
 pre { max-height: 420px; margin: 0; padding: 12px; overflow: auto; background: #f7f8fa; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

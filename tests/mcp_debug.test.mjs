@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, validConnectionTimeout } from '../web/src/utils/mcpDebug.js'
+import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, validConnectionTimeout, maskDebugRequest, isPendingDebugApproval, debugCallStatus, usesRawArguments, parseRawArguments } from '../web/src/utils/mcpDebug.js'
 
 for (const value of [1, 30, 300]) {
   test(`accept connection timeout ${value}`, () => assert.equal(validConnectionTimeout(value), true))
@@ -21,9 +21,9 @@ const source = readFileSync(new URL('../web/src/views/McpDebug.vue', import.meta
 const requestSource = source.slice(source.indexOf('const gatewayRequest ='), source.indexOf('\nconst addHistory ='))
 const makeRequest = fetch => {
   const history = []
-  const request = new Function('fetch', 'gatewayEndpoint', 'gatewayToken', 'protocolVersion', 'getCurrentLocale', 'localizeApiError', 'addHistory', 't', 'localizeDebugResponse', `let requestSequence = 0; ${requestSource}; return gatewayRequest`)(
+  const request = new Function('fetch', 'gatewayEndpoint', 'gatewayToken', 'protocolVersion', 'getCurrentLocale', 'localizeApiError', 'addHistory', 't', 'localizeDebugResponse', 'maskDebugRequest', 'isPendingDebugApproval', 'debugCallStatus', `let requestSequence = 0; ${requestSource}; return gatewayRequest`)(
     fetch, { value: 'http://test.invalid/mcp/test' }, { value: 'test-only-placeholder' }, { value: '' }, () => 'en-US', error => error.message,
-    (...args) => history.push(args), (key, params) => `${key}:${params?.seconds ?? ''}`, localizeDebugResponse,
+    (...args) => history.push(args), (key, params) => `${key}:${params?.seconds ?? ''}`, localizeDebugResponse, maskDebugRequest, isPendingDebugApproval, debugCallStatus,
   )
   return { request, history }
 }
@@ -132,7 +132,10 @@ const toolCallSource = source.slice(source.indexOf('const callTool ='), source.i
 const makeToolCall = schema => {
   const sent = []
   const warnings = []
-  const run = new Function('selectedTool', 'computed', 'request', 'message', 'text', 'phrase', `
+  const run = new Function('selectedTool', 'computed', 'request', 'message', 'text', 'phrase', 'usesRawArguments', 'parseRawArguments', `
+    const rawArgumentText = { value: '{}' }
+    const rawArgumentError = { value: '' }
+    const rawArgumentInput = { value: null }
     const calling = { value: false }
     const argumentValues = { value: {} }
     const complexArgumentTexts = { value: {} }
@@ -141,13 +144,13 @@ const makeToolCall = schema => {
     ${parameterFieldsSource}
     ${parameterDefaultsSource}
     ${toolCallSource}
-    return { resetArguments, callTool, argumentValues, complexArgumentTexts, toolFields }
+    return { resetArguments, callTool, argumentValues, complexArgumentTexts, toolFields, rawArgumentText, rawArgumentError }
   `)(
     { value: { name: 'test_tool', inputSchema: schema } },
     getter => ({ get value() { return getter() } }),
     async (method, params) => { sent.push({ method, params }); return { result: {} } },
     { warning: value => warnings.push(value), success: () => {}, error: assert.fail },
-    chinese => chinese, key => key,
+    chinese => chinese, key => key, usesRawArguments, parseRawArguments,
   )
   run.resetArguments()
   return { ...run, sent, warnings }
@@ -198,4 +201,118 @@ test('ordinary arguments retain defaults, required checks and array/JSON convers
   await form.callTool()
   assert.equal(form.sent.length, 1)
   assert.equal(form.warnings.length, 2)
+})
+
+
+test('gateway history records platform denial and retains pending explanation', async () => {
+  const body = { error: { code: -32002, call_status: 'denied', message: 'Await approval', data: { approval_required: true, status: 'pending' } } }
+  const { request, history } = makeRequest(async () => ({ ok: true, status: 200, text: async () => JSON.stringify(body) }))
+  await assert.rejects(request('tools/call'), /Await approval/)
+  assert.equal(history[0][6], true)
+  assert.equal(history[0][7], 'denied')
+  assert.deepEqual(history[0][2], body)
+})
+
+test('gateway tool error preserves response and never reports success', async () => {
+  const body = { result: { isError: true, content: [{ type: 'text', text: 'upstream reason' }] } }
+  const { request, history } = makeRequest(async () => ({ ok: true, status: 200, text: async () => JSON.stringify(body) }))
+  await assert.rejects(request('tools/call'), /mcpAudit.toolFailed/)
+  assert.equal(history[0][7], 'error')
+  assert.equal(history[0][3], false)
+  assert.deepEqual(history[0][2], body)
+})
+
+
+// 最近结果与请求历史使用同一响应，测试真实请求函数和调用入口的衔接。
+test('latest result follows success, tool failure, network failure and recovery', async () => {
+  const history = { value: [] }
+  const callResult = { value: null }
+  const calling = { value: false }
+  let body = { result: { content: [{ type: 'text', text: 'first success' }] } }
+  let networkFailure = false
+  let release
+  const historySource = source.slice(source.indexOf('const addHistory ='), source.indexOf('\nconst request ='))
+  const api = new Function('fetch', 'history', 'callResult', 'calling', 'maskDebugRequest', 'isPendingDebugApproval', 'debugCallStatus', 'localizeDebugResponse', `
+    let requestSequence = 0, historySequence = 0
+    const gatewayEndpoint = { value: 'http://test.invalid/mcp' }, gatewayToken = { value: 'test' }, protocolVersion = { value: '' }
+    const selectedTool = { value: { name: 'echo' } }, toolFields = { value: [] }
+    const rawArgumentsMode = { value: false }, rawArgumentError = { value: '' }
+    const t = key => key, phrase = key => key, getCurrentLocale = () => 'en-US', localizeApiError = error => error.message
+    const message = { success() {}, error() {}, warning() {} }
+    ${requestSource}
+    ${historySource}
+    const request = gatewayRequest
+    ${toolCallSource}
+    return { callTool }
+  `)(async () => {
+    await new Promise(resolve => { release = resolve })
+    if (networkFailure) throw new TypeError('network down')
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) }
+  }, history, callResult, calling, maskDebugRequest, isPendingDebugApproval, debugCallStatus, localizeDebugResponse)
+  for (const next of [body, { result: { isError: true, content: [{ type: 'text', text: 'failed' }] } }, null, body]) {
+    body = next
+    networkFailure = next === null
+    const pending = api.callTool()
+    assert.equal(callResult.value, null)
+    release()
+    await pending
+    assert.deepEqual(callResult.value, history.value[0].response)
+    assert.equal(history.value[0].status, networkFailure || next.result.isError ? 'error' : 'success')
+    if (next) assert.deepEqual(callResult.value, next)
+    else assert.equal(callResult.value.error_code, 'mcp.debug.network_failed')
+  }
+})
+
+for (const schema of [
+  { oneOf: [{ required: ['name'] }, { required: ['id'] }] },
+  { anyOf: [{ properties: { name: { type: 'string' } } }] },
+  { allOf: [{ properties: { name: { type: 'string' } } }] },
+  { $ref: '#/$defs/input' }, { $dynamicRef: '#input' },
+  { type: 'object', additionalProperties: { type: 'string' }, minProperties: 1 },
+  { type: 'object', properties: { name: { type: 'string' } }, additionalProperties: true },
+  { type: 'object', patternProperties: { '^x': { type: 'string' } } },
+  { if: { required: ['kind'] }, then: { required: ['name'] } },
+  { dependentSchemas: { kind: { required: ['name'] } } },
+  { type: 'object' }, {},
+]) {
+  test(`root Schema uses raw arguments: ${JSON.stringify(schema)}`, () => {
+    assert.equal(usesRawArguments(schema), true)
+  })
+}
+
+test('ordinary properties and closed empty objects retain the form', () => {
+  for (const schema of [
+    { properties: { name: { type: 'string' } } },
+    { properties: { fixed: { const: null }, config: { type: 'object' } }, additionalProperties: false },
+    { type: 'object', additionalProperties: false },
+  ]) assert.equal(usesRawArguments(schema), false)
+})
+
+for (const input of ['', ' ', '{', '{"name":}', '{"name":"a",}', "{'name':'张三'}"]) {
+  test(`invalid JSON is retained and not submitted: ${input}`, async () => {
+    const form = makeToolCall({ oneOf: [{ required: ['name'] }] })
+    form.rawArgumentText.value = input
+    await form.callTool()
+    assert.equal(form.sent.length, 0)
+    assert.equal(form.rawArgumentText.value, input)
+    assert.equal(form.rawArgumentError.value, 'mcpDebug.rawArgumentsInvalidJson')
+  })
+}
+for (const input of ['null', '[]', '[{}]', '"text"', '0', 'true']) {
+  test(`reject non-object JSON: ${input}`, () => {
+    assert.deepEqual(parseRawArguments(input), { error: 'mcpDebug.rawArgumentsObjectRequired' })
+  })
+}
+
+test('raw parameters preserve keys, JSON types, empty object and reset state', async () => {
+  const form = makeToolCall({ additionalProperties: true })
+  for (const input of ['{}', '{"name":"中文","id":1,"enabled":false,"empty":"","none":null,"list":[1,"2"],"nested":{"x":true},"__proto__":{"x":1}}']) {
+    form.rawArgumentText.value = input
+    await form.callTool()
+    assert.deepEqual(form.sent.at(-1).params.arguments, JSON.parse(input))
+  }
+  form.rawArgumentError.value = 'mcpDebug.rawArgumentsInvalidJson'
+  form.resetArguments()
+  assert.equal(form.rawArgumentText.value, '{}')
+  assert.equal(form.rawArgumentError.value, '')
 })

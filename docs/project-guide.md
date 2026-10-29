@@ -436,10 +436,22 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 - `能力治理 / MCP 调用审批` 接收真实高风险调用产生的待办；管理员查看脱敏参数后批准或拒绝该 Token 对指定网关、Tool 和 Schema 的限时调用权限，查看原始参数会写入安全审计。
 - 审批详情的风险标签读取详情接口 `risk_level`，低、中、高风险分别显示绿色、橙色、红色，并随界面语言切换。使用时在 MCP 服务设置 Tool 风险等级并启用执行前审批，经网关调用后进入 MCP 审批查看详情。此展示调整复用现有接口及审批规则，无需数据库迁移；Docker 部署更新前端镜像即可。
 - **English:** Approval details render the risk level returned by the detail API: Low Risk in green, Medium Risk in orange, and High Risk in red. Set a Tool risk level and enable pre-execution approval in MCP Servers, call it through a gateway, then open its request in MCP Approvals. This display change reuses the existing API and approval rules, requires no database migration, and only needs the frontend image updated for Docker deployments.
-- 审批页“今日已批准 / 今日已拒绝”按审核时间（reviewed_at）的北京时间自然日统计：当日00:00（含）至次日00:00（不含），转换为UTC边界查询。今日批准包含已批准、已使用及已过期的批准记录；待审批与已过期总量沿用现有口径。数据库继续保存UTC，无历史数据迁移；Docker部署更新后端镜像后生效。核对方式：进入MCP审批页，凌晨的批准与拒绝在当天08:00前后应持续计入今日统计，到北京时间次日零点切日。
+- MCP审批关联凭证被删除后，列表与详情的调用凭证显示“已删除 / Deleted”；接口以token_deleted标识，审批记录和状态保留。吊销但仍存在的凭证继续显示名称，无数据库迁移。
+- MCP审批列表和详情分别展示审批结果与授权状态：批准后到期显示“已批准｜已过期”，未审批到期显示“审批超时｜—”，拒绝保持“已拒绝｜—”。详情保留审批人、时间、意见，批准记录展示授权到期时间及调用次数；待审批/超时显示申请截止时间。列表“到期时间”沿用对应截止时间，拒绝显示—。
+- 五张统计卡片均可点击：待审批、今日已批准、今日已拒绝、今日审批超时、今日批准已过期。今日使用北京时间自然日；批准/拒绝按reviewed_at，超时按expires_at且已到期；“今日批准已过期”指今天批准后已过期，是今日已批准的子集。昨天批准今天过期可在全部列表查看。点击卡片清空普通筛选、回首页、保留每页数量并切到全部；可继续叠加普通筛选，刷新和分页保留范围，切换页签或清除范围退出统计筛选。
+- 接口保留status及原expired统计，新增approval_result、authorization_status及两类今日统计；列表statistic参数与统计共用SQL条件。展示字段由现有记录派生，无历史数据回写及数据库迁移；Docker部署更新前后端镜像。
 - 审批列表的日期范围筛选完整显示开始和结束日期时间（含秒）；筛选栏空间不足时换行，窄屏分行展示时间输入，日期范围按申请时间（created_at）筛选，包含起止边界；请求按日期框可见的秒级北京时间发送，去掉不可见毫秒，零点记录可正确计入。本页列表及详情时间、日期框钟面输入统一为北京时间（UTC+8）。后端把带偏移的查询边界转换为UTC后比较，历史无时区查询仍按UTC处理；不修改历史数据，无需数据库迁移。
 - 审批列表的搜索关键词、MCP Tool、调用凭证在停止输入300毫秒后自动过滤；网关选择及日期范围确认或清空立即过滤，筛选后回到第一页。列表在首次打开、筛选或分页变化、手动刷新及审批操作后查询；刷新按钮仅在手动点击时显示加载状态，其他查询使用列表加载状态。回车、搜索及刷新按钮可立即查询；防抖等待期间翻页或调整每页数量会立即应用新筛选并回到第一页，保留所选每页数量；连续筛选仅采用最新请求结果，离开页面清理待执行查询。
 - `能力治理 / MCP 调试` 可以在保存前使用临时 Endpoint 直连服务，也可以使用真实网关凭证执行 Tool 发现和调用，并展示原始 JSON 请求历史。平台网关凭证旁提供格式悬浮说明；输入后及连接前校验必填和无空白可打印ASCII字符，错误按界面语言显示在字段下，保留草稿，不发送非法请求或回显凭证。凭证是否有效及权限范围仍由服务端校验。
+- MCP Tool 安全策略中，选择“破坏性”读写属性或“高”风险后，执行前审批开关立即显示开启并禁用；提示和保存使用同一强制条件。切回普通条件时恢复本次弹窗原有审批选择；取消丢弃草稿，保存后重新打开读取已保存结果。服务端沿用强制审批规则，无数据库迁移，Docker 更新前端镜像即可。
+- **English:** Selecting Destructive access or High risk immediately checks and disables pre-execution approval. The switch, hint and save use the same effective conditions. Returning to ordinary conditions restores the draft approval choice. Cancel discards the draft; reopening after saving shows persisted settings. Existing server enforcement remains in place. No migration is needed; update the frontend image.
+- MCP 调试平台网关的 Tool 调用返回审批元数据 `approval_required=true` 且 `status=pending` 时，请求历史显示橙色“拒绝”，原因说明为等待审批，提示本次调用未执行、审批通过后重新发起调用。历史保留当次响应；管理员批准仅更新授权，再次调用时由网关校验并转发。原始 JSON-RPC 响应保留，审批拒绝和过期归为拒绝，上游执行错误归为失败。无数据库迁移，Docker 更新前端镜像。
+- **English:** MCP Debug gateway Tool calls with `approval_required=true` and `status=pending` show an orange “Denied” label with a pending-approval explanation. The call has ended without execution; submit it again after approval. History retains the original response. Approval updates authorization, which the gateway checks on the next call. Rejected or expired approval is denied; upstream execution errors are failures. No migration is needed; update the frontend image.
+- MCP 调试请求历史独立展示当次 Endpoint，直连与平台网关均按真实 JSON-RPC 展示请求和响应；可核对 id、方法和参数。直连记录来自实际发送边界，初始化失败按 initialize 展示，HTTP异常保留本次请求及既有错误协议；未取得请求时显示“无请求记录 / No request recorded”。敏感参数复用审批字段规则展示脱敏副本，鉴权 Header 值不进入记录，实际调用参数保持原值。中英文标签即时切换，宽屏并排、窄屏分行；历史 Endpoint 不随配置变更。无需数据库迁移，Docker 更新前后端镜像。
+- **English:** MCP Debug history shows the Endpoint captured for each call and the actual JSON-RPC request beside its response. Direct debugging captures the request at the send boundary, including initialization failures and HTTP errors. Sensitive argument fields are masked in the display copy; authentication header values are excluded, and upstream inputs remain unchanged. Missing requests show “No request recorded”. Layout stacks on narrow screens. No database migration is required; update both Docker images.
+- MCP 调试直连服务时，鉴权值为纯空白字符会即时显示中英文字段错误，连接前再次校验并聚焦该字段，保留原始草稿；修正后错误消失。后端调试接口在转发前使用 `mcp.server.invalid_fields` 和 `whitespace` 原因拒绝纯空白值，错误不含凭证。正常鉴权值中的空格保持原文；调试输入只用于本次请求，选择已有服务且真正留空时沿用已存凭证。无需数据库迁移，Docker更新前后端镜像即可。
+- MCP 调试遇到根级组合（oneOf/anyOf/allOf）、引用、条件或动态对象 Schema 时，提供“参数（原始 JSON）”；普通 properties 沿用表单。连接服务或网关、选择 Tool 后，按输入参数结构填写 JSON 对象并调用；输入框下提供 `{"name": "张三"}` 格式示例，字段名按实际参数填写，格式错误提示使用英文双引号；格式错误、数组、null 和标量在发送前拦截，保留草稿并显示中英文错误。合法对象原样发送，具体 Schema 约束由服务端校验。重置参数及切换 Tool 恢复 `{}`，语言切换保留草稿。模式识别和解析复用 `web/src/utils/mcpDebug.js`，回归见 `tests/mcp_debug.test.mjs`。无需数据库迁移，Docker 更新前端镜像即可。
+- **English:** MCP Debug uses raw JSON arguments for root composition, references, conditions and dynamic objects; ordinary properties retain the form. Connect to a service or gateway, select a Tool, enter an object matching its Input Schema and call it. The field shows a `{"name": "张三"}` format example; use the actual parameter names. Invalid JSON guidance specifies double quotes for property names and strings. Invalid JSON and non-object values are rejected before sending, with the draft preserved. Valid objects are sent unchanged for server-side Schema validation. Reset or Tool selection initializes `{}`; switching language preserves the draft. Update the frontend Docker image; no database migration is required.
 - MCP 调试的 Tool 参数优先使用 JSON Schema `const` 固定值，以只读 JSON 展示，标签旁提供中英文说明。首次选择、重置和调用保留固定值及原始类型，包括 `false`、`0`、空字符串、`null`、数组与对象；可选固定参数也会发送。普通参数继续按已有默认值和表单校验处理。使用时连接服务或平台网关并选择 Tool，固定参数无需填写。无需数据库迁移，Docker 更新前端镜像即可。
 - MCP 调试的“平台 MCP 网关”可设置“连接超时（秒）”，默认30秒，范围1–300整数秒；初始化、通知和工具发现共用总预算，超时主动取消并停止加载。修改连接配置或离开页面会取消旧连接；可修正地址后重试。网络不可达或跨域预检失败显示可读的中英文提示；请求历史Response区域将浏览器网络/预检失败和连接超时按统一JSON展示：detail随语言更新，error_code分别为mcp.debug.network_failed和mcp.debug.connection_timeout，error_params.reason保留原始异常，超时还记录timeout_seconds，服务端业务错误和原始响应继续保留。Tool调用保持独立超时。切换界面语言保留调试配置和请求历史，固定文案即时更新。请求历史不足1秒显示毫秒、不足1分钟显示秒，其余显示分钟，至多两位小数；原始耗时仍为毫秒。“输入参数结构 / Input Schema”随语言切换，Schema及工具内容保留原文。无需数据库迁移，Docker更新前端镜像即可。
 - MCP 上游调用超时及响应超限分别返回 `mcp.upstream_timeout`（`timeout_seconds`）和 `mcp.upstream_response_too_large`（`max_response_kb`）。MCP 调试的提示与本次原始响应按请求语言显示具体原因及配置值；网关沿用 JSON-RPC `-32000`，在 `error.data` 中提供 `error_code`、`error_params`。直连调试和连接发现复用相同错误分类；调用审计保留可识别原因，失败后释放并发占用。使用时在 MCP 服务配置超时及最大响应，再从 MCP 调试调用对应 Tool；超时可检查上游响应速度或超时配置，响应超限可缩小返回结果或调整最大响应。无需数据库迁移；Docker 部署更新前后端镜像。
@@ -3221,7 +3233,7 @@ Shared Skills directories remain in reported assets. The asset tab groups report
 
 待处理事项汇总 Skill 人工审核与未过期的 MCP 调用审批。标签展示完整待办数量，列表每类展示最近 20 条并分页；高风险提示只统计当前标签下已加载的待办。点击 MCP 待办直接打开对应审批详情。
 
-运行观察的今日模型阻断与 MCP 拒绝分别按审计中的 `blocked`、`denied` 状态统计，使用 UTC 自然日。AIDR 展示最近 24 小时收到且仍保留的日志 / Hook 记录数和去重上报客户端数，采集能力标记为“正在测试中”。计数单位为各通道收到的原始记录。
+运行观察的今日模型阻断按 `blocked` 和 UTC 自然日统计，MCP 今日拒绝按 `denied` 和北京时间自然日统计。AIDR 展示最近 24 小时收到且仍保留的日志 / Hook 记录数和去重上报客户端数，采集能力标记为“正在测试中”。计数单位为各通道收到的原始记录。
 
 资产卡片下按“资产 / 行为 / 风险”切换内容；待处理事项仅在风险页展示，运行观察仅在行为页展示。平台登记资产与智能体上报资产分开展示；上报资产覆盖智能体实例、Skill 发现记录、MCP、插件及插件内 Skill，沿用客户端可见范围。资产分布可打开对应管理列表，客户端在线分布可下钻查看在线或离线客户端。行为页按所选日志或 Hook 来源统计已投影去重的工具调用，展示趋势、命令/其他调用构成、工具排行及命令程序名排行。命令按出现次数统计，复用完整小时的汇总表与边界小时的调用投影，避免解析原始日志；下钻按包含该命令的调用分页；活跃智能体按客户端与产品组合计数。风险页区分当前未处置存量和按发现日期统计的期间新增量，展示趋势、等级、类型、客户端/产品排行及处置状态。检测信号不代表攻击成功，未覆盖或未启用的检测不产生发现项。统计准备中或延迟时页面提示数据可能不完整。
 
@@ -3350,6 +3362,32 @@ Click metrics or charts to open the existing risk list, details, rule trace and 
 
 The score is `round(100 × (1 − exp(−W / 60)))`, where `W = open high × 8 + open medium × 3`. Levels are Low (0–29), Medium (30–59), High (60–100). Resolved, accepted and false-positive findings are excluded; reopening restores their contribution. Each finding counts once; independent cross-source findings count separately. Inferred cross-source links do not establish deduplication. The explanation shows actual counts and weights. Weights and thresholds are product choices not yet calibrated against incident data. Zero means no open findings; consult channel status for collection coverage. Scores are unavailable when detection is disabled, cursors lag, or checks are over 30 seconds old. Upgrade adds a client/first-detection index without rewriting historical findings.
 
+
+### MCP 调用结果
+
+调用审计、MCP 调试请求历史统一为成功、失败、拒绝。成功表示工具调用成功完成；失败包括连接异常、超时、中断、JSON-RPC 上游错误和工具 `result.isError=true`；拒绝表示平台未放行本次调用，未执行上游工具，包括等待审批、审批申请被拒绝、权限/策略/参数/授权有效性及限流检查不通过。
+
+调用审计沿用原 `status` 字段的 success/error/denied，调用结束后写入。表头“调用结果”可筛选三类结果，结果说明保留具体原因和原始错误，长内容可滚动；有审批查看权限时提供对应详情链接。等待审批的调用已结束，管理员批准后需重新调用；历史记录保持当时结果，审批页面自身状态独立。
+
+平台 JSON-RPC 拒绝通过 `error.call_status=denied` 标识，保留原 code/message/data。调试历史按该编码区分拒绝与上游失败；网关 HTTP 400/401/403/404/413/422/429 表示请求未获放行，归拒绝。直连服务错误、未到达平台网关的网络失败只在调试历史展示，属于失败。工具 isError 原响应保留，避免成功提示。
+
+平台总览最近活动显示 MCP 调用成功/失败/拒绝；“MCP 网关 · 今日拒绝”统计北京时间当天的 denied，与审计按北京时间筛选相同日期的拒绝记录一致。模型统计仍沿用 UTC 自然日。数据库保留 UTC 时间存储。
+
+无需表结构变更或历史数据迁移，旧 denied 保持拒绝。先部署后端再部署前端（Docker 更新对应镜像），调试历史使用新增拒绝响应标识，既有错误字段及审批行为保持兼容。
+
+调用审计读取响应通过 reason_code/reason_params 提供平台固定原因的展示信息，界面按语言渲染；按当次结果与完整固定原因识别，未知原因及上游原始错误保留原文，数据库不回写。调试每次有效调用开始前清空最近结果，请求完成后最近结果和历史共用本次响应，包含工具业务错误、平台拒绝和网络异常。
+
+- MCP 审计查看审批时切到全部、清空其他条件，将审批 ID 填入现有关键词筛选框并打开对应详情；列表复用 q 查询。关闭详情保留筛选；修改或清空关键词同步移除 URL 的 request_id，清空后立即恢复全部记录。无需数据库表变更。
+
+### Skill 详情信息归位
+
+基础信息展示当前版本描述原文；生命周期三个步骤标题水平对齐：策略审核结果下展示北京时间；人工审核节点下显示审核人，结果下展示北京时间及备注，备注保留前30个Unicode字符，超出以省略号展示并悬浮显示全文，无备注时留空。缺失审核人或时间显示“未记录”。拒绝操作读取当前版本有效检测之后的最近一次拒绝审计记录；重新检测后的结果不沿用此前的拒绝操作。完整性校验展示内容指纹、最近校验结果、数字签名状态及签名预览。检测报告之后以灰色单行文字展示“能力边界：”及三项说明，空间不足时可横向滚动。详情中的治理信息分别在基础信息、生命周期、扫描结果、完整性校验及审计记录查看，报告通过现有 PDF 入口导出。
+
+本次仅增加详情读取字段并调整展示，无数据库结构迁移；Docker 更新前后端镜像，沿用已有数据卷。
+
+- Skill PDF 在“Skill 信息与来源”展示提交时间，在“扫描范围与执行状态”展示当前版本扫描缓存 Key。自动拒绝的操作来源与时间读取本次扫描完成或复用审计事件；策略审核结果展示状态及时间，人工备注展示前30个Unicode字符并悬浮查看全文。历史记录不回写。
+
+- 首次扫描失败的生命周期显示“提交 → 扫描失败 → 拒绝”，详情使用稳定来源 `scan_failed`，拒绝时间读取导致当前失败的审计事件；展示“扫描未完成，无法通过准入。”及原始失败原因（30字符预览、悬浮全文）。标记 `effective_result_preserved` 的失败复扫保留原有效结果和审核时间。历史记录仅在读取时补充来源，不回写。
 ## 千问办公接入
 
 产品目录新增 qwenwork（QwenWork CN），范围限定已验证的 macOS 桌面版。复用日志增量队列、Hook 接收器、签名规则和独立人工审批；个人 Skill 使用身份隔离目录，插件安装与启用分开表达。自定义 MCP 导入在本机被产品限制，完整 MCP 配置发现未开放。详细能力、失败行为和三端升级要求见 [外部 Agent 集成](external-agent-integration.md#千问办公--qwenwork-cnqwenwork)。

@@ -14,7 +14,7 @@ from typing import Literal
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from jsonschema import ValidationError, validate
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -22,6 +22,7 @@ from .. import auth, iam, models, schemas
 from ..api_errors import ApiError, request_locale
 from ..agent_mcp import ensure_agent_mcp_scope
 from ..config import settings
+from ..mcp_audit_display import audit_reason_metadata
 from ..mcp_validation import field_issue, fields_error
 from ..request_leases import LeaseLimitExceeded, LeaseRequest, acquire_leases, release_leases, delete_leases
 from ..runtime_trace_schemas import RuntimeTraceInternalEvent
@@ -512,6 +513,9 @@ async def _post_upstream(
         headers["Host"] = original.netloc.decode("ascii")
         extensions["sni_hostname"] = original.host
         endpoint = str(original.copy_with(host=scan_addresses[0]))
+    # 调试只保存实际发送边界的脱敏副本，保留原始参数与鉴权行为。
+    if hasattr(server, "_debug_request"):
+        server._debug_request = _mask_approval_arguments(payload)
     async with client.stream("POST", endpoint, json=payload, headers=headers, extensions=extensions) as response:
         content = bytearray()
         async for chunk in response.aiter_bytes():
@@ -895,8 +899,8 @@ def _append_approval_audit(
         logger.exception("Failed to append MCP approval audit event for %s", row.request_id or row.id)
 
 
-def _expire_approval_requests(db: Session) -> None:
-    now = datetime.utcnow()
+def _expire_approval_requests(db: Session, now: datetime | None = None) -> None:
+    now = now or datetime.utcnow()
     rows = db.query(models.McpToolApproval).filter(
         models.McpToolApproval.request_id.is_not(None),
         models.McpToolApproval.status.in_(["pending", "approved"]),
@@ -911,6 +915,40 @@ def _expire_approval_requests(db: Session) -> None:
         _append_approval_audit(db, row, "mcp.approval.expired", "system", "expire")
 
 
+# 审批结论和授权生命周期分别展示，保留原状态供执行路径使用。
+def _approval_display_state(row: models.McpToolApproval) -> tuple[str, str | None]:
+    if row.status == "expired":
+        return ("approved", "expired") if row.reviewed_at else ("timed_out", None)
+    if row.status == "approved":
+        return "approved", "valid"
+    if row.status == "used":
+        return ("approved" if row.reviewed_at else "used"), "used"
+    return row.status, None
+
+
+ApprovalStatistic = Literal[
+    "pending", "approved_today", "rejected_today", "timed_out_today", "approved_expired_today",
+]
+
+
+def _approval_statistic_conditions(now: datetime) -> dict:
+    # 卡片和列表共用北京时间日界线及 SQL 条件，批准过期按批准日期计入。
+    today = (now + timedelta(hours=8)).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=8)
+    tomorrow = today + timedelta(days=1)
+    row = models.McpToolApproval
+    reviewed_today = and_(row.reviewed_at >= today, row.reviewed_at < tomorrow)
+    return {
+        "pending": and_(row.status == "pending", row.expires_at >= now),
+        "approved_today": and_(row.status.in_(["approved", "used", "expired"]), reviewed_today),
+        "rejected_today": and_(row.status == "rejected", reviewed_today),
+        "timed_out_today": and_(
+            row.status == "expired", row.reviewed_at.is_(None),
+            row.expires_at >= today, row.expires_at < tomorrow, row.expires_at < now,
+        ),
+        "approved_expired_today": and_(row.status == "expired", reviewed_today),
+    }
+
+
 def _approval_request_response(
     db: Session,
     row: models.McpToolApproval,
@@ -921,10 +959,12 @@ def _approval_request_response(
     gateway = db.query(models.McpGateway).filter(models.McpGateway.slug == row.gateway_slug).first()
     tool = db.query(models.McpTool).filter(models.McpTool.id == row.tool_id).first() if row.tool_id else None
     arguments = _approval_arguments(row)
+    approval_result, authorization_status = _approval_display_state(row)
     return schemas.McpApprovalRequestResponse(
         request_id=row.request_id or "",
         token_id=row.token_id,
-        token_name=token.name if token else f"Token #{row.token_id}",
+        token_name=token.name if token else "",
+        token_deleted=token is None,
         token_prefix=token.token_prefix if token else "",
         gateway_slug=row.gateway_slug,
         gateway_name=gateway.name if gateway else None,
@@ -940,6 +980,8 @@ def _approval_request_response(
         arguments_revealed=reveal_arguments,
         client_ip=row.client_ip,
         status=row.status,
+        approval_result=approval_result,
+        authorization_status=authorization_status,
         expires_at=row.expires_at,
         created_by=row.created_by,
         created_at=row.created_at,
@@ -955,24 +997,12 @@ def _approval_request_response(
 
 @admin_router.get("/approval-requests/stats", response_model=schemas.McpApprovalRequestStatsResponse)
 async def approval_request_stats(db: Session = Depends(get_db)):
-    _expire_approval_requests(db)
-    # 按北京时间自然日统计，将日界线转为数据库存储的 UTC 无时区时间。
-    today = datetime.now(timezone(timedelta(hours=8))).replace(hour=0, minute=0, second=0, microsecond=0)
-    today = today.astimezone(timezone.utc).replace(tzinfo=None)
-    tomorrow = today + timedelta(days=1)
+    now = datetime.utcnow()
+    _expire_approval_requests(db, now)
     query = db.query(models.McpToolApproval).filter(models.McpToolApproval.request_id.is_not(None))
+    counts = {key: query.filter(condition).count() for key, condition in _approval_statistic_conditions(now).items()}
     return schemas.McpApprovalRequestStatsResponse(
-        pending=query.filter(models.McpToolApproval.status == "pending").count(),
-        approved_today=query.filter(
-            models.McpToolApproval.status.in_(["approved", "used", "expired"]),
-            models.McpToolApproval.reviewed_at >= today,
-            models.McpToolApproval.reviewed_at < tomorrow,
-        ).count(),
-        rejected_today=query.filter(
-            models.McpToolApproval.status == "rejected",
-            models.McpToolApproval.reviewed_at >= today,
-            models.McpToolApproval.reviewed_at < tomorrow,
-        ).count(),
+        **counts,
         expired=query.filter(models.McpToolApproval.status == "expired").count(),
     )
 
@@ -980,6 +1010,7 @@ async def approval_request_stats(db: Session = Depends(get_db)):
 @admin_router.get("/approval-requests", response_model=schemas.McpApprovalRequestListResponse)
 async def list_approval_requests(
     status: str | None = None,
+    statistic: ApprovalStatistic | None = None,
     gateway_slug: str | None = None,
     tool_name: str | None = None,
     token_name: str | None = None,
@@ -991,12 +1022,15 @@ async def list_approval_requests(
     page_size: int = 20,
     db: Session = Depends(get_db),
 ):
-    _expire_approval_requests(db)
+    now = datetime.utcnow()
+    _expire_approval_requests(db, now)
     page = max(1, page)
     page_size = min(max(1, page_size), 100)
     query = db.query(models.McpToolApproval).outerjoin(
         models.AccessToken, models.AccessToken.id == models.McpToolApproval.token_id
     ).filter(models.McpToolApproval.request_id.is_not(None))
+    if statistic:
+        query = query.filter(_approval_statistic_conditions(now)[statistic])
     if status:
         statuses = [item.strip() for item in status.split(",") if item.strip()]
         if statuses:
@@ -1281,6 +1315,7 @@ async def list_audit(
             status=row.status,
             duration_ms=row.duration_ms,
             error=row.error,
+            **audit_reason_metadata(row.status, row.error),
             created_at=row.created_at,
         )
         for row, current_name, current_id in rows
@@ -1321,12 +1356,17 @@ async def debug_upstream(
         authorization_value=protected_secret,
         timeout_seconds=body.timeout_seconds,
     )
+    transient._debug_request = None
     started = time.perf_counter()
     try:
         result = await _call_upstream(transient, body.method, body.params)
     except Exception as exc:
-        raise _upstream_connection_error(exc, timeout_seconds=transient.timeout_seconds, debug=True) from exc
+        error = _upstream_connection_error(exc, timeout_seconds=transient.timeout_seconds, debug=True)
+        if transient._debug_request is not None:
+            error.params = {**error.params, "debug_request": transient._debug_request}
+        raise error from exc
     return {
+        "request": transient._debug_request,
         "endpoint": endpoint,
         "method": body.method,
         "duration_ms": round((time.perf_counter() - started) * 1000, 2),
@@ -1355,8 +1395,10 @@ def _gateway_tools(db: Session, gateway: models.McpGateway) -> list[tuple[models
     return result
 
 
-def _jsonrpc_error(request_id, code: int, message: str, data=None) -> dict:
+def _jsonrpc_error(request_id, code: int, message: str, data=None, *, call_status=None) -> dict:
     error = {"code": code, "message": message}
+    if call_status:
+        error["call_status"] = call_status
     if data is not None:
         error["data"] = data
     return {"jsonrpc": "2.0", "id": request_id, "error": error}
@@ -1648,7 +1690,7 @@ async def invoke_gateway(
     db: Session = Depends(get_db),
 ):
     if body.get("jsonrpc") != "2.0" or not isinstance(body.get("method"), str):
-        return _jsonrpc_error(body.get("id"), -32600, "Invalid Request")
+        return _jsonrpc_error(body.get("id"), -32600, "Invalid Request", call_status="denied")
     method = body.get("method")
     request_id = body.get("id")
     required_scope = {
@@ -1659,7 +1701,7 @@ async def invoke_gateway(
         "tools/call": "mcp:call-tools",
     }.get(method)
     if not required_scope:
-        return _jsonrpc_error(request_id, -32601, "Method not found")
+        return _jsonrpc_error(request_id, -32601, "Method not found", call_status="denied")
     token = await run_db(db, resolve_access_token,
         db,
         authorization,
@@ -1700,7 +1742,7 @@ def _prepare_gateway_invocation(
     apply_gateway_policy: bool = True,
 ):
     if body.get("jsonrpc") != "2.0" or not isinstance(body.get("method"), str):
-        return _jsonrpc_error(body.get("id"), -32600, "Invalid Request")
+        return _jsonrpc_error(body.get("id"), -32600, "Invalid Request", call_status="denied")
     method = body.get("method")
     request_id = body.get("id")
     required_scope = {
@@ -1711,7 +1753,7 @@ def _prepare_gateway_invocation(
         "tools/call": "mcp:call-tools",
     }.get(method)
     if not required_scope:
-        return _jsonrpc_error(request_id, -32601, "Method not found")
+        return _jsonrpc_error(request_id, -32601, "Method not found", call_status="denied")
     allowed_gateways = _json_loads(token.allowed_mcp_gateways_json, [])
     if gateway_slug not in allowed_gateways:
         raise HTTPException(status_code=403, detail="凭证未授权访问该 MCP 网关")
@@ -1772,7 +1814,7 @@ def _prepare_gateway_invocation(
 
     params = body.get("params") or {}
     if not isinstance(params, dict):
-        return _jsonrpc_error(request_id, -32602, "Invalid params")
+        return _jsonrpc_error(request_id, -32602, "Invalid params", call_status="denied")
     approval_meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
     exposed_name = str(params.get("name", ""))
     match = next((item for item in tools if item[1].exposed_name == exposed_name), None)
@@ -1789,7 +1831,7 @@ def _prepare_gateway_invocation(
             db, token=token, meta=approval_meta, request_id=request_id,
             gateway_slug=gateway.slug, tool_name=exposed_name, error="Tool 未授权或不存在",
         )
-        return _jsonrpc_error(request_id, -32602, "Tool 未授权或不存在")
+        return _jsonrpc_error(request_id, -32602, "Tool 未授权或不存在", call_status="denied")
     server, tool, approved_hash = match
     policy_denial = _runtime_tool_policy_denial(gateway, tool) if apply_gateway_policy else None
     if policy_denial:
@@ -1816,7 +1858,7 @@ def _prepare_gateway_invocation(
             error_code=error_code,
             schema_hash=tool.schema_hash,
         )
-        return _jsonrpc_error(request_id, rpc_code, error, {"error_code": error_code})
+        return _jsonrpc_error(request_id, rpc_code, error, {"error_code": error_code}, call_status="denied")
     if apply_gateway_policy and approved_hash != tool.schema_hash:
         _record_denied_call(
             db,
@@ -1833,7 +1875,7 @@ def _prepare_gateway_invocation(
             error="Tool Schema 已变化，需要重新审核", schema_hash=tool.schema_hash,
             severity=tool.risk_level,
         )
-        return _jsonrpc_error(request_id, -32001, "Tool Schema 已变化，需要重新审核")
+        return _jsonrpc_error(request_id, -32001, "Tool Schema 已变化，需要重新审核", call_status="denied")
     arguments = params.get("arguments") or {}
     try:
         validate(arguments, _json(tool.input_schema_json, {}))
@@ -1853,7 +1895,7 @@ def _prepare_gateway_invocation(
             error="Tool 参数不符合 Schema", schema_hash=tool.schema_hash,
             severity=tool.risk_level,
         )
-        return _jsonrpc_error(request_id, -32602, "Tool 参数不符合 Schema", exc.message)
+        return _jsonrpc_error(request_id, -32602, "Tool 参数不符合 Schema", exc.message, call_status="denied")
 
     approval_error, approval_data, approval_request_id = _consume_tool_approval(
         db,
@@ -1879,7 +1921,7 @@ def _prepare_gateway_invocation(
             approval_request_id=approval_request_id,
             severity=tool.risk_level,
         )
-        return _jsonrpc_error(request_id, -32002, approval_error, approval_data)
+        return _jsonrpc_error(request_id, -32002, approval_error, approval_data, call_status="denied")
     if _tool_rate_limit_exceeded(db, tool):
         error = "MCP Tool 每分钟调用次数已达上限"
         _record_denied_call(
@@ -1894,7 +1936,7 @@ def _prepare_gateway_invocation(
             approval_request_id=approval_request_id,
             severity=tool.risk_level,
         )
-        return _jsonrpc_error(request_id, -32003, error)
+        return _jsonrpc_error(request_id, -32003, error, call_status="denied")
 
     started = time.perf_counter()
     audit = models.McpCallAudit(
@@ -1950,16 +1992,28 @@ def _prepare_gateway_invocation(
                 await run_sync(acquire_slots)
             except LeaseLimitExceeded as exc:
                 if exc.subject_type == "access_token":
+                    audit.status = "denied"
+                    audit.error = "credential.concurrency_limit"
                     raise ApiError(429, "credential.concurrency_limit", "接入凭证并发请求数已达上限",
                                    "The credential concurrency limit has been reached") from exc
                 audit.status = "denied"
                 audit.error = "MCP Tool 并发调用数已达上限"
-                return _jsonrpc_error(request_id, -32004, audit.error)
+                return _jsonrpc_error(request_id, -32004, audit.error, call_status="denied")
             upstream = await _call_upstream(server, "tools/call", {"name": tool.name, "arguments": arguments})
             trace_result = upstream
-            audit.status = "error" if upstream.get("error") else "success"
+            result = upstream.get("result")
+            tool_failed = isinstance(result, dict) and result.get("isError") is True
+            audit.status = "error" if upstream.get("error") or tool_failed else "success"
             if upstream.get("error"):
+                # 分类由平台写入，避免上游扩展字段把执行错误标成平台拒绝。
+                upstream["error"]["call_status"] = "error"
                 audit.error = str(upstream["error"].get("message", "上游 MCP 返回错误"))[:1000]
+            elif tool_failed:
+                # 工具业务错误仍通过 result 返回，审计应记录失败及原始文本原因。
+                audit.error = "\n".join(
+                    item["text"] for item in result.get("content", [])
+                    if isinstance(item, dict) and isinstance(item.get("text"), str)
+                )[:1000] or "mcp.tool_execution_failed"
             upstream["id"] = request_id
             return upstream
         except HTTPException as exc:

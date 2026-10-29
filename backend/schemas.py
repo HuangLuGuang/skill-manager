@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any, Optional, Literal
 
 from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
+from pydantic_core import PydanticCustomError
 from .client_assets import ClientAssetInventory
 from .aidr_skill_contract import SkillObservationReceipt
 
@@ -760,6 +761,8 @@ class McpCallAuditResponse(BaseModel):
     status: str
     duration_ms: float
     error: Optional[str] = None
+    reason_code: Optional[str] = None
+    reason_params: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
 
@@ -779,6 +782,14 @@ class McpUpstreamDebugRequest(BaseModel):
         # 可选连接字段为null时沿用已保存配置。
         if value is None and info.field_name in {"endpoint", "authorization_header", "authorization_value"}:
             return value
+        # 纯空白是非法临时凭证，保留真正留空时的既有语义。
+        if (
+            info.field_name == "authorization_value"
+            and isinstance(value, str) and value and not value.strip()
+        ):
+            raise PydanticCustomError("mcp_field", "Invalid MCP field", {
+                "field": "authorization_value", "reason": "whitespace",
+            })
         return validate_field(info.field_name, value)
 
     server_id: Optional[int] = None
@@ -824,6 +835,7 @@ class McpApprovalRequestResponse(BaseModel):
     request_id: str
     token_id: int
     token_name: str
+    token_deleted: bool = False
     token_prefix: str
     gateway_slug: str
     gateway_name: Optional[str] = None
@@ -839,6 +851,8 @@ class McpApprovalRequestResponse(BaseModel):
     arguments_revealed: bool = False
     client_ip: Optional[str] = None
     status: str
+    approval_result: str
+    authorization_status: Optional[str] = None
     expires_at: datetime
     created_by: str
     created_at: datetime
@@ -863,6 +877,8 @@ class McpApprovalRequestStatsResponse(BaseModel):
     approved_today: int = 0
     rejected_today: int = 0
     expired: int = 0
+    timed_out_today: int = 0
+    approved_expired_today: int = 0
 
 
 class McpApprovalRuntimeStatusResponse(BaseModel):

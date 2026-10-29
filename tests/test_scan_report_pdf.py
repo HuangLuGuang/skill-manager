@@ -317,3 +317,20 @@ def test_scan_report_pdf_api_download(tmp_path):
     assert response.headers["content-type"].startswith("application/pdf")
     assert "report-skill-v1-scan-report.pdf" in response.headers["content-disposition"]
     assert response.content.startswith(b"%PDF")
+
+
+def test_pdf_submission_time_and_scan_cache_key():
+    entry = _entry()
+    entry.scan_cache_key = 'sha256:' + 'a1b2c3d4' * 8
+    for language, submitted, cache in [
+        ('zh-CN', '提交时间', '扫描缓存 Key'),
+        ('en-US', 'Submitted At', 'Scan Cache Key'),
+    ]:
+        pdf = build_scan_report_pdf(entry, language=language)
+        text = '\n'.join(page.extract_text() for page in PdfReader(BytesIO(pdf)).pages)
+        assert submitted in text
+        assert '2026-08-20' in text
+        assert cache in text
+        assert entry.scan_cache_key in re.sub(r'\s+', '', text)
+    entry.scan_cache_key = None
+    assert build_scan_report_pdf(entry, language='zh-CN').startswith(b'%PDF')
