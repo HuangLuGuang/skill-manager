@@ -49,3 +49,10 @@ export const maskDebugRequest = (value, key = '') => {
 export const isPendingDebugApproval = (method, response) => method === 'tools/call'
   && response?.error?.data?.approval_required === true
   && response.error.data.status === 'pending'
+
+// 平台拒绝使用响应编码；直连服务的上游错误仍归为调用失败。
+export const debugCallStatus = (ok, response, gateway = false, httpStatus) => {
+  if (gateway && (response?.error?.call_status === 'denied' || [400, 401, 403, 404, 413, 422, 429].includes(httpStatus))) return 'denied'
+  if (!ok || response?.error || response?.result?.isError === true) return 'error'
+  return 'success'
+}

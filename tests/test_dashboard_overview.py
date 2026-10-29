@@ -201,3 +201,14 @@ def test_reporting_clients_union_and_metadata_only_activity(context, monkeypatch
     assert response.json()['runtime']['aidr'] == {'records': 4, 'reporting_clients': 2, 'hours': 24}
     assert not any('target_snapshot_json' in s or 'arguments_preview' in s for s in sql)
     assert all(s.lstrip().upper().startswith('SELECT') for s in sql)
+
+
+def test_mcp_today_uses_beijing_boundaries(context):
+    client, factory, _, _ = context
+    start = datetime(2026, 10, 12, 16)
+    with factory.begin() as db:
+        for index, at in enumerate([start - timedelta(microseconds=1), start,
+                                   start + timedelta(days=1, microseconds=-1), start + timedelta(days=1)]):
+            db.add(models.McpCallAudit(request_id=f"boundary-{index}", token_id=1,
+                                      gateway_slug="test", status="denied", created_at=at))
+    assert client.get('/api/v1/dashboard/overview').json()['runtime']['mcp_denied_today'] == 2

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isPendingDebugApproval, maskDebugRequest } from '../web/src/utils/mcpDebug.js'
+import { isPendingDebugApproval, maskDebugRequest, debugCallStatus } from '../web/src/utils/mcpDebug.js'
 
 test('history masks nested credentials without changing sent values or JSON types', () => {
   const request = { jsonrpc: '2.0', id: 12, method: 'tools/call', params: { name: 'echo', arguments: {
@@ -35,4 +35,16 @@ test('pending approval requires the structured pending Tool call response', () =
     assert.equal(isPendingDebugApproval('tools/call', other), false)
   }
   assert.deepEqual(response, before)
+})
+
+
+test('call outcomes distinguish platform denial from upstream failure', () => {
+  assert.equal(debugCallStatus(true, { result: {} }), 'success')
+  assert.equal(debugCallStatus(true, { result: { isError: true } }), 'error')
+  assert.equal(debugCallStatus(false, { error: { code: -32002 } }, true, 200), 'error')
+  const denied = { error: { call_status: 'denied', data: { approval_required: true, status: 'pending' } } }
+  assert.equal(debugCallStatus(false, denied, true, 200), 'denied')
+  assert.equal(debugCallStatus(false, denied, false, 200), 'error')
+  for (const status of [400, 401, 403, 404, 413, 422, 429]) assert.equal(debugCallStatus(false, {}, true, status), 'denied')
+  for (const status of [undefined, 500, 502, 504]) assert.equal(debugCallStatus(false, {}, true, status), 'error')
 })

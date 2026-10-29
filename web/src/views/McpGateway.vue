@@ -94,7 +94,7 @@
     <template v-else>
         <section>
 
-          <a-table :data-source="auditRows" :columns="auditColumns" row-key="id" :loading="loading" size="small" :pagination="auditPagination" :scroll="{ x: 1100 }" @change="auditTableChange">
+          <a-table :data-source="auditRows" :columns="auditColumns" row-key="id" :loading="loading" size="small" :pagination="auditPagination" :scroll="{ x: 1450 }" @change="auditTableChange">
             <template #customFilterDropdown="{ column }">
               <div class="audit-filter" @keydown.stop>
                 <template v-if="column.key === 'created_at'">
@@ -102,7 +102,7 @@
                   <a-range-picker :value="auditDates" :placeholder="[t('mcpAudit.startDate'), t('mcpAudit.endDate')]" popup-class-name="mcp-audit-date-popup" @change="value => { auditDates = value || []; applyAuditFilters() }" />
                 </template>
                 <a-select v-else-if="column.key === 'status'" :value="auditFilters.status" allow-clear :placeholder="t('mcpAudit.status')" :aria-label="t('mcpAudit.status')" @change="value => { auditFilters.status = value; applyAuditFilters() }">
-                  <a-select-option v-for="status in ['success', 'denied', 'error', 'running']" :key="status" :value="status">{{ t(`mcpAudit.statuses.${status}`) }}</a-select-option>
+                  <a-select-option v-for="status in ['success', 'error', 'denied']" :key="status" :value="status">{{ t(`mcpAudit.statuses.${status}`) }}</a-select-option>
                 </a-select>
                 <a-input v-else :value="auditFilters[column.key]" allow-clear :placeholder="column.title" :aria-label="column.title" @update:value="value => setAuditText(column.key, value)" @pressEnter="applyAuditFilters" />
               </div>
@@ -118,7 +118,13 @@
                 <div v-if="!record.token_exists && record.token_name" class="muted">{{ $t('mcpSecurity.deleted') }}</div>
               </template>
               <template v-else-if="column.key === 'status'">
-                <a-tag :color="({ success: 'green', denied: 'orange', error: 'red', running: 'blue' })[record.status]">{{ t(`mcpAudit.statuses.${record.status}`) }}</a-tag>
+                <a-tooltip :title="t(`mcpAudit.meanings.${record.status}`)">
+                  <a-tag :color="({ success: 'green', denied: 'orange', error: 'red' })[record.status]">{{ t(`mcpAudit.statuses.${record.status}`) }}</a-tag>
+                </a-tooltip>
+              </template>
+              <template v-else-if="column.key === 'reason'">
+                <div class="audit-reason">{{ auditReason(record) }}</div>
+                <router-link v-if="record.approval_request_id && pageAllowed('/mcp-governance/approvals')" :to="{ path: '/mcp-governance/approvals', query: { request_id: record.approval_request_id } }">{{ t('mcpAudit.viewApproval') }}</router-link>
               </template>
               <template v-else-if="column.key === 'created_at'">{{ formatBeijingDateTime(record.created_at) }}</template>
             </template>
@@ -345,16 +351,22 @@ const gatewayColumns = computed(() => [
   { title: text('状态', 'Status'), key: 'status', width: 90 },
   { title: text('操作', 'Actions'), key: 'actions', width: 210 },
 ])
+// 固定结果说明按语言展示，上游错误原文保留用于排查。
+const auditReason = record => record.reason_code
+  ? t(`mcpAudit.reasons.${record.reason_code}`, record.reason_params || {})
+  : record.error || '—'
+
 const auditColumns = computed(() => [
   { title: t('mcpAudit.requestId'), key: 'request_id', dataIndex: 'request_id', width: 260 },
   { title: t('mcpAudit.target'), key: 'target' },
   { title: t('mcpSecurity.callCredential'), key: 'token_name', width: 220 },
   { title: t('mcpAudit.duration'), key: 'duration_ms', dataIndex: 'duration_ms', width: 120 },
-  { title: t('mcpAudit.status'), key: 'status', width: 110 },
+  { title: t('mcpAudit.status'), key: 'status', width: 170 },
+  { title: t('mcpAudit.reason'), key: 'reason', width: 300 },
   { title: t('mcpAudit.time'), key: 'created_at', width: 210 },
 ].map(column => ({
   ...column,
-  ...(column.key !== 'duration_ms' ? {
+  ...(!['duration_ms', 'reason'].includes(column.key) ? {
     customFilterDropdown: true,
     filteredValue: column.key === 'created_at' ? auditDates.value.filter(Boolean) : auditFilters[column.key] ? [auditFilters[column.key]] : [],
   } : {}),
@@ -660,6 +672,7 @@ watch(() => [...gatewayForm.tools], () => {
 </script>
 
 <style scoped>
+.audit-reason { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow-y: auto; }
 .title { font-weight: 600; }
 .muted { color: #8c8c8c; font-size: 12px; word-break: break-all; }
 .policy-alert { margin-bottom: 16px; }

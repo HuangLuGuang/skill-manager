@@ -192,7 +192,7 @@
 <script setup>
 import { can as hasAccess } from '../access'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
@@ -209,6 +209,7 @@ import { formatBeijingDateTime as formatDateTime } from '../utils/format'
 
 const { t, te } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const loading = ref(false)
 const refreshing = ref(false)
 const detailLoading = ref(false)
@@ -354,9 +355,11 @@ const handleTableChange = next => {
 }
 
 // 文本输入停止300毫秒后查询；回车、选择及刷新沿用立即查询入口。
-watch(() => [filters.q, filters.tool_name, filters.token_name], () => {
+watch(() => [filters.q, filters.tool_name, filters.token_name], (_, previous) => {
+  syncRequestedQuery()
   window.clearTimeout(filterTimer)
   requestVersion += 1
+  if (!filters.q && previous[0]) return applyFilters()
   filterTimer = window.setTimeout(applyFilters, 300)
 }, { flush: 'sync' })
 
@@ -442,9 +445,22 @@ const submitReject = async () => {
   }
 }
 
+// 跳转条件直接显示在关键词框，修改或清空后移除原 URL 条件。
+const syncRequestedQuery = () => {
+  if (route.query.request_id && filters.q !== route.query.request_id) {
+    const query = { ...route.query }
+    delete query.request_id
+    router.replace({ query })
+  }
+}
 const openRequestedDetails = () => {
   const requestId = route.query.request_id
-  if (typeof requestId === 'string' && requestId) openDetails({ request_id: requestId })
+  if (typeof requestId !== 'string' || !requestId) return
+  activeTab.value = 'all'
+  statistic.value = undefined
+  Object.assign(filters, { q: requestId, gateway_slug: undefined, tool_name: '', token_name: '', timeRange: [] })
+  applyFilters()
+  openDetails({ request_id: requestId })
 }
 watch(() => route.query.request_id, openRequestedDetails)
 onMounted(async () => {
@@ -453,8 +469,8 @@ onMounted(async () => {
   } catch {
     gateways.value = []
   }
-  await fetchRows()
-  openRequestedDetails()
+  if (typeof route.query.request_id === 'string' && route.query.request_id) openRequestedDetails()
+  else await fetchRows()
 })
 
 onUnmounted(() => {

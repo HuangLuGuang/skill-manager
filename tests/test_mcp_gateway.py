@@ -16,6 +16,93 @@ from backend.routers import access_tokens, mcp_gateway
 from backend.sqlite_db import Base, get_db
 
 
+@pytest.mark.parametrize("outcome", ["success", "rpc_error", "tool_error", "tool_error_empty", "credential_limit", "tool_limit"])
+def test_call_audit_final_outcomes(tmp_path, monkeypatch, outcome):
+    client, sessions = _client(tmp_path, monkeypatch)
+    _configured_gateway(client)
+    token = _gateway_token(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {"jsonrpc": "2.0", "id": 17, "method": "tools/call",
+               "params": {"name": "crm__search", "arguments": {"query": "test"}}}
+    upstream_calls = []
+
+    async def upstream(*args):
+        # 运行中记录只在内存；结束前查询不到本次审计。
+        with sessions() as db:
+            assert db.query(models.McpCallAudit).count() == 0
+        upstream_calls.append(args)
+        if outcome == "rpc_error":
+            return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "message": "upstream error", "call_status": "denied"}}
+        return {"jsonrpc": "2.0", "id": 1, "result": {
+            "isError": outcome.startswith("tool_error"),
+            "content": [] if outcome == "tool_error_empty" else [{"type": "text", "text": "result text"}],
+        }}
+
+    monkeypatch.setattr(mcp_gateway, "_call_upstream", upstream)
+    if outcome.endswith("limit"):
+        def deny_slots(*args, **kwargs):
+            raise mcp_gateway.LeaseLimitExceeded("full", subject_type=(
+                "access_token" if outcome == "credential_limit" else "mcp_tool"))
+        monkeypatch.setattr(mcp_gateway, "acquire_leases", deny_slots)
+    response = client.post("/mcp/readonly", headers=headers, json=payload)
+    assert response.status_code == (429 if outcome == "credential_limit" else 200)
+    if outcome == "rpc_error":
+        assert response.json()["error"]["call_status"] == "error"
+    expected = "denied" if outcome.endswith("limit") else "success" if outcome == "success" else "error"
+    rows = client.get("/api/v1/mcp/audit", params={"status": expected}).json()
+    assert rows["total"] == 1
+    assert rows["items"][0]["status"] == expected
+    assert bool(upstream_calls) is (not outcome.endswith("limit"))
+    if outcome == "tool_error":
+        assert rows["items"][0]["error"] == "result text"
+    if outcome == "tool_error_empty":
+        assert rows["items"][0]["error"] == "mcp.tool_execution_failed"
+
+
+def test_audit_status_filters_keep_legacy_records_and_pagination(tmp_path, monkeypatch):
+    client, sessions = _client(tmp_path, monkeypatch)
+    statuses = ["success", "error", "denied"]
+    with sessions() as db:
+        for status in statuses:
+            for number in range(3):
+                db.add(models.McpCallAudit(request_id=f"{status}-{number}", token_id=999,
+                    gateway_slug="legacy", status=status, error="original reason"))
+        db.commit()
+    for status in statuses:
+        pages = [client.get("/api/v1/mcp/audit", params={
+            "status": status, "page_size": 2, "page": page, "sort_order": "asc",
+        }).json() for page in (1, 2)]
+        assert [page["total"] for page in pages] == [3, 3]
+        assert [len(page["items"]) for page in pages] == [2, 1]
+        assert [row["request_id"] for page in pages for row in page["items"]] == [f"{status}-{n}" for n in range(3)]
+    assert client.get("/api/v1/mcp/audit", params={"status": "invalid"}).status_code == 422
+
+
+
+def test_audit_reason_metadata_preserves_stored_evidence(tmp_path, monkeypatch):
+    client, sessions = _client(tmp_path, monkeypatch)
+    cases = [
+        ("denied", "MCP Tool 调用等待管理员审批", "pending", {}),
+        ("denied", "MCP Tool 调用已被管理员拒绝", "rejected", {}),
+        ("denied", "Tool 参数不符合 Schema", "argumentsInvalid", {}),
+        ("denied", "MCP Tool 每分钟调用次数已达上限", "rateLimit", {}),
+        ("error", "上游 MCP 调用超时（配置超时：30 秒）", "timeout", {"seconds": 30}),
+        ("error", "upstream raw error", None, {}),
+        ("error", "MCP Tool 调用等待管理员审批", None, {}),
+        ("denied", "unknown platform reason", None, {}),
+    ]
+    with sessions() as db:
+        for index, (status, error, _, _) in enumerate(cases):
+            db.add(models.McpCallAudit(request_id=f"reason-{index}", token_id=1,
+                                      gateway_slug="test", status=status, error=error))
+        db.commit()
+    rows = client.get("/api/v1/mcp/audit", params={"sort_order": "asc"}).json()["items"]
+    for row, (status, error, code, params) in zip(rows, cases):
+        assert (row["status"], row["error"], row["reason_code"], row["reason_params"]) == (status, error, code, params)
+    with sessions() as db:
+        assert [row.error for row in db.query(models.McpCallAudit).order_by(models.McpCallAudit.id)] == [case[1] for case in cases]
+
+
 def test_approval_deleted_credential_display(tmp_path, monkeypatch):
     client, sessions = _client(tmp_path, monkeypatch)
     with sessions() as db:
@@ -599,6 +686,7 @@ def test_mcp_gateway_discovers_filters_calls_and_audits(tmp_path, monkeypatch):
         json={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "crm__delete", "arguments": {}}},
     )
     assert denied.json()["error"]["code"] == -32602
+    assert denied.json()["error"]["call_status"] == "denied"
 
     invalid = client.post(
         "/mcp/readonly",
@@ -606,6 +694,7 @@ def test_mcp_gateway_discovers_filters_calls_and_audits(tmp_path, monkeypatch):
         json={"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "crm__search", "arguments": {}}},
     )
     assert invalid.json()["error"]["message"] == "Tool 参数不符合 Schema"
+    assert invalid.json()["error"]["call_status"] == "denied"
 
     called = client.post(
         "/mcp/readonly",
@@ -1008,6 +1097,7 @@ def test_risk_level_call_creates_time_bound_tool_authorization(
     duplicate = client.post("/mcp/readonly", headers=headers, json=different_arguments_call).json()
     request_id = first["error"]["data"]["approval_request_id"]
     assert first["error"]["data"]["status"] == "pending"
+    assert first["error"]["call_status"] == "denied"
     assert duplicate["error"]["data"]["approval_request_id"] == request_id
 
     listed = client.get("/api/v1/mcp/approval-requests", params={"status": "pending"}).json()
@@ -1048,6 +1138,7 @@ def test_risk_level_call_creates_time_bound_tool_authorization(
         successes = db.query(models.McpCallAudit).filter(models.McpCallAudit.status == "success").all()
         assert len(successes) == 2
         assert {success.approval_request_id for success in successes} == {request_id}
+        assert db.query(models.McpCallAudit).filter_by(status="denied").count() == 2
     finally:
         db.close()
 
@@ -1085,6 +1176,15 @@ def test_rejected_mcp_approval_request_cannot_be_consumed(tmp_path, monkeypatch)
     denied = client.post("/mcp/readonly", headers=headers, json=call).json()
     assert denied["error"]["message"] == "MCP Tool 调用已被管理员拒绝"
     assert denied["error"]["data"]["reason"] == "scope is too broad"
+    assert denied["error"]["call_status"] == "denied"
+    # 拒绝只影响重试结果；原待审批调用保持当时状态。
+    rows = client.get("/api/v1/mcp/audit").json()["items"]
+    assert [row["status"] for row in rows] == ["denied", "denied"]
+    assert {row["approval_request_id"] for row in rows} == {request_id}
+    call["params"].pop("_meta")
+    new_request = client.post("/mcp/readonly", headers=headers, json=call).json()
+    assert new_request["error"]["data"]["approval_request_id"] != request_id
+    assert client.get("/api/v1/mcp/audit").json()["items"][0]["status"] == "denied"
 
 
 @pytest.mark.parametrize("operation", ["connection_failed", "debug_failed"])
@@ -1675,3 +1775,20 @@ def test_tool_policy_approval_matches_effective_conditions(tmp_path, monkeypatch
             assert saved.requires_approval is expected
             assert saved.access_mode == access_mode
             assert saved.risk_level == risk_level
+
+
+def test_approval_request_keyword_filter(tmp_path, monkeypatch):
+    client, sessions = _client(tmp_path, monkeypatch)
+    with sessions() as db:
+        for request_id in ("mcpapr_aaaaaaaa", "mcpapr_bbbbbbbb"):
+            db.add(models.McpToolApproval(
+                approval_hash=request_id, request_id=request_id, token_id=999,
+                gateway_slug="test", tool_name="echo", arguments_hash="hash",
+                status="rejected", expires_at=datetime(2026, 1, 1), created_by="test",
+            ))
+        db.commit()
+    for request_id, expected in (("mcpapr_aaaaaaaa", ["mcpapr_aaaaaaaa"]), ("missing", [])):
+        data = client.get("/api/v1/mcp/approval-requests", params={"q": request_id}).json()
+        assert data["total"] == len(expected)
+        assert [row["request_id"] for row in data["items"]] == expected
+    assert client.get("/api/v1/mcp/approval-requests").json()["total"] == 2

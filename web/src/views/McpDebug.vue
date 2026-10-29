@@ -185,7 +185,7 @@
             </a-form>
             <a-collapse style="margin-top: 16px">
               <a-collapse-panel key="schema" :header="t('mcpDebug.inputSchema')"><pre>{{ pretty(selectedTool.inputSchema || {}) }}</pre></a-collapse-panel>
-              <a-collapse-panel v-if="callResult" key="result" :header="$t('legacy.uqgcyu')"><pre>{{ pretty(callResult) }}</pre></a-collapse-panel>
+              <a-collapse-panel v-if="callResult" key="result" :header="$t('legacy.uqgcyu')"><pre>{{ pretty(localizeDebugResponse(callResult, t)) }}</pre></a-collapse-panel>
             </a-collapse>
           </template>
         </a-card>
@@ -198,7 +198,7 @@
       <a-collapse v-else>
         <a-collapse-panel v-for="item in history" :key="item.key">
           <template #header>
-            <a-space wrap><a-tag :color="item.pendingApproval ? 'orange' : item.ok ? 'green' : 'red'">{{ item.pendingApproval ? t('mcpDebug.pendingApproval') : item.ok ? $t('legacy.1rraohc') : $t('legacy.12db3qz') }}</a-tag><span>{{ item.method }}</span><span class="muted">{{ formatDebugDuration(item.duration, t) }} · {{ item.time }}</span></a-space>
+            <a-space wrap><a-tag :color="({ success: 'green', error: 'red', denied: 'orange' })[item.status]">{{ t(`mcpAudit.statuses.${item.status}`) }}</a-tag><span>{{ item.method }}</span><span class="muted">{{ formatDebugDuration(item.duration, t) }} · {{ item.time }}</span></a-space>
           </template>
           <a-alert v-if="item.pendingApproval" type="warning" show-icon :message="t('mcpDebug.pendingApprovalHint')" style="margin-bottom: 16px" />
           <div class="history-endpoint"><strong>Endpoint</strong><span>{{ item.endpoint }}</span></div>
@@ -226,7 +226,7 @@ import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { debugMcpUpstream, listMcpGateways, listMcpServers } from '../api'
 import { copyText, promptManualCopy } from '../utils/clipboard'
 import { validateServiceEndpoint } from '../utils/serviceEndpoint'
-import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, isPendingDebugApproval, maskDebugRequest, validConnectionTimeout } from '../utils/mcpDebug'
+import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, debugCallStatus, isPendingDebugApproval, maskDebugRequest, validConnectionTimeout } from '../utils/mcpDebug'
 
 const { t } = useI18n()
 const targetMode = ref('service')
@@ -374,6 +374,7 @@ const serviceRequest = async (method, params) => {
     sentRequest = result.request
     response = result.response
     if (response?.error) throw new Error(response.error.message)
+    if (response?.result?.isError === true) throw new Error(t('mcpAudit.toolFailed'))
     ok = true
     return response
   } catch (error) {
@@ -399,6 +400,7 @@ const gatewayRequest = async (method, params = {}, notification = false, attempt
   const historyRequest = maskDebugRequest(payload)
   const started = performance.now()
   let responseData
+  let httpStatus
   let ok = false
   try {
     const response = await fetch(endpoint, {
@@ -413,6 +415,7 @@ const gatewayRequest = async (method, params = {}, notification = false, attempt
       },
       body: JSON.stringify(payload),
     })
+    httpStatus = response.status
     const text = await response.text()
     responseData = text ? JSON.parse(text) : null
     if (!response.ok) throw new Error(responseData?.detail || `HTTP ${response.status}`)
@@ -425,6 +428,7 @@ const gatewayRequest = async (method, params = {}, notification = false, attempt
       error.pendingApproval = isPendingDebugApproval(method, responseData)
       throw error
     }
+    if (responseData?.result?.isError === true) throw new Error(t('mcpAudit.toolFailed'))
     ok = true
     return responseData
   } catch (error) {
@@ -440,21 +444,25 @@ const gatewayRequest = async (method, params = {}, notification = false, attempt
     }
     throw new Error(localizeDebugResponse(responseData, t).detail)
   } finally {
-    addHistory(method, historyRequest, responseData, ok, Math.round(performance.now() - started), endpoint, isPendingDebugApproval(method, responseData))
+    addHistory(method, historyRequest, responseData, ok, Math.round(performance.now() - started), endpoint, isPendingDebugApproval(method, responseData), debugCallStatus(ok, responseData, true, httpStatus))
   }
 }
 
-const addHistory = (method, request, response, ok, duration, endpoint, pendingApproval = false) => history.value.unshift({
-  key: ++historySequence,
-  endpoint,
-  method,
-  request,
-  response,
-  ok,
-  pendingApproval,
-  duration,
-  time: new Date().toLocaleTimeString(),
-})
+const addHistory = (method, request, response, ok, duration, endpoint, pendingApproval = false, status = debugCallStatus(ok, response)) => {
+  // 最近结果与历史复用本次响应，工具错误及网络异常同样更新。
+  if (method === 'tools/call') callResult.value = response
+  history.value.unshift({
+    key: ++historySequence,
+    endpoint,
+    method,
+    request,
+    response,
+    status,
+    pendingApproval,
+    duration,
+    time: new Date().toLocaleTimeString(),
+  })
+}
 
 const request = (method, params = {}, notification = false) => targetMode.value === 'service'
   ? serviceRequest(method, params)
@@ -574,9 +582,10 @@ const callTool = async () => {
   } catch (error) {
     return message.warning(error instanceof SyntaxError ? phrase('legacy.uw6e11') : error.message)
   }
+  callResult.value = null
   calling.value = true
   try {
-    callResult.value = await request('tools/call', { name: selectedTool.value.name, arguments: args })
+    await request('tools/call', { name: selectedTool.value.name, arguments: args })
     message.success(phrase('legacy.bjv336'))
   } catch (error) {
     if (error.pendingApproval) message.warning(t('mcpDebug.pendingApprovalHint'))

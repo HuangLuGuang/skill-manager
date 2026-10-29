@@ -758,6 +758,8 @@ class McpCallAuditResponse(BaseModel):
     status: str
     duration_ms: float
     error: Optional[str] = None
+    reason_code: Optional[str] = None
+    reason_params: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
 

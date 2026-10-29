@@ -325,3 +325,9 @@ make sandbox-runtime-build
 - MCP审批列表/详情通过approval_result和authorization_status分别展示审批结果与授权状态，保留原status执行语义；五张统计卡片和列表statistic共用SQL条件及北京时间边界，今日批准已过期按reviewed_at计入。卡片点击清空普通筛选并保留页大小；分页刷新保留范围，切换页签或清除范围退出。无需数据库迁移，回归覆盖tests/test_mcp_gateway.py。
 
 - MCP审批凭证删除展示使用接口token_deleted布尔值及mcpApproval.credentialDeleted双语资源；列表和详情共用credentialLabel，保留历史审批状态，吊销不等于删除。
+
+- MCP 调用结果统一 success/error/denied（成功/失败/拒绝），审计在调用结束后写入原 status；待审批等保留为拒绝原因。平台 JSON-RPC 拒绝返回 error.call_status=denied，调试历史据此分类，直连上游错误归失败；result.isError=true 在审计及调试均归失败。凭证/工具并发超限记 denied。总览最近活动复用三类事件，MCP 今日拒绝按北京时间自然日统计；审批页面状态独立。无需表迁移；回归见 tests/test_mcp_gateway.py、tests/test_dashboard_overview.py 和 tests/mcp_debug*.test.mjs。
+
+- MCP 审计固定原因展示复用 backend/mcp_audit_display.py 的读取元数据 reason_code/reason_params 与 mcpAudit.reasons；保留存储和未知原文。调试最近结果由 addHistory 的 tools/call 响应统一更新，调用开始清空旧结果；工具业务失败和网络异常同样更新，复用历史错误本地化。
+
+- MCP 审计查看审批时切到全部、清空其他条件，将审批 ID 填入现有关键词筛选框并打开对应详情；列表复用 q 查询。关闭详情保留筛选；修改或清空关键词同步移除 URL 的 request_id，清空后立即恢复全部记录。无需数据库表变更。

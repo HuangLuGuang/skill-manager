@@ -77,8 +77,11 @@ def overview(
                 "risk": risk or "high", "created_at": _stamp(row.created_at),
                 "target_id": row.request_id, "context": row.gateway_slug})
         audits = db.query(models.McpCallAudit)
+        # MCP 今日与调用审计日期筛选统一使用北京时间，数据库保留 UTC。
+        mcp_today = (now + timedelta(hours=8)).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=8)
         result["runtime"]["mcp_denied_today"] = audits.filter(
-            models.McpCallAudit.created_at >= today, models.McpCallAudit.created_at <= now,
+            models.McpCallAudit.created_at >= mcp_today,
+            models.McpCallAudit.created_at < mcp_today + timedelta(days=1),
             models.McpCallAudit.status == "denied").count()
         for row in audits.options(load_only(models.McpCallAudit.id, models.McpCallAudit.status,
                 models.McpCallAudit.tool_name, models.McpCallAudit.gateway_slug,

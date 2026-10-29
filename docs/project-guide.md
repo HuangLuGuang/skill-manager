@@ -3177,7 +3177,7 @@ Skill 证据回查在 SQLite 内按设备、产品入口、会话和原生调用
 
 待处理事项汇总 Skill 人工审核与未过期的 MCP 调用审批。标签展示完整待办数量，列表每类展示最近 20 条并分页；高风险提示只统计当前标签下已加载的待办。点击 MCP 待办直接打开对应审批详情。最近活动展示近 7 天最新 8 条 Skill / MCP 审计及安全扫描任务状态，仅包含事件、对象和时间等摘要；扫描任务沿用所属用户、用户组及安全审计角色的可见范围，入口打开对应任务。
 
-运行观察的今日模型阻断与 MCP 拒绝分别按审计中的 `blocked`、`denied` 状态统计，使用 UTC 自然日。AIDR 展示最近 24 小时收到且仍保留的日志 / Hook 记录数和去重上报客户端数，采集能力标记为“正在测试中”。计数单位为各通道收到的原始记录。
+运行观察的今日模型阻断按 `blocked` 和 UTC 自然日统计，MCP 今日拒绝按 `denied` 和北京时间自然日统计。AIDR 展示最近 24 小时收到且仍保留的日志 / Hook 记录数和去重上报客户端数，采集能力标记为“正在测试中”。计数单位为各通道收到的原始记录。
 
 底部提供近 7 天 / 30 天模型调用趋势及 Skill 风险分布。趋势统计已写入 `LlmUsageMetric` 的请求，按 UTC 自然日补齐无记录日期；风险分布按每个 Skill 的最新版本统计，未判定或未知风险单列。页面标注更新时间，支持刷新；刷新失败保留上次数据并明确提示，首次读取失败提供重试。
 
@@ -3297,3 +3297,20 @@ Overview has Assets, Activity and Risks tabs with a shared date filter, defaulti
 Click metrics or charts to open the existing risk list, details, rule trace and disposition flow. Chart drilldowns use inclusive first-detection start and exclusive end boundaries; the regular Risk events page retains occurrence-time filtering. Focus a chart, use arrow keys to select a data point, and press Enter to drill down. Saving a disposition refreshes the overview. Agent links and evidence-content permissions remain unchanged.
 
 The score is `round(100 × (1 − exp(−W / 60)))`, where `W = open high × 8 + open medium × 3`. Levels are Low (0–29), Medium (30–59), High (60–100). Resolved, accepted and false-positive findings are excluded; reopening restores their contribution. Each finding counts once; independent cross-source findings count separately. Inferred cross-source links do not establish deduplication. The explanation shows actual counts and weights. Weights and thresholds are product choices not yet calibrated against incident data. Zero means no open findings; consult channel status for collection coverage. Scores are unavailable when detection is disabled, cursors lag, or checks are over 30 seconds old. Upgrade adds a client/first-detection index without rewriting historical findings.
+
+
+### MCP 调用结果
+
+调用审计、MCP 调试请求历史统一为成功、失败、拒绝。成功表示工具调用成功完成；失败包括连接异常、超时、中断、JSON-RPC 上游错误和工具 `result.isError=true`；拒绝表示平台未放行本次调用，未执行上游工具，包括等待审批、审批申请被拒绝、权限/策略/参数/授权有效性及限流检查不通过。
+
+调用审计沿用原 `status` 字段的 success/error/denied，调用结束后写入。表头“调用结果”可筛选三类结果，结果说明保留具体原因和原始错误，长内容可滚动；有审批查看权限时提供对应详情链接。等待审批的调用已结束，管理员批准后需重新调用；历史记录保持当时结果，审批页面自身状态独立。
+
+平台 JSON-RPC 拒绝通过 `error.call_status=denied` 标识，保留原 code/message/data。调试历史按该编码区分拒绝与上游失败；网关 HTTP 400/401/403/404/413/422/429 表示请求未获放行，归拒绝。直连服务错误、未到达平台网关的网络失败只在调试历史展示，属于失败。工具 isError 原响应保留，避免成功提示。
+
+平台总览最近活动显示 MCP 调用成功/失败/拒绝；“MCP 网关 · 今日拒绝”统计北京时间当天的 denied，与审计按北京时间筛选相同日期的拒绝记录一致。模型统计仍沿用 UTC 自然日。数据库保留 UTC 时间存储。
+
+无需表结构变更或历史数据迁移，旧 denied 保持拒绝。先部署后端再部署前端（Docker 更新对应镜像），调试历史使用新增拒绝响应标识，既有错误字段及审批行为保持兼容。
+
+调用审计读取响应通过 reason_code/reason_params 提供平台固定原因的展示信息，界面按语言渲染；按当次结果与完整固定原因识别，未知原因及上游原始错误保留原文，数据库不回写。调试每次有效调用开始前清空最近结果，请求完成后最近结果和历史共用本次响应，包含工具业务错误、平台拒绝和网络异常。
+
+- MCP 审计查看审批时切到全部、清空其他条件，将审批 ID 填入现有关键词筛选框并打开对应详情；列表复用 q 查询。关闭详情保留筛选；修改或清空关键词同步移除 URL 的 request_id，清空后立即恢复全部记录。无需数据库表变更。
