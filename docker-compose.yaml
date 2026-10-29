@@ -9,6 +9,7 @@ services:
       # ENFORCE_SECURE_STARTUP=true and replace all placeholder credentials.
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       DEBUG: ${DEBUG:-false}
+      MODEL_GATEWAY_PUBLIC_URL: ${MODEL_GATEWAY_PUBLIC_URL:-}
       # Uvicorn only applies forwarded headers from these direct peers. The
       # Backend is not published on the host; requests enter through Nginx on
       # the dynamically allocated Compose bridge network.

@@ -221,9 +221,30 @@ Trace 阶段：
 
 **English:** Model lists and retrieval enforce credential scope and enabled model/provider state. Bearer requests return OpenAI model objects; `anthropic-version` or `x-api-key` selects Anthropic objects and cursor pagination (`limit`, `after_id`, `before_id`). Anthropic accepts API-key or Bearer authentication. `/v1/messages/count_tokens` returns a local UTF-8 estimate, identified by `x-token-count-method: estimated-utf8`; it does not call the provider and is not an exact tokenizer count.
 
+### 独立模型接入地址 / Dedicated model entry
+
+`MODEL_GATEWAY_PUBLIC_URL` 指定客户端可访问的内置模型网关根地址，例如 `http://models.example.com:8000`，
+不带 `/v1`、路径、查询参数或凭证。留空时沿用管理连接地址。客户端状态、模型切换任务、手动配置选项和
+管理台接入指引使用同一地址，各 Agent 适配器追加协议路径。供应商和外部 AI 网关仍使用其自身地址。
+
+可选的 Nginx HTTP 入口默认关闭，启用方式见[模型专用 HTTP 入口](offline-deployment.md#模型专用-http-入口)。
+它提供模型目录、Chat Completions、Responses、Messages、Token 估算、Gemini 和桌面模型路由，
+复用现有凭证、权限、隐私处理与审计。管理、MCP、上传和页面仍使用管理入口。
+
+启用后升级客户端并重新应用 Agent 模型配置；旧客户端仍使用管理地址，服务端设置不会改写已有 Agent 文件。
+模型页显示实际地址，切换预览显示目标地址；验证读取实际配置，恢复沿用原备份。
+注册、心跳、任务、凭证领取和日志上报继续使用管理地址。HTTP 明文传输凭证与模型内容，仅限批准的内网来源。
+
+**English:** Set `MODEL_GATEWAY_PUBLIC_URL` to a client-accessible origin without paths, query or credentials.
+Empty retains the management address. Status, switch tasks, manual setup and integration guides share it.
+Upgrade clients and reapply existing Agent configurations. Verification uses the actual configuration and
+restore uses its backup. The optional Nginx HTTP entry exposes model runtime routes only and is disabled
+by default. Restrict plaintext HTTP traffic to approved networks. Management, providers and external gateways
+retain their own addresses.
+
 客户端配置建议：
 
-- Agent Manager 桌面客户端：不单独填写模型网关地址，而是复用客户端接入时配置的 Agent Manager 地址。Claude Code 使用该根地址；Codex 和 Hermes 自动规范化为以 `/v1` 结尾的 Base URL。该地址指向 Agent Manager 网关，不是下面“供应商”页面配置的上游模型地址。
+- Agent Manager 桌面客户端：使用平台下发的 `MODEL_GATEWAY_PUBLIC_URL`，未配置时复用管理连接地址。Claude Code 使用根地址；Codex 和 Hermes 自动追加 `/v1`。该地址指向平台模型网关，不是供应商的上游地址。
 - OpenAI SDK / Cherry Studio：Docker Compose 默认把 Base URL 配成 `http://127.0.0.1/v1`。
 - Hermes 或其他从根地址自动拼接路径的客户端：可配 `http://127.0.0.1`，网关对外提供 `/chat/completions` 和 `/models`。当前 Compose 的根路径由管理台前端使用，不适合会直接 POST 根地址的客户端。
 - Claude Code：设置 `ANTHROPIC_BASE_URL=http://127.0.0.1`、`ANTHROPIC_AUTH_TOKEN=amat_xxx`，并把 Claude Code 使用的模型名设置为管理台登记的模型名。

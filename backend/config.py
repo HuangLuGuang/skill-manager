@@ -1,6 +1,7 @@
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -12,6 +13,27 @@ class Settings(BaseSettings):
     APP_NAME: str = "Agent Manager Admin Starter"
     API_PREFIX: str = "/api"
     DEBUG: bool = False
+    MODEL_GATEWAY_PUBLIC_URL: str = ""
+
+    @field_validator("MODEL_GATEWAY_PUBLIC_URL")
+    @classmethod
+    def validate_model_gateway_public_url(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            return ""
+        try:
+            url = urlsplit(value)
+            valid = (len(value) <= 2048 and url.scheme in {"http", "https"}
+                     and url.hostname and url.username is None and url.password is None
+                     and url.path in {"", "/"} and not url.query and not url.fragment
+                     and "?" not in value and "#" not in value and "\\" not in value
+                     and not any(char.isspace() or ord(char) < 32 for char in value)
+                     and (url.port is None or 1 <= url.port <= 65535))
+        except ValueError:
+            valid = False
+        if not valid:
+            raise ValueError("MODEL_GATEWAY_PUBLIC_URL must be an HTTP(S) origin without credentials, path, query or fragment")
+        return value.rstrip("/")
 
     SECRET_KEY: str = Field("change-me-in-production", description="JWT signing key")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8

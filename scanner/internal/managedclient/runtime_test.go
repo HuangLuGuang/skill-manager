@@ -21,6 +21,12 @@ import (
 )
 
 func TestModelConfigTaskRetrievesAgentCredentialOutsideTaskPayload(t *testing.T) {
+	for _, gateway := range []string{"", "http://models.example.test:8000"} {
+		t.Run(gateway, func(t *testing.T) { checkModelTaskGateway(t, gateway) })
+	}
+}
+
+func checkModelTaskGateway(t *testing.T, gateway string) {
 	home := t.TempDir()
 	requestedPath := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -58,6 +64,7 @@ func TestModelConfigTaskRetrievesAgentCredentialOutsideTaskPayload(t *testing.T)
 				"agent_type":            "claude-code",
 				"model":                 "claude-managed",
 				"auto_issue_credential": true,
+				"model_base_url":        gateway,
 			},
 		},
 	)
@@ -78,6 +85,12 @@ func TestModelConfigTaskRetrievesAgentCredentialOutsideTaskPayload(t *testing.T)
 	env, _ := settings["env"].(map[string]any)
 	if env["ANTHROPIC_AUTH_TOKEN"] != "amat_task_bound_agent_secret" {
 		t.Fatalf("task-issued credential was not applied: %#v", env)
+	}
+	if gateway == "" {
+		gateway = server.URL
+	}
+	if env["ANTHROPIC_BASE_URL"] != gateway {
+		t.Fatalf("model gateway = %v; want %s", env["ANTHROPIC_BASE_URL"], gateway)
 	}
 }
 

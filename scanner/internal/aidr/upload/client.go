@@ -17,6 +17,7 @@ import (
 
 	"skill-manager/scanner/internal/aidr/agentlog"
 	"skill-manager/scanner/internal/aidr/localstore"
+	"skill-manager/scanner/internal/platformtls"
 )
 
 type Options struct {
@@ -77,7 +78,7 @@ func New(o Options) (*Client, error) {
 	transport.DisableCompression = true
 	transport.MaxIdleConnsPerHost = 1
 	transport.MaxConnsPerHost = 1
-	return &Client{base: strings.TrimRight(u.String(), "/"), clientID: o.ClientID, token: o.Token, observeHTTP: o.ObserveHTTP, http: &http.Client{Timeout: 10 * time.Second, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	return &Client{base: strings.TrimRight(u.String(), "/"), clientID: o.ClientID, token: o.Token, observeHTTP: o.ObserveHTTP, http: &http.Client{Timeout: 10 * time.Second, Transport: platformtls.New(transport), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 func (c *Client) Close() { c.http.CloseIdleConnections() }
 func (c *Client) Bind(ctx context.Context, s *localstore.Store) error {

@@ -92,6 +92,7 @@ class SystemInfo(BaseModel):
 class SystemCapabilities(BaseModel):
     features: dict[str, bool]
     baseline: dict
+    model_gateway_url: str = ""
 
 
 class MetricRecord(BaseModel):
@@ -178,6 +179,7 @@ async def get_system_capabilities(current_user: models.User = Depends(auth.get_c
     return SystemCapabilities(
         features=feature_flags(),
         baseline=baseline_summary(),
+        model_gateway_url=settings.MODEL_GATEWAY_PUBLIC_URL,
     )
 
 

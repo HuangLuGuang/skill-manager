@@ -90,6 +90,7 @@ func run(args []string) (runErr error) {
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
 	server := fs.String("server", envOr("AGENT_MANAGER_CLIENT_SERVER", ""), "Agent Manager URL")
+	originalServer := fs.String("original-server", "", "saved connection address before editing")
 	token := fs.String("token", envOr("AGENT_MANAGER_CLIENT_TOKEN", ""), "client access token")
 	name := fs.String("name", "", "client display name")
 	skillsPath := fs.String("skills-path", "", "custom Agent Skill directory")
@@ -219,6 +220,13 @@ func run(args []string) (runErr error) {
 			})
 		}
 		return json.NewEncoder(os.Stdout).Encode(items)
+	}
+	if args[0] == "edit-connection" {
+		if err := managedclient.EditSavedConnection(*home, *originalServer, managedclient.SavedConnection{Server: *server, Token: *token, Name: *name}); err != nil {
+			return err
+		}
+		fmt.Println("connection saved")
+		return nil
 	}
 	if args[0] == "switch-connection" {
 		connection, ok := config.FindConnection(*server)

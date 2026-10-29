@@ -6,7 +6,6 @@
     </template>
     <template v-if="view === 'advanced'">
     <ClientProtectionStatus :client-id="clientId" channel="system" />
-    <p class="control-intro">{{ t('aidr.enforcement.policyIntro') }}</p>
     <a-alert v-if="error" type="error" :message="t('aidr.enforcement.failed')" :description="errorText" />
     <div class="controls">
       <a-tag :color="['active', 'collecting'].includes(status.state) ? 'green' : 'orange'">{{ t(`aidr.enforcement.states.${status.state || 'unknown'}`) }}</a-tag>
@@ -15,12 +14,12 @@
       <a-button :loading="loading" @click="refresh({ reloadDraft: true })">{{ t('aidr.enforcement.refresh') }}</a-button>
     </div>
     <a-alert v-if="['failed', 'degraded', 'stale'].includes(status.state)" type="warning" show-icon :message="setupNextStep" />
-    <details v-if="status.health" class="diagnostics"><summary>{{ t('aidr.enforcement.diagnostics') }}</summary><p>{{ t('aidr.enforcement.diagnostic') }}: <code>{{ status.health.reason_code }}</code></p><p>{{ t('aidr.enforcement.evidence') }}</p></details>
+    <details v-if="status.health" class="diagnostics"><summary>{{ t('aidr.enforcement.diagnostics') }}</summary><p>{{ t('aidr.enforcement.diagnostic') }}: <code>{{ status.health.reason_code }}</code></p></details>
     <a-alert v-if="platformSupport !== 'macos_endpoint_security'" type="warning" show-icon
       :message="t(`aidr.enforcement.setup.platforms.${platformSupport}`)" :description="t('aidr.enforcement.setup.supportBoundary')" />
     <details class="setup-guide">
       <summary>{{ t('aidr.enforcement.setup.title') }}</summary>
-      <p>{{ t('aidr.enforcement.setup.onDevice') }}</p><p>{{ t('aidr.enforcement.setup.supportBoundary') }}</p>
+      <p>{{ t('aidr.enforcement.setup.onDevice') }}</p>
       <ol v-if="platformSupport === 'macos_endpoint_security'">
         <li><strong>{{ t('aidr.enforcement.setup.checkTitle') }}</strong><p>{{ t('aidr.enforcement.setup.checkNote') }}</p>
         </li>
@@ -37,9 +36,7 @@
       <p v-else>{{ t('aidr.enforcement.setup.unsupportedNext') }}</p>
     </details>
     </template>
-    <details v-if="view === 'advanced'" open>
-      <summary>{{ t('aidr.enforcement.config') }}</summary>
-      <p>{{ t('aidr.enforcement.runtimeHint') }}</p>
+    <section v-if="view === 'advanced'">
       <a-form layout="vertical" :disabled="!canPublish || saving">
         <a-form-item :label="t('aidr.enforcement.roots')" :extra="t('aidr.enforcement.rootsHelp')"><a-textarea v-model:value="roots" :rows="3" :maxlength="32768" :placeholder="t('aidr.enforcement.rootsExample')" /></a-form-item>
         <a-form-item :label="t('aidr.enforcement.lifetime')" :extra="t('aidr.enforcement.lifetimeHelp')"><a-input-number v-model:value="hours" :min="1" :max="720" /></a-form-item>
@@ -62,6 +59,7 @@
         </div>
         <AidrRulePreview :client-id="clientId" channel="system" :draft="draft" />
         </details>
+        <p>{{ t('aidr.enforcement.runtimeHint') }}</p>
         <div class="controls">
           <a-button type="primary" :loading="saving" :disabled="saving || !canPublish" @click="publish(false)">{{ t('aidr.enforcement.publish') }}</a-button>
         </div>
@@ -73,7 +71,7 @@
         </div>
         </details>
       </a-form>
-    </details>
+    </section>
     <template v-if="view === 'events'">
       <header class="events-header">
         <div class="events-heading"><h3>{{ tr('title') }}</h3><span class="collection-indicator" :class="{ good: !error && ['active', 'collecting'].includes(status.state) }"><span aria-hidden="true" class="status-dot"></span>{{ error ? tr('statusUnavailable') : t(`aidr.enforcement.states.${status.state || 'unknown'}`) }}</span></div>
@@ -380,7 +378,6 @@ onBeforeUnmount(() => { generation++; clearInterval(timer) })
 .network-details dd { margin: 4px 0; overflow-wrap: anywhere; }
 .enforcement-panel { margin: 12px 0; padding: 16px; border: 1px solid #d9d9d9; border-radius: 8px; }
 .enforcement-panel.control-view { margin: 0; padding: 0; border: 0; min-width: 0; }
-.control-intro { margin: 8px 0; color: #596579; font-size: 13px; }
 .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0; }
 .controls .ant-select { min-width: 150px; }
 .setup-guide li { margin: 14px 0; padding-right: 8px; }

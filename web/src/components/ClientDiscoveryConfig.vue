@@ -2,10 +2,12 @@
   <section>
     <p class="discovery-help">{{ $t('clientDiscovery.description') }}</p>
     <p class="discovery-help">{{ $t(clientId ? 'clientDiscovery.overrideHelp' : 'clientDiscovery.globalHelp') }}</p>
-    <a-button v-if="clientId" class="notice" :disabled="fieldsDisabled" @click="resetAll">{{ $t('clientDiscovery.resetAll') }}</a-button>
     <a-alert v-if="error" :message="error" type="error" show-icon class="notice" />
     <a-spin :spinning="loading">
-      <a-input v-model:value="search" allow-clear class="agent-search" :placeholder="$t('clientDiscovery.search')" :aria-label="$t('clientDiscovery.search')" />
+      <div class="discovery-toolbar">
+        <a-input v-model:value="search" allow-clear class="agent-search" :placeholder="$t('clientDiscovery.search')" :aria-label="$t('clientDiscovery.search')" />
+        <a-button v-if="clientId" :disabled="fieldsDisabled" @click="resetAll">{{ $t('clientDiscovery.resetAll') }}</a-button>
+      </div>
       <div class="definitions">
         <a-empty v-if="!loading && !error && !filteredAgents.length" :description="$t('clientDiscovery.noMatches')" />
         <section v-for="{ agent, index } in filteredAgents" :key="index" class="definition">
@@ -113,14 +115,15 @@ async function save() {
 <style scoped>
 .discovery-help { margin: 0 0 8px; color: #64748b; font-size: 12px; }
 .notice { margin-bottom: 8px; }
-.agent-search { margin-bottom: 8px; }
+.discovery-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.agent-search { flex: 1 1 240px; min-width: 0; }
 .definitions { margin-bottom: 8px; }
-.definition { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+.definition { border-top: 1px solid #e5e7eb; padding: 16px 0; }
 .heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .heading strong { overflow-wrap: anywhere; }
-.fields { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 12px; }
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
 .fields label, .roots { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .roots { margin-top: 12px; }
 .hint { color: #64748b; margin-top: 6px; }
-@media (max-width: 680px) { .fields { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .fields { grid-template-columns: 1fr; } }
 </style>

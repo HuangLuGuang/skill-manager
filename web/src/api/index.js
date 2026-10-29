@@ -213,6 +213,8 @@ export const rescanSkill = (skillId, options = {}) => api.post(`/v1/skills/${ski
 export const deleteSkill = (skillId) => api.delete(`/v1/skills/${skillId}`)
 export const getDashboardRiskSourceStats = () => api.get('/v1/dashboard/risk-source-stats')
 export const getDashboardOverview = (params = {}) => api.get('/v1/dashboard/overview', { params })
+export const getDashboardAgentAnalytics = (params) => api.get('/v1/dashboard/agent-analytics', { params })
+export const getDashboardAgentInstances = (params) => api.get('/v1/dashboard/agent-instances', { params, paramsSerializer: { indexes: null } })
 export const getAudit = (params = {}) => api.get('/v1/audit', { params })
 export const getAuditPaged = (params = {}) => api.get('/v1/audit', { params: { ...params, page: params.page || 1, page_size: params.page_size || 10 } })
 export const getAgentAuditTrail = (params = {}) => api.get('/v1/audit-trail', { params })

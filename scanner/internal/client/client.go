@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"skill-manager/scanner/internal/localize"
+	"skill-manager/scanner/internal/platformtls"
 )
 
 type Client struct {
@@ -109,7 +110,8 @@ func New(server string, token string, timeout time.Duration) Client {
 		server: strings.TrimRight(server, "/"),
 		token:  token,
 		httpClient: &http.Client{
-			Timeout: timeout,
+			Timeout:   timeout,
+			Transport: platformtls.New(http.DefaultTransport.(*http.Transport).Clone()),
 		},
 	}
 }

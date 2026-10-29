@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -29,10 +28,6 @@ class Manager:
                     {"skill_id": str(index), "name": f"skill-{index}", "risk_level": "malicious",
                      "submitted_at": "2026-10-13T10:00:00+00:00"} for index in range(20)]}
 
-    def audit(self, **kwargs):
-        return [SimpleNamespace(event_id="one", event_type="skill_approved", skill_name="approved",
-                                skill_id="one", timestamp=NOW.replace(tzinfo=timezone.utc),
-                                details={"secret": "sensitive-evidence"})]
 
 
 @pytest.fixture
@@ -70,7 +65,7 @@ def test_dashboard_permission_and_module_visibility(context):
     result = client.get('/api/v1/dashboard/overview').json()
     assert result['assets'] == {}
     assert result['skills'] is None and result['trend'] is None
-    assert result['todos']['items'] == [] and result['runtime'] == {} and result['activity'] == []
+    assert result['todos']['items'] == [] and result['runtime'] == {}
 
 
 def test_owned_assets_heartbeat_and_aidr_evidence(context):
@@ -141,36 +136,14 @@ def test_daily_boundaries_zero_fill_and_audit_statuses(context):
     assert sum(row['requests'] for row in result['trend']['series']) == 2
     assert result['runtime']['model_blocked_today'] == 1
     assert result['runtime']['mcp_denied_today'] == 1
-    assert all('error' not in row for row in result['activity'])
     assert len(client.get('/api/v1/dashboard/overview?days=30').json()['trend']['series']) == 30
     assert client.get('/api/v1/dashboard/overview?days=31').status_code == 422
 
 
-def test_scan_activity_respects_ownership_and_feature_flag(context, monkeypatch):
-    client, factory, _, permissions = context
-    permissions.add('scans:view')
-    with factory.begin() as db:
-        for owner in (1, 2):
-            db.add(models.SecurityScanTask(task_id=f'scan-{owner}', target_id=f'target-{owner}',
-                policy_id='policy', idempotency_key=str(owner), request_fingerprint='fingerprint',
-                created_by=str(owner), owner_user_id=owner, timeout_at=NOW + timedelta(hours=1),
-                status='succeeded', completed_at=NOW, updated_at=NOW))
-    monkeypatch.setattr(dashboard.settings, 'AGENT_SECURITY_SCANNING_ENABLED', True)
-    result = client.get('/api/v1/dashboard/overview').json()
-    scans = [row for row in result['activity'] if row['source'] == 'scan']
-    assert [row['target_id'] for row in scans] == ['scan-1']
-    assert 'scan' in result['activity_sources']
-    monkeypatch.setattr(dashboard.settings, 'AGENT_SECURITY_SCANNING_ENABLED', False)
-    result = client.get('/api/v1/dashboard/overview').json()
-    assert not any(row['source'] == 'scan' for row in result['activity'])
-    assert 'scan' not in result['activity_sources']
-
-
-def test_reporting_clients_union_and_metadata_only_activity(context, monkeypatch):
+def test_reporting_clients_union_and_metadata_only_queries(context):
     from sqlalchemy import event
     client, factory, _, permissions = context
     permissions.add('scans:view')
-    monkeypatch.setattr(dashboard.settings, 'AGENT_SECURITY_SCANNING_ENABLED', True)
     with factory.begin() as db:
         for cid, owner in [('both', 'alice'), ('hooks-only', 'alice'), ('hidden', 'bob')]:
             db.add(models.ManagedClient(client_id=cid, name=cid, hostname=cid, os='linux', arch='x64',

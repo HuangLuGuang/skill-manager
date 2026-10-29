@@ -4,6 +4,7 @@ export LC_ALL=C
 
 DEPLOY_FILES=(docker-compose.yaml .env.example release-provenance.json release-info
     docker-compose.https.yaml deploy/nginx/https.sh deploy/nginx/certificates.py
+    docker-compose.model-gateway.yaml deploy/nginx/model-gateway.conf
     start.sh upgrade.sh deploy/offline.sh deploy/nginx/default.conf
     docs/offline-deployment.md docs/docker-deployment.md docs/license.md)
 COMPOSE_COMMAND=(docker compose)
@@ -55,8 +56,11 @@ compose() (
     if [[ $PROTOCOL == https ]]; then
         command+=(-f "$source/docker-compose.https.yaml" --profile https)
     fi
+    if [[ -f $ROOT/.env ]] && awk '/^MODEL_GATEWAY_HTTP_ENABLED=true$/ {found=1} END {exit !found}' "$ROOT/.env"; then
+        command+=(-f "$source/docker-compose.model-gateway.yaml")
+    fi
     [[ ! -f $ROOT/.env ]] || command+=(--env-file "$ROOT/.env")
-    unset HTTP_PORT TLS_HOSTS
+    unset HTTP_PORT TLS_HOSTS MODEL_GATEWAY_HTTP_PORT MODEL_GATEWAY_PUBLIC_URL
     cd "$ROOT"
     "${command[@]}" "$@"
 )
@@ -240,7 +244,7 @@ main() {
     fi
     [[ $PROTOCOL != https || $PORT != 443 ]] || die 'HTTPS 模式的 HTTP 跳转端口不能为 443'
     local tool
-    for tool in flock timeout tar gzip awk mktemp; do command -v "$tool" >/dev/null || die "缺少系统工具：$tool"; done
+    for tool in flock timeout tar gzip awk mktemp cmp; do command -v "$tool" >/dev/null || die "缺少系统工具：$tool"; done
     ROOT=$(cd -- "$ROOT" && pwd -P)
     exec 9>>"$ROOT/.offline-deploy.lock"
     flock -n 9 || die '该安装目录正在执行启动或升级，请等待现有操作结束'
@@ -270,6 +274,18 @@ main() {
         [[ -f $ROOT/docker-compose.yaml ]] || die '目标目录缺少现有 docker-compose.yaml，请指定已有安装目录'
         STAGING=$(mktemp -d "$ROOT/.upgrade-XXXXXX")
         extract_package
+        local runner_root
+        runner_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+        [[ -f $SOURCE/upgrade.sh && -f $SOURCE/deploy/offline.sh ]] || die '安装包缺少升级脚本'
+        if ! cmp -s "$runner_root/upgrade.sh" "$SOURCE/upgrade.sh" ||
+            ! cmp -s "$runner_root/deploy/offline.sh" "$SOURCE/deploy/offline.sh"; then
+            bash -n "$SOURCE/upgrade.sh" && bash -n "$SOURCE/deploy/offline.sh" || die '安装包升级脚本语法错误'
+            echo '[INFO] 安装包升级脚本有更新，使用包内脚本执行升级'
+            # The new runner acquires its own installation lock before making changes.
+            exec 9>&-
+            bash "$SOURCE/upgrade.sh" "$STAGING/package.tar.gz" --install-dir "$ROOT" --wait-timeout "$WAIT_TIMEOUT"
+            return
+        fi
         preflight "$SOURCE"
         backup_installation
         load_images "$SOURCE"

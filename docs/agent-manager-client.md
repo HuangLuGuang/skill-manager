@@ -113,6 +113,17 @@ Subsequent pacing changes use actual delivery completion and defer unsent record
 
 ### 手动配置模型 / Manual model configuration
 
+内置模型使用平台发布的 `MODEL_GATEWAY_PUBLIC_URL`，未配置时复用客户端管理地址。
+例如管理地址为 `https://server`，模型地址可以是 `http://server:8000`；OpenAI-compatible 配置追加 `/v1`。
+模型切换预览显示目标地址，配置完成后的模型页显示实际读取地址，手动配置引导使用同一平台地址。
+启用专用入口后需升级客户端并重新应用现有 Agent 配置；注册、心跳和凭证领取仍走管理地址。
+HTTP 仅用于客户批准的内网，部署步骤见[模型专用 HTTP 入口](offline-deployment.md#模型专用-http-入口)。
+
+English: Built-in models use the platform's `MODEL_GATEWAY_PUBLIC_URL`, or the Client management address
+when unset. Switch previews show the target address; the model page reads the actual configuration, and manual
+setup uses the published address. Upgrade clients and reapply existing Agent configurations after enabling
+the dedicated entry. Management traffic keeps its own address. Restrict plaintext HTTP to approved networks.
+
 在“模型切换”选择没有自动配置适配器的 Agent，打开“手动配置引导”：
 
 1. 在 Agent 自身设置中确认自定义 Base URL、API Key、模型名称和协议选项，选择实际支持的协议。

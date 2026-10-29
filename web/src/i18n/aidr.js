@@ -6,6 +6,12 @@ import { commandParsingMessages } from './aidr-command-parsing.js'
 export const aidrMessages = {
   'zh-CN': {
     commandParsing: commandParsingMessages['zh-CN'],
+    policyReview: {
+      comparison: '当前配置 → 本次配置',
+      risk: '扩大采集范围或上限可能保存更多敏感内容；关闭脱敏可能保存真实凭证。缩短保留期限会清理到期历史，已清理内容无法恢复。',
+      contentEffect: '客户端同步后应用于后续采集；待发批次沿用原策略。历史正文不改写，已脱敏内容无法恢复。',
+      acknowledge: '我已了解上述风险并确认保存。',
+    },
     skillUse: skillUseMessages['zh-CN'],
     sessions: sessionMessages['zh-CN'],
     detail: {"request": "请求内容", "noArguments": "此工具未提供可展示的命令或目标参数。", "subagent": "子代理", "recordInfo": "记录信息", "recordId": "记录 ID", "relatedHooks": "相关 Hook 记录", "relatedNote": "来自同一调用身份的独立记录，各自保留原有结果。", "loadingRelated": "正在读取相关记录…", "logSource": "Agent 日志", "wrapper": "以下是脚本中识别出的工具请求；结果状态属于整次脚本调用。", "prompt": "用户输入", "input": "输入内容", "output": "输出内容", "beforeEdit": "修改前", "afterEdit": "修改后", "partialContent": "已截断", "redactedContent": "已脱敏"},
@@ -174,6 +180,12 @@ export const aidrMessages = {
   },
   'en-US': {
     commandParsing: commandParsingMessages['en-US'],
+    policyReview: {
+      comparison: 'Current configuration → proposed configuration',
+      risk: 'Expanding collection scope or limits may store more sensitive content. Disabling redaction may store real credentials. Shortening retention removes expired history, which cannot be restored.',
+      contentEffect: 'Applies to future collection after client sync. Pending batches retain their original policy. Historical content is not rewritten; redacted content cannot be restored.',
+      acknowledge: 'I understand these risks and confirm saving.',
+    },
     skillUse: skillUseMessages['en-US'],
     sessions: sessionMessages['en-US'],
     detail: {"request": "Request", "noArguments": "No displayable command or target arguments were provided for this tool.", "subagent": "Subagent", "recordInfo": "Record information", "recordId": "Record ID", "relatedHooks": "Related Hook records", "relatedNote": "Independent records with the same call identity retain their own reported outcomes.", "loadingRelated": "Loading related records…", "logSource": "Agent log", "wrapper": "These requests were extracted from a script. The reported outcome applies to the whole script call.", "prompt": "User input", "input": "Input content", "output": "Output content", "beforeEdit": "Before edit", "afterEdit": "After edit", "partialContent": "Truncated", "redactedContent": "Redacted"},

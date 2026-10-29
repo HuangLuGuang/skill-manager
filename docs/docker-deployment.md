@@ -1,5 +1,11 @@
 # Docker 部署
 
+管理台 HTTPS 与模型 HTTP 可分别部署。在 `.env` 设置 `MODEL_GATEWAY_HTTP_ENABLED=true`、
+`MODEL_GATEWAY_HTTP_PORT=8000` 和客户端实际可访问的 `MODEL_GATEWAY_PUBLIC_URL=http://服务器地址:8000`，
+再运行 `./start.sh --https`。手动 Compose 需追加 `-f docker-compose.model-gateway.yaml`。
+35 的流水线读取同一开关，离线包包含对应配置；默认关闭此入口。仅限批准的内网来源使用 HTTP。
+完整步骤见[模型专用 HTTP 入口](offline-deployment.md#模型专用-http-入口)。
+
 License 状态默认保存在后端持久化 data 卷的 `license/state.db`，可信公钥由镜像内
 `deploy/license/public-keys/` 提供。后端重建/升级保留该卷；自定义路径的多进程必须共享状态文件。
 安装后在 **系统管理 → License 授权** 填写厂商提供的客户编号和客户名称，导出申请文件交给厂商。

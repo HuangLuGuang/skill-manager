@@ -13,8 +13,15 @@ import cursor from '../assets/agent-logos/cursor.svg'
 import opencode from '../assets/agent-logos/opencode.svg'
 import openclaw from '../assets/agent-logos/openclaw-color.svg'
 import trae from '../assets/agent-logos/trae.svg'
+import codebuddy from '../assets/agent-logos/codebuddy-color.svg'
+import teleagent from '../assets/agent-logos/teleagent.png'
+import doubaowork from '../assets/agent-logos/doubaowork.png'
+import qwenwork from '../assets/agent-logos/qwenwork.png'
+import zcode from '../assets/agent-logos/zcode.png'
+import gemini from '../assets/agent-logos/gemini-color.svg'
+import hermes from '../assets/agent-logos/hermesagent.svg'
 const props = defineProps({ productId: { type: String, required: true } })
-const logos = { claude, codex, workbuddy, qoder, 'qoder-cli': qoder, 'qoder-hooks': qoder, 'qoder-ide': qoder, 'qoder-work': qoder, cursor, opencode, openclaw, traework: trae }
+const logos = { claude, 'claude-code': claude, codex, workbuddy, codebuddy, teleagent, doubaowork, qwenwork, zcode, gemini, hermes, qoder, 'qoder-cli': qoder, 'qoder-hooks': qoder, 'qoder-ide': qoder, 'qoder-work': qoder, cursor, opencode, openclaw, trae, 'trae-cn': trae, traework: trae }
 const src = computed(() => logos[props.productId])
 </script>
 

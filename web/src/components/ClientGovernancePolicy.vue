@@ -8,7 +8,7 @@
       <a-tab-pane v-if="can('clients:view')" key="classification" :tab="t('clientPolicy.classification')" :disabled="modalBusy || !!impact" />
     </a-tabs>
     <AidrRedactionSettings v-if="open && auditVisited && can('settings:view')" v-show="settingsSection === 'audit'" :key="clientId" ref="auditSettings" :client-id="clientId" embedded external-actions />
-    <AidrRedactionSettings v-if="open && skillsVisited && can('settings:view')" v-show="settingsSection === 'skills' && skillSection === 'usage'" :key="clientId" ref="skillAuditSettings" :client-id="clientId" embedded section="skill" @saved="emit('saved')" />
+    <AidrRedactionSettings v-if="open && skillsVisited && can('settings:view')" v-show="settingsSection === 'skills' && skillSection === 'usage'" :key="clientId" ref="skillAuditSettings" :client-id="clientId" embedded external-actions section="skill" @saved="emit('saved')" />
     <ClientDiscoveryConfig v-if="open && discoveryVisited && can('clients:view')" v-show="settingsSection === 'discovery'" :key="clientId" ref="discoverySettings" :client-id="clientId" @saved="emit('saved')" />
     <ClientSecurityRules v-if="open && riskVisited" v-show="settingsSection === 'risk'" :key="clientId" ref="riskSettings" :client-id="clientId" @saved="emit('saved')" @global="emit('global-risk')" />
     <a-spin v-if="can('clients:view')" v-show="activeTab === 'integration'" :spinning="loading">
@@ -22,8 +22,10 @@
           <section v-show="settingsSection === 'desktop'" class="policy-group">
             <p class="settings-description">{{ t('clientGovernance.desktop.description') }}</p>
             <a-alert v-if="clientId" :type="policy.desktop_menu_sync_status === 'synced' ? 'success' : 'info'" show-icon :message="t(`clientGovernance.desktop.${policy.desktop_menu_sync_status || 'unsupported'}`)" :description="t('clientGovernance.desktop.syncHint')" />
-            <p v-if="clientId && policy.desktop_menu_reported_at">{{ t('clientGovernance.desktop.reportedAt') }}: {{ new Date(policy.desktop_menu_reported_at + (/[Z+]/.test(policy.desktop_menu_reported_at) ? '' : 'Z')).toLocaleString() }}</p>
-            <a-button v-if="clientId" :disabled="!editable || busy" @click="desktopMenus = {}">{{ t('clientGovernance.desktop.reset') }}</a-button>
+            <div v-if="clientId" class="settings-toolbar">
+              <span v-if="policy.desktop_menu_reported_at">{{ t('clientGovernance.desktop.reportedAt') }}: {{ new Date(policy.desktop_menu_reported_at + (/[Z+]/.test(policy.desktop_menu_reported_at) ? '' : 'Z')).toLocaleString() }}</span>
+              <a-button :disabled="!editable || busy" @click="desktopMenus = {}">{{ t('clientGovernance.desktop.reset') }}</a-button>
+            </div>
             <p>{{ t('clientGovernance.desktop.connect') }}: {{ t('clientGovernance.desktop.fixed') }}</p>
             <div class="group-rules">
               <a-form-item v-for="menu in menuKeys" :key="menu" :label="t(`clientGovernance.desktop.${menu}`)">
@@ -36,7 +38,6 @@
             </div>
           </section>
           <section v-show="settingsSection === 'runtime'" class="policy-group">
-            <details v-if="clientId && open && activeTab === 'integration'" class="runtime-status"><summary>{{ t('clientPolicy.statusDetails') }}</summary><ClientProtectionStatus :client-id="clientId" /></details>
             <a-checkbox v-if="clientId && policy.runtime_channels_protocol === 3" v-model:checked="inheritRuntime" :disabled="!editable || busy">{{ t('clientGovernance.inherit') }}</a-checkbox>
             <p v-else-if="clientId">{{ t('clientGovernance.runtime.inherited') }}</p>
             <div class="group-rules">
@@ -66,7 +67,7 @@
                 </details>
               </a-form-item>
               <details class="runtime-advanced">
-                <summary>{{ t('clientPolicy.advanced') }}</summary><p class="effective">{{ t('clientPolicy.advancedHint') }}</p>
+                <summary>{{ t('clientPolicy.advanced') }}</summary>
                 <div class="group-rules">
               <a-form-item v-for="field in ['installation', 'access_mode', 'updates']" :key="field" :label="t(`clientGovernance.runtime.${field}`)"><a-select v-model:value="runtimeGovernance[field]" :disabled="runtimeDisabled"><a-select-option v-for="option in runtimeOptions[field]" :key="option" :value="option">{{ t(`clientGovernance.runtime.${field}_${option}`) }}</a-select-option></a-select></a-form-item>
               <a-form-item :label="t('clientGovernance.runtime.retry')"><a-select v-model:value="runtimeGovernance.retry.mode" :disabled="runtimeDisabled"><a-select-option v-for="mode in ['none','fixed','continuous']" :key="mode" :value="mode">{{ t(`clientGovernance.runtime.retry_${mode}`) }}</a-select-option></a-select></a-form-item>
@@ -76,6 +77,7 @@
               </details>
             </div>
             <a-alert v-if="runtimeGovernance.access_mode === 'managed'" type="warning" show-icon :message="t('clientGovernance.runtime.managedHint')" />
+            <details v-if="clientId && open && activeTab === 'integration'" class="runtime-status"><summary>{{ t('clientPolicy.statusDetails') }}</summary><ClientProtectionStatus :client-id="clientId" /></details>
           </section>
           <section v-show="settingsSection === 'models'" class="policy-group">
             <header class="group-heading"><h3>{{ t('clientGovernance.modelRouting.title') }}</h3><p>{{ t('clientGovernance.modelRouting.description') }}</p></header>
@@ -97,7 +99,7 @@
             <div class="effective">{{ t('clientGovernance.effective', { action: modelRoutingLabel(policy.model_routing) }) }}</div>
             <a-alert v-if="modelRouting.external_gateway_enabled" class="routing-note" type="warning" show-icon :message="t('clientGovernance.modelRouting.internalCapabilitiesUnavailable')" />
           </section>
-          <section v-show="settingsSection === 'models'" class="policy-group" :class="{ 'policy-group-disabled': modelRouting.external_gateway_enabled }">
+          <section v-show="settingsSection === 'models'" class="policy-group policy-group-divider" :class="{ 'policy-group-disabled': modelRouting.external_gateway_enabled }">
             <header class="group-heading"><h3>{{ t('clientGovernance.compression.title') }}</h3><p>{{ t('clientGovernance.compression.description') }}</p></header>
             <a-checkbox v-if="clientId" v-model:checked="inheritCompression" :disabled="!editable || busy || modelRouting.external_gateway_enabled">{{ t('clientGovernance.inherit') }}</a-checkbox>
             <div class="group-rules">
@@ -111,7 +113,7 @@
             <div class="effective">{{ t('clientGovernance.effective', { action: compressionLabel(policy.compression) }) }}</div>
             <div v-if="inheritCompression" class="effective">{{ t('clientGovernance.prompt.defaultValue', { value: compressionLabel(policy.compression_default) }) }}</div>
           </section>
-          <section v-show="settingsSection === 'models'" class="policy-group" :class="{ 'policy-group-disabled': modelRouting.external_gateway_enabled }">
+          <section v-show="settingsSection === 'models'" class="policy-group policy-group-divider" :class="{ 'policy-group-disabled': modelRouting.external_gateway_enabled }">
             <header class="group-heading"><h3>{{ t('clientGovernance.prompt.title') }}</h3><p>{{ t('clientGovernance.prompt.description') }}</p></header>
             <a-checkbox v-if="clientId" v-model:checked="inheritPrompt" :disabled="!editable || busy || modelRouting.external_gateway_enabled">{{ t('clientGovernance.inherit') }}</a-checkbox>
             <div class="group-rules">
@@ -125,17 +127,16 @@
             <div class="effective">{{ t('clientGovernance.effective', { action: promptLabel(policy.prompt_guard) }) }}</div>
             <div v-if="inheritPrompt" class="effective">{{ t('clientGovernance.prompt.defaultValue', { value: promptLabel(policy.prompt_guard_default) }) }}</div>
           </section>
-          <section v-for="group in groups" v-show="settingsSection === 'skills'" :key="group.key" class="policy-group">
+          <section v-for="(group, index) in groups" v-show="settingsSection === 'skills'" :key="group.key" class="policy-group" :class="{ 'policy-group-divider': index > 0 }">
             <header class="group-heading">
               <h3>{{ t(`clientGovernance.groups.${group.key}.title`) }}</h3>
-              <p>{{ t(`clientGovernance.groups.${group.key}.description`) }}</p>
+              <p v-if="group.key === 'results'">{{ t('clientGovernance.groups.results.description') }}</p>
             </header>
             <div class="group-rules">
               <div v-for="trigger in group.triggers" :key="trigger" :ref="element => ruleFields[trigger] = element" class="rule-field" :data-rule="trigger" :class="{ 'priority-rule': trigger === 'malicious' }">
                 <a-form-item>
                   <template #label>
                     {{ t(`clientGovernance.${trigger}`) }}
-                    <span v-if="trigger === 'malicious'" class="priority-label">{{ t('clientGovernance.priority') }}</span>
                   </template>
                   <a-select :value="rules[trigger] || ''" :disabled="!editable || busy" @change="value => setRule(trigger, value)">
                     <a-select-option v-if="clientId" value="">{{ t('clientGovernance.inherit') }}</a-select-option>
@@ -150,25 +151,36 @@
               </div>
             </div>
           </section>
-          <a-button v-if="settingsSection === 'skills'" type="primary" :loading="busy" :disabled="!editable || busy" @click="preview">{{ t('clientPolicy.saveClassification') }}</a-button>
         </a-form>
-        <template v-else>
+        <div v-else class="impact-preview">
           <section v-if="!impact.classificationOnly && impact.desktop_menu_proposed" class="policy-group">
             <h3>{{ t('clientGovernance.desktop.title') }}</h3>
-            <p v-for="menu in menuKeys" :key="menu">{{ t(`clientGovernance.desktop.${menu}`) }}: {{ t(impact.desktop_menu_current?.[menu] === false ? 'clientGovernance.desktop.hide' : 'clientGovernance.desktop.show') }} → {{ t(impact.desktop_menu_proposed?.[menu] === false ? 'clientGovernance.desktop.hide' : 'clientGovernance.desktop.show') }}</p>
+            <a-descriptions size="small" :column="{ xs: 1, sm: 2 }"><a-descriptions-item v-for="menu in menuKeys" :key="menu" :label="t(`clientGovernance.desktop.${menu}`)">{{ t(impact.desktop_menu_current?.[menu] === false ? 'clientGovernance.desktop.hide' : 'clientGovernance.desktop.show') }} → {{ t(impact.desktop_menu_proposed?.[menu] === false ? 'clientGovernance.desktop.hide' : 'clientGovernance.desktop.show') }}</a-descriptions-item></a-descriptions>
             <p>{{ t('clientGovernance.desktop.preview', { count: impact.desktop_menu_impacts?.filter(item => menuKeys.some(key => item.current[key] !== item.proposed[key])).length || 0 }) }}</p>
             <p v-if="!clientId">{{ t('clientGovernance.desktop.preserved', { count: impact.desktop_menu_impacts?.filter(item => item.preserved_overrides?.length).length || 0 }) }}</p>
             <ul class="prompt-impact"><li v-for="item in impact.desktop_menu_impacts" :key="item.client_id">{{ item.client_name }}: {{ menuImpactText(item) }}<span v-if="item.preserved_overrides?.length"> · {{ t('clientGovernance.desktop.overrideKept') }}: {{ item.preserved_overrides.map(key => t(`clientGovernance.desktop.${key}`)).join(' / ') }}</span><span v-if="!item.supported"> · {{ t('clientGovernance.desktop.unsupported') }}</span></li></ul>
           </section>
           <template v-if="!impact.menuOnly">
           <template v-if="!impact.classificationOnly">
-          <p v-for="channel in ['hooks','system']" :key="channel">{{ t(`clientGovernance.runtime.mode_${channel}`) }}: {{ t(`clientGovernance.runtime.mode_${impact.runtime_proposed?.modes?.[channel] || 'legacy'}`) }}</p>
-          <a-alert type="info" show-icon :message="t('clientGovernance.runtime.title')"><template #description><p>{{ t('clientGovernance.runtime.enabled') }}: {{ t(impact.runtime_proposed?.enabled ? 'clientGovernance.prompt.enabled' : 'clientGovernance.prompt.disabled') }} · {{ impact.runtime_proposed?.hosts?.join(' / ') }}</p><p v-if="impact.runtime_proposed?.channels">{{ ['logs', 'hooks', 'system'].filter(name => impact.runtime_proposed.channels[name]).map(name => t(`clientGovernance.runtime.channel_${name}`)).join(' · ') || t('clientGovernance.runtime.noChannels') }}</p><p>{{ t(`clientGovernance.runtime.installation_${impact.runtime_proposed?.installation}`) }} · {{ t(`clientGovernance.runtime.access_mode_${impact.runtime_proposed?.access_mode}`) }} · {{ t(`clientGovernance.runtime.updates_${impact.runtime_proposed?.updates}`) }} · {{ t(`clientGovernance.runtime.retry_${impact.runtime_proposed?.retry?.mode}`) }}</p></template></a-alert>
-          <a-alert v-if="impact.model_routing_impacts?.length" type="info" show-icon :message="t('clientGovernance.modelRouting.preview', { count: impact.model_routing_impacts.filter(item => JSON.stringify(item.current) !== JSON.stringify(item.proposed)).length })" />
-          <a-alert type="info" show-icon :message="t('clientGovernance.compression.preview', { count: impact.compression_impacts?.reduce((sum, item) => sum + item.changed_credentials, 0) || 0 })" />
+          <section class="impact-section">
+            <h3>{{ t('clientGovernance.runtime.title') }}</h3>
+            <a-descriptions size="small" :column="{ xs: 1, sm: 2 }">
+              <a-descriptions-item :label="t('clientGovernance.runtime.enabled')">{{ t(impact.runtime_proposed?.enabled ? 'clientGovernance.prompt.enabled' : 'clientGovernance.prompt.disabled') }}</a-descriptions-item>
+              <a-descriptions-item v-for="channel in ['hooks','system']" :key="channel" :label="t(`clientGovernance.runtime.mode_${channel}`)">{{ t(`clientGovernance.runtime.mode_${impact.runtime_proposed?.modes?.[channel] || 'legacy'}`) }}</a-descriptions-item>
+              <a-descriptions-item :label="t('clientGovernance.runtime.hosts')">{{ impact.runtime_proposed?.hosts?.join(' / ') || '—' }}</a-descriptions-item>
+              <a-descriptions-item v-if="impact.runtime_proposed?.channels" :label="t('clientGovernance.runtime.channels')" :span="2">{{ ['logs', 'hooks', 'system'].filter(name => impact.runtime_proposed.channels[name]).map(name => t(`clientGovernance.runtime.channel_${name}`)).join(' · ') || t('clientGovernance.runtime.noChannels') }}</a-descriptions-item>
+              <a-descriptions-item v-for="field in ['installation', 'access_mode', 'updates']" :key="field" :label="t(`clientGovernance.runtime.${field}`)">{{ t(`clientGovernance.runtime.${field}_${impact.runtime_proposed?.[field]}`) }}</a-descriptions-item>
+              <a-descriptions-item :label="t('clientGovernance.runtime.retry')">{{ t(`clientGovernance.runtime.retry_${impact.runtime_proposed?.retry?.mode}`) }}</a-descriptions-item>
+            </a-descriptions>
+          </section>
+          <section class="impact-section">
+          <h3>{{ t('clientPolicy.models') }}</h3>
+          <p v-if="impact.model_routing_impacts?.length">{{ t('clientGovernance.modelRouting.preview', { count: impact.model_routing_impacts.filter(item => JSON.stringify(item.current) !== JSON.stringify(item.proposed)).length }) }}</p>
+          <p>{{ t('clientGovernance.compression.preview', { count: impact.compression_impacts?.reduce((sum, item) => sum + item.changed_credentials, 0) || 0 }) }}</p>
           <ul class="prompt-impact"><li v-for="item in impact.compression_impacts" :key="item.client_id">{{ item.client_name }}: {{ compressionLabel(item.current) }} → {{ compressionLabel(item.proposed) }}</li></ul>
-          <a-alert type="info" show-icon :message="t('clientGovernance.prompt.preview', { count: impact.prompt_impacts?.reduce((sum, item) => sum + item.changed_credentials, 0) || 0 })" />
+          <p>{{ t('clientGovernance.prompt.preview', { count: impact.prompt_impacts?.reduce((sum, item) => sum + item.changed_credentials, 0) || 0 }) }}</p>
           <ul class="prompt-impact"><li v-for="item in impact.prompt_impacts" :key="item.client_id">{{ item.client_name }}: {{ promptLabel(item.current) }} → {{ promptLabel(item.proposed) }}</li></ul>
+          </section>
           </template>
           <p>{{ t('clientGovernance.candidates', { clients: impact.client_count, count: impact.candidate_count }) }}</p>
           <a-alert v-if="impact.excluded_clients?.length" type="warning" show-icon :message="t('clientGovernance.excludedTitle', { count: impact.excluded_clients.length })" class="excluded-clients">
@@ -189,14 +201,14 @@
           </a-alert>
           <a-alert v-if="impact.contains_uninstall" type="warning" show-icon :message="t('clientGovernance.uninstallWarning')" />
           <details v-if="impact.items?.some(item => item.effect === 'recheck')" class="recheck-help">
-            <summary>{{ t('clientGovernance.recheckCompact', { count: impact.items.filter(item => item.effect === 'recheck').length }) }} <span>{{ t('clientGovernance.howToHandle') }}</span></summary>
+            <summary>{{ t('clientGovernance.recheckCompact', { count: impact.items.filter(item => item.effect === 'recheck').length }) }}</summary>
             <div class="recheck-instructions">
               <p>{{ t('clientGovernance.recheckSteps') }}</p>
               <p v-if="impact.items?.some(item => ['broken_link', 'unscannable', 'external_link'].includes(item.recheck_reason))">{{ t('clientGovernance.recheckBlocked') }}</p>
               <p>{{ t('clientGovernance.recheckSave') }}</p>
             </div>
           </details>
-          <p class="effective">{{ t('clientGovernance.expandHint') }}</p>
+          <div class="impact-table-heading"><span>{{ t('clientGovernance.actionComparison') }}</span><span class="effective">{{ t('clientGovernance.expandHint') }}</span></div>
           <a-table class="impact-tree" :data-source="impactTree" :columns="columns" row-key="key" :expanded-row-keys="expandedKeys" @expandedRowsChange="keys => expandedKeys = keys" :pagination="{ pageSize: 8, hideOnSinglePage: true }" :locale="{ emptyText: t('clientGovernance.empty') }" size="small" table-layout="fixed">
             <template #bodyCell="{ column, record }">
               <template v-if="column.dataIndex === 'name'">
@@ -204,14 +216,13 @@
                 <div v-if="record.path" class="impact-path">{{ record.path }}</div>
                 <div v-if="record.path" class="impact-effect" :class="{ changed: record.effect === 'changed' }">
                   <details v-if="record.effect === 'recheck'" class="skill-reason">
-                    <summary>{{ t(`clientGovernance.reasonShort.${record.recheck_reason || 'missing_observation'}`) }} <span>{{ t('clientGovernance.howToHandle') }}</span></summary>
+                    <summary>{{ t(`clientGovernance.reasonShort.${record.recheck_reason || 'missing_observation'}`) }}</summary>
                     <p>{{ t(`clientGovernance.recheckReason.${record.recheck_reason || 'missing_observation'}`) }}</p>
                   </details>
                   <template v-else>
                     <span>{{ record.trigger ? t(`clientGovernance.${record.trigger}`) : t('clientGovernance.noTrigger') }}</span>
-                    <div>{{ t('clientGovernance.currentAction') }}: {{ t(`clientGovernance.${record.current_action}`) }} → {{ t('clientGovernance.proposedAction') }}: {{ t(`clientGovernance.${record.proposed_action}`) }}</div>
+                    <div>{{ t(`clientGovernance.${record.current_action}`) }} → {{ t(`clientGovernance.${record.proposed_action}`) }}</div>
                     <span v-if="record.client_override">{{ t('clientGovernance.overrideUnaffected') }}</span>
-                    <span v-else-if="record.effect === 'unchanged'">{{ t('clientGovernance.unchanged') }}</span>
                   </template>
                 </div>
                 <div v-else class="impact-summary">{{ summaryText(record) }}</div>
@@ -219,15 +230,16 @@
             </template>
           </a-table>
           </template>
-        </template>
+        </div>
       </template>
     </a-spin>
     <template #footer>
       <div class="actions">
         <a-button v-if="activeTab === 'integration' && impact" :disabled="modalBusy" @click="impact = null">{{ t('clientGovernance.back') }}</a-button>
         <a-button :disabled="modalBusy" @click="close">{{ t('clientGovernance.cancel') }}</a-button>
-        <a-button v-if="activeTab === 'integration' && policy && (settingsSection !== 'skills' || impact)" type="primary" :loading="busy" :disabled="!editable || busy || !!impact?.incompatible_clients?.length" @click="impact ? save() : preview()">{{ t(impact ? 'clientGovernance.confirm' : 'clientGovernance.preview') }}</a-button>
+        <a-button v-if="activeTab === 'integration' && policy" type="primary" :loading="busy" :disabled="!editable || busy || !!impact?.incompatible_clients?.length" @click="impact ? save() : preview()">{{ t(impact ? 'clientGovernance.confirm' : settingsSection === 'skills' ? 'clientPolicy.saveClassification' : 'clientGovernance.preview') }}</a-button>
         <a-button v-if="activeTab === 'audit' && auditSettings?.editable" type="primary" :loading="auditSettings.busy" :disabled="!auditSettings.canReview" @click="auditSettings.review()">{{ t('aidr.redactionSettings.save') }}</a-button>
+        <a-button v-if="activeTab === 'skillAudit' && skillAuditSettings?.editable" type="primary" :loading="skillAuditSettings.busy" :disabled="!skillAuditSettings.canReview" @click="skillAuditSettings.review()">{{ t('clientPolicy.saveUsage') }}</a-button>
         <a-button v-if="activeTab === 'discovery' && can('clients:update')" type="primary" :loading="discoverySettings?.busy" :disabled="!discoverySettings?.canSave" @click="discoverySettings.save()">{{ t('clientDiscovery.save') }}</a-button>
         <a-button v-if="activeTab === 'risk' && riskSettings?.editable" type="primary" :loading="riskSettings.busy" :disabled="!riskSettings.canSave" @click="riskSettings.save()">{{ t('aidrRisk.save') }}</a-button>
       </div>
@@ -484,9 +496,9 @@ async function save() {
 :global(.client-governance-modal .ant-modal-body) { min-height: 0; overflow-y: auto; }
 :global(.client-governance-modal .ant-modal-header),
 :global(.client-governance-modal .ant-modal-footer) { flex-shrink: 0; }
-.policy-form { margin-top: 8px; display: grid; gap: 12px; padding: 2px 6px 2px 2px; }
-.settings-navigation { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 8px; background: #f1f4f9; border-radius: 8px; }
-.settings-navigation button { flex: 1; min-width: 0; padding: 8px 10px; border: 0; border-radius: 6px; background: transparent; color: #596b83; font: inherit; cursor: pointer; }
+.policy-form { margin-top: 16px; display: grid; gap: 16px; padding: 0; }
+.settings-navigation { display: flex; gap: 4px; padding: 4px; margin-bottom: 16px; background: #f1f4f9; border-radius: 8px; overflow-x: auto; }
+.settings-navigation button { flex: 1 0 auto; white-space: nowrap; padding: 8px 10px; border: 0; border-radius: 6px; background: transparent; color: #596b83; font: inherit; cursor: pointer; }
 .settings-navigation button[aria-pressed=true] { background: #fff; color: #285bc4; font-weight: 600; box-shadow: 0 1px 4px #223c6114; }
 .settings-navigation button:focus-visible { outline: 2px solid #3265df; outline-offset: 2px; }
 .settings-navigation button:disabled { cursor: default; opacity: .65; }
@@ -494,20 +506,21 @@ async function save() {
 .runtime-advanced { grid-column: 1 / -1; border-top: 1px solid #e6eaf0; padding-top: 12px; }
 .runtime-advanced summary { cursor: pointer; color: #445971; font-weight: 500; }
 .runtime-advanced .group-rules { padding-top: 12px; }
-.runtime-status { margin-bottom: 8px; }
+.runtime-status { margin-top: 16px; border-top: 1px solid #e6eaf0; padding-top: 16px; }
 .runtime-status summary { cursor: pointer; color: #526987; font-size: 13px; margin-bottom: 10px; }
-.policy-group { border: 1px solid #e6eaf0; border-radius: 8px; padding: 12px; }
+.policy-group { padding: 0; min-width: 0; }
+.policy-group-divider { border-top: 1px solid #e6eaf0; padding-top: 16px; }
+.settings-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
 .policy-group-disabled { background: #fafafa; color: #8c8c8c; }
 .policy-group-disabled .group-heading p,
 .policy-group-disabled .effective { color: #a3a3a3; }
 .prompt-impact { max-height: 160px; overflow-y: auto; padding-left: 20px; overflow-wrap: anywhere; }
-.group-heading { margin-bottom: 8px; }
+.group-heading { margin-bottom: 16px; }
 .group-heading h3 { margin: 0; font-size: 15px; font-weight: 600; }
 .group-heading p { margin: 4px 0 0; color: #777; font-size: 12px; line-height: 1.5; }
-.group-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+.group-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .rule-field { min-width: 0; scroll-margin: 20px; }
 .priority-rule { grid-column: 1 / -1; }
-.priority-label { margin-left: 8px; color: #ad5925; background: #fff7e8; border-radius: 4px; padding: 0 6px; font-size: 12px; white-space: nowrap; }
 .policy-form .policy-group > .ant-checkbox-wrapper { margin-bottom: 8px; }
 .policy-form :deep(.ant-form-item) { margin-bottom: 0; min-width: 0; }
 .policy-form :deep(.ant-form-item-label > label) { height: auto; flex-wrap: wrap; }
@@ -521,15 +534,21 @@ async function save() {
 }
 .recheck-help { margin-top: 12px; padding: 10px 12px; border-radius: 6px; background: #f5f7fa; color: #596975; }
 .recheck-help summary, .skill-reason summary { cursor: pointer; font-size: 12px; line-height: 1.6; }
-.recheck-help summary span, .skill-reason summary span { margin-left: 8px; color: #1677ff; }
 .recheck-instructions { padding-top: 6px; }
 .skill-reason p { margin: 6px 0 0; }
 .recheck-help p { margin: 6px 0 0; line-height: 1.6; }
 .impact-name, .impact-path { overflow-wrap: anywhere; }
-.impact-path { margin: 4px 0 0 54px; color: #697986; font-size: 12px; line-height: 1.5; }
-.impact-effect { margin: 6px 0 0 54px; font-size: 12px; line-height: 1.6; color: #687681; overflow-wrap: anywhere; }
+.impact-path { margin: 4px 0 0; color: #697986; font-size: 12px; line-height: 1.5; }
+.impact-effect { margin: 6px 0 0; font-size: 12px; line-height: 1.6; color: #687681; overflow-wrap: anywhere; }
 .impact-effect.changed { color: #ad5925; background: #fff8ed; padding: 6px 8px; border-radius: 4px; }
 .impact-summary { margin-top: 4px; color: #687681; font-size: 12px; overflow-wrap: anywhere; }
+.impact-preview { display: flex; flex-direction: column; gap: 12px; overflow-wrap: anywhere; }
+.impact-preview > p, .impact-section > p, .impact-section > ul { margin: 0; }
+.impact-preview h3 { margin: 0 0 12px; font-size: 15px; }
+.impact-section { border-top: 1px solid #e6eaf0; padding-top: 16px; }
+.impact-section p + ul { margin-top: 8px; }
+.impact-section ul + p { margin-top: 12px; }
+.impact-table-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .impact-tree :deep(.ant-table-cell) { vertical-align: top; }
 .excluded-clients { margin-bottom: 16px; overflow-wrap: anywhere; }
 .excluded-clients ul { padding-left: 18px; margin: 8px 0; }

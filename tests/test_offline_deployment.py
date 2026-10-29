@@ -21,6 +21,7 @@ def make_release(root, version='1.0.7', platform='linux/amd64'):
     root.mkdir(parents=True, exist_ok=True)
     for name in ('start.sh', 'upgrade.sh', 'deploy/offline.sh', '.env.example',
                  'docker-compose.https.yaml', 'deploy/nginx/https.sh', 'deploy/nginx/certificates.py',
+                 'docker-compose.model-gateway.yaml', 'deploy/nginx/model-gateway.conf',
                  'deploy/nginx/default.conf', 'docs/offline-deployment.md', 'docs/docker-deployment.md', 'docs/license.md'):
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -52,7 +53,7 @@ def installation(tmp_path):
     binaries = tmp_path / 'bin'
     binaries.mkdir()
     for name in ('bash', 'dirname', 'cat', 'timeout', 'flock', 'tar', 'awk', 'mktemp',
-                 'cp', 'chmod', 'mv', 'mkdir', 'rm', 'date', 'find', 'gzip'):
+                 'cp', 'chmod', 'mv', 'mkdir', 'rm', 'date', 'find', 'gzip', 'cmp'):
         (binaries / name).symlink_to(shutil.which(name))
     log = tmp_path / 'docker.jsonl'
     docker = binaries / 'docker'
@@ -111,6 +112,60 @@ elif args[0] == 'compose':
     return root, run
 
 
+@pytest.mark.parametrize('changed', ['upgrade.sh', 'deploy/offline.sh'])
+def test_upgrade_hands_off_to_changed_package_runner(tmp_path, installation, changed):
+    root, run = installation
+    with (root / '.env').open('a') as env:
+        env.write('DEPLOY_PROTOCOL=https\n')
+    original = (root / '.env').read_bytes()
+    source = make_release(tmp_path / 'new')
+    script = source / changed
+    script.write_text(script.read_text().replace('set -euo pipefail', 'set -euo pipefail\necho PACKAGE_RUNNER_EXECUTED', 1))
+    if changed == 'deploy/offline.sh':
+        script.write_text(script.read_text().replace('DEPLOY_FILES=(', 'DEPLOY_FILES=(new-deployment.txt ', 1))
+        (source / 'new-deployment.txt').write_text('new release file')
+    result, calls = run('upgrade', package(source, tmp_path / 'upgrade.tar.gz'), extra_args=('--wait-timeout', '17'))
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.count('PACKAGE_RUNNER_EXECUTED') == 1
+    assert result.stdout.count('使用包内脚本执行升级') == 1
+    assert (root / changed).read_bytes() == script.read_bytes()
+    if changed == 'deploy/offline.sh':
+        assert (root / 'new-deployment.txt').read_text() == 'new release file'
+    assert (root / '.env').read_bytes() == original
+    ups = [call for call in calls if 'up' in call and '--help' not in call]
+    assert len(ups) == 1
+    assert ups[0][ups[0].index('--wait-timeout') + 1] == '17'
+    assert '--profile' in ups[0] and 'https' in ups[0]
+    assert len(list((root / 'backups').iterdir())) == 1
+    assert not list(root.glob('.upgrade-*'))
+
+
+def test_upgrade_handoff_failure_keeps_original_scripts(tmp_path, installation):
+    root, run = installation
+    original = (root / 'upgrade.sh').read_bytes()
+    source = make_release(tmp_path / 'new')
+    (source / 'upgrade.sh').write_text('#!/bin/bash\nexit 23\n')
+    result, calls = run('upgrade', package(source, tmp_path / 'upgrade.tar.gz'))
+    assert result.returncode == 23
+    assert (root / 'upgrade.sh').read_bytes() == original
+    assert not calls
+    assert not list(root.glob('.upgrade-*'))
+
+
+@pytest.mark.parametrize('script', ['upgrade.sh', 'deploy/offline.sh'])
+def test_upgrade_rejects_invalid_new_runner_before_handoff(tmp_path, installation, script):
+    root, run = installation
+    original = (root / script).read_bytes()
+    source = make_release(tmp_path / 'new')
+    (source / script).write_text('#!/bin/bash\nif then\n')
+    result, calls = run('upgrade', package(source, tmp_path / 'upgrade.tar.gz'))
+    assert result.returncode != 0
+    assert '升级脚本语法错误' in result.stderr
+    assert (root / script).read_bytes() == original
+    assert not calls
+    assert not list(root.glob('.upgrade-*'))
+
+
 def test_start_loads_images_then_initializes_signer_and_waits(installation):
     root, run = installation
     original = (root / '.env').read_bytes()
@@ -164,6 +219,24 @@ def test_source_start_uses_existing_images(installation):
     assert result.returncode == 0, result.stderr
     assert not any(call[0] == 'load' for call in calls)
     assert any('up' in call and '--profile' in call for call in calls)
+
+
+def test_optional_model_gateway_survives_https_upgrade(tmp_path, installation):
+    root, run = installation
+    with (root / '.env').open('a') as env:
+        env.write('MODEL_GATEWAY_HTTP_ENABLED=true\nMODEL_GATEWAY_HTTP_PORT=18000\nMODEL_GATEWAY_PUBLIC_URL=http://models.example.test:18000\n')
+    result, calls = run(extra_args=('--https',))
+    assert result.returncode == 0, result.stderr
+    original = (root / '.env').read_bytes()
+    source = make_release(tmp_path / 'new')
+    result, upgraded = run('upgrade', package(source, tmp_path / 'upgrade.tar.gz'))
+    assert result.returncode == 0, result.stderr
+    assert (root / '.env').read_bytes() == original
+    assert (root / 'deploy/nginx/model-gateway.conf').read_bytes() == (ROOT / 'deploy/nginx/model-gateway.conf').read_bytes()
+    for phase in (calls, upgraded):
+        up = next(call for call in phase if 'up' in call and '--help' not in call)
+        assert str(root / 'docker-compose.model-gateway.yaml') in up
+        assert '--profile' in up and 'https' in up
 
 
 def test_start_and_upgrade_use_standalone_compose(tmp_path, installation):

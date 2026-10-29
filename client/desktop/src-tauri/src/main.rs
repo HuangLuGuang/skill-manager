@@ -232,6 +232,7 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
     const ALLOWED: &[&str] = &[
         "configure",
         "connections",
+        "edit-connection",
         "switch-connection",
         "agent-settings",
         "set-agent-roots",
