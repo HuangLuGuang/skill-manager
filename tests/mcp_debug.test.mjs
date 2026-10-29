@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, validConnectionTimeout, maskDebugRequest, isPendingDebugApproval, debugCallStatus } from '../web/src/utils/mcpDebug.js'
+import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, validConnectionTimeout, maskDebugRequest, isPendingDebugApproval, debugCallStatus, usesRawArguments, parseRawArguments } from '../web/src/utils/mcpDebug.js'
 
 for (const value of [1, 30, 300]) {
   test(`accept connection timeout ${value}`, () => assert.equal(validConnectionTimeout(value), true))
@@ -132,7 +132,10 @@ const toolCallSource = source.slice(source.indexOf('const callTool ='), source.i
 const makeToolCall = schema => {
   const sent = []
   const warnings = []
-  const run = new Function('selectedTool', 'computed', 'request', 'message', 'text', 'phrase', `
+  const run = new Function('selectedTool', 'computed', 'request', 'message', 'text', 'phrase', 'usesRawArguments', 'parseRawArguments', `
+    const rawArgumentText = { value: '{}' }
+    const rawArgumentError = { value: '' }
+    const rawArgumentInput = { value: null }
     const calling = { value: false }
     const argumentValues = { value: {} }
     const complexArgumentTexts = { value: {} }
@@ -141,13 +144,13 @@ const makeToolCall = schema => {
     ${parameterFieldsSource}
     ${parameterDefaultsSource}
     ${toolCallSource}
-    return { resetArguments, callTool, argumentValues, complexArgumentTexts, toolFields }
+    return { resetArguments, callTool, argumentValues, complexArgumentTexts, toolFields, rawArgumentText, rawArgumentError }
   `)(
     { value: { name: 'test_tool', inputSchema: schema } },
     getter => ({ get value() { return getter() } }),
     async (method, params) => { sent.push({ method, params }); return { result: {} } },
     { warning: value => warnings.push(value), success: () => {}, error: assert.fail },
-    chinese => chinese, key => key,
+    chinese => chinese, key => key, usesRawArguments, parseRawArguments,
   )
   run.resetArguments()
   return { ...run, sent, warnings }
@@ -233,6 +236,7 @@ test('latest result follows success, tool failure, network failure and recovery'
     let requestSequence = 0, historySequence = 0
     const gatewayEndpoint = { value: 'http://test.invalid/mcp' }, gatewayToken = { value: 'test' }, protocolVersion = { value: '' }
     const selectedTool = { value: { name: 'echo' } }, toolFields = { value: [] }
+    const rawArgumentsMode = { value: false }, rawArgumentError = { value: '' }
     const t = key => key, phrase = key => key, getCurrentLocale = () => 'en-US', localizeApiError = error => error.message
     const message = { success() {}, error() {}, warning() {} }
     ${requestSource}
@@ -257,4 +261,58 @@ test('latest result follows success, tool failure, network failure and recovery'
     if (next) assert.deepEqual(callResult.value, next)
     else assert.equal(callResult.value.error_code, 'mcp.debug.network_failed')
   }
+})
+
+for (const schema of [
+  { oneOf: [{ required: ['name'] }, { required: ['id'] }] },
+  { anyOf: [{ properties: { name: { type: 'string' } } }] },
+  { allOf: [{ properties: { name: { type: 'string' } } }] },
+  { $ref: '#/$defs/input' }, { $dynamicRef: '#input' },
+  { type: 'object', additionalProperties: { type: 'string' }, minProperties: 1 },
+  { type: 'object', properties: { name: { type: 'string' } }, additionalProperties: true },
+  { type: 'object', patternProperties: { '^x': { type: 'string' } } },
+  { if: { required: ['kind'] }, then: { required: ['name'] } },
+  { dependentSchemas: { kind: { required: ['name'] } } },
+  { type: 'object' }, {},
+]) {
+  test(`root Schema uses raw arguments: ${JSON.stringify(schema)}`, () => {
+    assert.equal(usesRawArguments(schema), true)
+  })
+}
+
+test('ordinary properties and closed empty objects retain the form', () => {
+  for (const schema of [
+    { properties: { name: { type: 'string' } } },
+    { properties: { fixed: { const: null }, config: { type: 'object' } }, additionalProperties: false },
+    { type: 'object', additionalProperties: false },
+  ]) assert.equal(usesRawArguments(schema), false)
+})
+
+for (const input of ['', ' ', '{', '{"name":}', '{"name":"a",}', "{'name':'张三'}"]) {
+  test(`invalid JSON is retained and not submitted: ${input}`, async () => {
+    const form = makeToolCall({ oneOf: [{ required: ['name'] }] })
+    form.rawArgumentText.value = input
+    await form.callTool()
+    assert.equal(form.sent.length, 0)
+    assert.equal(form.rawArgumentText.value, input)
+    assert.equal(form.rawArgumentError.value, 'mcpDebug.rawArgumentsInvalidJson')
+  })
+}
+for (const input of ['null', '[]', '[{}]', '"text"', '0', 'true']) {
+  test(`reject non-object JSON: ${input}`, () => {
+    assert.deepEqual(parseRawArguments(input), { error: 'mcpDebug.rawArgumentsObjectRequired' })
+  })
+}
+
+test('raw parameters preserve keys, JSON types, empty object and reset state', async () => {
+  const form = makeToolCall({ additionalProperties: true })
+  for (const input of ['{}', '{"name":"中文","id":1,"enabled":false,"empty":"","none":null,"list":[1,"2"],"nested":{"x":true},"__proto__":{"x":1}}']) {
+    form.rawArgumentText.value = input
+    await form.callTool()
+    assert.deepEqual(form.sent.at(-1).params.arguments, JSON.parse(input))
+  }
+  form.rawArgumentError.value = 'mcpDebug.rawArgumentsInvalidJson'
+  form.resetArguments()
+  assert.equal(form.rawArgumentText.value, '{}')
+  assert.equal(form.rawArgumentError.value, '')
 })

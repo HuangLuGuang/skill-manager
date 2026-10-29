@@ -314,13 +314,18 @@ make sandbox-runtime-build
 
 - Skill 详情基础信息的结果复用使用 `skillDetail.notReused` / `skillDetail.reused` 显示“未复用 / 已复用”，来源关联集中展示于版本检测记录。
 
+- Skill 详情治理信息按原有区域展示：描述使用原文；提交、审核、批准/拒绝标题在同一水平线；人工审核节点下展示审核人，结果节点下展示北京时间及前30个Unicode字符备注，超长省略并悬浮显示全文；策略审核结果仅展示状态与时间；数字签名状态与预览位于完整性校验；能力边界在报告后同一行展示。拒绝操作读取当前版本有效检测之后的最近一次拒绝审计，历史缺失显示未记录，重新检测后不得沿用旧拒绝操作。回归见 tests/test_skill_review_detail.py。
+
+- Skill PDF 在“Skill 信息与来源”展示提交时间，在“扫描范围与执行状态”展示当前版本扫描缓存 Key。自动拒绝的操作来源与时间读取本次扫描完成或复用审计事件；策略审核结果展示状态及时间，人工备注展示前30个Unicode字符并悬浮查看全文。历史记录不回写。
+
+- 首次扫描失败的生命周期显示“提交 → 扫描失败 → 拒绝”，详情使用稳定来源 `scan_failed`，拒绝时间读取导致当前失败的审计事件；展示“扫描未完成，无法通过准入。”及原始失败原因（30字符预览、悬浮全文）。标记 `effective_result_preserved` 的失败复扫保留原有效结果和审核时间。历史记录仅在读取时补充来源，不回写。
 - MCP调试直连鉴权值纯空白时即时显示 `mcpDebug.authorizationWhitespace` 双语字段错误，保留草稿并在连接前拦截；后端仅在调试schema使用 `mcp.server.invalid_fields` / `whitespace` 拒绝。正常值中的空格、空值复用及临时凭证不写回语义保持。
 
 - MCP 调试历史的直连请求在 `_post_upstream` 实际发送边界记录到本次临时实例，复用审批敏感字段脱敏；成功以 `request`、异常以 `error_params.debug_request` 返回。页面独立展示当次 Endpoint，请求 id 取自发送记录；初始化失败按真实方法展示，缺请求显示 `mcpDebug.requestNotRecorded`。平台网关仅脱敏历史副本，原参数继续发送；后端回归 `test_debug_history_uses_sent_request`，展示数据转换回归 `tests/mcp_debug_requests.test.mjs`。
 
 - MCP Tool 策略弹窗通过 `toolApprovalRequired` 共用高风险或破坏性的强制条件，`toolApprovalChecked` 统一选中态与保存值；强制时显示开启并禁用，解除强制后保留普通审批草稿。复用现有双语提示及后端规则，接口组合回归见 `test_tool_policy_approval_matches_effective_conditions`；UI按场景人工验收。
 
-- MCP 调试平台网关 Tool 历史通过 `isPendingDebugApproval` 按 `approval_required=true` 与 `status=pending` 识别待审批；历史与本次提示复用 `mcpDebug.pendingApproval` / `pendingApprovalHint`。本次请求已结束，审批后需再次调用；历史保留当次状态及原始响应。直连沿用既有状态逻辑；分类纯数据回归见 `tests/mcp_debug_requests.test.mjs`。
+- MCP 调试平台网关 Tool 历史通过 `isPendingDebugApproval` 按 `approval_required=true` 与 `status=pending` 识别待审批；历史结果归为拒绝，本次提示复用 `mcpDebug.pendingApprovalHint`。本次请求已结束，审批后需再次调用；历史保留当次状态及原始响应。分类纯数据回归见 `tests/mcp_debug_requests.test.mjs`。
 
 - MCP审批列表/详情通过approval_result和authorization_status分别展示审批结果与授权状态，保留原status执行语义；五张统计卡片和列表statistic共用SQL条件及北京时间边界，今日批准已过期按reviewed_at计入。卡片点击清空普通筛选并保留页大小；分页刷新保留范围，切换页签或清除范围退出。无需数据库迁移，回归覆盖tests/test_mcp_gateway.py。
 
@@ -331,3 +336,5 @@ make sandbox-runtime-build
 - MCP 审计固定原因展示复用 backend/mcp_audit_display.py 的读取元数据 reason_code/reason_params 与 mcpAudit.reasons；保留存储和未知原文。调试最近结果由 addHistory 的 tools/call 响应统一更新，调用开始清空旧结果；工具业务失败和网络异常同样更新，复用历史错误本地化。
 
 - MCP 审计查看审批时切到全部、清空其他条件，将审批 ID 填入现有关键词筛选框并打开对应详情；列表复用 q 查询。关闭详情保留筛选；修改或清空关键词同步移除 URL 的 request_id，清空后立即恢复全部记录。无需数据库表变更。
+
+- MCP 调试根级组合、引用、条件及动态对象参数使用原始JSON输入，模式识别和对象解析复用 `web/src/utils/mcpDebug.js`；输入框提供JSON格式示例并说明字段名按实际参数填写，格式错误明确双引号要求；非法JSON或非对象在发送前显示 `mcpDebug` 双语字段错误并保留草稿，合法对象原样提交。普通properties表单及const保持，切换Tool/重置清除原始参数及错误，切换语言保留草稿。

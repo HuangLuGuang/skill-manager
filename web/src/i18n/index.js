@@ -123,6 +123,11 @@ export const i18n = createI18n({
         response: '响应 / Response',
         requestNotRecorded: '无请求记录',
         pendingApprovalHint: '本次调用未执行，已提交审批申请。审批通过后，请重新发起调用。',
+
+        rawArguments: '参数（原始 JSON）',
+        rawArgumentsHelp: '填写符合输入参数结构的 JSON 对象。格式示例：{example}，字段名请按实际参数填写。',
+        rawArgumentsInvalidJson: '请输入合法的 JSON，字段名和字符串请使用英文双引号。',
+        rawArgumentsObjectRequired: '参数必须是 JSON 对象。',
         constantValueHelp: '由工具定义固定值。',
         authorizationWhitespace: '鉴权值不能仅包含空白字符。',
         durationMilliseconds: '{value} ms',
@@ -1351,6 +1356,11 @@ export const i18n = createI18n({
         response: 'Response',
         requestNotRecorded: 'No request recorded',
         pendingApprovalHint: 'This call was not executed. An approval request has been submitted. After approval, submit the call again.',
+
+        rawArguments: 'Arguments (Raw JSON)',
+        rawArgumentsHelp: 'Enter a JSON object matching the Input Schema. Format example: {example}. Use the actual parameter names.',
+        rawArgumentsInvalidJson: 'Enter valid JSON. Use double quotes for property names and strings.',
+        rawArgumentsObjectRequired: 'Arguments must be a JSON object.',
         constantValueHelp: 'Fixed by the tool schema.',
         authorizationWhitespace: 'Authentication value must not contain only whitespace.',
         durationMilliseconds: '{value} ms',

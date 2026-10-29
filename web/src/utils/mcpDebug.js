@@ -56,3 +56,26 @@ export const debugCallStatus = (ok, response, gateway = false, httpStatus) => {
   if (!ok || response?.error || response?.result?.isError === true) return 'error'
   return 'success'
 }
+
+// 根级组合、引用和动态键无法由固定 properties 表单完整表达。
+export const usesRawArguments = (schema = {}) => {
+  const rootStructures = [
+    'oneOf', 'anyOf', 'allOf', '$ref', '$dynamicRef', 'if', 'then', 'else', 'not',
+    'patternProperties', 'dependentSchemas', 'dependencies', 'unevaluatedProperties', 'const', 'enum',
+  ]
+  if (rootStructures.some(key => Object.hasOwn(schema, key))) return true
+  if (Array.isArray(schema.type)) return true
+  if (schema.additionalProperties === true || typeof schema.additionalProperties === 'object') return true
+  return !Object.keys(schema.properties || {}).length && schema.additionalProperties !== false
+}
+
+// 仅检查参数传输所需的 JSON 对象格式，Tool Schema 约束由服务端校验。
+export const parseRawArguments = text => {
+  let value
+  try { value = JSON.parse(text) }
+  catch { return { error: 'mcpDebug.rawArgumentsInvalidJson' } }
+  if (value === null || Array.isArray(value) || typeof value !== 'object') {
+    return { error: 'mcpDebug.rawArgumentsObjectRequired' }
+  }
+  return { value }
+}

@@ -110,7 +110,24 @@
             <div class="tool-title">{{ selectedTool.name }}</div>
             <div class="muted">{{ selectedTool.description || $t('legacy.1qkgodc') }}</div>
             <a-form layout="vertical" style="margin-top: 16px">
-              <a-empty v-if="!toolFields.length" :description="$t('legacy.1en7knw')" />
+              <a-form-item
+                v-if="rawArgumentsMode"
+                :label="t('mcpDebug.rawArguments')"
+                :validate-status="rawArgumentError ? 'error' : undefined"
+                :help="rawArgumentError ? t(rawArgumentError) : undefined"
+              >
+                <a-textarea
+                  ref="rawArgumentInput"
+                  v-model:value="rawArgumentText"
+                  :aria-label="t('mcpDebug.rawArguments')"
+                  :aria-invalid="!!rawArgumentError"
+                  :rows="8"
+                  class="code-input"
+                  @update:value="rawArgumentError = ''"
+                />
+                <div class="field-description">{{ t('mcpDebug.rawArgumentsHelp', { example: '{"name": "张三"}' }) }}</div>
+              </a-form-item>
+              <a-empty v-else-if="!toolFields.length" :description="$t('legacy.1en7knw')" />
               <a-form-item v-for="field in toolFields" :key="field.name" :required="field.required">
                 <template #label>
                   <a-space size="small">
@@ -226,7 +243,7 @@ import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { debugMcpUpstream, listMcpGateways, listMcpServers } from '../api'
 import { copyText, promptManualCopy } from '../utils/clipboard'
 import { validateServiceEndpoint } from '../utils/serviceEndpoint'
-import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, debugCallStatus, isPendingDebugApproval, maskDebugRequest, validConnectionTimeout } from '../utils/mcpDebug'
+import { createConnectionAttempt, formatDebugDuration, localizeDebugResponse, debugCallStatus, isPendingDebugApproval, maskDebugRequest, validConnectionTimeout, usesRawArguments, parseRawArguments } from '../utils/mcpDebug'
 
 const { t } = useI18n()
 const targetMode = ref('service')
@@ -265,6 +282,9 @@ const calling = ref(false)
 const protocolVersion = ref('')
 const tools = ref([])
 const selectedToolName = ref()
+const rawArgumentText = ref('{}')
+const rawArgumentError = ref('')
+const rawArgumentInput = ref(null)
 const argumentValues = ref({})
 const complexArgumentTexts = ref({})
 const callResult = ref(null)
@@ -277,6 +297,7 @@ const activeGateways = computed(() => gateways.value.filter(item => item.status 
 const selectedTool = computed(() => tools.value.find(item => item.name === selectedToolName.value))
 const toolFields = computed(() => {
   const schema = selectedTool.value?.inputSchema || {}
+  if (usesRawArguments(schema)) return []
   const required = new Set(schema.required || [])
   return Object.entries(schema.properties || {}).map(([name, fieldSchema]) => {
     let kind = 'string'
@@ -289,6 +310,7 @@ const toolFields = computed(() => {
     return { name, schema: fieldSchema, required: required.has(name), kind }
   })
 })
+const rawArgumentsMode = computed(() => usesRawArguments(selectedTool.value?.inputSchema || {}))
 const connectionLabel = computed(() => connected.value
   ? (protocolVersion.value
     ? t('mcpDebug.connectedWithProtocol', { version: protocolVersion.value })
@@ -313,6 +335,8 @@ const exampleValue = schema => {
   return ''
 }
 const resetArguments = () => {
+  rawArgumentText.value = '{}'
+  rawArgumentError.value = ''
   const values = {}
   const complex = {}
   toolFields.value.forEach(field => {
@@ -547,7 +571,16 @@ const ping = async () => {
 
 const callTool = async () => {
   if (calling.value || !selectedTool.value) return
-  const args = {}
+  let args = {}
+  if (rawArgumentsMode.value) {
+    const parsed = parseRawArguments(rawArgumentText.value)
+    rawArgumentError.value = parsed.error || ''
+    if (parsed.error) {
+      rawArgumentInput.value?.focus()
+      return
+    }
+    args = parsed.value
+  }
   try {
     for (const field of toolFields.value) {
       // 固定值按原始 JSON 提交，避免空值判断或输入转换改变约束值。
