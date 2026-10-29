@@ -183,28 +183,30 @@
     <a-modal v-model:open="detailOpen" :title="t('aidr.hooks.detailTitle')" :footer="null" :width="900" :destroy-on-close="true">
       <a-alert v-if="actionError" type="error" :message="renderFailure(actionError)" show-icon />
       <a-alert v-if="detailError" type="error" :message="renderFailure(detailError)" show-icon />
-      <a-button :loading="detailLoading" :disabled="detailLoading || deciding" @click="openDetail(detailId)">{{ t('aidr.hooks.retry') }}</a-button>
+      <div class="approval-toolbar">
+        <a-space wrap v-if="detail && !detailError"><a-tag :color="stateColor(detail.approval.state)">{{ stateLabel(detail.approval.state) }}</a-tag><span v-if="detail.approval.state === 'pending'" role="timer">{{ remainingLabel(detail.approval) }}</span></a-space>
+        <a-button :loading="detailLoading" :disabled="detailLoading || deciding" @click="openDetail(detailId)">{{ t(detailError ? 'aidr.hooks.retry' : 'aidr.hooks.refresh') }}</a-button>
+      </div>
       <template v-if="detail && !detailError">
-        <p>{{ t('aidr.hooks.evidenceNote') }}</p>
-        <p>{{ t('aidr.hooks.state') }}: {{ stateLabel(detail.approval.state) }}</p>
-        <p>{{ t('aidr.hooks.expires') }}: {{ stamp(detail.approval.expires_at) }}</p>
-        <p v-if="detail.approval.state === 'pending'" role="timer">{{ remainingLabel(detail.approval) }}</p>
-        <a-alert type="info" :message="t('aidr.hooks.clientReport')" show-icon>
-          <template #description>
-            <template v-if="detail.client_report"><p>{{ t(detail.client_report.record.state === 'consumed' ? 'aidr.hooks.clientConsumed' : 'aidr.hooks.clientDenied') }} · <code>{{ detail.client_report.record.code }}</code></p><p>{{ t('aidr.hooks.reportedAt') }}: {{ stamp(detail.client_report.record.reported_at) }} · {{ t('aidr.hooks.receivedAt') }}: {{ stamp(detail.client_report.received_at) }}</p></template>
-            <p v-else>{{ t('aidr.hooks.noClientReport') }}</p>
-          </template>
-        </a-alert>
-        <dl class="hook-evidence"><template v-for="[label, key] in scopeFields" :key="key"><dt>{{ t(`aidr.hooks.${label}`) }}</dt><dd><code>{{ detail.approval.scope[key] || t('aidr.hooks.unknown') }}</code></dd></template></dl>
+        <a-descriptions class="approval-summary" size="small" :column="{ xs: 1, sm: 2 }">
+          <a-descriptions-item v-for="[label, key] in scopeFields" :key="key" :label="t(`aidr.hooks.${label}`)"><code>{{ detail.approval.scope[key] || t('aidr.hooks.unknown') }}</code></a-descriptions-item>
+          <a-descriptions-item :label="t('aidr.hooks.created')">{{ stamp(detail.approval.created_at) }}</a-descriptions-item>
+          <a-descriptions-item :label="t('aidr.hooks.expires')">{{ stamp(detail.approval.expires_at) }}</a-descriptions-item>
+          <a-descriptions-item :label="t('aidr.hooks.clientReport')" :span="2">
+            <template v-if="detail.client_report">{{ t(detail.client_report.record.state === 'consumed' ? 'aidr.hooks.clientConsumed' : 'aidr.hooks.clientDenied') }} · <code>{{ detail.client_report.record.code }}</code></template>
+            <template v-else>{{ t('aidr.hooks.noClientReport') }}</template>
+          </a-descriptions-item>
+          <a-descriptions-item v-if="detail.client_report" :label="t('aidr.hooks.reportedAt')" :span="2">{{ stamp(detail.client_report.record.reported_at) }}</a-descriptions-item>
+        </a-descriptions>
         <a-alert v-if="!detail.evidence" type="warning" :message="t('aidr.hooks.noEvidence')" />
         <p v-if="detail.evidence_code === 'aidr_audit_history_retention'">{{ t('aidr.lifecycle.historyExpired') }}</p>
-        <div v-for="(action, index) in detail.evidence?.event?.behavior?.actions || []" :key="index" class="hook-evidence">
-          <p v-if="action.command">{{ t('aidr.hooks.command') }}<pre>{{ action.command }}</pre></p><p v-if="action.cwd">{{ t('aidr.hooks.cwd') }}: <code>{{ action.cwd }}</code></p>
+        <div v-for="(action, index) in detail.evidence?.event?.behavior?.actions || []" :key="index" class="approval-request">
+          <template v-if="action.command"><h4>{{ t('aidr.hooks.command') }}</h4><pre>{{ action.command }}</pre></template><p v-if="action.cwd">{{ t('aidr.hooks.cwd') }}: <code>{{ action.cwd }}</code></p>
           <p v-for="(target, i) in action.targets || []" :key="i">{{ t('aidr.hooks.targets') }}: <code>{{ target.value }}</code></p>
         </div>
         <AidrAuditContent v-if="detail.evidence?.event && detail.evidence_record_id" :client-id="clientId" source="hook" :record-id="detail.evidence_record_id" :evidence="detail.evidence.event" />
-        <p v-if="!actionAllowed">{{ t('aidr.hooks.unavailable') }}</p>
-        <div class="hook-heading">
+        <p v-if="availableActions.length && !actionAllowed">{{ t('aidr.hooks.unavailable') }}</p>
+        <div v-if="availableActions.length" class="hook-heading">
           <a-popconfirm v-for="action in availableActions" :key="action.value" :title="t('aidr.hooks.confirmDecision')" :ok-text="t('aidr.hooks.confirm')" :cancel-text="t('aidr.hooks.cancel')" :disabled="!actionAllowed || deciding" @confirm="decide(action.value)"><a-button :danger="action.value !== 'allow'" :loading="deciding" :disabled="!actionAllowed || deciding">{{ t(`aidr.hooks.${action.label}`) }}</a-button></a-popconfirm>
         </div>
       </template>
@@ -299,7 +301,7 @@ const canEdit = computed(() => !!policy.value?.can_edit && can('clients:update')
 const actionAllowed = computed(() => !!policy.value?.can_edit && can('clients:execute') && !!detail.value?.evidence && !detail.value?.client_report && !detailLoading.value && !detailError.value && ['pending', 'approved'].includes(detail.value?.approval.state) && Number(detail.value?.approval.expires_at) * 1000 > now.value)
 const availableActions = computed(() => detail.value?.approval.state === 'approved' ? [{ value: 'revoke', label: 'revoke' }] : detail.value?.approval.state === 'pending' ? [{ value: 'allow', label: 'approve' }, { value: 'deny', label: 'reject' }] : [])
 const columns = computed(() => ['created', 'agent', 'session', 'state', 'expires', 'details'].map(key => ({ key, title: t(`aidr.hooks.${key}`), width: { created: 135, agent: 95, session: 215, state: 150, expires: 135, details: 90 }[key], fixed: key === 'created' ? 'left' : key === 'details' ? 'right' : undefined })))
-const scopeFields = [['agent', 'agent'], ['tool', 'tool'], ['session', 'session_id'], ['turn', 'turn_id'], ['call', 'native_call_id'], ['user', 'user_scope'], ['receiver', 'receiver_instance'], ['inputDigest', 'input_digest'], ['attempt', 'attempt_nonce'], ['revision', 'policy_revision'], ['execution', 'execution_point']]
+const scopeFields = [['agent', 'agent'], ['tool', 'tool'], ['user', 'user_scope'], ['session', 'session_id']]
 const shortId = value => !value ? t('aidr.hooks.unknown') : value.length > 28 ? `${value.slice(0, 15)}…${value.slice(-9)}` : value
 const stateColor = state => ({ pending: 'gold', approved: 'green', denied: 'red', revoked: 'orange', expired: 'default' }[state] || 'default')
 const tableDate = (value, iso) => value ? new Date(iso ? value : Number(value) * 1000) : null
@@ -504,6 +506,11 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.approval-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.approval-summary { overflow-wrap: anywhere; }
+.approval-request { margin: 16px 0; overflow-wrap: anywhere; }
+.approval-request h4 { margin: 0 0 8px; }
+.approval-request pre { margin: 0; padding: 12px; background: #f6f8fa; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; }
 .scope-choice { display:flex; align-items:center; flex-wrap:wrap; gap:10px 16px; padding:12px; margin-bottom:16px; border-radius:8px; background:#f4f7fb; }
 .scope-choice label { display:flex; align-items:center; gap:8px; font-weight:600; }.scope-choice small{width:100%;color:#738098}
 .audit-detail { overflow-wrap: anywhere; }

@@ -240,7 +240,7 @@ defineExpose({ save, busy, editable, canSave })
 </script>
 <style scoped>
 .settings-grid :deep(.ant-form-item) { margin-bottom:12px; }
-.settings-grid,.form-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px; }.settings-grid { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }
+.settings-grid,.form-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px; }
 .toolbar { display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px; }.toolbar .ant-input-search { width:230px;max-width:100%; }.toolbar .ant-select { min-width:160px; }
 .security-rules small,.muted { color:#667085;font-size:12px; }.security-rules small { display:block; }.security-rules strong,.security-rules code,.rule-form { overflow-wrap:anywhere; }
 .rule-form .ant-form-item { margin-bottom:16px;min-width:0; }

@@ -1,5 +1,9 @@
 # Agent Manager Project Guide
 
+内置模型网关可通过部署配置 `MODEL_GATEWAY_PUBLIC_URL` 与管理地址分离。可选 HTTP 入口默认关闭，
+由 Nginx 仅转发模型接口；新版客户端切换、手动配置和管理台接入指引使用平台发布的模型地址。
+详见[模型网关](model-gateway.md#独立模型接入地址--dedicated-model-entry)和[部署步骤](offline-deployment.md#模型专用-http-入口)。
+
 ## 客户端界面配置 / Client interface configuration
 
 默认客户端策略和单客户端策略提供“客户端界面 → 菜单显示”。概览固定保留，其余四个侧边栏菜单支持全局显示开关与单客户端逐项“跟随全局 / 显示 / 隐藏”。复用策略预览、版本校验、审计、任务下发和客户端缓存，隐藏入口不改变后台功能权限。仅菜单修改不触发额外扫描或运行治理重新应用；状态区分未支持、待同步和配置已同步。配置同步状态依据客户端缓存回执；桌面在读取配置后更新界面。操作及人工验收清单见 [客户端说明](agent-manager-client.md#客户端菜单显示--client-menu-visibility)。
@@ -603,6 +607,10 @@ flowchart TB
 
 平台“刷新发现”发送发现请求，由运行中的新版桌面客户端轮询处理；页面保留上次报告时间。运行中的采集对象修改通过“应用修改”签发新版本，并等待执行器报告。范围收窄会从签名目标中移除不再允许的程序；关闭系统采集后执行器在下一次配置检查时停止。已有路径策略首次切换到选择配置前，应先完成设备发现。上线顺序为平台、客户端；启动时创建 `aidr_system_selections` 表，不改写已有系统策略。
 
+系统策略页直接展示运行模式、状态、采集范围表单与设备发现结果；“策略诊断”提供平台及执行器版本、已配置路径和异常码。对象选择方式保留各自的操作说明，保存按钮旁提供客户端启动路径。高级规则保留程序路径要求、授权步骤、规则生效条件及发布提示，发布提示位于发布按钮前。
+
+**English:** System policy shows the mode, runtime status, collection scope and discovered programs. Policy diagnostics contains platform and executor revisions, configured paths and diagnostic codes. Each selection mode retains its instructions, and the save action includes the client startup location. Advanced rules retain executable requirements, authorization steps, rule activation conditions and publishing guidance beside the publish action.
+
 客户端另有开发阶段的 macOS 运行时只读入口 `agent-manager-client runtime-watch`：
 普通用户通过本地 Unix socket 接收单独启动的特权 ES 采集器事件及健康状态。
 桌面进程归属信息统一展示在“系统采集”的最近事件及事件诊断中。上述开发命令的协议见 [客户端使用说明](agent-manager-client.md#macos-运行时只读连接开发阶段)。
@@ -760,6 +768,30 @@ Upgrade creates a partial index for non-expired session messages, avoiding scans
 会话首屏性能人工验收：进入页面后确认只显示选中轮次；切换来源、快速切换会话、搜索及清空搜索、刷新和加载更多后确认记录未混入其他会话；轮次加载失败时确认重试及全部轮次仍可用。
 
 ### 采集状态与来源诊断
+
+智能体详情按页签展示资产、配置、审计和策略；资产概览统一标明最新上报，未报告项保留提示。平台注册详情的状态与来源并列展示，Skill 数量、模型和运行凭证在对应页签查看。客户端发现详情保留安装入口与产品共享记录的范围、权限、读取失败、配置生效边界及操作风险。
+
+**English:** Agent details organize assets, configuration, audit and policies into tabs. Asset overview identifies the latest report once and retains missing-report indicators. Platform-registered agents show status beside origin, with Skill counts, models and runtime credentials in their respective tabs. Discovered-agent details retain installation and shared-product scope, permissions, load failures, application boundaries and operation risks.
+
+客户端配置弹窗通过页签、分组标题和字段表达配置用途；继承与覆盖、已保存值、平台默认值、独立保存范围和客户端应用状态保留在相应位置。菜单显示说明区分界面入口与后台任务，模型配置说明保留凭据影响范围，Skill 分类说明保留恶意优先和检测异常的处置边界。发现配置恢复全局时清除覆盖及本客户端专属定义的提示、正文采集和脱敏风险、权限与错误提示均保留。
+
+配置页签保持单行，空间不足时横向滚动；表单宽屏使用两列，窄屏使用一列。内容与脱敏的继承控制独立成行，首组无顶部分隔线；字节上限和保留期限均采用上方标签。Agent 发现的搜索与恢复全局操作同栏，客户端界面的报告时间与重置操作同栏。各页保存入口统一放在弹窗底部，Skill 使用审计仍进入独立确认弹窗，分类处置仍先预览再保存。
+
+影响范围预览按客户端界面、运行防护和模型配置分组，普通摘要直接展示；Skill 处置统一按“当前 → 预计”对比。客户端覆盖、无法预估、兼容性问题、重新检查步骤和卸载风险仍在相关位置展示。
+
+内容与脱敏、Skill 使用审计的确认弹窗统一按“当前配置 → 本次配置”展示字段，单客户端保留继承来源。同步时机、旧客户端兼容性及告警总开关关系保留；扩大采集、关闭脱敏和缩短保留期限仍需确认风险后保存。
+
+**English:** Content/redaction and Skill usage audit confirmations compare current and proposed values, retaining inheritance for individual clients. Sync timing, older-client compatibility and the alert master switch remain explained. Expanding collection, disabling redaction or shortening retention still requires risk acknowledgement before saving.
+
+**English:** Impact preview groups desktop menus, runtime protection and model settings, with plain summaries and a shared “current → expected” direction for Skill actions. Client overrides, unavailable estimates, compatibility issues, recheck steps and uninstall risks remain visible where relevant.
+
+**English:** Tabs stay on one horizontally scrollable row. Forms use two columns on wide screens and one on narrow screens. Inheritance occupies its own row; the first content section has no top divider. Byte limits and retention use labels above their inputs. Discovery search shares a toolbar with reset, and menu report time shares a row with reset. Save actions remain in the modal footer; Skill usage audit retains its separate confirmation dialog, while classification retains preview before saving.
+
+**English:** Client settings use tabs, group headings and fields to explain their purpose. Inheritance, overrides, saved values, platform defaults, separate save scopes and client application status remain visible where relevant. Menu guidance distinguishes entry visibility from background tasks; model guidance retains credential scope; Skill guidance retains malicious priority and scan-error boundaries. Reset consequences, content collection and redaction risks, permissions and errors remain visible.
+
+客户端详情以页签、产品分组和操作入口表达页面用途。插件接入保留接入方式、状态及授权步骤；采集状态保留异常、来源证据和处理入口，自动刷新说明在刷新按钮提示中查看。概览将最新上报的资产与所选期间创建的治理任务分区展示；Skill 目录计数口径在指标提示中查看，行为指标的去重和计数规则集中在“统计口径”。会话 ID 在会话信息弹层中查看和复制。共享的采集状态与行为统计组件在智能体详情中使用相同展示方式。
+
+**English:** Client details use tabs, product groups and actions to explain their purpose. Plugin access retains integration types, status and authorization steps. Collection status retains issues, source evidence and next actions; the refresh tooltip explains automatic updates. Overview separates the latest reported assets from governance tasks created in the selected period. The Skill metric tooltip explains directory counting, and Counting rules contains activity counting and deduplication rules. View and copy the session ID in the session information popover. Agent details use the same shared collection and activity components.
 
 行为审计下的会话活动、系统事件、采集状态共用固定高度布局及相同的设备头部、抽屉内边距和页签间距。切换三页时页签位置保持一致；系统事件列表在自己的内容区滚动，顶部导航不跟随滚动。
 
@@ -3245,6 +3277,10 @@ WorkBuddy approval uses the pre-tool Hook and existing signed grants. Local atte
 Risk lists omit the action-result column. Details retain explicit outcomes, show Execution result not captured when feedback lacks an outcome, and Execution feedback not captured when no feedback arrived. Approval and denial feedback remain separate; conflicting evidence retains its conflict status. Detection revisions remain in trace metadata, outside the detail body. Handle risk opens the resolution form; Cancel collapses it while retaining the draft, and successful saving closes it. Rule snapshots and original evidence retain existing permissions; commands and user-provided rule names remain unchanged.
 
 审批状态读取会按设备、流和事件匹配客户端回执。收到审批超时回执后，列表与详情显示“审批已超时”，详情不提供变更操作，服务端拒绝后续批准；历史平台记录不回写。未收到回执时不推测客户端已超时。
+
+审批详情集中显示审批状态、待审批倒计时、Agent、工具、系统用户、会话、申请时间和授权截止时间，下方保留请求命令、工作目录、目标及有权限读取的审计正文。客户端回执单独显示决定、原因编码及回执生成时间。读取失败时提供重试；已结束状态不再重复展示通用不可操作提示。接收器实例、参数哈希、尝试 ID、策略修订号等内部绑定字段保留在服务端校验中，不在详情逐项展示。
+
+**English:** Approval details focus on status, the pending countdown, Agent, tool, OS user, session, request time and expiry, followed by the requested command, working directory, targets and permission-controlled audit content. The client receipt separately shows its decision, reason code and report time. Failed reads offer Retry; terminal states omit the generic unavailable-action message. Internal binding fields remain part of server validation without occupying the detail view.
 
 Approval reads match client receipts by device, stream and event. A timeout receipt makes both list and detail show Approval timed out, removes decision actions and prevents subsequent approval. Historical platform records remain unchanged. No client timeout is inferred before a receipt arrives.
 

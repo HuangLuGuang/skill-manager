@@ -1,312 +1,256 @@
 # 离线部署现场实施指南
 
-本文档用于现场实施人员在客户内网环境快速部署 Agent Manager。
-
-安装或升级后，在“系统管理 → License 授权”导出当前部署申请，由厂商独立签发工作站生成 License 后导入。
-没有有效授权时新增与扫描受限。可信公钥随后端镜像交付，签发私钥不进入客户安装包。
-备份业务数据时同时备份 data 卷中的 `license/state.db`，保持部署标识、已接收修订及授权历史。
-详见 [离线授权操作与执行边界](license.md)。
-
-## 交付物
-
-按服务器架构选择安装包，以下版本号请替换为实际交付版本：
-
-```text
-agent-manager_1.0.6_arm.tar.gz    # ARM 服务器
-agent-manager_1.0.6_x86.tar.gz    # x86 服务器
-```
-
-安装包内主要包含：
-
-```text
-docker-compose.yaml
-docker-compose.https.yaml             # HTTPS 443、证书挂载与健康检查
-.env.example
-start.sh                             # 加载镜像、启动、检查
-upgrade.sh                           # 指定安装包升级
-deploy/offline.sh                     # 脚本共用逻辑（Bash）
-deploy/nginx/default.conf
-deploy/nginx/https.sh                 # HTTPS 入口、HTTP 跳转与证书重载
-deploy/nginx/certificates.py           # 自签名证书生成及自动续期
-release-provenance.json
-release-info                         # 版本、平台（两行文本）
-docs/offline-deployment.md
-docs/docker-deployment.md
-scanner/releases/                    # 客户端发布文件
-docker_images/<arch>/agent-manager-images-<tag>.tar.xz
-installers/docker-installer-28.5.2-x86-arm.tar.gz
-```
-
-安装包包含运行镜像和部署文件，应用版本已固定。版本与架构见 `release-provenance.json`。
-ARM（linux/arm64）和 x86（linux/amd64）安装包均包含上述 HTTPS 文件，启动参数相同。
-证书服务使用包内对应架构、相同发布版本的后端镜像，Nginx 也随目标架构镜像交付；
-现场不需要安装 Python、OpenSSL 或联网下载依赖。证书及私钥在现场首次 HTTPS 启动时生成，不随包交付。
-
 ## 部署前检查
 
-单节点生产环境建议准备 `16 vCPU`、`32 GiB` 内存和 `500 GiB` 可用 SSD/NVMe 空间。
-这是容量规划起点，实际资源按客户数据量调整。
-
-确认服务器架构：
-
-```bash
-uname -m
-```
-
-常见对应关系：
-
-```text
-x86_64   -> 使用 agent-manager_1.0.6_x86.tar.gz
-aarch64  -> 使用 agent-manager_1.0.6_arm.tar.gz
-arm64    -> 使用 agent-manager_1.0.6_arm.tar.gz
-```
-
-现场需要 Bash、GNU tar/coreutils（含 timeout）、util-linux 的 flock、gzip、awk、Docker 和支持健康等待、镜像列表输出及当前编排格式的 Compose。
-确认命令可用，当前用户有 Docker 访问权限：
+先用实际部署的普通用户检查 Docker 和 Compose：
 
 ```bash
 docker --version
 docker info
-docker compose version || docker-compose version
+docker compose version
 ```
 
-如果现场没有 Docker，先按客户环境使用安装包内的 Docker 安装程序完成安装，再确认上述命令可运行。
+检查通过后进入[快速部署](#快速部署)；未安装时先解压应用包，再执行第 2 步安装 Docker。已有安装升级请直接看[升级步骤](#使用安装包升级)。
+使用独立 `docker-compose` 时，将文中 `docker compose` 替换为该命令。
 
-打包时会将附带 Docker 安装程序的二进制安装权限固定为 `0755`，不受现场 `umask 027/077` 影响。
-旧安装程序使用 `cp`，可能将 `/usr/local/bin/docker-init` 安装为 `0750` 或 `0700`，
-导致非 root 扫描容器启动时报 `exec: "/sbin/docker-init": permission denied`。
-已有现场若确认该文件权限异常，由管理员执行 `chmod 755 /usr/local/bin/docker-init` 后重新运行 `bash start.sh`。
-若权限正常仍失败，继续检查实际 init 路径、挂载限制及主机安全策略。
-
-脚本优先使用 `docker compose`，也支持兼容的 `docker-compose`。Compose 需支持
-`up --wait --wait-timeout`、`config --images` 和 `env_file.required`。
-下文手动命令以 `docker compose` 为例，使用独立程序时替换为 `docker-compose`。
-
-检查失败时会停止操作并明确提示：
-
-| 提示 | 处理方式 |
+| 项目 | 要求 |
 | --- | --- |
-| Docker 未安装或未加入 PATH | 安装包内的 Docker 安装程序完成安装后，确认 `docker --version` 可运行 |
-| 无法连接 Docker 服务 | 先核对 `docker context show` 和 `DOCKER_HOST`；本机 systemd 环境检查 `systemctl status docker`，确认需要后运行 `sudo systemctl start docker`；rootless 使用 `systemctl --user status docker` |
-| 当前用户无权访问 Docker | 使用有权限的账号，或请管理员配置 Docker 用户组后重新登录；rootless 检查当前用户的 socket/context |
-| 两种 Compose 命令均不可用 | 安装 Compose 插件或独立程序，确认对应的 `version` 命令可运行 |
-| Compose 版本不兼容或配置无法解析 | 更新 Compose，并检查 `.env` 和 `docker-compose.yaml` 的格式 |
-| 检查超时或其他连接错误 | 运行 `docker info` 排查 context、远端地址、TLS 和认证配置 |
+| 服务器资源 | 生产规划起点：16 vCPU、32 GiB 内存、500 GiB 可用 SSD/NVMe；按实际数据量调整 |
+| 安装包 | 架构与服务器匹配，版本和架构见包内 `release-provenance.json` |
+| 主机工具 | Bash、GNU tar/coreutils（含 timeout）、flock、gzip、awk |
+| Docker | 服务已启动，普通部署用户有访问权限 |
+| Compose | 支持 `up --wait --wait-timeout`、`config --images` 和 `env_file.required` |
 
-## 解压并启动
+## 快速部署
 
-### 生产配置
+以下以普通部署用户的 `~/agent-manager` 为安装目录，管理台使用 HTTPS，模型 HTTP 入口可选。
 
-为 `SECRET_KEY`、`AGENT_MANAGER_SANDBOX_API_KEY`、`AGENT_SECURITY_WORKER_TOKEN`、
-`AIG_SCAN_SERVICE_TOKEN` 设置独立随机凭据，设置 `ENFORCE_SECURE_STARTUP=true`，
-并设置至少 12 个字符的 `INITIAL_ADMIN_PASSWORD`。直接使用模板启动采用本地测试配置；
-初始密码留空时的行为见下文。更多配置见 [Docker 部署文档](docker-deployment.md#生产部署)。
+### 1. 解压安装包
 
-### 解压与启动
-
-以下以 x86 包为例，ARM 服务器换用对应的 `_arm.tar.gz`：
+将安装包放到普通部署用户的主目录，用 `uname -m` 确认架构：`x86_64` 选择 `_x86` 包，`aarch64` / `arm64` 选择 `_arm` 包。以下版本号替换为实际交付版本：
 
 ```bash
+cd ~
 tar -xzf agent-manager_1.0.6_x86.tar.gz
-cd agent-manager
+cd ~/agent-manager
+```
+
+### 2. 安装 Docker（未安装时）
+
+Docker 和 Compose 已检查通过时，跳到第 3 步。
+
+安装 Docker 需要 root 权限：使用有 sudo 权限的账号执行下列命令；已登录 root 时省略 `sudo`。
+切换到 root 后，先进入普通部署用户的安装目录（例如 `/home/agentlcm/agent-manager`），不要使用 root 的 `~`。
+
+在当前安装目录执行。先用 `df -h` 选择空间充足的磁盘，将命令中的 `--data-root` 改为该磁盘上的目录：
+
+```bash
+tar -xzf installers/docker-installer-28.5.2-x86-arm.tar.gz
+cd docker-installer
+df -h
+sudo ./install.sh --arch x86 --data-root /data/docker --with-compose
+cd ..
+```
+
+上述命令用于 x86 服务器；其他架构按安装程序的 `--help` 选择参数。
+
+#### 普通用户验证
+
+安装完成后，以普通部署用户重新登录（root 会话先退出），回到安装目录，不加 `sudo` 验证：
+
+```bash
+cd ~/agent-manager
+whoami
+docker --version
+docker info
+docker compose version
+```
+
+如提示 Docker 权限不足，由管理员执行（将 `实际部署用户名` 替换为真实账号），再重新登录验证：
+
+```bash
+sudo usermod -aG docker 实际部署用户名
+```
+
+### 3. 配置安装目录的 .env
+
+```bash
 cp .env.example .env
-# 编辑 .env，完成上述生产配置后启动
-./start.sh
+vi .env
 ```
 
-首次启动默认监听宿主机 80 端口。需要自定义端口时：
+正式生产环境在本步骤按[生产配置要求](docker-deployment.md#生产部署)设置凭据；离线包仍使用第 4 步启动。
 
-```bash
-./start.sh --port 8088
-# 访问 http://<服务器IP>:8088
-```
-
-`--port` 接受 1–65535，保存为安装目录 `.env` 中的 `HTTP_PORT`。
-以后不带 `--port` 启动，以及运行 `upgrade.sh`，都会沿用这个端口；再次指定可更改端口。
-脚本以安装目录 `.env` 为端口配置来源，其他配置项和凭据保持原样。
-请确保所选端口可用。Sandbox 的本机端口仍为 `127.0.0.1:8194`。
-
-脚本自动加载包内 `.tar.xz` 镜像、核对 Docker 和镜像架构、在缺少 `.env` 时复制配置模板，
-初始化缺失的签名密钥（已有密钥继续使用），然后启动服务。启动过程中禁止在线拉取和现场构建。
-最后等待服务健康，并通过 Nginx 请求首页；全部通过才返回成功。
-
-签名密钥随数据卷保存，启动和升级沿用已有密钥。详细检查与恢复见
-[AIDR 策略签名密钥](docker-deployment.md#aidr-策略签名密钥)。
-
-默认最多等待 300 秒，可调整：
-
-```bash
-./start.sh --wait-timeout 600
-```
-
-### HTTPS 自签名证书
-
-先将实际访问域名或服务器 IP 写入 `.env`（逗号分隔，不带协议或端口）：
+将实际访问域名或 IP 写入 `TLS_HOSTS`，不带协议或端口，例如：
 
 ```dotenv
-TLS_HOSTS=localhost,127.0.0.1,10.10.71.35,agent.example.com
+TLS_HOSTS=localhost,127.0.0.1,10.10.71.35
 ```
 
-```bash
-./start.sh --https       # HTTPS 443；HTTP 80 跳转到 HTTPS
-./start.sh --http        # HTTP 模式
-./start.sh               # 默认 HTTP，包括从 HTTPS 切回 HTTP
+<a id="模型专用-http-入口"></a>
+
+#### 模型专用 HTTP 入口（可选）
+
+需要让第三方 Agent 通过 HTTP 调用模型网关时，在同一个 `.env` 中设置：
+
+```dotenv
+MODEL_GATEWAY_HTTP_ENABLED=true
+MODEL_GATEWAY_HTTP_PORT=8000
+MODEL_GATEWAY_PUBLIC_URL=http://10.10.71.35:8000
 ```
 
-HTTPS 固定使用宿主机 443；HTTP 入口沿用 `.env` 的 `HTTP_PORT`（默认 80）。
-如之前改过端口，用 `./start.sh --https --port 80` 恢复 80 跳转入口；该端口不能为 443。
-跳转使用 308，保留路径、查询参数和请求方法；API 客户端需支持跳转并信任证书，建议直接配置 HTTPS 地址。
+将示例 IP 替换为实际服务器地址，模型公开根地址不带 `/v1` 或其他路径。
+HTTP 明文传输凭证和模型内容，8000 端口应只允许客户批准的内网来源访问。
+自定义端口和入口变更见[模型入口运维](#模型入口运维)。
 
-证书服务复用后端镜像的 `cryptography`，无需联网安装工具。首次启动生成 365 天自签名证书，
-每天检查一次，到期前 30 天重新签发；Nginx 每分钟检查更新并重载。
-证书和私钥原子保存到 `tls_certificates` 命名卷，权限 0600，Nginx 只读挂载。
-修改 `TLS_HOSTS` 后重新执行 `./start.sh --https` 会按新地址签发。
-停止服务期间不执行续期，再次启动时检查；不要删除该卷。
-自签名证书需由客户端信任，重新签发后信任具体叶证书的客户端需要更新信任。
+### 4. 启动服务
 
-`upgrade.sh` 保留 `.env` 中的 `DEPLOY_PROTOCOL`、地址配置和证书卷；切回 HTTP 会停止证书服务，保留证书。
-手动运维 HTTPS 时使用 `docker compose -f docker-compose.yaml -f docker-compose.https.yaml --profile https ...`；
-仅执行基础 `docker compose up` 使用 HTTP 配置。
-
-现场验收：确认 80 返回 308、Location 为对应 HTTPS URL；443 能登录并访问 API；
-检查 `docker compose -f docker-compose.yaml -f docker-compose.https.yaml --profile https logs certificates nginx` 中的签发和重载日志。
-
-ARM 和 x86 均需在对应架构的现场机器完成以下验收：
-
-- 用 `docker info --format '{{.Architecture}}'` 核对主机架构，安装脚本会进一步核对包与镜像架构。
-- 放通 TCP 443 和 HTTP 跳转端口（默认 80），设置 `TLS_HOSTS` 后运行 `./start.sh --https`。
-- 执行 `curl -I http://<服务器IP>/`，确认返回 308 和正确的 HTTPS Location；
-  执行 `curl -kI https://<服务器IP>/` 确认 HTTPS 响应，再由信任证书的客户端完成登录、API 调用。
-  `-k` 只用于现场连通性检查，不代表证书已受信任。
-- 重启及升级后确认 HTTPS 仍可用、证书卷仍存在；检查证书服务健康状态和续期日志。
-- 执行 `./start.sh --http` 确认恢复 HTTP，443 不再映射；再执行 `./start.sh --https` 确认恢复 HTTPS。
-
-## 获取并导入授权文件
-
-1. 安装完成后，以管理员登录，打开 **系统管理 → License 授权**。填写厂商提供的客户编号和客户名称，导出 `customer-request.json`。
-2. 将申请文件交给厂商，获取签发的 `.license` 授权文件。
-3. 在同一页面选择授权文件，点击 **验证并导入**，确认状态为“有效”，并核对有效期、模块和客户端额度。
-
-详细操作见 [License 操作指南](license.md)。升级和备份时保留数据卷中的授权状态与签名密钥。
-
-### 交付检查
-
-实际交付还应逐项确认：
-
-- [ ] 包来源、版本、provenance 与目标架构匹配，安装包可以解压，文件清单完整。
-- [ ] 在目标离线环境运行包内 `start.sh`，镜像加载、签名初始化、六个服务健康及首页检查通过。
-- [ ] 从实际部署导出申请、签发并导入，在授权范围内完成扫描、网关与防护业务验收。
-- [ ] 对实际新旧安装包执行 `upgrade.sh`，确认原项目名、`.env`、签名身份、业务数据与授权保留。
-  脚本会替换主 Compose；使用自定义公钥挂载时，在维护窗口重新合并现场挂载配置并重建 backend，核对授权有效后再恢复业务。
-- [ ] 备份可恢复；恢复后的部署标识、密钥、授权和业务记录与备份一致。
-
-共享服务器上的复验应使用独立项目、端口、网络和空卷，并同时隔离 Sandbox 发布端口；
-具体边界及收尾检查见 [隔离验证](docker-deployment.md#隔离验证与已验证范围)。
-
-## 使用安装包升级
-
-在原安装目录执行，安装包路径可以是绝对路径或相对于当前命令目录的路径：
+放通 TCP 443、80；启用模型 HTTP 入口时再放通 8000。保存 `.env` 后执行：
 
 ```bash
-./upgrade.sh /path/to/agent-manager_1.0.7_x86.tar.gz
-# ARM 服务器使用 agent-manager_1.0.7_arm.tar.gz
+./start.sh --https
 ```
 
-升级已有安装时，可将新包解压到另一个目录，使用新包中的 `upgrade.sh` 并指定原安装目录：
+等待脚本提示启动成功。
+若管理台也使用 HTTP，改用 `./start.sh --http`，管理地址为 `http://<服务器IP>`。
+
+### 5. 登录并验证
+
+保持使用普通部署用户，在安装目录执行：
 
 ```bash
-/path/to/new/agent-manager/upgrade.sh /path/to/agent-manager_1.0.7_x86.tar.gz --install-dir /opt/agent-manager
-```
-
-脚本会：
-
-1. 解压到原安装目录下的临时目录，检查包内容、版本及 Docker 架构。
-2. 在 `backups/时间-随机后缀/` 中备份旧 Compose、Nginx 配置、部署脚本、版本信息、配置模板、部署文档、客户端发布目录及现有 `.env`。
-3. 加载并验证新镜像，然后覆盖本次部署文件、更新客户端发布文件；现场 `.env` 保持不变，旧版本镜像归档保留。
-4. 在原安装目录重建容器，保留 Docker 命名卷，等待健康检查并检查 Nginx 首页。
-
-升级保留 `.env` 中的 `HTTP_PORT`，新 Compose 使用该端口，因此无需在升级时重新指定。
-客户端安装程序和更新文件随包放在 `scanner/releases/`，升级时备份并更新该目录，
-由后端通过只读挂载提供下载；自定义端口后从同一管理台地址下载客户端即可。
-
-可追加 `--wait-timeout 600` 延长等待。脚本不会执行 `docker compose down -v`。
-部署文件备份**不包含数据库、签名密钥和数据卷内容**；生产升级前应单独完成业务数据备份。
-
-其中 `backend_data` 卷的 AIDR P-256 私钥必须随原数据恢复。客户端已固定对应公钥，
-重新生成私钥会改变信任身份；需要轮换时应同步更新客户端信任，不能将删除密钥作为常规升级步骤。
-
-如果原来通过 `COMPOSE_PROJECT_NAME` 自定义项目名，升级时继续使用原值，保证连接原有数据卷。
-新版 Compose 和 Nginx 配置会覆盖现场对这两个文件的直接修改，旧配置保留在备份目录。
-
-升级失败时返回非零退出码，并显示备份路径；先检查容器状态和日志。启动新版本可能已经执行数据库迁移，
-需要结合数据迁移情况制定恢复步骤，仅恢复旧 Compose 不能保证完成业务回滚。
-备份目录含现场配置，应限制访问。仅使用可信来源的正式安装包。
-
-## 验证启动
-
-查看容器状态：
-
-```bash
+docker info
+docker compose version
 docker compose ps
 ```
 
-所有核心服务应为 `running` 或 `healthy`。如有服务启动失败，查看后端日志：
+确认服务正常后，访问管理台：
 
-```bash
-docker compose logs --tail=100 backend
-```
+| 用途 | 默认 HTTPS 地址 | 开启模型 HTTP 入口后 |
+| --- | --- | --- |
+| 管理台 | `https://10.10.71.35` | `https://10.10.71.35` |
+| OpenAI-compatible Base URL | `https://10.10.71.35/v1` | `http://10.10.71.35:8000/v1` |
+| Anthropic Base URL | `https://10.10.71.35` | `http://10.10.71.35:8000` |
 
-浏览器访问：
+地址中的 IP 替换为实际服务器地址。第三方 Agent 使用 HTTPS 时需信任证书。
 
-```text
-http://<服务器IP>            # HTTP_PORT=80
-http://<服务器IP>:8088       # 示例：使用 start.sh --port 8088
-```
-
-### 管理员初始密码
-
-默认管理员用户名为 `admin`。首次创建账号时会使用 `.env` 中的
-`INITIAL_ADMIN_PASSWORD`。按上面的快速启动步骤设置后，登录时输入该密码。
-如果首次启动前留空，系统会生成随机初始密码；生产安全模式则要求预先设置至少
-12 个字符的密码，不会自动生成随机密码。
-
-升级时保留原数据库和数据卷。只要数据库中已经存在该用户名的账号，登录仍使用原密码；
-后来修改 `.env` 中的 `INITIAL_ADMIN_PASSWORD` 并重启容器，不会修改已有账号的密码。
-如果更换数据库、删除数据卷，或修改 `INITIAL_ADMIN_USERNAME` 使系统找不到该账号，
-则会按首次创建账号处理。登录后可从右上角账号菜单选择“修改密码”，输入当前密码和新密码；
-有账号管理权限的管理员可在“系统管理 → 账号管理”中重置其他账号的密码。
-
-只有未启用安全启动校验、数据库中没有该管理员账号且初始密码留空时，系统才会生成随机
-密码。若此前以这种方式安装，可在安装目录执行下列命令查看当时保存的密码：
+使用 `admin` 登录。如果未指定初始密码，在安装目录执行以下命令获取自动生成的密码：
 
 ```bash
 docker compose exec backend cat /app/runtime/data/initial-admin-password
 ```
 
-文件保存的是当时生成的初始值，后续改密不会更新；文件存在或不存在都不能单独证明
-当前登录密码。更多说明见 [Docker 部署文档](docker-deployment.md#管理员初始密码与升级)。
+如果已设置 `INITIAL_ADMIN_PASSWORD`，使用该密码。浏览器证书提示见[HTTPS 自签名证书](#https-自签名证书)。
 
-## 常用运维命令
+### 6. 授权与模型接入
+
+1. 在“系统管理 → License 授权”导出申请，交给厂商签发，再导入收到的 `.license` 文件，确认授权有效。详见[License 操作指南](license.md)。
+2. 配置模型供应商、模型与调用凭证，使用表中的 Base URL 完成一次 Agent 调用。
+3. 使用桌面客户端时，安装支持独立模型地址的新版，应用 Agent 模型配置并核对模型页地址。
+
+## 使用安装包升级
+
+先备份业务数据和签名密钥，再将新安装包上传到服务器。进入原安装目录执行，包路径替换为实际位置：
+
+```bash
+cd ~/agent-manager
+./upgrade.sh /path/to/agent-manager_1.0.7_x86.tar.gz
+# ARM 服务器使用 agent-manager_1.0.7_arm.tar.gz
+```
+
+脚本自动解包、备份部署文件并更新服务，保留 `.env`、数据卷和端口配置。完成后检查容器状态，并登录管理台验证模型调用：
+
+```bash
+docker compose ps
+```
+
+- `backups/` 只备份部署文件，**不包含业务数据和密钥**。
+- 使用过自定义 `COMPOSE_PROJECT_NAME` 时，升级继续使用原值；现场修改过的 Compose、Nginx 配置需在升级后核对。
+- 升级失败先检查日志；若已执行数据库迁移，仅恢复旧部署文件不能完成回滚。
+
+### 旧版升级脚本的处理
+
+当前脚本会自动使用新包中的升级程序。旧安装如果尚不支持该功能，需先将新包解压到临时目录，再用新脚本更新原安装。
+
+以下仍以原安装目录 `~/agent-manager` 为例，替换实际安装包路径：
+
+```bash
+upgrade_tmp=$(mktemp -d)
+tar -xzf /path/to/agent-manager_1.0.7_x86.tar.gz -C "$upgrade_tmp"
+bash "$upgrade_tmp/agent-manager/upgrade.sh" /path/to/agent-manager_1.0.7_x86.tar.gz --install-dir "$HOME/agent-manager"
+```
+
+`--install-dir` 指向原安装目录，不是临时解压目录。请勿将新包直接解压覆盖原安装。
+
+## 常用操作
+
+### 启动与端口
 
 | 操作 | 命令 |
 | --- | --- |
-| 停止服务 | `docker compose down` |
-| 启动服务 | `docker compose up -d` |
-| 查看后端日志 | `docker compose logs -f backend` |
-| 查看 Sandbox 日志 | `docker compose logs -f sandbox` |
+| HTTPS 启动 | `./start.sh --https` |
+| HTTP 启动 | `./start.sh --http` |
+| 自定义 HTTP 端口 | `./start.sh --http --port 8088` |
+| 延长启动等待时间 | `./start.sh --https --wait-timeout 600` |
+| 查看容器状态 | `docker compose ps` |
+| 查看后端日志 | `docker compose logs --tail=100 backend` |
+| 查看 Sandbox 日志 | `docker compose logs --tail=100 sandbox` |
 
-## 业务验收
+`--port` 范围为 1–65535，保存到 `.env` 的 `HTTP_PORT`，后续启动和升级沿用。
+HTTPS 固定使用 443，HTTP 端口用于跳转，不能设为 443。直接执行 `./start.sh` 按 HTTP 模式启动。
+默认启动等待时间为 300 秒。
 
-登录管理台后，确认页面可访问，Worker 和内部扫描服务状态正常。需要验证扫描能力时，
-先配置评估模型与获得授权的扫描目标，再提交测试任务，并记录任务状态与结果。
-容器健康只表示服务已启动，不能代替实际扫描验收。详细验收和 Worker 运维步骤见
-[Docker 部署文档](docker-deployment.md)。
+### HTTPS 自签名证书
 
-## 现场注意事项
+- **更新访问地址**：修改 `.env` 的 `TLS_HOSTS`，执行 `./start.sh --https` 重新签发。
+- **浏览器和第三方客户端**：需要信任自签名证书；信任具体叶证书的访问端在重新签发后需更新信任。
+- **证书保存**：`tls_certificates` 卷保存证书及私钥，升级时保留。运行期间自动检查和续期，请勿删除该卷。
+- **桌面客户端**：新版客户端关闭平台 HTTPS 证书验证，安装后需重启相关进程。连接仍加密，但不验证服务器身份，存在凭证泄露和响应被伪造的风险；不改变浏览器或系统的信任设置。
 
-- 版本以包内 `docker-compose.yaml` 的镜像引用和 `release-provenance.json` 为准。
-- ARM 和 x86 安装包不要混用。
-- HTTP 入口由安装目录 `.env` 的 `HTTP_PORT` 控制，首次默认 80；通过 `./start.sh --port <端口>` 保存并应用，升级继续沿用。
-- 五个 Docker 命名卷 `backend_data`、`backend_uploads`、`backend_sqlite`、`agent_manager_registry` 和 `aig_scan_jobs` 保存后端数据、上传文件、SQLite、Registry 和内部扫描任务数据。卷配置位于 `docker-compose.yaml`，现场确需修改时应记录差异，并在升级后核对。
-- 域名、TLS 证书和外部负载均衡属于 Compose 入口之外的现场网络配置，不要只修改 `.env` 后假定已经生效。
-- 脚本自动加载 `.tar.xz` 镜像；手动加载时可使用 `xz -dc ... | docker load`。
+ARM 和 x86 均在对应现场机器验证：HTTP 返回 308 并跳转到 HTTPS、HTTPS 能登录及调用 API、重启和升级后仍可用。
+可用 `curl -I http://<服务器IP>/` 和 `curl -kI https://<服务器IP>/` 检查；`-k` 仅用于连通性检查。
+
+### 模型入口运维
+
+- **修改地址或端口**：同步修改 `MODEL_GATEWAY_HTTP_PORT`、`MODEL_GATEWAY_PUBLIC_URL` 和防火墙配置。端口范围为 1–65535，不能与管理端口冲突；公开根地址不带路径、查询参数或凭证。
+- **应用配置**：执行 `./start.sh --https` 或 `./start.sh --http`，然后在新版客户端重新应用 Agent 模型配置并验证调用。现有 Agent 文件不会自动改写。
+- **关闭入口**：先将公开地址改为可用的 HTTPS 模型根地址，重启并重新应用 Agent 配置；确认调用正常后，设 `MODEL_GATEWAY_HTTP_ENABLED=false` 并再次启动。公开地址留空时使用客户端的管理连接地址。
+
+修改后优先使用启动脚本应用配置；手动操作见下节。
+
+### 手动 Compose 操作
+
+启用 HTTPS 和模型 HTTP 入口时，手动操作带上对应配置文件。例如停止服务：
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.https.yaml -f docker-compose.model-gateway.yaml --profile https down
+```
+
+按实际配置选择文件：基础 `docker-compose.yaml` 必选；管理台启用 HTTPS 时加 `docker-compose.https.yaml` 和 `--profile https`；启用模型 HTTP 入口时加 `docker-compose.model-gateway.yaml`。保留业务数据时不要加 `-v`。
+
+### 管理员密码
+
+升级沿用已有账号密码，修改 `.env` 不会重置已有账号。改密使用账号菜单或账号管理页面。
+自动生成的密码文件不会随改密更新。详见[管理员初始密码与升级](docker-deployment.md#管理员初始密码与升级)。
+
+## 故障处理
+
+| 现象 | 检查或处理 |
+| --- | --- |
+| Docker 未安装或命令不可用 | 安装 Docker，检查 PATH |
+| 无法连接 Docker | 检查 `docker info`、`docker context show`、`DOCKER_HOST` 和服务状态 |
+| 无权访问 Docker | 检查账号权限；配置 Docker 用户组后重新登录，rootless 环境检查当前用户的 socket |
+| Compose 不可用或配置无法解析 | 检查 Compose 版本及 `.env`、Compose 文件格式 |
+| 容器启动失败 | 使用上面的状态和日志命令定位失败服务 |
+| `/sbin/docker-init: permission denied` | 检查 `/usr/local/bin/docker-init`；若旧安装导致权限为 0750/0700，由管理员改为 0755；否则检查挂载限制和主机安全策略 |
+| 升级失败 | 查看错误、备份路径和容器日志；涉及数据库迁移时，不能只恢复旧 Compose 作为回滚 |
+
+## 交付检查
+
+- [ ] 实际离线环境启动成功，服务健康，管理台可登录。
+- [ ] 普通部署用户可执行 `docker info`、`docker compose version` 和 `docker compose ps`。
+- [ ] License 有效，模型调用及授权范围内的扫描业务通过。
+- [ ] 升级后配置、数据、授权和签名身份保留。
+- [ ] 业务数据备份可恢复，包括签名密钥及 `license/state.db`。
+
+共享服务器验收使用独立项目、端口、网络和数据卷，见[隔离验证](docker-deployment.md#隔离验证与已验证范围)。

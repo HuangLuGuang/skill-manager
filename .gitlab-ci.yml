@@ -71,8 +71,10 @@ deploy-35:
 
       install -m 0644 docker-compose.yaml "$DEPLOY_DIR/docker-compose.yaml"
       install -m 0644 docker-compose.https.yaml "$DEPLOY_DIR/docker-compose.https.yaml"
+      install -m 0644 docker-compose.model-gateway.yaml "$DEPLOY_DIR/docker-compose.model-gateway.yaml"
       install -d "$DEPLOY_DIR/deploy/nginx"
       install -m 0644 deploy/nginx/default.conf "$DEPLOY_DIR/deploy/nginx/default.conf"
+      install -m 0644 deploy/nginx/model-gateway.conf "$DEPLOY_DIR/deploy/nginx/model-gateway.conf"
       install -m 0644 deploy/nginx/https.sh deploy/nginx/certificates.py "$DEPLOY_DIR/deploy/nginx/"
 
       if grep -q '^TAG=' "$DEPLOY_DIR/.env"; then
@@ -83,10 +85,14 @@ deploy-35:
 
       cd "$DEPLOY_DIR"
       page_url=http://127.0.0.1/
+      export COMPOSE_FILE=docker-compose.yaml
       if grep -q '^DEPLOY_PROTOCOL=https$' .env; then
         export COMPOSE_FILE=docker-compose.yaml:docker-compose.https.yaml
         export COMPOSE_PROFILES=https
         page_url=https://127.0.0.1/
+      fi
+      if grep -q '^MODEL_GATEWAY_HTTP_ENABLED=true$' .env; then
+        export COMPOSE_FILE="$COMPOSE_FILE:docker-compose.model-gateway.yaml"
       fi
       docker compose run --rm --no-deps --pull never --entrypoint python backend -m backend.aidr_signing
       docker compose up -d --remove-orphans

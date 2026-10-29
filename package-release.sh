@@ -231,7 +231,7 @@ trap 'rm -rf "$PACKAGE_PARENT"' EXIT
 PACKAGE_DIR="${PACKAGE_PARENT}/agent-manager"
 mkdir -p "$PACKAGE_DIR/$IMAGE_DIR" "$PACKAGE_DIR/installers" \
     "$PACKAGE_DIR/deploy/nginx" "$PACKAGE_DIR/docs" "$PACKAGE_DIR/scanner/releases"
-cp docker-compose.yaml docker-compose.https.yaml .env.example release-provenance.json "$PACKAGE_DIR/"
+cp docker-compose.yaml docker-compose.https.yaml docker-compose.model-gateway.yaml .env.example release-provenance.json "$PACKAGE_DIR/"
 printf '%s\n%s\n' "$VERSION" "$PLATFORM" > "$PACKAGE_DIR/release-info"
 PACKAGE_COMPOSE="$PACKAGE_DIR/docker-compose.yaml" PACKAGE_VERSION="$VERSION" python3 - <<'PY'
 import os
@@ -243,7 +243,7 @@ PY
 cp start.sh upgrade.sh "$PACKAGE_DIR/"
 chmod +x "$PACKAGE_DIR/start.sh" "$PACKAGE_DIR/upgrade.sh"
 cp deploy/offline.sh "$PACKAGE_DIR/deploy/"
-cp deploy/nginx/default.conf deploy/nginx/https.sh deploy/nginx/certificates.py "$PACKAGE_DIR/deploy/nginx/"
+cp deploy/nginx/default.conf deploy/nginx/model-gateway.conf deploy/nginx/https.sh deploy/nginx/certificates.py "$PACKAGE_DIR/deploy/nginx/"
 cp docs/offline-deployment.md docs/docker-deployment.md docs/license.md "$PACKAGE_DIR/docs/"
 mv "$IMAGE_XZ" "$PACKAGE_DIR/$IMAGE_DIR/"
 # The bundled installer must support non-root containers even under umask 027/077.

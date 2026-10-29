@@ -2,8 +2,7 @@ export const clientOverviewMessages = {
   'zh-CN': {
     channelAttention: '通道尚未达到平台要求的运行状态，请查看采集状态与处理方法。', taskReadFailed: '任务记录读取失败，请重试', inspect: '查看处理方法', hooks: 'Hook', logs: 'Agent 日志', allAgents: '全部 Agent', day: '最近 24 小时', week: '最近 7 天', month: '最近 30 天',
     refresh: '刷新', definition: '统计口径', updated: '统计更新于 {time}', preparing: '正在准备历史统计，完成后自动显示…',
-    delayed: '统计更新延迟，当前显示上次汇总结果。', failed: '统计读取失败，请重试', retry: '重试', commands: '终端工具调用次数', tools: '工具调用次数', command_occurrences: '命令出现次数', command_occurrencesHint: '按命令文本出现次数统计', sessions: '活跃会话', failures: '宿主报告失败',
-    commandsHint: '包含已识别终端动作的调用', toolsHint: '按可靠调用标识合并', sessionsHint: '按产品与会话去重', failuresHint: '工具失败，非采集故障',
+    delayed: '统计更新延迟，当前显示上次汇总结果。', failed: '统计读取失败，请重试', retry: '重试', commands: '终端工具调用次数', tools: '工具调用次数', command_occurrences: '命令出现次数', sessions: '活跃会话', failures: '工具失败',
     trend: '工具活动趋势', otherTools: '其他工具', breakdown: '主要活动', commandRank: '命令出现 Top 5', toolRank: '工具调用 Top 5', agentRank: 'Agent 分布',
     occurrencesUnit: '单位：命令在文本中的出现次数', callsUnit: '单位：工具调用次数', occurrenceDetails: '每行对应一次工具调用，同一程序可在该调用的命令文本中出现多次。', noParsedCommands: '未解析出可确定的程序名', empty: '所选范围暂无记录', emptyHint: '可更换来源、Agent 或时间范围查看。',
     trendHint: '点击时间柱查看对应操作',
@@ -24,8 +23,7 @@ export const clientOverviewMessages = {
   'en-US': {
     channelAttention: 'The channel has not reached the requested state. Check collection status and guidance.', taskReadFailed: 'Could not load tasks. Please retry.', inspect: 'View guidance', hooks: 'Hook', logs: 'Agent logs', allAgents: 'All agents', day: 'Last 24 hours', week: 'Last 7 days', month: 'Last 30 days',
     refresh: 'Refresh', definition: 'Counting rules', updated: 'Updated at {time}', preparing: 'Preparing historical statistics; results will appear automatically…',
-    delayed: 'Statistics are delayed. Showing the last aggregated result.', failed: 'Could not load statistics. Please retry.', retry: 'Retry', commands: 'Terminal tool calls', tools: 'Tool calls', command_occurrences: 'Command occurrences', command_occurrencesHint: 'Counts of occurrences in command text', sessions: 'Active sessions', failures: 'Reported failures',
-    commandsHint: 'Calls containing identified terminal actions', toolsHint: 'Grouped by reliable call identity', sessionsHint: 'Distinct product/session identities', failuresHint: 'Tool errors, not collection failures',
+    delayed: 'Statistics are delayed. Showing the last aggregated result.', failed: 'Could not load statistics. Please retry.', retry: 'Retry', commands: 'Terminal tool calls', tools: 'Tool calls', command_occurrences: 'Command occurrences', sessions: 'Active sessions', failures: 'Tool failures',
     trend: 'Tool activity over time', otherTools: 'Other tools', breakdown: 'Activity breakdown', commandRank: 'Top 5 command occurrences', toolRank: 'Top 5 tool calls', agentRank: 'Agent distribution',
     occurrencesUnit: 'Unit: textual command occurrences', callsUnit: 'Unit: tool calls', occurrenceDetails: 'Each row is one tool call. A program can occur multiple times in its command text.', noParsedCommands: 'No resolved program names parsed', empty: 'No records in this selection', emptyHint: 'Try another source, agent or time range.',
     trendHint: 'Select a time bar to inspect operations',

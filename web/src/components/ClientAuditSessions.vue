@@ -35,7 +35,6 @@
             </a-popover>
             <span class="session-meta" :title="timestamp(selected.latest_at)">{{ agentName(selected.agent) }} · {{ shortDate(selected.latest_at) }}</span>
           </header>
-          <p class="session-identity">{{ t('aidr.session') }}: <code>{{ sessionLabel(selected) }}</code></p>
           <div class="timeline-toolbar">
             <div class="source-tabs" role="group" :aria-label="t('aidr.sessions.activity')">
               <button v-for="value in ['tools', 'hooks']" :key="value" type="button" :title="t('aidr.sessions.' + (value === 'tools' ? 'logHelp' : 'hookHelp'))" :aria-pressed="!showSkills && source === value" @click="showSkills = false; source = value">{{ t('aidr.sessions.' + (value === 'tools' ? 'logsTab' : 'hooksTab')) }} <span>{{ sourceCount(countContext(value), value) }}</span></button>
@@ -280,7 +279,6 @@ h3 { margin: 0; font-size: 16px; }
 .selected-session { flex-wrap: nowrap; gap: 6px; }
 .selected-session h3 { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; font-size: 14px; }
 .session-meta { margin-left: auto; flex-shrink: 0; font-size: 12px; color: #667085; font-variant-numeric: tabular-nums; }
-.session-identity { margin: 6px 0; font-size: 12px; color: #667085; overflow-wrap: anywhere; user-select: text; }
 .timeline-header { flex-shrink: 0; padding: 10px 14px 0; border-bottom: 1px solid #e4e8ef; }
 .timeline-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .session-info-button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; padding: 0; border: 0; background: none; color: #667085; cursor: pointer; border-radius: 4px; }

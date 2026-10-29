@@ -35,6 +35,58 @@ func TestConfigAndServiceDefinitions(t *testing.T) {
 	}
 }
 
+func TestEditSavedConnectionPreservesActiveRuntimeAndCredentials(t *testing.T) {
+	home := t.TempDir()
+	config := Config{Server: "https://active", Token: "active-token", Name: "Active", Connections: []SavedConnection{{Server: "http://saved", Token: "saved-token", Name: "Saved"}}}
+	if err := SaveConfig(home, config); err != nil {
+		t.Fatal(err)
+	}
+	if err := EditSavedConnection(home, "http://saved", SavedConnection{Server: "https://saved/", Name: "Renamed"}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadConfig(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Server != config.Server || loaded.Token != config.Token || loaded.Name != config.Name {
+		t.Fatal("active connection changed")
+	}
+	saved, ok := loaded.FindConnection("https://saved")
+	if !ok || saved.Token != "saved-token" || saved.Name != "Renamed" {
+		t.Fatal("saved connection was not updated correctly")
+	}
+	if _, ok := loaded.FindConnection("http://saved"); ok {
+		t.Fatal("old address retained")
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agent-manager", "client.db")); !os.IsNotExist(err) {
+		t.Fatal("editing touched runtime database")
+	}
+	if err := EditSavedConnection(home, "https://saved", SavedConnection{Server: "https://saved", Token: "replacement"}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _ = LoadConfig(home)
+	saved, _ = loaded.FindConnection("https://saved")
+	if saved.Token != "replacement" {
+		t.Fatal("credential not replaced")
+	}
+	before, _ := os.ReadFile(filepath.Join(home, ".agent-manager", "config.json"))
+	for _, tc := range []struct{ original, target, code string }{
+		{"https://saved", "https://active", "connection_profile_exists"},
+		{"https://active", "https://other", "connection_profile_active"},
+		{"https://missing", "https://other", "connection_profile_not_found"},
+		{"https://saved", "file:///tmp/test", "connection_address_invalid"},
+	} {
+		err := EditSavedConnection(home, tc.original, SavedConnection{Server: tc.target})
+		if err == nil || err.Error() != tc.code {
+			t.Fatalf("expected %s, got %v", tc.code, err)
+		}
+		after, _ := os.ReadFile(filepath.Join(home, ".agent-manager", "config.json"))
+		if string(after) != string(before) {
+			t.Fatal("failed edit changed config")
+		}
+	}
+}
+
 func TestWindowsServiceRegistrationUsesDirectUnicodeAction(t *testing.T) {
 	executable := `C:\Users\测试用户\AppData\Local\智能体生命周期管理系统客户端\agent-manager-client.exe`
 	home := `C:\Users\测试用户`

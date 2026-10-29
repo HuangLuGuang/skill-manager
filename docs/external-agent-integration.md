@@ -984,6 +984,11 @@ sequenceDiagram
 
 外部应用或 Agent 可以把 Agent Manager 当作 OpenAI-compatible 或 Anthropic-compatible 模型网关使用。
 
+部署设置 `MODEL_GATEWAY_PUBLIC_URL` 后，模型地址可以与管理地址分开，例如模型使用
+`http://服务器地址:8000/v1`，注册、凭证领取、MCP 和 Skill 校验仍使用管理地址。
+管理台接入指引和新版客户端模型切换使用平台发布的地址，未配置时保持原行为。
+启用步骤及明文传输边界见[模型专用 HTTP 入口](offline-deployment.md#模型专用-http-入口)。
+
 如果客户已有独立 AI 网关，客户端也可以按平台默认策略直接使用外部网关，不经过 Agent Manager 内置模型代理。Agent 注册、一次性 Key、动态 `/v1/models` 目录和 Skill 治理边界见 [外部 AI 网关接入与 Skill 治理](external-ai-gateway-integration.md)。
 
 在“智能体管理”中创建的平台 Agent 不需要客户端。选择外部 AI 网关后，平台直接注册外部身份、拉取模型目录并保存默认模型；运行时由绑定该 Agent 且包含 `model:chat` 的 Agent 运行凭证调用 `/api/v1/runtime/external-model/credential` 领取当前外部模型连接信息。

@@ -162,23 +162,13 @@
       <template v-if="selectedAsset">
         <div class="drawer-tags">
           <a-tag :color="selectedAsset.origin_type === 'platform' ? 'purple' : 'cyan'">{{ sourceText(selectedAsset) }}</a-tag>
-          <span class="muted">{{ selectedAsset.agent_id }}</span>
+          <a-tag v-if="selectedAsset.origin_type === 'platform'">{{ statusText(selectedAsset.status) }}</a-tag>
         </div>
         <div><span class="muted">{{ $t('externalAccess.registrationSource') }}</span><SourceAttribution :record="selectedAsset" details /></div>
         <template v-if="selectedAsset.origin_type === 'platform'">
-          <a-row :gutter="[10, 10]" class="drawer-summary">
-            <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.agentStatus') }}</span><strong>{{ statusText(selectedAsset.status) }}</strong></div></a-col>
-            <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.assignedSkillCount') }}</span><strong>{{ selectedAsset.skill_names?.length || 0 }}</strong></div></a-col>
-            <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.defaultModel') }}</span><strong>{{ selectedAsset.default_model || $t('agentAssets.drawer.notConfigured') }}</strong></div></a-col>
-            <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.runtimeCredential') }}</span><strong>{{ selectedAsset.runtime_token_id ? $t('agentIntegration.linkedCredential') : $t('agentAssets.drawer.notConfigured') }}</strong></div></a-col>
-          </a-row>
           <a-tabs v-model:activeKey="assetDetailTab">
             <a-tab-pane key="overview" :tab="$t('agentAssets.drawer.platformOverview')">
               <section class="detail-section">
-                <a-alert type="info" :message="$t('agentAssets.drawer.platformHint')" />
-              </section>
-              <section class="detail-section">
-                <h3>{{ $t('agentAssets.drawer.basic') }}</h3>
                 <a-descriptions bordered size="small" :column="2">
                   <a-descriptions-item :label="$t('agentAssets.drawer.platformId')">{{ selectedAsset.agent_id }}</a-descriptions-item>
                   <a-descriptions-item :label="$t('agentAssets.drawer.department')">{{ selectedAsset.department_name || '-' }}</a-descriptions-item>
@@ -912,33 +902,6 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   margin-bottom: 16px;
-}
-
-.drawer-summary {
-  margin-bottom: 12px;
-}
-
-.summary-card {
-  min-height: 74px;
-  padding: 11px 12px;
-  background: #fafbfc;
-  border: 1px solid #e6eaf0;
-  border-radius: 8px;
-}
-
-.summary-card span,
-.summary-card strong {
-  display: block;
-}
-
-.summary-card span {
-  color: #7a869a;
-  font-size: 12px;
-}
-
-.summary-card strong {
-  margin-top: 6px;
-  overflow-wrap: anywhere;
 }
 
 .detail-section {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,6 +115,46 @@ func SaveConfig(home string, config Config) error {
 		return err
 	}
 	return os.Rename(tmp, target)
+}
+
+func EditSavedConnection(home, original string, updated SavedConnection) error {
+	release, err := AcquireMutationLock(home)
+	if err != nil {
+		return err
+	}
+	defer release()
+	config, err := LoadConfig(home)
+	if err != nil {
+		return err
+	}
+	original = strings.TrimRight(strings.TrimSpace(original), "/")
+	previous, ok := config.FindConnection(original)
+	if !ok {
+		return errors.New("connection_profile_not_found")
+	}
+	if original == config.Server {
+		return errors.New("connection_profile_active")
+	}
+	updated = normalizeConnection(updated)
+	u, err := url.Parse(updated.Server)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("connection_address_invalid")
+	}
+	if updated.Server != original {
+		if _, exists := config.FindConnection(updated.Server); exists {
+			return errors.New("connection_profile_exists")
+		}
+	}
+	if updated.Token == "" {
+		updated.Token = previous.Token
+	}
+	for index := range config.Connections {
+		if config.Connections[index].Server == original {
+			config.Connections[index] = updated
+			break
+		}
+	}
+	return SaveConfig(home, config)
 }
 
 func AddCustomAgent(home, name, skillsPath string) (CustomAgentConfig, error) {

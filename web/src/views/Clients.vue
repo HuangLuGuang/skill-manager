@@ -129,7 +129,6 @@
               </div>
           <details><summary>{{ $t('agentRuntimeGovernance.presentation.policyHelp') }}</summary><p>{{ detail.classification?.enabled ? $t('clientGovernance.active') : policyDescription(currentPolicy) }}</p><p>{{ governanceDescription(currentGovernance) }}</p></details>
 
-          <p v-if="inventoryType === 'shared'" class="muted">{{ $t('clientDetail.sharedNote') }}</p>
           <a-table class="local-agents-table" :columns="visibleAgentColumns" :data-source="inventoryAgents" :row-key="row => row.local_agent_id || row.agent_type" size="small" :pagination="{ pageSize: 8, hideOnSinglePage: true }" :expandable="agentTableExpandable" :scroll="{ x: 800 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">

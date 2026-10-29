@@ -1,10 +1,10 @@
 <template>
   <div class="skill-review">
     <p>{{ t('aidr.skillUse.policy.previewHelp') }}</p>
-    <dl>
-      <template v-for="key in ['enabled', 'alerts', 'check_mode', ...skillAuditLimits.map(field => field.key)]" :key="key"><dt>{{ label(key) }}</dt><dd>{{ format(before, key) }} → {{ format(after, key) }}</dd></template>
-      <template v-for="kind in skillAlertKinds" :key="kind"><dt>{{ t('aidr.skillUse.policy.rule.' + kind) }}</dt><dd>{{ t('aidr.skillUse.policy.' + before.alert_rules[kind]) }} → {{ t('aidr.skillUse.policy.' + after.alert_rules[kind]) }}</dd></template>
-    </dl>
+    <a-descriptions :column="1" size="small">
+      <a-descriptions-item v-for="key in ['enabled', 'alerts', 'check_mode', ...skillAuditLimits.map(field => field.key)]" :key="key" :label="label(key)">{{ format(before, key) }} → {{ format(after, key) }}</a-descriptions-item>
+      <a-descriptions-item v-for="kind in skillAlertKinds" :key="kind" :label="t('aidr.skillUse.policy.rule.' + kind)">{{ t('aidr.skillUse.policy.' + before.alert_rules[kind]) }} → {{ t('aidr.skillUse.policy.' + after.alert_rules[kind]) }}</a-descriptions-item>
+    </a-descriptions>
     <p>{{ t('aidr.skillUse.policy.deliveryHelp') }}</p>
   </div>
 </template>
@@ -23,6 +23,6 @@ function format(value, key) {
 }
 </script>
 <style scoped>
-.skill-review { overflow-wrap: anywhere; } dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; } dt { color: #64748b; } dd { margin: 0; } p { font-size: 12px; color: #64748b; }
-@media(max-width: 560px) { dl { grid-template-columns: minmax(0, 1fr); gap: 6px; } dd { margin-bottom: 8px; } }
+.skill-review { overflow-wrap: anywhere; }
+p { font-size: 12px; color: #64748b; }
 </style>
