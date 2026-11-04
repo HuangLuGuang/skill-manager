@@ -61,18 +61,19 @@
     </template>
     <a-modal :z-index="1020" :width="720" wrap-class-name="aidr-policy-review" v-model:open="reviewOpen" :title="t('aidr.redactionSettings.reviewTitle')" :ok-text="t('aidr.redactionSettings.confirmSave')" :cancel-text="t('aidr.redactionSettings.cancelReview')" :confirm-loading="busy" :ok-button-props="{ disabled: busy || !editable || (requiresAcknowledgement && !acknowledged) }" :cancel-button-props="{ disabled: busy }" :closable="!busy" :mask-closable="!busy" :keyboard="!busy" @ok="save" @cancel="cancelReview">
       <template v-if="reviewTarget">
+        <p v-if="section === 'content'">{{ clientId ? t('aidr.policyNavigation.clientIdentity', { id: clientId }) : t('aidr.policyReview.globalScope') }}</p>
         <p v-if="section === 'content'">{{ t('aidr.policyReview.comparison') }}</p>
         <p v-if="clientId" class="setting-help">{{ t(reviewTarget.inherit ? 'aidr.policyNavigation.inherited' : 'aidr.policyNavigation.clientScope') }}</p>
         <SkillAuditPolicyReview v-if="section === 'skill'" :current="policy.skill_audit" :target="reviewTarget.skill_audit" />
         <a-descriptions v-if="section === 'content'" :column="1" size="small">
-          <a-descriptions-item :label="t('aidr.policyNavigation.redaction')">{{ t(policy.enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }} → {{ t(reviewTarget.enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }}</a-descriptions-item>
-          <a-descriptions-item :label="t('aidr.lifecycle.collection')">{{ t((policy.lifecycle?.enabled ?? true) ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }} → {{ t(reviewTarget.lifecycle.enabled ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }}</a-descriptions-item>
-          <a-descriptions-item v-for="kind in scopeKinds" :key="kind" :label="t('aidr.content.kinds.' + kind)">{{ t((policy.capture?.[kind] ?? false) ? 'aidr.redactionSettings.collect' : 'aidr.redactionSettings.doNotCollect') }} → {{ t(reviewTarget.capture[kind] ? 'aidr.redactionSettings.collect' : 'aidr.redactionSettings.doNotCollect') }}</a-descriptions-item>
-          <a-descriptions-item :label="t('aidr.lifecycle.retention')">{{ policy.lifecycle?.retention_days ?? 7 }} → {{ reviewTarget.lifecycle.retention_days }}</a-descriptions-item>
-          <a-descriptions-item v-for="(fallback, key) in limitDefaults" :key="key" :label="t(key === 'max_fragment_bytes' ? 'aidr.content.fragmentLimit' : 'aidr.content.eventLimit')">{{ policy.capture?.[key] ?? fallback }} → {{ reviewTarget.capture[key] }}</a-descriptions-item>
+          <a-descriptions-item v-if="policy.enabled !== reviewTarget.enabled" :label="t('aidr.policyNavigation.redaction')">{{ t(policy.enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }} → {{ t(reviewTarget.enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }}</a-descriptions-item>
+          <a-descriptions-item v-if="(policy.lifecycle?.enabled ?? true) !== reviewTarget.lifecycle.enabled" :label="t('aidr.lifecycle.collection')">{{ t((policy.lifecycle?.enabled ?? true) ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }} → {{ t(reviewTarget.lifecycle.enabled ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }}</a-descriptions-item>
+          <a-descriptions-item v-for="kind in changedKinds" :key="kind" :label="t('aidr.content.kinds.' + kind)">{{ t((policy.capture?.[kind] ?? false) ? 'aidr.redactionSettings.collect' : 'aidr.redactionSettings.doNotCollect') }} → {{ t(reviewTarget.capture[kind] ? 'aidr.redactionSettings.collect' : 'aidr.redactionSettings.doNotCollect') }}</a-descriptions-item>
+          <a-descriptions-item v-if="(policy.lifecycle?.retention_days ?? 7) !== reviewTarget.lifecycle.retention_days" :label="t('aidr.lifecycle.retention')">{{ policy.lifecycle?.retention_days ?? 7 }} → {{ reviewTarget.lifecycle.retention_days }}</a-descriptions-item>
+          <a-descriptions-item v-for="[key, fallback] in changedLimits" :key="key" :label="t(key === 'max_fragment_bytes' ? 'aidr.content.fragmentLimit' : 'aidr.content.eventLimit')">{{ policy.capture?.[key] ?? fallback }} → {{ reviewTarget.capture[key] ?? fallback }}</a-descriptions-item>
         </a-descriptions>
         <p v-if="section === 'content'" class="setting-help">{{ t('aidr.policyReview.contentEffect') }}</p>
-        <a-alert v-if="requiresAcknowledgement" type="warning" show-icon :message="t('aidr.policyReview.risk')" />
+        <a-alert v-if="requiresAcknowledgement" type="warning" show-icon :message="riskKeys.map(key => t('aidr.policyReview.' + key)).join(' ')" />
         <a-checkbox v-if="requiresAcknowledgement" v-model:checked="acknowledged" :disabled="busy" style="margin-top: 12px">{{ t('aidr.policyReview.acknowledge') }}</a-checkbox>
       </template>
     </a-modal>
@@ -98,7 +99,7 @@ const policy = ref({ enabled: true, version: '1' }), enabled = ref(true)
 const fieldsDisabled = computed(() => busy.value || !editable.value || (!!props.clientId && inherit.value))
 const scopeKinds = ['prompt', 'model_response', 'tool_output', 'file_body', 'command_body']
 const limitDefaults = { max_fragment_bytes: 1024, max_event_bytes: 2048 }
-const capture = ref({ prompt: false, model_response: false, tool_output: false, file_body: false })
+const capture = ref({})
 const skillAudit = ref(normalizeSkillAudit())
 const lifecycle = ref({ enabled: true, retention_days: 7 })
 const captureDisabled = computed(() => fieldsDisabled.value || !lifecycle.value.enabled)
@@ -111,12 +112,17 @@ const loading = ref(false), failed = ref(false), saveFailed = ref(false), busy =
 const reviewOpen = ref(false), reviewTarget = ref(null), acknowledged = ref(false)
 const canReview = computed(() => !busy.value && !loading.value && !failed.value && !reviewOpen.value && editable.value && changed.value)
 defineExpose({ editable, canReview, busy, reviewOpen, review })
-const requiresAcknowledgement = computed(() => props.section === 'content' && reviewTarget.value && (
-  (policy.value.enabled && !reviewTarget.value.enabled) ||
-  scopeKinds.some(kind => reviewTarget.value.capture[kind] && !(policy.value.capture?.[kind] ?? false)) ||
-  Object.entries(limitDefaults).some(([key, fallback]) => reviewTarget.value.capture[key] > (policy.value.capture?.[key] ?? fallback)) ||
-  reviewTarget.value.lifecycle.retention_days < (policy.value.lifecycle?.retention_days ?? 7)
-))
+const changedKinds = computed(() => scopeKinds.filter(kind => (policy.value.capture?.[kind] ?? false) !== (reviewTarget.value.capture[kind] ?? false)))
+const changedLimits = computed(() => Object.entries(limitDefaults).filter(([key, fallback]) => (policy.value.capture?.[key] ?? fallback) !== (reviewTarget.value.capture[key] ?? fallback)))
+const riskKeys = computed(() => {
+  if (props.section !== 'content' || !reviewTarget.value) return []
+  const target = reviewTarget.value, risks = []
+  if (policy.value.enabled && !target.enabled) risks.push('redactionOff')
+  if (changedKinds.value.some(kind => target.capture[kind]) || changedLimits.value.some(([key, fallback]) => (target.capture[key] ?? fallback) > (policy.value.capture?.[key] ?? fallback))) risks.push('expanded')
+  if (target.lifecycle.retention_days < (policy.value.lifecycle?.retention_days ?? 7)) risks.push('shorterRetention')
+  return risks
+})
+const requiresAcknowledgement = computed(() => riskKeys.value.length > 0)
 let mounted = true
 onMounted(load)
 onBeforeUnmount(() => { mounted = false; reviewOpen.value = false; reviewTarget.value = null })

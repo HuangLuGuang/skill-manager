@@ -13,7 +13,8 @@ from tests.test_aidr_redaction import behavior
 def test_command_capture_default_and_explicit_disable_survive_reload(policies):
     client, factory, _ = policies
     initial = client.get(GLOBAL).json()
-    assert initial['capture']['command_body'] is True
+    assert initial['capture'] == dict(prompt=True, model_response=True, tool_output=False, file_body=True, command_body=True)
+    assert client.get(LOCAL).json()['capture'] == initial['capture']
     disabled = client.put(GLOBAL, json=dict(version=initial['version'], enabled=True,
                           capture={**initial['capture'], 'command_body': False})).json()
     assert disabled['capture']['command_body'] is False

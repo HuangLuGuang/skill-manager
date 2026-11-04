@@ -2,8 +2,8 @@
   <div class="skill-review">
     <p>{{ t('aidr.skillUse.policy.previewHelp') }}</p>
     <a-descriptions :column="1" size="small">
-      <a-descriptions-item v-for="key in ['enabled', 'alerts', 'check_mode', ...skillAuditLimits.map(field => field.key)]" :key="key" :label="label(key)">{{ format(before, key) }} → {{ format(after, key) }}</a-descriptions-item>
-      <a-descriptions-item v-for="kind in skillAlertKinds" :key="kind" :label="t('aidr.skillUse.policy.rule.' + kind)">{{ t('aidr.skillUse.policy.' + before.alert_rules[kind]) }} → {{ t('aidr.skillUse.policy.' + after.alert_rules[kind]) }}</a-descriptions-item>
+      <a-descriptions-item v-for="key in changedFields" :key="key" :label="label(key)">{{ format(before, key) }} → {{ format(after, key) }}</a-descriptions-item>
+      <a-descriptions-item v-for="kind in changedRules" :key="kind" :label="t('aidr.skillUse.policy.rule.' + kind)">{{ t('aidr.skillUse.policy.' + before.alert_rules[kind]) }} → {{ t('aidr.skillUse.policy.' + after.alert_rules[kind]) }}</a-descriptions-item>
     </a-descriptions>
     <p>{{ t('aidr.skillUse.policy.deliveryHelp') }}</p>
   </div>
@@ -15,6 +15,8 @@ import { normalizeSkillAudit, skillAuditLimits, skillAlertKinds } from '../skill
 const props = defineProps({ current: Object, target: Object })
 const { t } = useI18n()
 const before = computed(() => normalizeSkillAudit(props.current)), after = computed(() => normalizeSkillAudit(props.target))
+const changedFields = computed(() => ['enabled', 'alerts', 'check_mode', ...skillAuditLimits.map(field => field.key)].filter(key => before.value[key] !== after.value[key]))
+const changedRules = computed(() => skillAlertKinds.filter(kind => before.value.alert_rules[kind] !== after.value.alert_rules[kind]))
 const label = key => t(['enabled', 'alerts'].includes(key) ? 'aidr.skillUse.' + key : 'aidr.skillUse.policy.' + key)
 function format(value, key) {
   if (['enabled', 'alerts'].includes(key)) return t(value[key] ? 'aidr.skillUse.policy.on' : 'aidr.skillUse.policy.off')

@@ -7,8 +7,9 @@ export const aidrMessages = {
   'zh-CN': {
     commandParsing: commandParsingMessages['zh-CN'],
     policyReview: {
+      globalScope: '影响范围：继承全局采集内容与脱敏策略的客户端。',
       comparison: '当前配置 → 本次配置',
-      risk: '扩大采集范围或上限可能保存更多敏感内容；关闭脱敏可能保存真实凭证。缩短保留期限会清理到期历史，已清理内容无法恢复。',
+      redactionOff: '关闭脱敏可能保存真实凭证。', expanded: '扩大采集范围或上限可能保存更多敏感内容。', shorterRetention: '缩短保留期限会清理到期历史，已清理内容无法恢复。',
       contentEffect: '客户端同步后应用于后续采集；待发批次沿用原策略。历史正文不改写，已脱敏内容无法恢复。',
       acknowledge: '我已了解上述风险并确认保存。',
     },
@@ -39,7 +40,7 @@ export const aidrMessages = {
     },
     content: {
       scopeTitle: '正文采集范围', kinds: { command_body: '命令正文（脚本 / HereDoc）', model_response: '模型回复（过程与最终）', prompt: '用户输入（Prompt）', tool_output: '工具输出', file_body: '文件正文' },
-      scopeWarning: '各项默认关闭，仅影响后续采集。开启后，来源明确提供的内容片段可进入本地与平台；不会读取业务文件补全。脱敏为独立开关，关闭脱敏可能保存原文秘密。',
+      scopeWarning: '默认采集用户输入、模型回复、文件正文和命令正文，工具输出默认关闭。开启后，来源明确提供的内容片段可进入本地与平台；不会读取业务文件补全。脱敏为独立开关，关闭脱敏可能保存原文秘密。',
       support: '用户输入来自会话日志或 UserPromptSubmit Hook；模型回复来自更新后客户端读取的会话日志，区分过程回复、最终回复及阶段未标注。日志内容不等同于完整模型 API 请求；工具输出、文件正文与命令正文单独控制。命令正文保留日志或 Hook 中已有的 Shell 命令、HereDoc 和脚本包装代码，不执行代码或额外读取业务文件。',
       limits: '每事件最多 4 个正文片段，先脱敏再按下方 UTF-8 字节上限截断。',
       fragmentLimit: '单片段上限（字节）', eventLimit: '单事件总上限（字节）',
@@ -181,8 +182,9 @@ export const aidrMessages = {
   'en-US': {
     commandParsing: commandParsingMessages['en-US'],
     policyReview: {
+      globalScope: 'Applies to clients that inherit global content collection and redaction settings.',
       comparison: 'Current configuration → proposed configuration',
-      risk: 'Expanding collection scope or limits may store more sensitive content. Disabling redaction may store real credentials. Shortening retention removes expired history, which cannot be restored.',
+      redactionOff: 'Disabling redaction may store real credentials.', expanded: 'Expanding collection scope or limits may store more sensitive content.', shorterRetention: 'Shortening retention removes expired history permanently.',
       contentEffect: 'Applies to future collection after client sync. Pending batches retain their original policy. Historical content is not rewritten; redacted content cannot be restored.',
       acknowledge: 'I understand these risks and confirm saving.',
     },
@@ -213,7 +215,7 @@ export const aidrMessages = {
     },
     content: {
       scopeTitle: 'Content to collect', kinds: { command_body: 'Command body (scripts / HereDoc)', model_response: 'Model replies (progress and final)', prompt: 'User input (Prompt)', tool_output: 'Tool output', file_body: 'File body' },
-      scopeWarning: 'All options default to off and apply only to subsequent collection. Explicit source fragments may enter local and platform storage. Business files are not read to fill gaps. Redaction is independent; disabling it may retain original secrets.',
+      scopeWarning: 'User input, model responses, file content and command bodies are collected by default. Tool output is off by default. Explicit source fragments may enter local and platform storage. Business files are not read to fill gaps. Redaction is independent; disabling it may retain original secrets.',
       support: 'User input comes from session logs or UserPromptSubmit Hooks. Updated clients collect model replies from session logs and distinguish progress, final and unspecified phases. Logs are not complete model API requests. Tool output, file content and command bodies have separate controls. Command bodies retain shell commands, HereDocs and wrapper code already present in logs or Hooks; collection does not execute code or read additional business files.',
       limits: 'At most 4 body fragments per event. Redaction precedes truncation to the UTF-8 byte limits below.',
       fragmentLimit: 'Per-fragment limit (bytes)', eventLimit: 'Total per-event limit (bytes)',
