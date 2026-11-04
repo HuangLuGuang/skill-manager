@@ -1,4 +1,5 @@
 from pathlib import Path
+import base64
 from agent_manager.core.sandbox import (
     RemoteSandboxRunner,
     SandboxConfig,
@@ -8,7 +9,64 @@ from agent_manager.core.sandbox import (
     extract_markdown_command_probes,
     get_sandbox_runner,
     write_markdown_command_probe_scripts,
+    _collect_remote_sandbox_files,
 )
+
+
+def test_remote_collection_preserves_binary_and_text(tmp_path):
+    binary = b"\x80\x04\xff\x00\r\n"
+    (tmp_path / "uploaded.pkl").write_bytes(binary)
+    (tmp_path / "text.txt").write_bytes("中文\r\n".encode())
+    files = {item.path: item for item in _collect_remote_sandbox_files(tmp_path)}
+    assert files["uploaded.pkl"].encoding == "base64"
+    assert base64.b64decode(files["uploaded.pkl"].content) == binary
+    assert files["text.txt"].encoding == "utf-8"
+    assert files["text.txt"].content.encode() == "中文\r\n".encode()
+
+
+def test_remote_runner_checks_binary_support_and_waits_for_execution_timeout(tmp_path, monkeypatch):
+    (tmp_path / "run.py").write_text("pass")
+    (tmp_path / "uploaded.pkl").write_bytes(b"\x80\x04")
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"file_encodings": ["utf-8", "base64"], "timed_out": True, "exit_code": 137, "message": "stopped"}
+
+    def post(*args, **kwargs):
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("agent_manager.core.sandbox.httpx.get", lambda *args, **kwargs: Response())
+    monkeypatch.setattr("agent_manager.core.sandbox.httpx.post", post)
+    result = RemoteSandboxRunner(SandboxConfig(runtime="remote", remote_url="http://sandbox.local", timeout_seconds=3)).run_probe(tmp_path, "run.py")
+    assert captured["json"]["timeout_seconds"] == 3
+    assert captured["timeout"] > 5
+    assert result.executed and result.timed_out and result.exit_code == 137
+
+
+def test_remote_runner_does_not_send_binary_to_unsupported_service(tmp_path, monkeypatch):
+    (tmp_path / "run.py").write_text("pass")
+    (tmp_path / "uploaded.pkl").write_bytes(b"\x80\x04")
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"status": "ok"}
+
+    def unexpected_post(*args, **kwargs):
+        raise AssertionError("binary input sent to unsupported service")
+
+    monkeypatch.setattr("agent_manager.core.sandbox.httpx.get", lambda *args, **kwargs: Response())
+    monkeypatch.setattr("agent_manager.core.sandbox.httpx.post", unexpected_post)
+    result = RemoteSandboxRunner(SandboxConfig(runtime="remote", remote_url="http://sandbox.local")).run_probe(tmp_path, "run.py")
+    assert not result.executed
+    assert "support base64" in result.reason
 
 
 def test_discover_probe_entrypoint_prefers_scripts_directory(tmp_path):

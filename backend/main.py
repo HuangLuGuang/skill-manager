@@ -284,6 +284,8 @@ async def append_admin_security_audit(request, call_next):
 
 
 def ensure_sqlite_schema() -> None:
+    from .dify_runtime_migration import upgrade_dify_runtime_schema
+    upgrade_dify_runtime_schema(engine)
     from .external_access_models import upgrade_external_access_schema
     upgrade_external_access_schema(engine)
     Base.metadata.create_all(bind=engine)
@@ -408,6 +410,10 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_business_scope TEXT NOT NULL DEFAULT ''")
         if "prompt_guard_llm_review" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_llm_review BOOLEAN NOT NULL DEFAULT 0")
+        runtime_action_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(runtime_actions)").fetchall()}
+        for column in ("estimated_cost_microunits", "estimated_data_bytes"):
+            if runtime_action_columns and column not in runtime_action_columns:
+                conn.exec_driver_sql(f"ALTER TABLE runtime_actions ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
         runtime_task_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(runtime_tasks)").fetchall()}
         if runtime_task_columns and "trace_id" not in runtime_task_columns:
             conn.exec_driver_sql("ALTER TABLE runtime_tasks ADD COLUMN trace_id VARCHAR(64)")

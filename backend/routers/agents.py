@@ -50,7 +50,8 @@ def _agent_response(db: Session, row: models.ManagedAgent) -> schemas.ManagedAge
     )
     gateway = db.get(models.ExternalAIGateway, row.external_gateway_id) if row.external_gateway_id else None
     platform = db.get(models.ExternalPlatform, row.source_platform_id) if row.source_platform_id else None
-    return _present_agent(row, runtime_token, _department_name(db, row.department_group_id), gateway.name if gateway else None, platform.name if platform else None)
+    dify = db.query(models.DifyRuntimeBinding).filter_by(agent_id=row.agent_id).first()
+    return _present_agent(row, runtime_token, _department_name(db, row.department_group_id), gateway.name if gateway else None, platform.name if platform else None, dify)
 
 
 def _agent_responses(db: Session, rows):
@@ -70,13 +71,16 @@ def _agent_responses(db: Session, rows):
         platform_ids = {row.source_platform_id for row in part if row.source_platform_id}
         platforms = dict(db.query(models.ExternalPlatform.platform_id, models.ExternalPlatform.name).filter(
             models.ExternalPlatform.platform_id.in_(platform_ids)).all()) if platform_ids else {}
+        dify_bindings = {b.agent_id: b for b in db.query(models.DifyRuntimeBinding).filter(
+            models.DifyRuntimeBinding.agent_id.in_([row.agent_id for row in part]))}
         results.extend(_present_agent(row, tokens.get(row.agent_id), departments.get(row.department_group_id),
-                                      gateways.get(row.external_gateway_id), platforms.get(row.source_platform_id)) for row in part)
+                                      gateways.get(row.external_gateway_id), platforms.get(row.source_platform_id), dify_bindings.get(row.agent_id)) for row in part)
     return results
 
 
-def _present_agent(row, runtime_token, department_name, gateway_name, platform_name=None):
+def _present_agent(row, runtime_token, department_name, gateway_name, platform_name=None, dify=None):
     return schemas.ManagedAgentResponse(
+        dify={k: getattr(dify, k) for k in ("instance_id", "workspace_id", "app_id")} if dify else None,
         **{name: getattr(row, name) for name in schemas.RegistrationSource.model_fields},
         source_platform_name=platform_name,
         id=row.id,
@@ -315,6 +319,7 @@ def _asset_rows(db: Session, current_user: models.User) -> list[schemas.AgentAss
                 asset_key=f"managed:{managed.id}",
                 managed_agent_pk=managed.id,
                 agent_id=response.agent_id,
+                dify=response.dify,
                 name=response.name,
                 origin_type=response.origin_type,
                 **{name: getattr(response, name) for name in schemas.RegistrationSource.model_fields},
@@ -588,6 +593,10 @@ async def create_agent(
         created_by=current_user.username,
     )
     db.add(row)
+    if body.dify:
+        from .dify_runtime import register_application
+        db.flush()
+        register_application(db, row, body.dify, current_user)
     db.commit()
     db.refresh(row)
     return _agent_response(db, row)
@@ -604,6 +613,12 @@ async def update_agent(
     if not row:
         raise HTTPException(status_code=404, detail="智能体不存在")
     data = body.model_dump(exclude_unset=True)
+    dify_identity = data.pop("dify", None)
+    dify_binding = db.query(models.DifyRuntimeBinding).filter_by(agent_id=row.agent_id).first()
+    if dify_binding and data.get("agent_id", row.agent_id) != row.agent_id:
+        raise ApiError(409, "agent.dify_identity_bound", "智能体已绑定 Dify 应用，不能修改 ID", "The Agent ID is bound to a Dify application")
+    if "dify" in body.model_fields_set and body.dify is None and dify_binding:
+        raise ApiError(409, "agent.dify_identity_bound", "请保留已绑定的 Dify 应用身份", "Keep the bound Dify application identity")
     if "department_group_id" in data:
         _ensure_department(db, data["department_group_id"])
     if row.origin_type == "client_discovery":
@@ -660,6 +675,11 @@ async def update_agent(
         keep_gateway_id=gateway_id if source == "external_gateway" else None,
     )
     row.updated_at = datetime.utcnow()
+    if dify_identity:
+        from .dify_runtime import register_application
+        if row.origin_type != "platform":
+            raise ApiError(409, "agent.client_identity_immutable", "客户端智能体身份不能修改", "Client Agent identity cannot be changed")
+        register_application(db, row, body.dify, current_user)
     db.commit()
     db.refresh(row)
     return _agent_response(db, row)
@@ -711,6 +731,12 @@ async def delete_agent(
             "该智能体由客户端自动登记，请在所属客户端管理本机 Agent",
             "This Agent is registered automatically and managed by its Client",
         )
+    dify_binding = db.query(models.DifyRuntimeBinding).filter_by(agent_id=row.agent_id).first()
+    if dify_binding and (
+        db.query(models.DifyRuntimeRun).filter_by(binding_id=dify_binding.binding_id).first()
+        or db.query(models.DifyRuntimeProcess).filter_by(binding_id=dify_binding.binding_id).first()
+    ):
+        raise ApiError(409, "agent.dify_identity_bound", "智能体仍绑定 Dify 运行记录，请停用智能体以保留历史记录", "Disable the Agent to retain its bound Dify runtime history")
     if db.query(models.AccessToken).filter(models.AccessToken.bound_agent_id == row.agent_id).first():
         raise ApiError(
             409,
@@ -718,6 +744,9 @@ async def delete_agent(
             "智能体仍绑定接入凭证，请先吊销并删除相关凭证",
             "Revoke and delete credentials bound to this Agent before deleting it",
         )
+    if dify_binding:
+        db.delete(dify_binding)
+        db.flush()
     bindings = db.query(models.ExternalGatewayAgentBinding).filter_by(managed_agent_id=row.agent_id).all()
     for binding in bindings:
         if binding.status != "deleted":

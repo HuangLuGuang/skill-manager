@@ -1,12 +1,13 @@
 <template>
   <div :class="{ 'agent-workspace-page': workspaceAsset }">
-    <AgentDiscoveredWorkspace v-if="workspaceAsset" :key="workspaceAsset.asset_key" :asset="workspaceAsset" :initial-client="route.query.client" :initial-local-id="route.query.local" @back="closeWorkspace" />
+    <DifyRuntimePanel v-if="workspaceAsset?.dify" :key="workspaceAsset.agent_id" :agent-id="workspaceAsset.agent_id" :asset="workspaceAsset" @back="closeWorkspace" @edit="openAgent(workspaceAsset)" />
+    <AgentDiscoveredWorkspace v-else-if="workspaceAsset" :key="workspaceAsset.asset_key" :asset="workspaceAsset" :initial-client="route.query.client" :initial-local-id="route.query.local" @back="closeWorkspace" />
     <a-card v-else class="page-card agent-list-card">
       <template #title>
         <a-page-header :title="$t('legacy.5chjsa')" :sub-title="$t('agentAssets.subtitle')">
           <template #extra>
             <a-button v-if="pageAllowed('/runtime')" @click="router.push('/runtime')">{{ $t('agentIntegration.choose') }}</a-button>
-            <a-button v-if="hasAccess('agents:create')" type="primary" :loading="optionsLoading" :disabled="optionsLoading" @click="openAgent()">{{ $t('agentIntegration.register') }}</a-button>
+            <a-button v-if="hasAccess('agents:create')" type="primary" @click="openAgent()">{{ $t('agentIntegration.register') }}</a-button>
           </template>
         </a-page-header>
       </template>
@@ -52,7 +53,7 @@
           <a-button @click="resetFilters" :disabled="loading">{{ $t("legacy.1wq9feq") }}</a-button>
         </div>
 
-        <a-table class="agent-asset-table" :data-source="agents" :columns="columns" :show-sorter-tooltip="false" :scroll="{ x: 1940 }" rowKey="asset_key" :loading="loading || optionsLoading || detailLoading" :pagination="{ pageSize: 10, showSizeChanger: true }">
+        <a-table class="agent-asset-table" :data-source="agents" :columns="columns" :show-sorter-tooltip="false" :scroll="{ x: 1940 }" rowKey="asset_key" :loading="loading || detailLoading" :pagination="{ pageSize: 10, showSizeChanger: true }">
           <template #headerCell="{ column }">
             <span v-if="column.key === 'risk'">{{ column.title }} <a-tooltip :title="$t('aidrRisk.assets.scopeHelp')"><InfoCircleOutlined tabindex="0" :aria-label="$t('aidrRisk.assets.scopeHelp')" /></a-tooltip></span>
             <span v-else-if="column.sortHelp" class="asset-sort-heading">
@@ -66,7 +67,7 @@
           <template #emptyText>
             <div class="source-empty">
               <p>{{ $t(sourceEmptyKey) }}</p>
-              <a-button v-if="sourceEmptyKey === 'agentIntegration.emptyPlatform' && hasAccess('agents:create')" type="primary" :loading="optionsLoading" :disabled="optionsLoading" @click="openAgent()">{{ $t('agentIntegration.register') }}</a-button>
+              <a-button v-if="sourceEmptyKey === 'agentIntegration.emptyPlatform' && hasAccess('agents:create')" type="primary" @click="openAgent()">{{ $t('agentIntegration.register') }}</a-button>
               <a-button v-if="sourceEmptyKey === 'agentIntegration.emptyClient' && pageAllowed('/clients')" type="primary" @click="router.push('/clients')">{{ $t('agentIntegration.client.open') }}</a-button>
             </div>
           </template>
@@ -76,6 +77,7 @@
                 <div class="agent-mark" :class="{ client: record.origin_type === 'client_discovery' }"><AgentProductLogo v-if="record.origin_type === 'client_discovery'" :product-id="record.instances?.[0]?.agent_type || record.channel || ''" /><template v-else>{{ agentInitials(record) }}</template></div>
                 <div>
                   <div class="agent-name">{{ record.name }}</div>
+                  <a-tag v-if="record.dify">Dify</a-tag>
                   <div v-if="record.origin_type === 'platform'" class="muted">{{ record.agent_id }}</div>
                 </div>
               </div>
@@ -152,7 +154,7 @@
       </div>
     </a-modal>
 
-    <a-drawer v-model:open="assetVisible" :width="760" :title="selectedAsset?.name || $t('agentAssets.detail')">
+    <a-drawer v-model:open="assetVisible" width="min(760px, 100vw)" :title="selectedAsset?.name || $t('agentAssets.detail')">
       <template #extra>
         <a-space wrap>
           <a-button v-if="selectedAsset?.origin_type === 'platform' && pageAllowed('/runtime')" @click="openGuide(selectedAsset)">{{ $t('agentIntegration.guide') }}</a-button>
@@ -171,6 +173,7 @@
               <section class="detail-section">
                 <a-descriptions bordered size="small" :column="2">
                   <a-descriptions-item :label="$t('agentAssets.drawer.platformId')">{{ selectedAsset.agent_id }}</a-descriptions-item>
+                  <a-descriptions-item :label="$t('difyRuntime.integrationType')">{{ selectedAsset.dify ? 'Dify' : $t('difyRuntime.custom') }}</a-descriptions-item>
                   <a-descriptions-item :label="$t('agentAssets.drawer.department')">{{ selectedAsset.department_name || '-' }}</a-descriptions-item>
                   <a-descriptions-item :label="$t('agentAssets.drawer.owner')">{{ selectedAsset.owner || '-' }}</a-descriptions-item>
                   <a-descriptions-item :label="$t('agentAssets.drawer.createdAt')">{{ selectedAsset.created_at ? formatDateTime(selectedAsset.created_at) : '-' }}</a-descriptions-item>
@@ -213,10 +216,25 @@
     </a-drawer>
 
     <a-modal v-model:open="agentVisible" wrap-class-name="agent-registration-modal" :title="editingAgentId && !createdDraft ? $t('legacy.1k1efeu') : $t('agentIntegration.registerTitle')" width="760px" :mask-closable="!createdDraft && !submitting && !preparingExternal" :closable="!submitting && !preparingExternal" :keyboard="!submitting && !preparingExternal" :cancel-button-props="{ disabled: submitting || preparingExternal }" :ok-button-props="{ disabled: submitting || preparingExternal }" :ok-text="pageAllowed('/runtime') ? $t('agentIntegration.saveAndGuide') : undefined" @ok="saveAgent" @cancel="cancelAgentModal" :confirm-loading="submitting">
-      <a-alert type="info" show-icon :message="$t('agentIntegration.form.intro')" />
-      <a-button v-if="pageAllowed('/runtime')" type="link" class="local-guide-link" @click="openClientGuide">{{ $t('agentIntegration.form.local') }}</a-button>
+      <a-alert type="info" show-icon :message="$t(integrationType === 'dify' ? 'difyRuntime.registrationHelp' : 'agentIntegration.form.intro')" />
+      <a-button v-if="integrationType !== 'dify' && pageAllowed('/runtime')" type="link" class="local-guide-link" @click="openClientGuide">{{ $t('agentIntegration.form.local') }}</a-button>
       <a-form layout="vertical" :model="agentForm" :disabled="submitting || preparingExternal">
         <h3>{{ $t('agentIntegration.form.basic') }}</h3>
+        <a-form-item :label="$t('difyRuntime.integrationType')">
+          <a-select v-model:value="integrationType" :disabled="!!editingAgentId">
+            <a-select-option value="custom">{{ $t('difyRuntime.custom') }}</a-select-option>
+            <a-select-option value="dify">Dify</a-select-option>
+          </a-select>
+        </a-form-item>
+        <template v-if="integrationType === 'dify'">
+          <a-row :gutter="16">
+            <a-col v-for="field in ['instance_id', 'workspace_id', 'app_id']" :key="field" :xs="24" :md="field === 'instance_id' ? 24 : 12">
+              <a-form-item :label="$t(`difyRuntime.${field}`)" required>
+                <a-input v-model:value="difyForm[field]" :disabled="!!editingAgentId" :maxlength="128" />
+              </a-form-item>
+            </a-col>
+          </a-row>
+        </template>
         <a-row :gutter="16">
           <a-col :xs="24" :md="12">
             <a-form-item label="Agent ID" required :extra="$t('agentIntegration.form.idHelp')">
@@ -269,6 +287,7 @@
             </a-form-item>
           </a-col>
         </a-row>
+        <template v-if="integrationType !== 'dify'">
         <a-divider />
         <h3>{{ $t('agentIntegration.form.model') }}</h3>
         <p class="field-hint">{{ $t('agentIntegration.form.modelHelp') }}</p>
@@ -280,8 +299,8 @@
         </a-form-item>
         <template v-if="agentForm.default_model_source === 'external_gateway'">
           <a-form-item :label="$t('externalModel.gatewaySelect')" required>
-            <a-select v-model:value="agentForm.external_gateway_id" :disabled="preparingExternal || createdDraft" @change="handleGatewayChange">
-              <a-select-option v-for="gateway in externalGateways" :key="gateway.id" :value="gateway.id">{{ gateway.name }}</a-select-option>
+            <a-select :loading="optionState.gateways === 'loading'" @dropdownVisibleChange="open => open && loadFormOption('gateways')" v-model:value="agentForm.external_gateway_id" :disabled="preparingExternal || createdDraft" @change="handleGatewayChange">
+              <a-select-option v-for="gateway in selectableGateways" :key="gateway.id" :value="gateway.id" :disabled="gateway.disabled">{{ gateway.name }}</a-select-option>
             </a-select>
           </a-form-item>
           <a-alert type="info" show-icon :message="$t('externalModel.platformPrepareHint')" style="margin-bottom: 12px" />
@@ -293,7 +312,7 @@
           </div>
         </template>
         <a-form-item :label="$t('legacy.9tnz09')" :required="agentForm.default_model_source === 'external_gateway'">
-          <a-select v-model:value="agentForm.default_model" allow-clear show-search :disabled="agentForm.default_model_source === 'external_gateway' && !externalModels.length" :placeholder="$t(agentForm.default_model_source === 'external_gateway' && !externalModels.length ? 'externalModel.selectAfterRefresh' : 'legacy.13jl62z')">
+          <a-select :loading="optionState.models === 'loading'" @dropdownVisibleChange="open => open && agentForm.default_model_source === 'internal' && loadFormOption('models')" v-model:value="agentForm.default_model" allow-clear show-search :disabled="agentForm.default_model_source === 'external_gateway' && !externalModels.length" :placeholder="$t(agentForm.default_model_source === 'external_gateway' && !externalModels.length ? 'externalModel.selectAfterRefresh' : 'legacy.13jl62z')">
             <a-select-option v-for="model in selectableModels" :key="model.name || model.id" :value="model.name || model.id">
               {{ modelLabel(model) }}
             </a-select-option>
@@ -304,6 +323,8 @@
         <a-form-item :label="$t('legacy.zdumf2')">
           <a-select
             v-model:value="agentForm.skill_refs"
+            :loading="optionState.skills === 'loading'"
+            @dropdownVisibleChange="open => open && loadFormOption('skills')"
             mode="multiple"
             show-search
             allow-clear
@@ -328,6 +349,7 @@
           <AgentMcpGateways v-model="agentForm.allowed_mcp_gateways" :disabled="submitting || preparingExternal" />
           <p class="field-hint">{{ $t('agentMcp.scope') }}</p>
         </a-form-item>
+        </template>
         <a-form-item :label="$t('legacy.1kxyax6')">
           <a-textarea v-model:value="agentForm.description" :rows="3" :placeholder="$t('legacy.1zcrx6')" />
         </a-form-item>
@@ -350,6 +372,7 @@ import AgentDiscoveredWorkspace from '../components/AgentDiscoveredWorkspace.vue
 import AgentProductLogo from '../components/AgentProductLogo.vue'
 import AgentMcpGateways from '../components/AgentMcpGateways.vue'
 import AgentMcpAccess from '../components/AgentMcpAccess.vue'
+import DifyRuntimePanel from './components/DifyRuntimePanel.vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
@@ -364,14 +387,14 @@ import {
   listManagedUsers,
   listExternalAiGateways,
   listModelEndpoints,
-  listSkills,
+  listSkillsPaged,
   prepareAgentExternalModelCatalog,
   updateAgent,
 } from '../api'
 
 const router = useRouter(), route = useRoute()
 const workspaceAsset = ref(null)
-const closeWorkspace = () => { workspaceAsset.value = null; const query = { ...route.query }; delete query.agent; delete query.client; delete query.local; router.replace({ query }) }
+const closeWorkspace = () => { workspaceAsset.value = null; const query = { ...route.query }; delete query.agent; delete query.client; delete query.local; delete query.detail; delete query.detail_tab; router.replace({ query }) }
 
 const { t, locale } = useI18n()
 const loading = ref(false)
@@ -395,7 +418,7 @@ const editingAgentId = ref(null)
 const editingOriginType = ref('platform')
 const createdDraft = ref(false)
 const agents = ref([])
-watch(() => [route.query.agent, agents.value], ([id, items]) => { workspaceAsset.value = items.find(item => item.origin_type === 'client_discovery' && item.agent_id === id) || null })
+watch(() => [route.query.agent, agents.value], ([id, items]) => { workspaceAsset.value = items.find(item => (item.origin_type === 'client_discovery' || item.dify) && item.agent_id === id) || null })
 const assetStats = reactive({ total: 0, platform: 0, client_discovery: 0 })
 const groups = ref([])
 const users = ref([])
@@ -413,7 +436,13 @@ const sourceEmptyKey = computed(() => {
   if (filters.origin === 'client_discovery' && !assetStats.client_discovery) return 'agentIntegration.emptyClient'
   return 'agentAssets.empty'
 })
-const openGuide = record => { assetVisible.value = false; router.push({ path: '/runtime', query: { scenario: 'custom', agent_id: record.agent_id } }) }
+const openGuide = record => {
+  if (record.dify) { selectedAsset.value = record; assetDetailTab.value = 'dify'; assetVisible.value = true; return }
+  assetVisible.value = false
+  router.push({ path: '/runtime', query: { scenario: 'custom', agent_id: record.agent_id } })
+}
+const integrationType = ref('custom')
+const difyForm = reactive({ instance_id: '', workspace_id: '', app_id: '' })
 const openClientGuide = async () => {
   if (submitting.value || preparingExternal.value) return
   if (await cancelAgentModal() === false) return
@@ -456,10 +485,23 @@ const columns = computed(() => [
   { title: t('agentAssets.columns.actions'), key: 'actions', width: 110, fixed: 'right' },
 ])
 const activeUsers = computed(() => users.value.filter(item => item.is_active !== false))
-const skillOptions = computed(() => skills.value.map((skill, index) => ({
-  ...skill,
-  value: uniqueOptionValue(skill, 'skill', index),
-})))
+const skillOptions = computed(() => {
+  const options = skills.value.map(skill => ({ ...skill, value: skill.skill_id || skill.id || skill.name }))
+  const knownIds = new Set(options.map(item => item.value))
+  for (const ref of agentForm.skill_refs) {
+    if (knownIds.has(ref)) continue
+    const legacy = options.find(item => item.name === ref)
+    if (legacy) options.push({ ...legacy, value: ref })
+    knownIds.add(ref)
+  }
+  return options
+})
+const editingRecord = ref(null)
+const selectableGateways = computed(() => {
+  const saved = editingRecord.value
+  if (!saved?.external_gateway_id || externalGateways.value.some(item => item.id === saved.external_gateway_id)) return externalGateways.value
+  return [...externalGateways.value, { id: saved.external_gateway_id, name: saved.external_gateway_name || String(saved.external_gateway_id), disabled: true }]
+})
 const selectableModels = computed(() => agentForm.default_model_source === 'external_gateway' ? externalModels.value : models.value)
 const platformSkills = computed(() => (selectedAsset.value?.skill_names || []).map((reference, index) => {
   const matched = skills.value.find(item => item.skill_id === reference || item.id === reference || item.name === reference)
@@ -527,7 +569,6 @@ const gatewaySourceText = record => {
   return t('agentAssets.drawer.localConfig')
 }
 const userOptionLabel = (user) => `${user.username}${user.email ? `（${user.email}）` : ''}`
-const uniqueOptionValue = (item, type, index) => `${type}:${item.skill_id || item.id || index}:${index}`
 const skillOptionLabel = (skill) => {
   const statusLabel = skill.status === 'DEPLOYED' ? phrase('legacy.1t00jqn') : phrase('legacy.10hmnl2')
   const id = skill.skill_id || skill.id
@@ -535,20 +576,6 @@ const skillOptionLabel = (skill) => {
 }
 const filterOption = (input, option) =>
   String(option?.label || option?.value || '').toLowerCase().includes(String(input || '').toLowerCase())
-const findRefsByNames = (options, names = []) => {
-  const used = new Set()
-  return names.map((name) => {
-    const option = options.find(item => (item.skill_id === name || item.name === name) && !used.has(item.value))
-    if (!option) return null
-    used.add(option.value)
-    return option.value
-  }).filter(Boolean)
-}
-const skillIdsFromRefs = (options, refs = []) =>
-  refs.map(ref => {
-    const item = options.find(option => option.value === ref)
-    return item?.skill_id || item?.id || item?.name
-  }).filter(Boolean)
 const fetchAgentAssets = async () => {
   loading.value = true
   assetsLoadFailed.value = false
@@ -593,17 +620,37 @@ const loadOptions = async () => {
   users.value = userRes
 }
 
-const loadSkills = async () => {
-  const skillRes = hasAccess('skills:view') ? await listSkills({ status: 'APPROVED,DEPLOYED' }) : []
-  skills.value = Array.isArray(skillRes.items) ? skillRes.items : skillRes
+const fetchSkillOptions = async () => {
+  if (!hasAccess('skills:view')) return []
+  const items = []
+  for (let page = 1; ; page++) {
+    const result = await listSkillsPaged({ status: 'APPROVED,DEPLOYED', page, page_size: 100 })
+    items.push(...result.items)
+    if (!result.items.length || items.length >= result.total) return items
+  }
 }
 
-const loadExternalGateways = async () => {
-  if (!hasAccess('external_gateways:view')) {
-    externalGateways.value = []
-    return
+const optionState = ref({})
+const formOptions = {
+  skills: { target: skills, fetch: fetchSkillOptions },
+  models: { target: models, fetch: () => hasAccess('models:view') ? listModelEndpoints() : [] },
+  gateways: { target: externalGateways, fetch: async () => hasAccess('external_gateways:view')
+    ? (await listExternalAiGateways()).filter(item => item.enabled) : [] },
+}
+const loadFormOption = async (key) => {
+  const state = optionState.value
+  if (state[key]) return
+  state[key] = 'loading'
+  try {
+    const values = await formOptions[key].fetch()
+    if (state !== optionState.value) return
+    formOptions[key].target.value = values
+    state[key] = 'ready'
+  } catch (error) {
+    if (state !== optionState.value) return
+    delete state[key]
+    message.error(error.response?.data?.detail || t('agentAssets.loadFailed'))
   }
-  externalGateways.value = (await listExternalAiGateways() || []).filter(item => item.enabled)
 }
 
 const resetFilters = async () => {
@@ -615,11 +662,11 @@ const resetFilters = async () => {
 
 const detailLoading = ref(false)
 const openAsset = async (record) => {
-  if (record.origin_type === 'client_discovery') { workspaceAsset.value = record; router.push({ query: { ...route.query, agent: record.agent_id } }); return }
+  if (record.origin_type === 'client_discovery' || record.dify) { workspaceAsset.value = record; assetVisible.value = false; router.push({ query: { ...route.query, agent: record.agent_id } }); return }
   if (detailLoading.value) return
   detailLoading.value = true
   try {
-    await loadSkills()
+    skills.value = await fetchSkillOptions()
   } catch (error) {
     message.error(error.response?.data?.detail || t('agentAssets.loadFailed'))
     return
@@ -637,25 +684,16 @@ const editSelectedAsset = () => {
   if (record) openAgent(record)
 }
 
-const optionsLoading = ref(false)
-const openAgent = async (record = null) => {
-  if (optionsLoading.value) return
-  optionsLoading.value = true
-  try {
-    const [modelRes] = await Promise.all([
-      hasAccess('models:view') ? listModelEndpoints() : [],
-      loadSkills(),
-      loadExternalGateways(),
-    ])
-    models.value = modelRes
-  } catch (error) {
-    message.error(error.response?.data?.detail || t('agentAssets.loadFailed'))
-    return
-  } finally {
-    optionsLoading.value = false
-  }
+const openAgent = (record = null) => {
+  optionState.value = {}
+  editingRecord.value = record
+  skills.value = []
+  models.value = []
+  externalGateways.value = []
   editingAgentId.value = record?.managed_agent_pk || record?.id || null
   editingOriginType.value = record?.origin_type || 'platform'
+  integrationType.value = record?.dify ? 'dify' : 'custom'
+  Object.assign(difyForm, { instance_id: '', workspace_id: '', app_id: '', ...record?.dify })
   createdDraft.value = false
   externalModels.value = []
   externalCatalogInfo.value = null
@@ -669,14 +707,19 @@ const openAgent = async (record = null) => {
     default_model: record?.default_model || undefined,
     default_model_source: record?.default_model_source || 'internal',
     external_gateway_id: record?.external_gateway_id || undefined,
-    skill_refs: findRefsByNames(skillOptions.value, record?.skill_names || []),
+    skill_refs: [...(record?.skill_names || [])],
     allowed_mcp_gateways: [...(record?.allowed_mcp_gateways || [])],
     prompt_names: record?.prompt_names || [],
   })
   agentVisible.value = true
+  if (record && !record.dify) {
+    if (agentForm.skill_refs.length) void loadFormOption('skills')
+    if (record.default_model && agentForm.default_model_source === 'internal') void loadFormOption('models')
+  }
 }
 
 const baseAgentPayload = (status = agentForm.status) => ({
+  ...(integrationType.value === 'dify' ? { dify: { ...difyForm } } : {}),
   agent_id: agentForm.agent_id.trim(),
   name: agentForm.name.trim(),
   department_group_id: agentForm.department_group_id,
@@ -686,7 +729,7 @@ const baseAgentPayload = (status = agentForm.status) => ({
   default_model: agentForm.default_model || null,
   default_model_source: agentForm.default_model_source,
   external_gateway_id: agentForm.default_model_source === 'external_gateway' ? agentForm.external_gateway_id : null,
-  skill_names: skillIdsFromRefs(skillOptions.value, agentForm.skill_refs),
+  skill_names: [...agentForm.skill_refs],
   allowed_mcp_gateways: [...agentForm.allowed_mcp_gateways],
   prompt_names: agentForm.prompt_names || [],
 })
@@ -751,20 +794,32 @@ const cancelAgentModal = async () => {
 const saveAgent = async () => {
   if (submitting.value || preparingExternal.value) return
   if (!validateAgentIdentity()) return
-  if (agentForm.default_model_source === 'external_gateway') {
+  if (integrationType.value === 'dify' && Object.values(difyForm).some(value => !value.trim())) return message.warning(t('difyRuntime.required'))
+  if (integrationType.value !== 'dify' && agentForm.default_model_source === 'external_gateway') {
     if (!agentForm.external_gateway_id) return message.warning(t('externalModel.gatewayRequired'))
-    if (!externalModels.value.length) return message.warning(t('externalModel.selectAfterRefresh'))
+    const saved = editingRecord.value
+    const retainsModel = saved?.default_model_source === 'external_gateway'
+      && saved.external_gateway_id === agentForm.external_gateway_id && saved.default_model === agentForm.default_model
+    if (!externalModels.value.length && !retainsModel) return message.warning(t('externalModel.selectAfterRefresh'))
     if (!agentForm.default_model) return message.warning(t('externalModel.modelRequired'))
   }
   submitting.value = true
   try {
     const payload = baseAgentPayload()
+    if (integrationType.value === 'dify' && !editingAgentId.value) Object.assign(payload, {
+      default_model: null, default_model_source: 'internal', external_gateway_id: null,
+      skill_names: [], prompt_names: [], allowed_mcp_gateways: [],
+    })
     let savedAgent
     if (editingAgentId.value) savedAgent = await updateAgent(editingAgentId.value, payload)
     else savedAgent = await createAgent(payload)
     createdDraft.value = false
     agentVisible.value = false
     await fetchAgentAssets()
+    if (savedAgent.dify) {
+      await openAsset(agents.value.find(item => item.agent_id === savedAgent.agent_id) || savedAgent)
+      return
+    }
     if (pageAllowed('/runtime')) {
       const scenario = ['custom', 'model', 'mcp', 'verifier'].includes(route.query.scenario) ? route.query.scenario : 'custom'
       const query = { scenario, agent_id: savedAgent.agent_id }

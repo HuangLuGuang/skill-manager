@@ -8,6 +8,7 @@ Supports multiple backends:
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import re
@@ -17,7 +18,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
 
 import httpx
@@ -380,6 +381,7 @@ class MarkdownCommandProbe(BaseModel):
 class RemoteSandboxFile(BaseModel):
     path: str
     content: str
+    encoding: Literal["utf-8", "base64"] = "utf-8"
 
 
 class RemoteSandboxRequest(BaseModel):
@@ -389,6 +391,7 @@ class RemoteSandboxRequest(BaseModel):
     enable_network: bool = False
     metadata: dict[str, object] = Field(default_factory=dict)
     files: list[RemoteSandboxFile] = Field(default_factory=list)
+    timeout_seconds: int = Field(default=15, ge=1, le=600)
 
 
 class RemoteSandboxExecutionData(BaseModel):
@@ -399,6 +402,7 @@ class RemoteSandboxExecutionData(BaseModel):
     error: str | None = None
     message: str | None = None
     duration_ms: int | None = None
+    timed_out: bool = False
 
 
 class RemoteSandboxEnvelope(BaseModel):
@@ -555,11 +559,17 @@ def _collect_remote_sandbox_files(skill_root: Path) -> list[RemoteSandboxFile]:
         if total_bytes + size > _REMOTE_SANDBOX_MAX_TOTAL_BYTES:
             break
         try:
-            content = path.read_text(encoding="utf-8", errors="ignore")
+            raw = path.read_bytes()
         except Exception:
             continue
-        total_bytes += len(content.encode("utf-8", errors="ignore"))
-        files.append(RemoteSandboxFile(path=rel_path.as_posix(), content=content))
+        try:
+            content = raw.decode("utf-8")
+            encoding = "utf-8"
+        except UnicodeDecodeError:
+            content = base64.b64encode(raw).decode("ascii")
+            encoding = "base64"
+        total_bytes += len(raw)
+        files.append(RemoteSandboxFile(path=rel_path.as_posix(), content=content, encoding=encoding))
     return files
 
 
@@ -917,6 +927,7 @@ class RemoteSandboxRunner:
                 "execute_entrypoint": True,
             },
             files=files,
+            timeout_seconds=timeout_value,
         )
         headers = {}
         if self.config.remote_api_key:
@@ -924,11 +935,16 @@ class RemoteSandboxRunner:
 
         started = time.monotonic()
         try:
+            if any(file.encoding == "base64" for file in files):
+                health = httpx.get(self.config.remote_url.rstrip("/") + "/health", headers=headers, timeout=3)
+                health.raise_for_status()
+                if "base64" not in health.json().get("file_encodings", []):
+                    raise ValueError("Remote sandbox service must support base64 files to preserve binary inputs")
             response = httpx.post(
                 self.config.remote_url.rstrip("/") + "/run-code",
                 json=payload.model_dump(mode="json"),
                 headers=headers,
-                timeout=timeout_value,
+                timeout=timeout_value + 5,
             )
             duration_ms = int((time.monotonic() - started) * 1000)
             response.raise_for_status()
@@ -977,7 +993,7 @@ class RemoteSandboxRunner:
             exit_code = output.code
         # 兼容内置服务的 timed out 消息与上游常见 timeout 错误。
         execution_message = ((output.error or "") + " " + (output.message or "")).lower()
-        timed_out = "timeout" in execution_message or "timed out" in execution_message
+        timed_out = output.timed_out or "timeout" in execution_message or "timed out" in execution_message
         if timed_out:
             events.append(SandboxEvent(
                 category="timeout",

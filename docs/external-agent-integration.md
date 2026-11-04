@@ -1458,9 +1458,13 @@ WorkBuddy 实测会话 `6e506cbe-0d5a-4208-ad82-f4499fc17fdb` 的隔离 Skill �
 
 ## Dify Runtime Adapter
 
-Dify 1.15.0（graphon 0.5.3）通过 [Runtime Adapter 接入包](../integrations/dify-runtime/README.md) 连接运行轨迹和执行授权。资产管理的“Dify 运行接入”维护实例、Workspace、App 与平台 Agent 的绑定，支持观察/管控模式、工作流摘要准入、工具/HTTP/Code/知识检索规则及审批。
+Skill 运行准入审计显示当次名称、认证状态、审批状态和处理原因；观察模式下未认证放行仍明确标记，管控模式记录阻断。需更新平台前端和 Agent Backend Adapter，历史事件不回填推测结论。English: Runtime Skill admission audit shows the name, certification, approval state and decision reason at check time. Observe-mode exceptions remain marked uncertified; enforce mode records blocks. Update the UI and Agent Backend adapter; historical events are not inferred.
 
-运行凭证需绑定该 Agent，用户或用户组与资产归属一致；观察需 `runtime:trace`，管控另需 `runtime:govern`。平台在副作用之前签发并消费一次性授权。审批使用 Dify 原生持久化暂停，在节点首个受控调用之前暂停，恢复后重新核对参数摘要和策略版本。`after_node_type` 只匹配同一次运行已有的成功动作类型，不推断数据流。
+Dify 1.16.1 的 Skill 上传与发布准入复用平台扫描、审核和签名；完整包检测版本在智能体详情的 Skill 页签查看。登记新版 Agent 或所在工作流的 App ID，并使用同时包含 `runtime:trace`、`runtime:govern` 的凭证；管控模式下，发布引用的包必须匹配已批准版本。接入包挂载到 `agent_backend` 后，运行开始、会话恢复和 Shell 命令前重新检查配置 Skill，配置包拉取在返回沙箱前校验；行为审计显示命令、结果及失败原因。范围、审批等待和沙箱内部边界见 [Adapter 接入](../integrations/dify-runtime/README.md)。
+
+Dify 1.15.0（graphon 0.5.3）和 1.16.1（graphon 0.6.0）通过 [Runtime Adapter 接入包](../integrations/dify-runtime/README.md) 连接运行轨迹和执行授权。在智能体列表登记时选择 Dify，填写实例、Workspace、App 标识；独立详情的“接入配置”提供安装与进程状态，“管控策略”提供观察/管控模式、工作流摘要准入、工具/HTTP/Code/知识检索规则及待审批调用，“行为审计”按应用运行展示节点、调用和审批事件。扫描目标可在安全扫描中按需关联已登记智能体。
+
+运行凭证需绑定该 Agent，用户或用户组采用详情显示的运行归属；旧绑定迁移保留原归属，新绑定采用登记时的部门或创建者。观察需 `runtime:trace`，管控另需 `runtime:govern`。平台在副作用之前签发并消费一次性授权。审批使用 Dify 原生持久化暂停，在节点首个受控调用之前暂停，恢复后重新核对参数摘要和策略版本。`after_node_type` 只匹配同一次运行已有的成功动作类型，不推断数据流。
 
 事件带运行、工作流摘要、节点与调用标识。资产关联使用应用绑定和摘要；阻断记录不计为实际执行。Adapter 不上传原始参数、代码或模型内容，仅上传控制所需标识和摘要。插件内部、Sandbox 内部及重定向后的每个网络跳转需另行部署相应控制。
 
@@ -1484,7 +1488,7 @@ macOS 飞书内豆包工作的本地电脑模式也复用 `doubaowork` 来源：
 
 **English:** The standalone Doubao Work macOS adapter (`doubaowork`) collects file tools, commands, MCP calls and policy-controlled user/assistant messages through existing redaction and batch delivery. Upgrades resume bounded historical message backfill without duplicating tools. Source-file and native call identities pair results within conversations. Times represent collection and execution outcomes remain unknown; see the client guide for capture controls.
 
-**English:** The [Dify Runtime Adapter](../integrations/dify-runtime/README.md) supports Dify 1.15.0 / graphon 0.5.3. Bind the asset, workspace and application to a platform Agent and an owner-matched runtime credential. Observe requires `runtime:trace`; enforce additionally requires `runtime:govern`. Rules cover controlled HTTP, tool, code and retrieval invocation points, graph digests, native checkpoint approvals and completed-action ordering. Authorization is consumed once before execution. Blocked attempts are not execution evidence; plugin internals, sandbox internals and individual redirected network hops require separate controls.
+**English:** The [Dify Runtime Adapter](../integrations/dify-runtime/README.md) supports Dify 1.15.0 / graphon 0.5.3 and Dify 1.16.1 / graphon 0.6.0. Select Dify when registering an Agent, enter instance, Workspace and App IDs, then open its dedicated Agent workspace. Connection Settings contains installation details; Control Policies contains rules and pending approvals; Behavior Audit displays application runs and their events in place. Configure a runtime credential matching the ownership shown there. Scan targets are optional and may link a registered Agent. Observe requires `runtime:trace`; enforce additionally requires `runtime:govern`. Rules cover controlled HTTP, tool, code and retrieval invocation points, graph digests, native checkpoint approvals and completed-action ordering. Authorization is consumed once before execution. Blocked attempts are not execution evidence; plugin internals, sandbox internals and individual redirected network hops require separate controls.
 
 ### WorkBuddy 平台人工审批 / Platform approval
 

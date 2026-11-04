@@ -2630,6 +2630,9 @@ const platformResultText = (value) => {
     .replace(/^权限声明包含通配或过宽权限。\s*文件:\s*/i, 'The permission declaration contains wildcard or overly broad permissions. File: ')
 }
 const ruleFindingExplanation = (item) => {
+  if (item?.source === 'agent-manager-local' && (item.rule || item.rule_id) === 'MP1') {
+    return t('skillDetail.deepRules.MP1_local_message', { p0: `${item.file}:${item.line}` })
+  }
   if (findingTypeOf(item) === 'documented_external_api') {
     return t('skillDetail.documentedApiExplanation')
   }
@@ -2646,6 +2649,9 @@ const formatAggregateLines = (lines) => {
   return `${unique.join(text('、', ', '))}${suffix}`
 }
 const findingTitle = (item) => {
+  if (item?.source === 'agent-manager-local' && (item.rule || item.rule_id) === 'MP1') {
+    return t('skillDetail.deepRules.MP1_local_name')
+  }
   if (findingTypeOf(item) === 'documented_external_api') return text('文档型 API 示例', 'Documented API Example')
   return bilingualText(item?.title || item?.pattern || item?.message || '-')
 }

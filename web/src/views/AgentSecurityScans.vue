@@ -7,7 +7,6 @@
             <h1>{{ t('agentSecurityScans.title') }}</h1>
           </div>
           <a-space wrap>
-            <a-button v-if="hasAccess('runtime:update')" @click="difyRuntimeOpen=true">{{ t('difyRuntime.title') }}</a-button>
             <a-button :loading="refreshing" @click="refreshAll">
               <template #icon><ReloadOutlined /></template>
               {{ t('agentSecurityScans.refresh') }}
@@ -486,6 +485,9 @@
           <a-alert v-if="connectivityResult" class="modal-alert" show-icon :type="connectivityResult.type" :message="connectivityResult.error || t(`agentSecurityScans.targets.${connectivityResult.key}`, { ms: connectivityResult.latency_ms })" />
         </a-form-item>
         <template v-if="targetForm.connector_type === 'dify'">
+          <a-form-item v-if="hasAccess('agents:view')" :label="t('difyRuntime.scanAgent')" :extra="t('difyRuntime.scanHelp')">
+            <a-select v-model:value="targetForm.runtime_agent_id" allow-clear show-search option-filter-prop="label" :options="difyAgents.map(agent => ({value: agent.agent_id, label: agent.name}))" @change="selectDifyAgent" />
+          </a-form-item>
           <a-alert class="modal-alert" type="info" show-icon :message="t('agentSecurityScans.inventory.targetConfigBoundary')" />
           <a-row :gutter="16">
             <a-col :xs="24" :md="12"><a-form-item :label="t('agentSecurityScans.inventory.consoleBaseUrl')" required><a-input v-model:value="targetForm.dify_console_base_url" placeholder="https://dify.example.com" /></a-form-item></a-col>
@@ -1093,14 +1095,10 @@
         </a-tabs>
       </a-spin>
     </a-modal>
-    <a-drawer v-model:open="difyRuntimeOpen" :title="t('difyRuntime.title')" width="min(1100px, 100vw)" destroy-on-close>
-      <DifyRuntimePanel v-if="difyRuntimeOpen" />
-    </a-drawer>
   </section>
 </template>
 
 <script setup>
-import DifyRuntimePanel from './components/DifyRuntimePanel.vue'
 import SourceAttribution from '../components/SourceAttribution.vue'
 import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
@@ -1127,6 +1125,7 @@ import ScanSchedules from './components/ScanSchedules.vue'
 import ScanTimingFields from './components/ScanTimingFields.vue'
 import { createScanSchedule, updateScanSchedule, listManagedAgentRisks, listScanSchedules } from '../api'
 import {
+  listAgents,
   activateSecurityTaskKillSwitch,
   cancelSecurityTask,
   compareSecurityTasks,
@@ -1161,7 +1160,6 @@ import {
 import { formatBeijingDateTime, formatBeijingDateTime as formatDateTime } from '../utils/format'
 
 const { t, te, locale } = useI18n()
-const difyRuntimeOpen = ref(false)
 const exportingReport = ref(false)
 const exportReport = async () => {
   if (exportingReport.value || taskDetailLoading.value || !taskDetail.value) return
@@ -1312,7 +1310,7 @@ const comparisonBuckets = computed(() => [
 const targetModalOpen = ref(false)
 const editingTarget = ref(null)
 const submittingTarget = ref(false)
-const emptyDifyTargetFields = () => ({ dify_console_base_url: '', dify_workspace_id: '', dify_app_id: '', dify_workflow_id: '', dify_declared_intent: '', dify_owner: '', dify_owner_group: '', dify_redirect_hosts: '', dify_mcp_bindings: [], dify_knowledge_bindings_json: '[]' })
+const emptyDifyTargetFields = () => ({ runtime_agent_id: undefined, dify_console_base_url: '', dify_workspace_id: '', dify_app_id: '', dify_workflow_id: '', dify_declared_intent: '', dify_owner: '', dify_owner_group: '', dify_redirect_hosts: '', dify_mcp_bindings: [], dify_knowledge_bindings_json: '[]' })
 const targetForm = reactive({ name: '', asset_type: 'agent', connector_type: 'openai_compatible', environment: 'test', allowed_capabilities: [...securityCapabilities], endpoint_url: '', gateway_id: undefined, allowed_cidrs: '', config_json: '{}', llm_model: '', llm_chat_completions_path: '/v1/chat/completions', llm_timeout_ms: 30000, allow_insecure_transport: false, ...emptyDifyTargetFields() })
 const availableConnectorTypes = computed(() => connectorTypesByAsset[targetForm.asset_type] || [])
 const mcpBindingStatus = binding => {
@@ -1790,6 +1788,7 @@ const openTargetModal = record => {
   const config = record?.config || {}
   const llmConfig = normalizeLlmConfigForForm(config)
   Object.assign(targetForm, record ? {
+    runtime_agent_id: config.runtime_agent_id,
     name: record.name, asset_type: record.asset_type, connector_type: record.connector_type, environment: record.environment,
     allowed_capabilities: [...(record.allowed_capabilities || [])], endpoint_url: record.endpoint_url,
     llm_model: llmConfig.model, llm_chat_completions_path: llmConfig.chat_completions_path, llm_timeout_ms: llmConfig.timeout_ms,
@@ -1803,9 +1802,20 @@ const openTargetModal = record => {
     dify_knowledge_bindings_json: prettyJson(config.knowledge_bindings || []),
   } : { name: '', asset_type: 'agent', connector_type: 'openai_compatible', environment: 'test', allowed_capabilities: [...securityCapabilities], endpoint_url: '', gateway_id: undefined, allowed_cidrs: '', config_json: '{}', llm_model: '', llm_chat_completions_path: '/v1/chat/completions', llm_timeout_ms: 30000, allow_insecure_transport: false, ...emptyDifyTargetFields() })
   targetModalOpen.value = true
+  if (!record) targetForm.runtime_agent_id = undefined
+  if (hasAccess('agents:view')) listAgents().then(rows => { difyAgents.value = rows.filter(agent => agent.dify) }).catch(error => message.error(errorText(error)))
   loadDifyMcpBindings(record)
 }
 const handleAssetTypeChange = () => { targetForm.connector_type = connectorTypesByAsset[targetForm.asset_type][0]; handleConnectorTypeChange() }
+const difyAgents = ref([])
+const selectDifyAgent = id => {
+  const agent = difyAgents.value.find(item => item.agent_id === id)
+  if (agent) {
+    targetForm.dify_workspace_id = agent.dify.workspace_id
+    targetForm.dify_app_id = agent.dify.app_id
+    if (!targetForm.name) targetForm.name = agent.name
+  }
+}
 const setTargetSource = source => { targetForm.endpoint_url = `mcp-source://${source.source_id}`; targetForm.config_json = JSON.stringify({ source_id: source.source_id }) }
 const handleConnectorTypeChange = () => { targetForm.endpoint_url = ''; targetForm.gateway_id = undefined; targetForm.llm_model = ''; targetForm.llm_chat_completions_path = '/v1/chat/completions'; targetForm.llm_timeout_ms = 30000; targetForm.config_json = '{}'; Object.assign(targetForm, emptyDifyTargetFields()) }
 const handleGatewayChange = id => { const gateway = mcpGateways.value.find(item => item.id === id); targetForm.endpoint_url = gateway ? `mcp-gateway://${gateway.slug}` : '' }
@@ -1832,6 +1842,8 @@ const saveTarget = async () => {
       console_base_url: targetForm.dify_console_base_url.trim(), workspace_id: targetForm.dify_workspace_id.trim(), app_id: targetForm.dify_app_id.trim(),
       mcp_bindings: bindings, knowledge_bindings: knowledgeBindings, allowed_redirect_hosts: splitList(targetForm.dify_redirect_hosts),
     })
+    if (targetForm.runtime_agent_id) config.runtime_agent_id = targetForm.runtime_agent_id
+    else delete config.runtime_agent_id
     const optionalDifyConfig = { workflow_id: targetForm.dify_workflow_id, declared_intent: targetForm.dify_declared_intent, platform_owner: targetForm.dify_owner, platform_owner_group: targetForm.dify_owner_group }
     Object.entries(optionalDifyConfig).forEach(([key, value]) => { if (value.trim()) config[key] = value.trim(); else delete config[key] })
   }

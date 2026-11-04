@@ -1,8 +1,40 @@
 # Dify Runtime Adapter
 
-适配版本：Dify `1.15.0`、graphon `0.5.3`。将 Python 接入包挂载到 Dify 的 `api` 和 `worker`，通过 `sitecustomize` 安装运行检查点。平台复用运行凭证、RuntimeTask、RuntimeAction、RuntimeApproval 和运行轨迹。
+节点执行内容：更新接入包并重建 API/Worker 后，节点结束事件上报输入、输出预览和失败原因，可在“智能体列表 → Dify → 行为审计”查看。用户输入、节点执行参数（含代码正文）、模型完整消息与流式回复、最终回复及错误按节点开始顺序展示，失败原因直接显示。长内容分片保存，每项上限 1,024,000 字符，超限、深度超限和未完成明确标注。常见凭证键和 Bearer 值被屏蔽；业务数据仍可能存在。附件展示 Dify 提供的元数据与引用，不下载附件二进制。旧记录缺失的内容不会补录。管控策略使用平台表单设置，支持增删、排序和组合匹配条件。
+
+适配版本：Dify `1.15.0` / graphon `0.5.3`、Dify `1.16.1` / graphon `0.6.0`。将 Python 接入包挂载到 Dify 的 `api` 和 `worker`，通过 `sitecustomize` 安装运行检查点。平台复用运行凭证、RuntimeTask、RuntimeAction、RuntimeApproval 和运行轨迹。
+
+1.16.1 的 Adapter 审批暂停会结束当前响应流，保留原生检查点供恢复；普通暂停和客户端断开仍沿用 Dify 行为。该版本新增的独立 Agent Backend / Local Sandbox 不在此 Python 工作流适配器的已验证范围。进程心跳中的 Dify 版本来自安装器校验的镜像版本。
 
 ## 管控范围
+
+### Skill 上传检测与发布准入（Dify 1.16.1）
+
+Dify 1.16.1 的新版 Agent 界面由 web 容器的 `NEXT_PUBLIC_ENABLE_AGENT_V2=true` 启用；官方入口脚本也支持 `ENABLE_AGENT_V2=true`。保留原 Compose 参数并重建 web 后刷新页面。工作流通过“添加节点 → Agent BETA → 从空白开始”创建新版节点，打开“内联配置”设置模型、提示词并“添加 Skill”；也可在左侧“Agents BETA → 创建 → 创建空白应用”创建可复用 Agent。Skill 上传接受 `.zip` 或 `.skill` 包，提示词可用 `/` 引用。已有旧版 Agent 节点不会因此转换。此开关仅打开界面入口，后端、Agent Backend、Local Sandbox 及 Adapter 仍需按各自要求部署。Community Edition 的独立 Agent 预览入口不可用，工作流可通过测试运行验证。
+
+**English:** Enable `NEXT_PUBLIC_ENABLE_AGENT_V2=true` in the Dify 1.16.1 web container (the official entrypoint also accepts `ENABLE_AGENT_V2=true`), recreate web with the original Compose arguments, and refresh. Use Add node → Agent BETA → Start from scratch for an inline Agent, or Agents BETA → Create for a reusable Agent. Configure its model and prompt, upload a `.zip` or `.skill` package under Skills, and reference it with `/`. Existing legacy nodes are not converted. This flag only exposes the UI; backend, Agent Backend, Local Sandbox and Adapter deployment remain necessary. Standalone Agent preview is unavailable in Community Edition; use workflow test runs.
+
+登记新版 Agent 的 App ID 后，更新接入包并重建 API/Worker。运行凭证需同时具备 `runtime:trace` 和 `runtime:govern`。上传配置 Skill 或 drive Skill 时提交规范化完整包，复用平台扫描、内容版本、审核与签名；“智能体详情 → Skill”显示已观察到的包版本和检测报告。这里是检测历史，不是实时文件清单，删除 Dify 中的 Skill 不会删除历史检测记录。
+
+发布 Agent 草稿或含新版 Agent 的工作流时，读取本次配置实际引用的完整包，再校验其内容对应的不可变检测版本。未检测的内容会提交扫描；管控模式下，扫描中、待审批、拒绝、停用、签名不匹配均阻止发布，原发布版本保持。观察模式记录检测状态并允许发布。平台连接失败会使上传或发布校验报错，恢复后可重试；扫描后台执行，无需保持上传请求直到扫描结束。
+
+包经 Base64 传输，受绑定运行凭证的 `max_body_kb` 限制，需为编码后请求预留约原 ZIP 大小的 4/3 加 JSON 开销；Dify 的原生包限制仍有效。扫描选项请求规则、深度扫描、AI 和 Sandbox，实际执行遵循平台开关与策略。文件编辑或导入造成的新内容在发布检查时补交检测。
+
+**English:** On Dify 1.16.1, registered Agent apps submit complete normalized Skill packages to the existing scan/review/signing pipeline. Both runtime scopes are required. Agent details lists observed package versions and report links. Agent draft publication and workflow Agent publication check the actual referenced packages against immutable approved versions. Enforce mode blocks pending, rejected, retired or signature-mismatched content; observe mode permits publication. Unavailable admission services fail the request. Base64 requests must fit the credential body limit. Edited/imported content is checked at publication.
+
+### Agent Backend 运行时检测（Dify 1.16.1）
+
+每次包准入检查在行为审计中保存当次 Skill 名称、认证状态、审批状态、放行/阻断结果和原因。观察模式未认证放行显示黄色“未认证”及放行原因；管控模式显示阻断原因。批准但未通过完整性校验仍为未认证，历史结论不随以后审批变化。升级平台前端及 Agent Backend Adapter 后的新检查生成这些字段，旧事件不补造认证结论。
+
+**English:** Each admission check records the Skill name, certification and approval states, decision and reason. Observe-mode exceptions remain marked Uncertified with an explicit allow reason; enforce mode records the block. Approval alone does not establish integrity. Stored decisions describe the check at that time. These fields require the updated UI and Agent Backend adapter; older events do not invent certification results.
+
+接入包同时挂载到 `api`、`worker`、`agent_backend`；更新后重建这三个服务。只挂载 API/Worker 不覆盖新版 Agent 的执行。运行开始、恢复会话以及发起 Shell 命令前，从 Dify 内部接口读取当前配置的 Skill 完整包，复用扫描版本、实时批准状态和内容签名校验；Skill pull 返回包给沙箱之前也校验。身份取自 Dify 请求上下文或原生已验证的 Agent Stub principal，不从模型命令推断租户或应用。
+
+“智能体详情 → 行为审计”展示 Agent Backend 原生 Run ID、关联工作流 Run ID、Skill 检查、Shell 命令和返回内容。原生 Agent Run 与工作流 Run 分开保留，使用真实标识关联。“管控策略”可选择 Skill 加载（`skill`）或 Shell 命令（`shell`），工具条件可指定 Skill 名称，或 `run`、`input`、`_bootstrap_workspace`。审批沿用现有平台审批：Agent Backend 在调用前等待，拒绝、超时、策略变化均不执行；进程重启后需要重新运行，不能借用工作流检查点恢复这个内部调用。
+
+管控模式下未批准、停用、内容签名异常或平台无法校验时不放行。观察模式记录检查结果并允许未批准包，但 Skill 内容校验服务不可达仍报错。已发布配置不会被自动撤回；后续运行重新检查。范围覆盖配置 Skill pull 和 Agent Shell 发起命令，不覆盖已经启动的后台进程、脚本内部逐次系统调用、任意下载文件或沙箱目录被改写后的逐文件验签；需配合隔离沙箱与出口策略。Shell `wait` 只是读取已有任务结果，`interrupt` 保持可用。
+
+**English:** Dify 1.16.1 also requires the adapter in `agent_backend`. Run entry/resume and shell commands recheck config Skill packages against live approval and signatures; config Skill pulls are checked before bytes reach the sandbox. Behavior Audit records native Agent runs, parent workflow IDs, Skill checks, commands, results and errors. Skill/shell rules reuse allow, deny and approval; approval waits before execution and does not survive a process restart. Observe mode permits unapproved packages but unavailable Skill verification fails the request. These boundaries do not trace individual syscalls, stop existing background jobs, or verify every mutable sandbox file.
 
 | 能力 | 执行位置 |
 | --- | --- |
@@ -23,9 +55,9 @@
 
 ## 接入
 
-1. 在 Agent 资产管理中创建 Dify 目标，配置准确的 Workspace ID、App ID；创建平台 Agent。
-2. 打开“Dify 运行接入”，绑定目标与 Agent，并填写实例标识。
-3. 在凭证中心创建绑定此 Agent 的运行凭证：`runtime:trace`，管控另需 `runtime:govern`。凭证的用户/用户组须与资产归属一致。
+1. 打开“智能体列表 → 登记智能体”，接入类型选择 Dify，填写实例标识、Workspace ID 和 App ID。每个 Dify App 对应一个平台 Agent；同一实例可登记多个 App。
+2. 保存后进入智能体独立详情的“接入配置”。下载接入配置并核对容器可访问的平台地址。首次状态为待接入；收到进程心跳后才显示近期在线。
+3. 在凭证中心创建绑定此 Agent 的运行凭证：`runtime:trace`，管控另需 `runtime:govern`。用户/用户组按详情显示的运行凭证归属选择。新绑定采用登记时的部门或创建者；已有绑定保留原扫描目标归属，后续编辑部门不会更改已有凭证的运行归属。
 4. 准备两个权限为 `0600` 的 JSON 文件：
 
 `config.json`：
@@ -95,7 +127,7 @@ API 容器地址改变后，使用静态上游解析的 Nginx 需在 API 就绪�
 
 ## English
 
-Supports Dify 1.15.0 with graphon 0.5.3. Mount the generated package into API and Worker, then recreate both services with the original Compose arguments plus `compose.json`. Credentials must belong to the asset owner and have `runtime:trace` and, for enforcement, `runtime:govern`.
+Supports Dify 1.15.0 / graphon 0.5.3 and Dify 1.16.1 / graphon 0.6.0. Mount the generated package into API and Worker, then recreate both services with the original Compose arguments plus `compose.json`. Credentials must belong to the asset owner and have `runtime:trace` and, for enforcement, `runtime:govern`. On 1.16.1, adapter approval pauses close the current response stream while preserving the resumable checkpoint. Normal pauses and disconnects retain Dify behavior. The separate Agent Backend and Local Sandbox are outside the verified scope.
 
 The adapter observes workflow/model events and authorizes HTTP, tool, code and retrieval calls at the listed invocation points. Policies support graph digests, ordered rules, one-time authorization and approval through Dify's persisted workflow checkpoints. Prior-step rules match completed action types, not data lineage. Verify actual side effects separately from heartbeat receipt.
 

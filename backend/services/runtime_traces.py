@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import logging
 import uuid
@@ -26,7 +27,7 @@ from ..runtime_trace_schemas import (
     RuntimeTraceEventInput,
     RuntimeTraceInternalEvent,
 )
-from ..security_scan_controls import protect_secret, sanitize_mcp_metadata_value
+from ..security_scan_controls import protect_secret, sanitize_mcp_metadata_value, sanitize_mcp_metadata_text, is_shared_sensitive_key
 
 logger = logging.getLogger(__name__)
 _METRICS = {
@@ -337,6 +338,35 @@ def _ingest_batch_locked(
             redacted, _ = sanitize_mcp_metadata_value(event.payload, max_depth=16, max_items=None)
         else:
             redacted, _ = sanitize_mcp_metadata_value(event.redacted_payload, max_depth=16, max_items=None)
+        if event.source == "dify_adapter" and isinstance(event.payload.get("content"), dict) and all(
+            isinstance(parts, list) and all(isinstance(part, str) for part in parts)
+            for parts in event.payload["content"].values()
+        ):
+            # Sanitize structured execution values before serializing, so numeric JSON stays valid.
+            def clean_content(value, depth=0):
+                if depth >= 64:
+                    redacted["truncated"] = True
+                    return "[DEPTH_LIMIT]"
+                if isinstance(value, str):
+                    safe, _ = sanitize_mcp_metadata_text(value, max_length=len(value) * 6 + 32)
+                    return html.unescape(safe)
+                if isinstance(value, list):
+                    return [clean_content(item, depth+1) for item in value]
+                if isinstance(value, dict):
+                    return {key: "[REDACTED]" if is_shared_sensitive_key(key) and not (
+                        key in {"prompt_tokens", "completion_tokens", "total_tokens"} and isinstance(item, (int, float))
+                    ) else clean_content(item, depth+1) for key, item in value.items()}
+                return value
+            redacted["content"] = {}
+            for key, parts in event.payload["content"].items():
+                text = "".join(parts)
+                try:
+                    value = json.loads(text)
+                except (ValueError, TypeError, RecursionError):
+                    value = text
+                safe = clean_content(value)
+                text = _json_dumps(safe)
+                redacted["content"][key] = [text[i:i+1000] for i in range(0, len(text), 1000)]
         payload_id = _new_id("rtp")
         payload = models.RuntimeTracePayload(
             payload_id=payload_id,

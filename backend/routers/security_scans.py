@@ -854,6 +854,9 @@ async def create_target(
         config = validate_agent_target_config(legacy_target_type, dict(body.config))
         if connector_type == "dify":
             _validate_dify_mcp_servers(db, config)
+            runtime_binding = _validate_dify_runtime_agent(db, config, current_user)
+            if runtime_binding:
+                owner_user_id, body.owner_group_id = runtime_binding.owner_user_id, runtime_binding.owner_group_id
         config["allow_insecure_transport"] = body.allow_insecure_transport
     row = models.SecurityTarget(
         target_id=new_resource_id("ast"),
@@ -1056,6 +1059,9 @@ async def update_target(
         config = validate_agent_target_config(legacy_target_type, config)
         if connector_type == "dify":
             _validate_dify_mcp_servers(db, config)
+            runtime_binding = _validate_dify_runtime_agent(db, config, current_user)
+            if runtime_binding and (owner_user_id, owner_group_id) != (runtime_binding.owner_user_id, runtime_binding.owner_group_id):
+                raise ApiError(422, "dify_runtime.owner_mismatch", "扫描目标与运行应用的归属不一致", "Scan target and runtime application ownership must match")
         config["allow_insecure_transport"] = allow_insecure
         resolved = resolve_target_endpoint(endpoint, allowed_cidrs=cidrs, allow_insecure_transport=allow_insecure)
     for field in ("name", "status"):
@@ -1829,18 +1835,32 @@ def _dify_mcp_binding_options(db: Session, target: models.SecurityTarget) -> dic
     }
 
 
+def _validate_dify_runtime_agent(db, config, user):
+    agent_id = config.get("runtime_agent_id")
+    if not agent_id:
+        return None
+    from .dify_runtime import managed_agent, fail
+    if not isinstance(agent_id, str) or len(agent_id) > 128:
+        fail("application_mismatch", 422)
+    managed_agent(db, agent_id, user)
+    row = db.query(models.DifyRuntimeBinding).filter_by(agent_id=agent_id).first()
+    if not row or any(config.get(k) != getattr(row, k) for k in ("workspace_id", "app_id")):
+        fail("application_mismatch", 422)
+    return row
+
+
 def _dify_runtime_inventory_snapshot(
     db: Session, *, app_id: str, owner_user_id: int | None, owner_group_id: int | None,
-    target_id: str | None = None,
+    target_id: str | None = None, agent_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    bound_agents = db.query(models.DifyRuntimeBinding.agent_id).join(
-        models.SecurityTarget, models.SecurityTarget.target_id == models.DifyRuntimeBinding.target_id
-    ).filter(
+    bound_agents = db.query(models.DifyRuntimeBinding.agent_id).filter(
         models.DifyRuntimeBinding.app_id == app_id,
-        models.DifyRuntimeBinding.target_id == target_id,
-        models.SecurityTarget.owner_user_id == owner_user_id,
-        models.SecurityTarget.owner_group_id == owner_group_id,
+        models.DifyRuntimeBinding.agent_id == agent_id if agent_id else models.DifyRuntimeBinding.target_id == target_id,
+        models.DifyRuntimeBinding.owner_user_id == owner_user_id,
+        models.DifyRuntimeBinding.owner_group_id == owner_group_id,
     ).all()
+    if agent_id and not bound_agents:
+        return []
     traces = db.query(models.RuntimeTraceSession).filter(
         models.RuntimeTraceSession.agent_id.in_([x[0] for x in bound_agents] if bound_agents else [app_id]),
         models.RuntimeTraceSession.owner_user_id == owner_user_id,
@@ -2310,6 +2330,7 @@ def _build_scan_task_plan(
         snapshot["dify_runtime_events"] = _dify_runtime_inventory_snapshot(
             db,
             app_id=dify_config["app_id"],
+            agent_id=dify_config.get("runtime_agent_id"),
             target_id=target.target_id,
             owner_user_id=target.owner_user_id,
             owner_group_id=target.owner_group_id,

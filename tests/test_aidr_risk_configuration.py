@@ -14,6 +14,18 @@ from tests.test_aidr_api import service as aidr_service
 GLOBAL = '/api/v1/aidr/risks/configuration'
 
 
+def test_detection_seed_before_client_schema_upgrade():
+    engine = create_engine('sqlite://')
+    risk.GlobalRiskConfig.__table__.create(engine)
+    with engine.begin() as conn:
+        conn.exec_driver_sql('CREATE TABLE managed_clients (id INTEGER PRIMARY KEY)')
+        conn.exec_driver_sql('INSERT INTO managed_clients (id) VALUES (1)')
+    with Session(engine) as db:
+        risk.initialize_global_detection(db)
+        db.commit()
+        assert db.query(risk.GlobalRiskConfig).count() == 1
+
+
 @pytest.fixture
 def configured_service(service):
     service[0].app.include_router(aidr.global_risk_router, prefix='/api')

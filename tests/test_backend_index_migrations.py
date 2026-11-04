@@ -39,6 +39,26 @@ def test_startup_adds_mcp_audit_name_without_rewriting_history(tmp_path):
     engine.dispose()
 
 
+def test_startup_upgrades_runtime_action_estimates(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'runtime-upgrade.db'}")
+    models.Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(models.RuntimeAction.__table__.insert().values(
+            action_id="historical", task_id="task", stage="execute", action_type="http",
+            target="example.com", risk_level="low", plan_step="send", parameters_hash="digest",
+            decision="allow", status="succeeded",
+        ))
+        for column in ("estimated_cost_microunits", "estimated_data_bytes"):
+            conn.exec_driver_sql(f"ALTER TABLE runtime_actions DROP COLUMN {column}")
+    startup_twice(tmp_path, tmp_path / 'runtime-upgrade.db')
+    with engine.connect() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT action_id, status, estimated_cost_microunits, estimated_data_bytes FROM runtime_actions"
+        ).one()
+        assert row == ("historical", "succeeded", 0, 0)
+    engine.dispose()
+
+
 def seed_records(engine, prefix):
     with engine.begin() as conn:
         for number, value in enumerate(("shared-value", "shared-value", None)):

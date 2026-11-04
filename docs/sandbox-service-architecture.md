@@ -145,6 +145,10 @@ Agent Manager 需要的只是一个稳定返回结果的 HTTP API，不关心对
 
 ### 响应 schema
 
+请求的 `files` 数组保存文件路径、内容与 `encoding`。UTF-8 文件使用 `encoding: "utf-8"`，其余文件以 `encoding: "base64"` 传送并在服务端恢复原始字节。发送二进制前，客户端确认 `/health` 的 `file_encodings` 包含 `base64`，服务端需先升级到支持该协议的版本。
+
+`timeout_seconds` 指定本次执行时限，服务端使用它与自身执行时限的较小值。HTTP 等待时间比执行时限多 5 秒，用于接收隔离进程终止和结果清理后的响应。服务返回 `timed_out`，客户端同时兼容已有 message/error 超时说明。执行超时、传输失败及脚本退出错误分别记录在本次报告中。
+
 当前兼容两种返回：
 
 1. 包裹型响应，适合独立执行服务
