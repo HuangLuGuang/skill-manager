@@ -5,6 +5,7 @@ from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
 from pydantic_core import PydanticCustomError
 from .client_assets import ClientAssetInventory
 from .aidr_skill_contract import SkillObservationReceipt
+from .dify_runtime_schemas import ApplicationIdentity
 
 
 class UserBase(BaseModel):
@@ -359,6 +360,7 @@ class UserGroupResponse(BaseModel):
 
 
 class ManagedAgentCreate(BaseModel):
+    dify: ApplicationIdentity | None = None
     agent_id: str
     name: str
     department_group_id: Optional[int] = None
@@ -375,6 +377,7 @@ class ManagedAgentCreate(BaseModel):
 
 
 class ManagedAgentUpdate(BaseModel):
+    dify: ApplicationIdentity | None = None
     agent_id: Optional[str] = None
     name: Optional[str] = None
     department_group_id: Optional[int] = None
@@ -399,6 +402,7 @@ class RegistrationSource(BaseModel):
 
 
 class ManagedAgentResponse(RegistrationSource):
+    dify: ApplicationIdentity | None = None
     source_platform_name: Optional[str] = None
     id: int
     agent_id: str
@@ -484,6 +488,7 @@ class AgentRiskSummary(BaseModel):
 
 
 class AgentAssetResponse(RegistrationSource):
+    dify: ApplicationIdentity | None = None
     risk_summary: AgentRiskSummary | None = None
     source_platform_name: Optional[str] = None
     asset_key: str

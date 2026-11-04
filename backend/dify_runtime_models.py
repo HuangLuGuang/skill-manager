@@ -10,7 +10,9 @@ class DifyRuntimeBinding(Base):
     __tablename__ = "dify_runtime_bindings"
     __table_args__ = (UniqueConstraint("instance_id", "workspace_id", "app_id"),)
     binding_id = Column(String(64), primary_key=True)
-    target_id = Column(String(64), ForeignKey("security_targets.target_id"), nullable=False, unique=True)
+    target_id = Column(String(64), ForeignKey("security_targets.target_id"), nullable=True, unique=True)
+    owner_user_id = Column(Integer, nullable=True)
+    owner_group_id = Column(Integer, nullable=True)
     agent_id = Column(String(128), ForeignKey("managed_agents.agent_id"), nullable=False, unique=True)
     instance_id = Column(String(128), nullable=False)
     workspace_id = Column(String(128), nullable=False)
@@ -19,6 +21,18 @@ class DifyRuntimeBinding(Base):
     revision = Column(Integer, nullable=False, default=1)
     policy_json = Column(Text, nullable=False, default="{}")
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class DifyRuntimeSkill(Base):
+    __tablename__ = "dify_runtime_skills"
+    __table_args__ = (UniqueConstraint("binding_id", "dify_agent_id", "archive_hash"),)
+    id = Column(Integer, primary_key=True)
+    binding_id = Column(String(64), ForeignKey("dify_runtime_bindings.binding_id"), nullable=False, index=True)
+    dify_agent_id = Column(String(128), nullable=False)
+    archive_hash = Column(String(64), nullable=False)
+    skill_name = Column(String(255), nullable=False)
+    version_id = Column(String(128), nullable=False)
+    seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class DifyRuntimeRun(Base):

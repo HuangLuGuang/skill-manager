@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+SUPPORTED_IMAGES = {"langgenius/dify-api:1.15.0": "0.5.3", "langgenius/dify-api:1.16.1": "0.6.0"}
 
 def main():
     parser = argparse.ArgumentParser()
@@ -32,10 +33,19 @@ def main():
     if root.exists():
         parser.error("Output must be a new directory")
     services = {}
-    for name in ("api", "worker"):
+    names = ["api", "worker"]
+    if resolved["services"]["api"].get("image") == "langgenius/dify-api:1.16.1":
+        names.append("agent_backend")
+    for name in names:
+        if name not in resolved["services"]:
+            parser.error(f"Missing required service: {name}")
         service = resolved["services"][name]
-        if service.get("image") != "langgenius/dify-api:1.15.0":
-            parser.error(f"{name}: this package requires langgenius/dify-api:1.15.0")
+        if name == "agent_backend" and service.get("image") != "langgenius/dify-agent-backend:1.16.1":
+            parser.error("agent_backend: requires langgenius/dify-agent-backend:1.16.1")
+        if name != "agent_backend" and service.get("image") not in SUPPORTED_IMAGES:
+            parser.error(f"{name}: supported images: {', '.join(SUPPORTED_IMAGES)}")
+        if name != "agent_backend" and service["image"] != resolved["services"]["api"]["image"]:
+            parser.error("api and worker must use the same supported image")
         existing = subprocess.check_output(["docker", "run", "--rm", "--entrypoint", "/app/api/.venv/bin/python",
             service["image"], "-c", "import importlib.util; print(bool(importlib.util.find_spec('sitecustomize')))"],
             text=True).strip()
@@ -57,7 +67,8 @@ def main():
     for name in services:
         directory = root / "data" / name
         directory.mkdir(parents=True, mode=0o700)
-    config.update(credentials_file="/opt/am-dify/credentials.json", queue_dir="/var/lib/am-dify")
+    config.update(credentials_file="/opt/am-dify/credentials.json", queue_dir="/var/lib/am-dify",
+                  dify_version=resolved["services"]["api"]["image"].rsplit(":", 1)[1])
     for name, value in (("config.json", config), ("credentials.json", credentials)):
         path = root / name
         path.write_text(json.dumps(value, indent=2))
@@ -65,20 +76,22 @@ def main():
     override = root / "compose.json"
     override.write_text(json.dumps({"services": services}, indent=2))
     for name in services:
+        version_check = ("import dify_agent; " if name == "agent_backend" else
+            f"assert importlib.metadata.version('graphon') == {SUPPORTED_IMAGES[resolved['services'][name]['image']]!r}; ")
         check = subprocess.run([
             "docker", "run", "--rm", "--entrypoint", "/app/api/.venv/bin/python",
             "-v", f"{root}:/opt/am-dify:ro", "-v", f"{root / 'data' / name}:/var/lib/am-dify",
             resolved["services"][name]["image"], "-c",
             "import json,tempfile,importlib.metadata; "
-            "assert importlib.metadata.version('graphon') == '0.5.3'; "
+            + version_check +
             "json.load(open('/opt/am-dify/config.json')); "
             "json.load(open('/opt/am-dify/credentials.json')); "
             "f=tempfile.TemporaryFile(dir='/var/lib/am-dify'); f.close()",
         ], capture_output=True, text=True)
         if check.returncode:
-            parser.error(f"{name}: mount preflight failed. Verify graphon 0.5.3 and container-user "
+            parser.error(f"{name}: mount preflight failed. Verify the supported runtime and container-user "
                          f"read/write permissions on {root}; no running Dify services were changed.")
-    print(f"Created {override}. Recreate api/worker using the original Compose arguments plus this file.")
+    print(f"Created {override}. Recreate {'/'.join(names)} using the original Compose arguments plus this file.")
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ _LICENSE_FILENAMES = {"license", "license.txt", "notice", "notice.txt", "copying
 TEXT_RULES = (
     ("P1", "HIGH", "提示词注入", "覆盖上级指令", re.compile(r"ignore (?:all )?(?:previous|prior|above|system) instructions?", re.I), "Skill 内容要求忽略上级或系统指令。"),
     ("P6", "HIGH", "系统提示词泄露", "披露系统提示词", re.compile(r"(?:reveal|print|show|dump|exfiltrate).{0,40}system prompt", re.I), "Skill 内容尝试泄露系统提示词。"),
+    ("MP1", "MEDIUM", "记忆投毒", "持久化记忆指令", re.compile(r"^(?:store|save|persist|retain|keep)\s+(?:this|the\s+following)(?:\s+(?:instruction|rule))?\s+(?:in|to)\s+(?:your\s+)?(?:long[- ]term\s+)?memory\b|^(?:请)?(?:将|把)[^\n。]{0,40}(?:写入|存入|保存到)[^\n。]{0,10}(?:长期记忆|持久记忆)", re.I | re.M), "Skill 内容要求将指令写入持久化记忆，需复核其对后续任务的影响。"),
     ("TP1", "HIGH", "工具投毒", "隐藏指令", re.compile(r"<!--[\s\S]{0,300}(?:ignore|send|exfiltrate|system prompt)[\s\S]{0,300}-->", re.I), "隐藏元数据中包含面向 Agent 的可疑指令。"),
     ("E1", "MEDIUM", "数据外传", "外部传输", re.compile(r"\b(?:requests\.(?:post|put)|httpx\.(?:post|put)|fetch)\s*\(", re.I), "代码或指令引用了可能向外部发送数据的调用。"),
     ("E2", "HIGH", "数据外传", "环境变量读取", re.compile(r"\b(?:os\.environ|process\.env|env\s*\|)", re.I), "代码读取环境变量，可能接触密钥或敏感配置。"),

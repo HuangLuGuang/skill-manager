@@ -205,7 +205,7 @@ def initialize_global_detection(db):
     from .models import ManagedClient
     row = db.query(GlobalRiskConfig).order_by(GlobalRiskConfig.revision.desc()).first()
     if row is None:
-        upgrading = db.query(ManagedClient).first() is not None
+        upgrading = db.query(ManagedClient.id).first() is not None
         payload = DetectionConfig(builtin_ids=catalog.IDS,
             command_rules=commands.LEGACY_COMMANDS if upgrading else catalog.COMMANDS).model_dump(exclude={'expected_revision'})
         db.execute(insert(GlobalRiskConfig).values(revision=1, payload=dump(payload)).on_conflict_do_nothing())

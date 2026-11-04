@@ -109,7 +109,9 @@ def test_existing_metadata_is_preserved():
     ("TIMEOUT", None, 124, True, "error"),
 ])
 def test_new_remote_results_include_metadata(tmp_path, monkeypatch, message, code, exit_code, timed_out, field):
-    (tmp_path / "run.py").write_text("print('ok')\n")
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "run.py").write_text("print('ok')\n")
 
     class Response:
         def raise_for_status(self):
@@ -121,7 +123,7 @@ def test_new_remote_results_include_metadata(tmp_path, monkeypatch, message, cod
     monkeypatch.setattr("agent_manager.core.sandbox.httpx.post", lambda *args, **kwargs: Response())
     result = RemoteSandboxRunner(SandboxConfig(
         runtime="remote", remote_url="http://sandbox.local",
-    )).run_probe(tmp_path, "run.py")
+    )).run_probe(skill_dir, "run.py")
     assert result.reason == message
     assert result.reason_code == code
     assert result.executed is True

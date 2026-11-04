@@ -711,8 +711,16 @@ The Backend starts the result dispatcher and migrates receiver-version, delivery
 
 ## Dify 接入容器 / Dify adapter containers
 
-[Dify Runtime Adapter](../integrations/dify-runtime/README.md) 的安装器为 Dify 1.15.0 生成附加 Compose 文件，挂载只读 Python 接入包、配置和凭证，并为 API/Worker 分别挂载可写 SQLite 事件队列。平台启动时创建 Dify 应用绑定、运行关联、调用关联和进程状态表；无需独立数据库服务。
+[Dify Runtime Adapter](../integrations/dify-runtime/README.md) 的安装器为 Dify 1.15.0 / 1.16.1 生成附加 Compose 文件，挂载只读 Python 接入包、配置和凭证，并为 API/Worker 分别挂载可写 SQLite 事件队列。平台启动时创建 Dify 应用绑定、运行关联、调用关联、进程状态和 Skill 包检测版本关联表；无需独立数据库服务。1.16.1 的 Skill 上传与发布检查同样安装在 API 中；更新平台和接入包后重建相关服务，确认 `skill_upload`、`skill_publish` 检查点上报，再用未批准包验证管控模式拒绝发布。包上传使用 Base64，运行凭证的请求体上限需覆盖编码后大小。
+
+Dify 1.16.1 的安装器还会为 `langgenius/dify-agent-backend:1.16.1` 生成只读挂载和独立可写队列；升级接入时同时重建 `api worker agent_backend`。运行时检查点为 `agent_runtime`、`skill_runtime`、`shell_runtime`。验证 Skill 加载、命令成功、命令拒绝以及已发布 Skill 撤销批准后的新运行，不能只用心跳验收。平台内部接口仍使用 Dify 自身配置，勿将其密钥复制到模型可见的 Skill 或命令中。
+
+运行应用在“智能体列表 → 登记智能体 → Dify”登记。升级平台时自动迁移旧绑定：扫描目标改为可选，并将原用户/用户组归属保存在运行绑定中；绑定 ID、策略、运行关联及凭证不变。SQLite 表迁移在事务中执行，升级前按常规流程备份平台数据库，首次启动需预留数据库写锁时间。已有 Dify 容器无需因入口调整重新安装 Adapter。
+
+平台启动也会为旧 `runtime_actions` 表补齐成本和数据量估计字段，历史记录保留，新字段默认 0；迁移支持重复启动。
+
+Platform startup also adds missing cost and data-size estimate columns to legacy `runtime_actions` tables, preserving existing records with zero defaults. Repeated startup is supported.
 
 保留原部署的项目名、Compose 文件顺序和环境参数，加入生成的覆盖文件后重建 API/Worker。维护窗口内完成首次接入、升级和卸载。已有 `sitecustomize` 或非默认镜像需要先处理兼容性；非默认容器用户需要匹配文件读取权限与队列写入权限。升级后重新验证检查点、事件上传和实际阻断。
 
-The installer generates a Compose override for Dify 1.15.0, with read-only adapter/configuration/credentials and separate writable API/Worker queues. Preserve the original project, Compose order and environment settings, then recreate both services. Validate existing startup customization and container-user permissions. Platform startup creates the adapter tables. Revalidate hooks, event delivery and real blocking after upgrades; preserve queued events when removing the adapter.
+The installer generates a Compose override for Dify 1.15.0 / 1.16.1, with read-only adapter/configuration/credentials and separate writable API/Worker queues. Preserve the original project, Compose order and environment settings, then recreate both services. Validate existing startup customization and container-user permissions. Platform startup creates the adapter tables. Revalidate hooks, event delivery and real blocking after upgrades; preserve queued events when removing the adapter.

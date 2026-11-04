@@ -1,4 +1,4 @@
-"""Dify 1.15 / graphon 0.5.3 invocation points."""
+"""Dify 1.15.0 / graphon 0.5.3 and Dify 1.16.1 / graphon 0.6.0 invocation points."""
 import contextvars
 import functools
 import importlib.abc
@@ -9,10 +9,13 @@ import json
 import os
 import sys
 import threading
+import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from .client import ApprovalPause, Blocked, Client, fingerprint
+from .skills import patch_config, patch_normalizer, patch_standardize, patch_composer, patch_workflow_publish
+from .agent_backend import patch_runner, patch_shell, patch_skill_pull
 
 current = contextvars.ContextVar("am_dify_context", default=None)
 clients = {}
@@ -80,6 +83,7 @@ def guarded(fields, parameters, invoke):
     if state is None:
         return invoke()
     client, context = state
+    client.observe(context, "context.injected", "started", execution=parameters)
     return client.execute(context, fields, parameters, invoke)
 
 
@@ -107,7 +111,8 @@ def wrap_node(factory, node, config):
             raise Blocked("dify_runtime.run_identity_missing")
         return {"app_id": dify.app_id, "workspace_id": dify.tenant_id, "run_id": str(run_id),
                 "workflow_id": factory.graph_init_params.workflow_id, "graph_digest": digest,
-                "node_id": node_id, "execution_id": node.ensure_execution_id(), "node_type": node_type}
+                "node_id": node_id, "node_title": str(config.get("data", {}).get("title", node_id))[:256],
+                "execution_id": node.ensure_execution_id(), "node_type": node_type}
 
     @functools.wraps(original)
     def wrapped():
@@ -116,6 +121,16 @@ def wrap_node(factory, node, config):
         token = current.set((client, ctx))
         try:
             client.observe(ctx, "step.start", "started")
+            if node_type == "start":
+                pool = factory.graph_runtime_state.variable_pool
+                user_inputs = dict(pool.get_by_prefix(node_id))
+                query = pool.get(["sys", "query"])
+                files = pool.get(["sys", "files"])
+                if query is not None:
+                    user_inputs["query"] = query.value
+                if files is not None:
+                    user_inputs["files"] = files.value
+                client.observe(ctx, "message.user", "succeeded", inputs=user_inputs)
             if node_type in {"knowledge-retrieval"}:
                 data = node.node_data.model_dump(mode="json")
                 datasets = data.get("dataset_ids") or []
@@ -131,15 +146,16 @@ def wrap_node(factory, node, config):
             if inspect.isgenerator(result):
                 return scoped_generator(result, client, ctx, node)
             status = str(getattr(result, "status", "succeeded"))
-            client.observe(ctx, "step.end", "failed" if status == "failed" else "succeeded")
+            client.observe(ctx, "step.end", "failed" if status == "failed" else "succeeded",
+                           **{key: getattr(result, key, None) for key in ("inputs", "outputs", "error")})
             return result
         except ApprovalPause as pause:
             return iter([pause_event(node, pause.action_id)])
-        except Blocked:
-            client.observe(ctx, "step.end", "blocked")
+        except Blocked as exc:
+            client.observe(ctx, "step.end", "blocked", error=str(exc))
             raise
-        except Exception:
-            client.observe(ctx, "step.end", "failed")
+        except Exception as exc:
+            client.observe(ctx, "step.end", "failed", error=str(exc))
             raise
         finally:
             current.reset(token)
@@ -156,23 +172,26 @@ def pause_event(node, action_id):
 
 def scoped_generator(iterator, client, context, node):
     status = "succeeded"
+    details = {}
     while True:
         paused = False
         token = current.set((client, context))
         try:
             item = next(iterator)
         except StopIteration:
-            client.observe(context, "step.end", status)
+            client.observe(context, "step.end", status, **details)
             return
         except ApprovalPause as pause:
             item = pause_event(node, pause.action_id)
             paused = True
-        except Exception:
-            client.observe(context, "step.end", "failed")
+        except Exception as exc:
+            client.observe(context, "step.end", "failed", error=str(exc))
             raise
         finally:
             current.reset(token)
         result = getattr(item, "node_run_result", None)
+        if result is not None:
+            details = {key: getattr(result, key, None) for key in ("inputs", "outputs", "error")}
         if str(getattr(result, "status", "")) == "failed":
             status = "failed"
         yield item
@@ -181,7 +200,7 @@ def scoped_generator(iterator, client, context, node):
 
 
 def patch_factory(module):
-    if importlib.metadata.version("graphon") != "0.5.3":
+    if importlib.metadata.version("graphon") not in {"0.5.3", "0.6.0"}:
         raise RuntimeError("dify_runtime.unsupported_graphon_version")
     cls = module.DifyNodeFactory
     original = cls.create_node
@@ -225,22 +244,29 @@ def patch_models(module):
         if state is None:
             return original(self, *args, **kwargs)
         client, context = state
-        client.observe(context, "model.request", "started")
+        request_id = uuid.uuid4().hex
+        bound = inspect.signature(original).bind(self, *args, **kwargs).arguments
+        inputs = {key: bound[key] for key in ("prompt_messages", "model_parameters", "tools", "stop") if key in bound}
+        inputs.update(model=self.model_name, provider=self.provider)
+        client.observe(context, "model.request", "started", request_id=request_id, inputs=inputs)
         try:
             result = original(self, *args, **kwargs)
-        except Exception:
-            client.observe(context, "model.error", "failed")
+        except Exception as exc:
+            client.observe(context, "model.error", "failed", request_id=request_id, error=str(exc))
             raise
         if inspect.isgenerator(result):
             def stream():
                 try:
-                    yield from result
-                except Exception:
-                    client.observe(context, "model.error", "failed")
+                    for chunk in result:
+                        client.observe(context, "model.response", "started", request_id=request_id,
+                                       outputs=chunk.delta)
+                        yield chunk
+                except Exception as exc:
+                    client.observe(context, "model.error", "failed", request_id=request_id, error=str(exc))
                     raise
-                client.observe(context, "model.response", "succeeded")
+                client.observe(context, "model.response", "succeeded", request_id=request_id)
             return stream()
-        client.observe(context, "model.response", "succeeded")
+        client.observe(context, "model.response", "succeeded", request_id=request_id, outputs=result)
         return result
     module.ModelInstance.invoke_llm = invoke
     hook_status["model"] = True
@@ -289,10 +315,30 @@ def patch_lifecycle(module):
             context = client.contexts.pop(run_id, None)
             if context:
                 client.observe({**context, "node_id": "__workflow__", "node_type": "workflow",
-                                "execution_id": run_id}, "turn.end", status)
+                                "node_title": "", "execution_id": run_id}, "turn.end", status,
+                               outputs=getattr(event, "outputs", None), error=getattr(event, "error", None) or getattr(event, "reason", None))
                 client.runs.pop((run_id, context["graph_digest"]), None)
     module.PauseStatePersistenceLayer.on_event = on_event
     hook_status["workflow_lifecycle"] = True
+
+
+def patch_pause_queue(module):
+    if importlib.metadata.version("graphon") != "0.6.0":
+        return
+    from core.app.entities.queue_entities import QueueWorkflowPausedEvent
+    cls = getattr(module, "WorkflowAppQueueManager", None) or module.MessageBasedAppQueueManager
+    original = cls._publish
+
+    @functools.wraps(original)
+    def publish(self, event, pub_from):
+        if isinstance(event, QueueWorkflowPausedEvent) and any(
+            str(getattr(reason, "message", "")).startswith("agent-manager:") for reason in event.reasons
+        ):
+            # Dify 1.16.1 otherwise aborts this checkpoint when its response stream closes.
+            self._execution_terminal.set()
+        return original(self, event, pub_from)
+
+    cls._publish = publish
 
 
 def patch_tools(module):
@@ -323,8 +369,18 @@ class Loader(importlib.abc.Loader):
 
 class Finder(importlib.abc.MetaPathFinder):
     callbacks = {"core.workflow.node_factory": patch_factory, "core.tools.tool_engine": patch_tools,
+                 "dify_agent.runtime.runner": patch_runner,
+                 "dify_agent.layers.shell.layer": patch_shell,
+                 "dify_agent.agent_stub.server.agent_stub_config": patch_skill_pull,
+                 "services.agent_config_service": patch_config,
+                 "services.agent.config_skill_normalize_service": patch_normalizer,
+                 "services.agent.skill_standardize_service": patch_standardize,
+                 "services.agent.composer_service": patch_composer,
+                 "services.agent.workflow_publish_service": patch_workflow_publish,
                  "core.model_manager": patch_models, "app_factory": patch_app,
-                 "core.app.layers.pause_state_persist_layer": patch_lifecycle}
+                 "core.app.layers.pause_state_persist_layer": patch_lifecycle,
+                 "core.app.apps.workflow.app_queue_manager": patch_pause_queue,
+                 "core.app.apps.message_based_app_queue_manager": patch_pause_queue}
 
     def find_spec(self, fullname, path=None, target=None):
         if fullname not in self.callbacks:

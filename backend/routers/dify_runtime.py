@@ -6,16 +6,22 @@ import uuid
 from functools import wraps
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, Request, Query
+from sqlalchemy import func
+from sqlalchemy.orm import aliased
 
 from .. import auth, models
 from ..api_errors import ApiError
-from ..dify_runtime_schemas import BindingCreate, Call, Consume, Heartbeat, Observation, Policy, PolicyUpdate, Result, Review, RunStart
+from ..dify_runtime_schemas import ApplicationIdentity, BindingCreate, Call, Consume, Heartbeat, Observation, Policy, PolicyUpdate, Result, Review, RunStart
 from ..runtime_trace_schemas import RuntimeTraceBatchCreate, RuntimeTraceEventInput
 from ..services.runtime_traces import create_trace, ingest_batch, ingest_transaction
 from ..sqlite_db import get_db
 from .access_tokens import ensure_token_agent_allowed, resolve_access_token, acquire_access_token_slot, release_access_token_slot
 from .runtime_governance import _active_kill_reason
+from agent_manager.api.router import get_manager
+from agent_manager.api.import_work import import_endpoint
+from ..dify_runtime_schemas import SkillPackage, SkillPublish
+from ..services import dify_skills
 
 router = APIRouter(prefix="/v1/dify-runtime", tags=["dify-runtime"])
 
@@ -60,23 +66,102 @@ async def runtime_token(request: Request, authorization: str | None = Header(Non
         release_access_token_slot(token)
 
 
-def binding(db, binding_id, token=None):
+def binding(db, binding_id, token=None, user=None):
     row = db.get(models.DifyRuntimeBinding, binding_id)
     if not row:
         fail("binding_not_found", 404)
+    if user:
+        managed_agent(db, row.agent_id, user)
     if token:
         if token.bound_agent_id != row.agent_id:
             fail("binding_mismatch", 403)
-        target = db.query(models.SecurityTarget).filter_by(target_id=row.target_id).one()
-        if target.owner_group_id is not None:
-            if token.group_id != target.owner_group_id:
+        if row.owner_group_id is not None:
+            if token.group_id != row.owner_group_id:
                 fail("owner_mismatch", 403)
-        elif target.owner_user_id != token.user_id:
+        elif row.owner_user_id != token.user_id:
             fail("owner_mismatch", 403)
         if row.mode == "disabled":
             fail("disabled", 403)
         if row.mode == "enforce" and "runtime:govern" not in json.loads(token.scopes_json):
             fail("scope_required", 403)
+    return row
+
+
+@router.post("/bindings/{binding_id}/skills/upload")
+@import_endpoint
+def upload_skill(binding_id: str, body: SkillPackage, token=Depends(runtime_token),
+                 db=Depends(get_db), mgr=Depends(get_manager)):
+    row = binding(db, binding_id, token)
+    if "runtime:govern" not in json.loads(token.scopes_json):
+        fail("scope_required", 403)
+    return dify_skills.submit(db, row, body, mgr)
+
+
+@router.post("/bindings/{binding_id}/skills/publish-check")
+def publish_skills(binding_id: str, body: SkillPublish, token=Depends(runtime_token),
+                   db=Depends(get_db), mgr=Depends(get_manager)):
+    row = binding(db, binding_id, token)
+    if "runtime:govern" not in json.loads(token.scopes_json):
+        fail("scope_required", 403)
+    return dify_skills.admission(db, row, body, mgr)
+
+
+@router.post("/bindings/{binding_id}/skills/runtime-check")
+def runtime_skills(binding_id: str, body: SkillPublish, token=Depends(runtime_token),
+                   db=Depends(get_db), mgr=Depends(get_manager)):
+    row = binding(db, binding_id, token)
+    if "runtime:govern" not in json.loads(token.scopes_json):
+        fail("scope_required", 403)
+    return dify_skills.admission(db, row, body, mgr, source="dify_runtime")
+
+
+@router.get("/bindings/{binding_id}/skills")
+def list_skills(binding_id: str, page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100),
+                db=Depends(get_db), mgr=Depends(get_manager),
+                user=Depends(auth.get_current_admin_user)):
+    binding(db, binding_id, user=user)
+    model = models.DifyRuntimeSkill
+    ranked = db.query(model, func.row_number().over(
+        partition_by=[model.dify_agent_id, model.version_id],
+        order_by=[model.seen_at.desc(), model.id.desc()]).label("position")).filter_by(binding_id=binding_id).subquery()
+    record = aliased(model, ranked)
+    query = db.query(record).filter(ranked.c.position == 1)
+    total = query.count()
+    rows = query.order_by(record.seen_at.desc(), record.id.desc()).offset(
+        (page - 1) * page_size).limit(page_size).all()
+    return {"items": [dify_skills.summary(row, mgr) for row in rows], "total": total}
+
+
+def managed_agent(db, agent_id, user):
+    query = db.query(models.ManagedAgent).filter_by(agent_id=agent_id)
+    if user.role != "super_admin":
+        query = query.filter_by(created_by=user.username)
+    agent = query.first()
+    if not agent:
+        fail("agent_not_found", 404)
+    return agent
+
+
+def register_application(db, agent, identity, user, target=None):
+    existing = db.query(models.DifyRuntimeBinding).filter(
+        (models.DifyRuntimeBinding.agent_id == agent.agent_id) |
+        ((models.DifyRuntimeBinding.instance_id == identity.instance_id) &
+         (models.DifyRuntimeBinding.workspace_id == identity.workspace_id) &
+         (models.DifyRuntimeBinding.app_id == identity.app_id)) |
+        ((models.DifyRuntimeBinding.target_id == target.target_id) if target else False)).first()
+    if existing:
+        if (existing.agent_id == agent.agent_id and (not target or existing.target_id == target.target_id)
+                and all(getattr(existing, k) == v for k, v in identity.model_dump().items())):
+            return existing
+        fail("binding_conflict")
+    owner = db.query(models.User).filter_by(username=agent.created_by).first()
+    row = models.DifyRuntimeBinding(binding_id="dfr_" + uuid.uuid4().hex,
+        target_id=target.target_id if target else None, agent_id=agent.agent_id,
+        owner_user_id=target.owner_user_id if target else (owner.id if owner else user.id),
+        owner_group_id=target.owner_group_id if target else agent.department_group_id,
+        **identity.model_dump(), policy_json=encoded(Policy().model_dump()))
+    db.add(row)
+    db.flush()
     return row
 
 
@@ -116,44 +201,36 @@ def event(db, task, call, kind, status, details=None):
 
 
 def public_binding(row):
-    return {key: getattr(row, key) for key in ("binding_id", "target_id", "agent_id", "instance_id",
+    return {key: getattr(row, key) for key in ("binding_id", "target_id", "agent_id", "instance_id", "owner_user_id", "owner_group_id",
                                                "workspace_id", "app_id", "mode", "revision")} | {
         "policy": json.loads(row.policy_json)}
 
 
 @router.get("/bindings")
-def bindings(db=Depends(get_db), user=Depends(auth.get_current_admin_user)):
-    return {"items": [public_binding(x) for x in db.query(models.DifyRuntimeBinding).all()]}
+def bindings(agent_id: str | None = None, db=Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    query = db.query(models.DifyRuntimeBinding).join(models.ManagedAgent, models.ManagedAgent.agent_id == models.DifyRuntimeBinding.agent_id)
+    if user.role != "super_admin":
+        query = query.filter(models.ManagedAgent.created_by == user.username)
+    if agent_id:
+        query = query.filter(models.DifyRuntimeBinding.agent_id == agent_id)
+    return {"items": [public_binding(x) for x in query.all()]}
 
 
 @router.post("/bindings")
 @atomic
 def create_binding(body: BindingCreate, request: Request, db=Depends(transaction), user=Depends(auth.get_current_admin_user)):
-    target = db.query(models.SecurityTarget).filter_by(target_id=body.target_id, connector_type="dify").first()
-    if not target:
-        fail("target_not_found", 404)
-    agent = db.query(models.ManagedAgent).filter_by(agent_id=body.agent_id).first()
-    if not agent:
-        fail("agent_not_found", 404)
-    config = json.loads(target.config_json)
+    agent = managed_agent(db, body.agent_id, user)
+    target = None
+    config = body.model_dump()
+    if body.target_id:
+        target = db.query(models.SecurityTarget).filter_by(target_id=body.target_id, connector_type="dify").first()
+        if not target or (user.role != "super_admin" and target.created_by != user.username):
+            fail("target_not_found", 404)
+        config = json.loads(target.config_json)
     if not config.get("workspace_id") or not config.get("app_id"):
-        fail("target_identity_missing", 422)
-    existing = db.query(models.DifyRuntimeBinding).filter(
-        (models.DifyRuntimeBinding.target_id == body.target_id) |
-        (models.DifyRuntimeBinding.agent_id == body.agent_id) |
-        ((models.DifyRuntimeBinding.instance_id == body.instance_id) &
-         (models.DifyRuntimeBinding.workspace_id == config["workspace_id"]) &
-         (models.DifyRuntimeBinding.app_id == config["app_id"]))
-    ).first()
-    if existing:
-        if existing.target_id == body.target_id and existing.agent_id == body.agent_id and existing.instance_id == body.instance_id:
-            return public_binding(existing)
-        fail("binding_conflict")
-    row = models.DifyRuntimeBinding(binding_id="dfr_" + uuid.uuid4().hex, target_id=body.target_id,
-                                    agent_id=body.agent_id, instance_id=body.instance_id,
-                                    workspace_id=config["workspace_id"], app_id=config["app_id"],
-                                    policy_json=encoded(Policy().model_dump()))
-    db.add(row)
+        fail("application_identity_missing", 422)
+    identity = ApplicationIdentity(instance_id=body.instance_id, workspace_id=config["workspace_id"], app_id=config["app_id"])
+    row = register_application(db, agent, identity, user, target)
     from .. import iam
     db.flush()
     iam.audit(db, request, user, "agents", "create", row.binding_id, after=public_binding(row))
@@ -165,7 +242,7 @@ def create_binding(body: BindingCreate, request: Request, db=Depends(transaction
 @atomic
 def update_binding(binding_id: str, body: PolicyUpdate, request: Request, db=Depends(transaction),
                    user=Depends(auth.get_current_admin_user)):
-    row = binding(db, binding_id)
+    row = binding(db, binding_id, user=user)
     if row.revision != body.revision:
         fail("revision_conflict")
     row.mode = body.mode
@@ -194,10 +271,15 @@ def heartbeat(binding_id: str, body: Heartbeat, token=Depends(runtime_token), db
 
 @router.get("/bindings/{binding_id}/status")
 def status(binding_id: str, db=Depends(get_db), user=Depends(auth.get_current_admin_user)):
-    row = binding(db, binding_id)
+    from .. import iam
+    row = binding(db, binding_id, user=user)
     processes = db.query(models.DifyRuntimeProcess).filter_by(binding_id=binding_id).all()
-    runs = db.query(models.DifyRuntimeRun).filter_by(binding_id=binding_id).order_by(
-        models.DifyRuntimeRun.task_id.desc()).limit(100).all()
+    runs = db.query(models.DifyRuntimeRun, models.RuntimeTask).join(
+        models.RuntimeTask, models.RuntimeTask.task_id == models.DifyRuntimeRun.task_id
+    ).filter(models.DifyRuntimeRun.binding_id == binding_id).order_by(
+        models.RuntimeTask.created_at.desc(), models.RuntimeTask.id.desc()).limit(100).all()
+    tasks = {run.task_id: task for run, task in runs}
+    runs = [run for run, task in runs]
     task_ids = [r.task_id for r in runs]
     calls = db.query(models.DifyRuntimeCall).filter(models.DifyRuntimeCall.task_id.in_(task_ids)).all()
     actions = {x.action_id: x for x in db.query(models.RuntimeAction).filter(
@@ -206,8 +288,10 @@ def status(binding_id: str, db=Depends(get_db), user=Depends(auth.get_current_ad
             "processes": [json.loads(x.report_json) | {"seen_at": x.seen_at,
                 "healthy": (datetime.utcnow() - x.seen_at).total_seconds() < 90} for x in processes],
             "runs": [{"task_id": x.task_id, "run_id": x.run_id, "workflow_id": x.workflow_id,
-                      "graph_digest": x.graph_digest,
-                      "trace_id": db.query(models.RuntimeTask).filter_by(task_id=x.task_id).one().trace_id} for x in runs],
+                      "graph_digest": x.graph_digest, "status": tasks[x.task_id].status,
+                      "created_at": tasks[x.task_id].created_at, "completed_at": tasks[x.task_id].completed_at,
+                      "trace_id": tasks[x.task_id].trace_id} for x in runs]
+                    if "traces:view" in iam.permission_codes(db, user) else [],
             "calls": [{"action_id": c.action_id, "task_id": c.task_id, **json.loads(c.context_json),
                        "status": actions[c.action_id].status, "decision": actions[c.action_id].decision,
                        "reasons": json.loads(actions[c.action_id].decision_reasons_json),
@@ -387,7 +471,7 @@ def review(action_id: str, body: Review, db=Depends(transaction), user=Depends(a
     action = db.query(models.RuntimeAction).filter_by(action_id=action_id).one()
     task = db.query(models.RuntimeTask).filter_by(task_id=call.task_id).one()
     run = db.get(models.DifyRuntimeRun, task.task_id)
-    row = binding(db, run.binding_id)
+    row = binding(db, run.binding_id, user=user)
     if call.approval_status != "pending" or call.approval_deadline <= datetime.utcnow():
         fail("approval_inactive")
     if row.revision != call.revision or row.mode != "enforce" or task.status != "active":
@@ -415,6 +499,8 @@ def observation(binding_id: str, body: Observation, token=Depends(runtime_token)
     trace = db.query(models.RuntimeTraceSession).filter_by(trace_id=run["trace_id"]).one()
     payload = {"node_id": body.node_id, "node_type": body.node_type,
                "workflow_id": body.run.workflow_id, "graph_digest": body.run.graph_digest}
+    payload.update({key: getattr(body, key) for key in ("inputs", "outputs", "error") if getattr(body, key)})
+    payload.update(node_title=body.node_title, content=body.content, truncated=body.truncated)
     if body.type == "turn.end" and body.status in {"succeeded", "failed", "cancelled"}:
         task = db.query(models.RuntimeTask).filter_by(task_id=run["task_id"]).one()
         if task.status == "active":
@@ -423,7 +509,7 @@ def observation(binding_id: str, body: Observation, token=Depends(runtime_token)
         trace.status = body.status
     ingest_batch(db, trace, RuntimeTraceBatchCreate(batch_id=body.event_id, events=[
         RuntimeTraceEventInput(event_id=body.event_id, event_time=body.event_time, source="dify_adapter",
-            type=body.type, step_id=body.execution_id, status=body.status, payload=payload,
+            type=body.type, step_id=body.execution_id, request_id=body.request_id or None, status=body.status, payload=payload,
             redacted_payload=payload)
     ]))
     return {"accepted": True}

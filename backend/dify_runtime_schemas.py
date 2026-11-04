@@ -4,6 +4,24 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+class SkillPackage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    dify_agent_id: str = Field(min_length=1, max_length=128)
+    archive_base64: str = Field(min_length=1, max_length=70_000_000)
+
+
+class SkillReference(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=255)
+    archive_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class SkillPublish(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    dify_agent_id: str = Field(min_length=1, max_length=128)
+    skills: list[SkillReference] = Field(max_length=500)
+
+
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -56,10 +74,30 @@ class Policy(Strict):
         return values
 
 
+class ApplicationIdentity(Strict):
+    instance_id: str = Field(min_length=1, max_length=128)
+    workspace_id: str = Field(min_length=1, max_length=128)
+    app_id: str = Field(min_length=1, max_length=128)
+
+    @field_validator("instance_id", "workspace_id", "app_id")
+    @classmethod
+    def identity(cls, value):
+        if not value.strip():
+            raise ValueError("Application identity must not be blank")
+        return value.strip()
+
+
 class BindingCreate(Strict):
-    target_id: str = Field(min_length=1, max_length=64)
+    target_id: str | None = Field(default=None, min_length=1, max_length=64)
     agent_id: str = Field(min_length=1, max_length=128)
     instance_id: str = Field(min_length=1, max_length=128)
+    workspace_id: str | None = Field(default=None, min_length=1, max_length=128)
+    app_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+    @field_validator("instance_id", "workspace_id", "app_id")
+    @classmethod
+    def identity(cls, value):
+        return ApplicationIdentity.identity(value) if value is not None else None
 
 
 class PolicyUpdate(Strict):
@@ -119,5 +157,19 @@ class Observation(Strict):
     node_id: str = Field(min_length=1, max_length=128)
     execution_id: str = Field(min_length=1, max_length=128)
     node_type: str = Field(min_length=1, max_length=64)
-    type: Literal["step.start", "step.end", "model.request", "model.response", "model.error", "turn.end"]
+    type: Literal["step.start", "step.end", "model.request", "model.response", "model.error", "turn.end", "message.user", "context.injected"]
     status: Literal["started", "succeeded", "failed", "cancelled", "blocked"]
+    inputs: str = Field(default="", max_length=8000)
+    outputs: str = Field(default="", max_length=8000)
+    error: str = Field(default="", max_length=2000)
+    node_title: str = Field(default="", max_length=256)
+    request_id: str = Field(default="", max_length=64)
+    content: dict[Literal["inputs", "outputs", "error", "execution"], list[str]] = Field(default_factory=dict)
+    truncated: bool = False
+
+    @field_validator("content")
+    @classmethod
+    def content_limits(cls, value):
+        if any(len(parts) > 1024 or any(len(part) > 1000 for part in parts) for parts in value.values()):
+            raise ValueError("Execution content exceeds storage limit")
+        return value

@@ -64,7 +64,8 @@ curl http://127.0.0.1:8194/health
   "status": "ok",
   "service": "isolated-sandbox-service",
   "backend": "nsjail",
-  "available": true
+  "available": true,
+  "file_encodings": ["utf-8", "base64"]
 }
 ```
 
@@ -86,6 +87,10 @@ curl http://127.0.0.1:8194/health
 ```
 
 ## 返回协议
+
+请求可传 `files` 数组，每项包含 `path`、`content` 和 `encoding`。默认编码为 `utf-8`，二进制文件采用 `base64`，服务验证编码后按原始字节写入工作目录。Agent Manager 发送二进制前检查健康接口的 `file_encodings`。
+
+可选的 `timeout_seconds` 范围为 1–600 秒，实际执行上限取请求值与 `SANDBOX_SERVICE_DEFAULT_TIMEOUT_SECONDS` 的较小值。执行超时返回 `data.timed_out=true` 并保留已有错误输出，客户端应为终止和清理预留 HTTP 响应等待时间。
 
 ```json
 {

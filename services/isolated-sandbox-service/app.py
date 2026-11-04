@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import shutil
 import subprocess
@@ -7,10 +8,10 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ServiceConfig(BaseModel):
@@ -62,6 +63,13 @@ class ServiceConfig(BaseModel):
 class RunCodeFile(BaseModel):
     path: str
     content: str
+    encoding: Literal["utf-8", "base64"] = "utf-8"
+
+    @model_validator(mode="after")
+    def validate_content(self):
+        if self.encoding == "base64":
+            base64.b64decode(self.content, validate=True)
+        return self
 
 
 class RunCodeRequest(BaseModel):
@@ -71,6 +79,7 @@ class RunCodeRequest(BaseModel):
     enable_network: bool = False
     metadata: dict[str, object] = Field(default_factory=dict)
     files: list[RunCodeFile] = Field(default_factory=list)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=600)
 
 
 class RunCodeData(BaseModel):
@@ -80,6 +89,7 @@ class RunCodeData(BaseModel):
     duration_ms: int = 0
     message: str | None = None
     backend: str
+    timed_out: bool = False
 
 
 class RunCodeResponse(BaseModel):
@@ -125,7 +135,9 @@ class Workspace:
         for file_payload in self.request.files:
             target = self._safe_file_path(file_payload.path)
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(file_payload.content, encoding="utf-8")
+            content = (base64.b64decode(file_payload.content, validate=True)
+                       if file_payload.encoding == "base64" else file_payload.content.encode("utf-8"))
+            target.write_bytes(content)
         payload = self.request.code
         if self.request.preload.strip():
             payload = f"{self.request.preload.rstrip()}\n\n{payload}"
@@ -199,6 +211,7 @@ class SubprocessExecutor:
                 duration_ms=duration_ms,
                 message="execution timed out",
                 backend="subprocess",
+                timed_out=True,
             )
         finally:
             workspace.cleanup()
@@ -295,6 +308,7 @@ class NsjailExecutor:
                 duration_ms=duration_ms,
                 message="execution timed out",
                 backend="nsjail",
+                timed_out=True,
             )
         finally:
             workspace.cleanup()
@@ -396,6 +410,7 @@ def health(config: ServiceConfig = Depends(ServiceConfig.load)):
         "service": "isolated-sandbox-service",
         "backend": config.backend,
         "available": executor.is_available(),
+        "file_encodings": ["utf-8", "base64"],
     }
 
 
@@ -411,6 +426,8 @@ def run_code(body: RunCodeRequest, config: ServiceConfig = Depends(ServiceConfig
     work_root = Path(config.work_root)
     work_root.mkdir(parents=True, exist_ok=True)
 
+    if body.timeout_seconds is not None:
+        config = config.model_copy(update={"default_timeout_seconds": min(body.timeout_seconds, config.default_timeout_seconds)})
     executor = get_executor(config)
     if not executor.is_available():
         return RunCodeResponse(

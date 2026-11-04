@@ -12,9 +12,29 @@ Default and individual client policies provide **Client interface → Menu visib
 
 ## Dify 运行接入 / Dify runtime integration
 
-Agent 资产页的“Dify 运行接入”提供应用绑定、观察/管控模式、策略编辑、进程检查点状态、运行轨迹和调用审批。通过 [Dify 接入包](../integrations/dify-runtime/README.md) 将运行检查点加载到 Dify 1.15.0 的 API/Worker。规则覆盖 HTTP、工具、Code、知识检索、工作流摘要准入及同次运行的动作先后关系；人工审批使用原生持久化暂停。在线状态只说明近期收到心跳，实际控制效果须通过工作流和接收端验证。
+“智能体详情 → 行为审计”的 Skill 检查直接显示 Skill 名称、认证状态、审批状态、处理结果和原因。观察模式放行未认证 Skill 时保留警示，管控模式要求认证通过；状态取自当次检查。English: Skill checks in Agent details → Behavior Audit show name, certification, approval state, decision and reason. Observe-mode exceptions remain flagged; enforce mode requires certification. Values reflect the original check.
 
-The Agent asset page provides Dify application bindings, observe/enforce policies, process hook status, runtime traces and call approvals. The [adapter package](../integrations/dify-runtime/README.md) loads into Dify 1.15.0 API/Worker processes. Rules cover HTTP, tools, code, retrieval, graph digests and completed-action ordering; approvals use native persisted pauses. Heartbeats and actual enforcement are verified separately.
+“智能体详情 → Skill”展示 Dify 1.16.1 上传或发布检查中发现的完整包版本、检测审批状态、风险和报告入口，复用现有审核队列与签名。管控模式发布时要求包内容匹配已批准版本；观察模式只检测。检测中或审批未通过时阻止管控模式发布，已发布版本保持。修改内容后重新检测，不继承旧包批准状态。配置与范围见 [Skill 准入说明](../integrations/dify-runtime/README.md#skill-上传检测与发布准入dify-1161)。
+
+The Skills tab lists package versions observed during Dify 1.16.1 uploads/publication checks with scan status, risk and report links. Existing approvals and signatures are reused. Enforce mode requires approved matching content before publication; observe mode scans only. Changed content requires its own assessment; existing published versions remain unchanged on rejection.
+
+Dify 1.16.1 的 Agent Backend 接入后，在运行开始/恢复和 Shell 命令前复查配置 Skill，拉取包返回沙箱前也会校验。“管控策略”支持 Skill 加载和 Shell 命令类型；“行为审计”显示原生 Agent Run、关联工作流、实际命令、返回结果和错误。这里管控命令发起，不代表脚本内部逐次系统调用检测或沙箱文件实时验签，详见 Adapter 说明。
+
+With the Agent Backend adapter installed, Dify 1.16.1 rechecks config Skills on run entry/resume and before shell commands, and validates pulls before returning packages to the sandbox. Skill and Shell policy types reuse runtime governance; Behavior Audit shows native Agent runs, parent workflows, commands, results and errors. This is command-boundary control, not syscall tracing or continuous sandbox-file verification.
+
+行为审计固定详情标题与标签栏，运行列表和执行内容分别滚动。模型节点标题优先展示实际请求记录中的模型名称；原始事件内容保持不变。
+
+Behavior Audit keeps the detail heading and tabs fixed while the run list and execution details scroll independently. Model steps display the model name from the recorded request when available; original event content is retained.
+
+在“智能体列表 → 登记智能体”选择 Dify 接入类型，填写实例、Workspace、App 标识；保存时原子创建 Agent 和观察模式绑定。Dify 独立详情分为概览、行为审计、管控策略和接入配置。行为审计在当前应用范围内，按创建时间列出最近 100 次运行，选中后查看节点事件、受控调用及审批记录；事件支持继续加载。管控策略提供规则编辑和待审批调用，接入配置提供安装配置下载、凭证归属和进程检查点状态。登记后为待接入，在线状态以近期心跳为依据；通过 [Dify 接入包](../integrations/dify-runtime/README.md) 将检查点加载到 Dify 1.15.0 / 1.16.1 的 API/Worker，再验证真实采集与阻断。规则覆盖 HTTP、工具、Code、知识检索、工作流摘要及同次运行的动作先后关系，审批使用原生持久化暂停。
+
+概览提供近 7 天运行趋势、运行结果分布和受控调用类型图表；趋势按北京时间统计最近 100 次运行中落在近 7 天的记录，不代表全量历史。图表支持悬浮查看数值、图例切换和键盘方向键查看。概览汇总最近 100 次运行的成功和失败、这些运行关联调用中的阻断和待审批，以及当前在线进程。行为审计的节点结束事件展示输入、输出预览，失败原因自动展开。新版 Adapter 采集用户输入、节点名称与输入输出、HTTP/工具/代码执行参数、模型实际消息与流式返回、最终回复及失败原因。行为审计按节点开始时间排列，并行节点可能重叠；失败原因直接显示。长内容分片保存，每项上限 1,024,000 字符，超限和未完成明确标注；屏蔽常见凭证键和 Bearer 值，内容仍可能含业务数据，沿用轨迹查看权限。历史未采集内容不能补齐。管控策略通过表单设置运行模式、默认动作、审批时限、调用上限、允许的工作流版本及可增删排序的调用规则；规则按顺序匹配，第一条命中生效。
+
+English: The overview summarizes the latest 100 runs and their associated calls, plus online processes. Node completion events show input/output previews and automatically expand failures. The updated adapter captures user input, named node inputs/outputs, execution parameters, actual model messages and streamed responses, final replies, and errors. Nodes are ordered by start time; parallel executions may overlap. Chunked storage preserves up to 1,024,000 characters per field and explicitly marks oversized or incomplete content. Common credential keys and Bearer values are masked, and trace-view permissions remain in force. Business data may remain; missing historical content cannot be reconstructed. Policy forms configure mode, default action, approval timeout, call limit, allowed workflow versions, and ordered first-match rules.
+
+安全扫描按需创建 Dify 扫描目标，可选择关联已登记的智能体，并单独配置 Console 地址与扫描凭据。运行接入不要求先创建扫描目标。登记使用 `agents:create`，运行详情使用 `runtime:view`，策略编辑使用 `runtime:update`，审批使用 `runtime:execute`，运行轨迹使用 `traces:view`。已有绑定 ID、凭证和历史轨迹保持；运行归属在绑定时确定，详情显示所需用户/用户组。绑定运行记录的智能体通过停用保留历史。
+
+Select Dify under Agents → Register Agent and enter instance, Workspace and App IDs. Registration atomically creates the Agent and an observe-mode binding. The dedicated Agent workspace contains Overview, Behavior Audit, Control Policies and Connection Settings. Behavior Audit lists the latest 100 application runs by creation time and displays their node events, controlled calls and approvals in place, with incremental event loading. Control Policies includes pending approvals; Connection Settings provides installation configuration and heartbeat status. Optional security scans can link a registered Agent and use separate scan credentials. The [adapter package](../integrations/dify-runtime/README.md) loads into Dify 1.15.0 / 1.16.1 API/Worker processes. Existing binding IDs, credential ownership and historical traces are retained. Heartbeats and actual enforcement are verified separately; registration, policy editing, review and trace access use separate permissions.
 
 ## MCP 客户端凭证 / MCP client credentials
 

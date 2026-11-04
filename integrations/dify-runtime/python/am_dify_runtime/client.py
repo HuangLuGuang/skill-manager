@@ -9,6 +9,7 @@ import time
 import uuid
 import inspect
 import logging
+import re
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,24 @@ def dumps(value):
 
 def fingerprint(value):
     return hashlib.sha256(dumps(value).encode()).hexdigest()
+
+
+def preview(value, limit=8000, *, as_json=False):
+    def clean(item, depth=0):
+        if depth > 64:
+            return "[DEPTH_LIMIT]"
+        if hasattr(item, "model_dump"):
+            return clean(item.model_dump(mode="json"), depth)
+        if isinstance(item, dict):
+            return {str(k): "[REDACTED]" if re.search(r"(?i)password|secret|authorization|cookie|api.?key|^token$|^(access|refresh)_token$", str(k)) else clean(v, depth+1) for k,v in item.items()}
+        if isinstance(item, (list, tuple)):
+            return [clean(v, depth+1) for v in item]
+        if item is None or isinstance(item, (bool, int, float)):
+            return item
+        text = str(item)
+        return re.sub(r"(?i)Bearer\s+\S+", "Bearer [REDACTED]", text)[:limit]
+    text = json.dumps(clean(value), ensure_ascii=False) if as_json or not isinstance(value, str) else clean(value)
+    return text if len(text) <= limit else text[:limit-1] + "…"
 
 
 class Blocked(RuntimeError):
@@ -80,12 +99,12 @@ class Client:
             else:
                 self.mode = saved["mode"]
 
-    def post(self, path, body):
+    def post(self, path, body, *, timeout=5):
         request = Request(self.config["server_url"].rstrip("/") + "/api/v1/dify-runtime" + path,
                           data=dumps(body).encode(), headers={"Authorization": "Bearer " + self.token,
                           "Content-Type": "application/json"}, method="POST")
         try:
-            with urlopen(request, timeout=5) as response:
+            with urlopen(request, timeout=timeout) as response:
                 return json.load(response)
         except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
             # Never include request headers, parameters or remote response bodies.
@@ -104,7 +123,7 @@ class Client:
                     queued = db.execute("SELECT count(*) FROM queue").fetchone()[0]
                     rows = db.execute("SELECT id, path, body FROM queue ORDER BY created LIMIT 100").fetchall()
                 health = self.post(f"/bindings/{self.binding}/heartbeat", {
-                    "process_id": self.process_id, "dify_version": "1.15.0", "adapter_version": "0.1.0",
+                    "process_id": self.process_id, "dify_version": self.config.get("dify_version", "unknown"), "adapter_version": "0.2.0",
                     "hooks": self.hooks, "queued_events": queued})
                 self.set_mode(health["mode"], health["revision"])
                 for identifier, path, body in rows:
@@ -132,19 +151,31 @@ class Client:
                 self.set_mode(self.runs[identity]["mode"], self.runs[identity]["revision"])
             return self.runs[identity]
 
-    def observe(self, context, kind, status):
+    def observe(self, context, kind, status, **details):
         try:
+            content = {}
+            truncated = details.pop("truncated", False)
+            request_id = details.pop("request_id", "")
+            for key, value in details.items():
+                if value is None:
+                    continue
+                text = preview(value, 1_024_001, as_json=True)
+                truncated = truncated or len(text) > 1_024_000 or "[DEPTH_LIMIT]" in text
+                text = text[:1_024_000]
+                content[key] = [text[i:i+1000] for i in range(0, len(text), 1000)]
             self.enqueue(f"/bindings/{self.binding}/observations", {
                 "run": {k: context[k] for k in ("run_id", "workspace_id", "app_id", "workflow_id", "graph_digest")},
                 "event_id": uuid.uuid4().hex, "event_time": datetime.now(timezone.utc).isoformat(),
                 "node_id": context["node_id"], "execution_id": context["execution_id"],
-                "node_type": context["node_type"], "type": kind, "status": status})
+                "node_type": context["node_type"], "type": kind, "status": status,
+                "node_title": context.get("node_title", ""), "request_id": request_id,
+                "content": content, "truncated": truncated})
         except (Blocked, sqlite3.Error):
             if self.mode != "observe":
                 raise
             logging.getLogger("am_dify_runtime").error("dify_runtime.observation_lost")
 
-    def execute(self, context, fields, parameters, invoke):
+    def execute(self, context, fields, parameters, invoke, *, result_status=None):
         try:
             run = self.run(context)
         except Blocked:
@@ -173,6 +204,12 @@ class Client:
                     raise Blocked("dify_runtime.result_unconfirmed")
                 with self.db() as db:
                     db.execute("DELETE FROM queue WHERE id = ?", (identifier,))
+        if context["node_type"] in {"skill", "shell"}:
+            # Agent Backend calls run in a worker thread and have no workflow checkpoint.
+            while decision["status"] == "pending":
+                time.sleep(1)
+                decision = self.post(path, body)
+                self.set_mode(decision["mode"], decision["revision"])
         if decision["status"] == "pending":
             if context["call_index"] != 1 or context["node_type"] not in {"http-request", "code", "tool", "knowledge-retrieval"}:
                 raise Blocked("dify_runtime.approval_checkpoint_unavailable")
@@ -211,6 +248,16 @@ class Client:
                     raise
                 self.report_result(action_path, "succeeded", start)
             return completed()
+        if inspect.isawaitable(value):
+            async def completed_async():
+                try:
+                    result = await value
+                except BaseException:
+                    self.report_result(action_path, "failed", start)
+                    raise
+                self.report_result(action_path, result_status(result) if result_status else "succeeded", start)
+                return result
+            return completed_async()
         self.report_result(action_path, "failed" if str(getattr(value, "status", "")) == "failed" else "succeeded", start)
         return value
 

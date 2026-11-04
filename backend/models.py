@@ -21,7 +21,7 @@ from .scan_schedule_models import (  # noqa: F401
 )
 from .sqlite_db import Base
 from .external_access_models import ExternalPlatform, ExternalApiRequest  # noqa: F401
-from .dify_runtime_models import DifyRuntimeBinding, DifyRuntimeRun, DifyRuntimeCall, DifyRuntimeProcess  # noqa: F401
+from .dify_runtime_models import DifyRuntimeBinding, DifyRuntimeRun, DifyRuntimeCall, DifyRuntimeProcess, DifyRuntimeSkill  # noqa: F401
 from .aidr_models import AidrPolicyReceipt, AidrDevice, AidrBatch, AidrEvent, AidrSource, AidrCoverageRecord, AidrLegacyDestination, AidrOperation, AidrAuditState  # noqa: F401
 from .aidr_enforcement import AidrEnforcementRevision, AidrRuntimeRecord, AidrResponseCommand  # noqa: F401
 from .iam_models import ManagementAudit, Menu, Permission, Role, RolePermission  # noqa: F401
