@@ -1543,7 +1543,7 @@ CodeBuddy platform approval uses signed grants scoped to the device, user, recei
 4. 按实际原生工具名设置规则；命令规则支持上述内置 shell。审批必须有在线接收器、有效签名策略和平台审批权限。配置存在、授权消费及工具实际执行分别核验。
 5. 退出接入使用现有移除操作；已采集证据按既有保留策略管理。其他操作系统、国际版、企业 HTTP Hook、独立 CLI、IDE、替代引擎及原生受管安装均未由本适配宣称支持。
 
-完整平台接入时，在客户端“行为审计 → 采集状态”核对设备上报许可；未允许时点击“允许上报”，凭证仍须绑定设备并具备 aidr:heartbeat、aidr:report-events。采集策略启用和设备上报许可是独立条件。2026-10-28 本地完整平台已验证菜单访问、千问安装任务、客户端规则覆盖/恢复继承及 75 条日志、5 条 Hook 入库展示。关闭 Hook 通道保留配置；远程移除命令尚未实现，退出接入使用桌面移除并保留用户配置。
+管理员在设备或继承的平台策略中启用运行治理和采集通道后，设备默认允许上报。显式暂停优先，在“行为审计 → 采集状态”恢复上报；凭证仍须绑定设备并具备 aidr:heartbeat、aidr:report-events。2026-10-28 本地完整平台已验证菜单访问、千问安装任务、客户端规则覆盖/恢复继承及 75 条日志、5 条 Hook 入库展示。关闭 Hook 通道保留配置；远程移除命令尚未实现，退出接入使用桌面移除并保留用户配置。
 
 In the full platform, check device reporting permission under Behavior audit → Collection status. Allow reporting for the bound device using credentials with the two AIDR scopes. Collection policy and reporting permission are separate conditions. Full local-platform acceptance covered navigation, installation tasks, client override/inheritance, and 75 log records plus 5 Hooks. Disabling the Hook channel retains configuration; remote uninstall is not implemented. Use desktop removal to disconnect while preserving user configuration.
 

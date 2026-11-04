@@ -161,6 +161,31 @@ def test_concurrent_duplicate_batch(service):
         assert db.query(models.AidrBatch).count() == 1
 
 
+def test_reporting_follows_admin_collection_policy_until_explicit_pause(service):
+    from backend.client_governance import DEFAULT_SCOPE, default_runtime_governance
+    client, factory = service
+    runtime = default_runtime_governance()
+    with factory() as db:
+        db.delete(db.get(models.AidrDevice, "one"))
+        db.add(models.ClientGovernancePolicy(scope=DEFAULT_SCOPE, runtime_governance_json=json.dumps(runtime)))
+        db.commit()
+    url = "/api/v1/clients/one/aidr"
+    assert client.get(url + "/status").json()["enabled"]
+    assert submit(client, credential="two").status_code == 403
+    assert submit(client).status_code == 200
+    with factory() as db:
+        db.add(models.ClientGovernancePolicy(scope="one", runtime_governance_json=json.dumps({**runtime, "enabled": False})))
+        db.commit()
+    assert not client.get(url + "/status").json()["enabled"]
+    assert submit(client).json()["error_code"] == "aidr.reporting_disabled"
+    assert client.put(url + "/configuration", json={"enabled": False}).status_code == 200
+    with factory() as db:
+        db.delete(db.get(models.ClientGovernancePolicy, "one"))
+        db.commit()
+    assert not client.get(url + "/status").json()["enabled"]
+    assert submit(client).json()["error_code"] == "aidr.reporting_disabled"
+
+
 def test_heartbeat_configuration_and_pause_resume(service):
     client, factory = service
     with factory() as db:

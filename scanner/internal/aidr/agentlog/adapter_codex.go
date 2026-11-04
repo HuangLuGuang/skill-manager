@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const codexContextRepairVersion = 6
+
 func parseCodex(raw []byte, c *Cursor) ([]draft, error) {
 	var r logRecord
 	if json.Unmarshal(raw, &r) != nil || r.Type == "" {
@@ -117,7 +119,7 @@ func parseCodex(raw []byte, c *Cursor) ([]draft, error) {
 			if d, ok := messageDraft(v.Role, phase, v.ID, c.Turn, v.Content, at); ok {
 				drafts = append(drafts, d)
 			}
-		case "reasoning", "agent_message":
+		case "reasoning", "agent_message", "configuration_update":
 		case "additional_tools":
 			if !codexToolMetadata(r.Payload) {
 				return nil, errors.New("aidr_log_schema_unsupported")
@@ -149,7 +151,7 @@ func contextNeutralEnvelope(d *json.Decoder, envelope string) bool {
 			}
 			if envelope == "response_item" {
 				switch kind {
-				case "function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output", "message", "agent_message", "reasoning", "additional_tools":
+				case "function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output", "message", "agent_message", "reasoning", "additional_tools", "configuration_update":
 					return true
 				default:
 					return false
@@ -194,7 +196,7 @@ func quarantineCodex(raw []byte) (bool, bool) {
 		}
 		if kind == "response_item" {
 			switch subtype {
-			case "function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output", "reasoning", "message", "agent_message", "additional_tools":
+			case "function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output", "reasoning", "message", "agent_message", "additional_tools", "configuration_update":
 				return false, false
 			}
 			return true, true
@@ -354,11 +356,11 @@ func codexLogAdapter() logAdapter {
 	a.PreservesContext = func(raw []byte) bool { return contextNeutralEnvelope(json.NewDecoder(bytes.NewReader(raw)), "") }
 	a.Quarantine = quarantineCodex
 	a.Repair = func(c Cursor) bool {
-		if c.ContextRepairVersion >= contextRepairVersion || c.Offset == 0 || c.Session != "" {
+		if c.ContextRepairVersion >= codexContextRepairVersion || c.Offset == 0 || c.Session != "" {
 			return false
 		}
 		for _, gap := range c.Gaps {
-			if gap == "aidr_log_record_too_large" {
+			if gap == "aidr_log_context_invalidated" || (c.ContextRepairVersion < contextRepairVersion && gap == "aidr_log_record_too_large") {
 				return true
 			}
 		}

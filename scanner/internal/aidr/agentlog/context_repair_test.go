@@ -82,7 +82,7 @@ func TestLegacyContextRepairIsBoundedResumable(t *testing.T) {
 		c.ContextRepairVersion = 0
 		invalidateContext(&c)
 		original := c
-		for i := 0; i < 8 && c.ContextRepairVersion < contextRepairVersion; i++ {
+		for i := 0; i < 8 && c.ContextRepairVersion < codexContextRepairVersion; i++ {
 			b := read(t, s, c)
 			if b.Cursor.Offset != original.Offset || b.Cursor.Anchor != original.Anchor || b.Coverage.Bytes > DefaultBudget().Bytes {
 				t.Fatal("repair changed committed history or exceeded budget")
@@ -96,7 +96,7 @@ func TestLegacyContextRepairIsBoundedResumable(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if c.ContextRepairVersion != contextRepairVersion || c.ContextRepair != nil || (c.Session == "parallel") == unknown {
+		if c.ContextRepairVersion != codexContextRepairVersion || c.ContextRepair != nil || (c.Session == "parallel") == unknown {
 			t.Fatalf("wrong recovered session %q unknown=%v", c.Session, unknown)
 		}
 		if !unknown {
@@ -135,7 +135,7 @@ func TestCodexAdditionalToolsReprojectsDamagedHistory(t *testing.T) {
 	budget := DefaultBudget()
 	budget.Events = 1
 	var events []Event
-	for i := 0; i < 8 && c.ContextRepairVersion < contextRepairVersion; i++ {
+	for i := 0; i < 8 && c.ContextRepairVersion < codexContextRepairVersion; i++ {
 		got, err := ReadWithPolicy(context.Background(), s, c, budget, time.Unix(0, 0), p)
 		if err != nil {
 			t.Fatal(err)
@@ -194,7 +194,7 @@ func TestOversizedItemCompletedRepairsOlderCursors(t *testing.T) {
 		budget := DefaultBudget()
 		budget.Events = 1
 		recovered := []Event{}
-		for i := 0; i < 12 && damaged.ContextRepairVersion < contextRepairVersion; i++ {
+		for i := 0; i < 12 && damaged.ContextRepairVersion < codexContextRepairVersion; i++ {
 			b, err := ReadWithPolicy(context.Background(), s, damaged, budget, time.Unix(0, 0), policy)
 			if err != nil {
 				t.Fatal(err)
@@ -215,5 +215,35 @@ func TestOversizedItemCompletedRepairsOlderCursors(t *testing.T) {
 	}
 	if oversizedPreservesContext("codex", []byte(`{"type":"event_msg","payload":{"type":"task_started","extra":"`)) {
 		t.Fatal("treated turn boundary as metadata")
+	}
+}
+
+func TestCodexConfigurationUpdatePreservesAndRestoresSession(t *testing.T) {
+	prefix := parallelLog(1, false)
+	update := codexRecord("response_item", `{"type":"configuration_update","reasoning":{"effort":"high"} }`)
+	s := source(t, "codex", prefix+update)
+	b := read(t, s, Cursor{})
+	if len(b.Events) != 1 || b.Cursor.Session != "parallel" || b.Cursor.Turn != "first" {
+		t.Fatalf("configuration update broke active call: session=%q turn=%q", b.Cursor.Session, b.Cursor.Turn)
+	}
+	old := b.Cursor
+	invalidateContext(&old)
+	old.ContextRepairVersion = 5
+	repaired := read(t, s, old)
+	if len(repaired.Events) != 0 || repaired.Cursor.Offset != old.Offset || repaired.Cursor.Anchor != old.Anchor || repaired.Cursor.Session != "parallel" || repaired.Cursor.ContextRepairVersion != codexContextRepairVersion {
+		t.Fatal("upgrade did not recover context at the committed checkpoint")
+	}
+	f, err := os.OpenFile(s.Path, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.WriteString(codexRecord("response_item", `{"type":"function_call_output","call_id":"c0","output":"ok"}`))
+	f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, s, repaired.Cursor)
+	if len(got.Events) != 1 || got.Events[0].SessionID != "parallel" || got.Events[0].TurnID != "first" || got.Events[0].LogicalCallID != b.Events[0].LogicalCallID {
+		t.Fatal("tool result did not rejoin the original session, turn and call")
 	}
 }

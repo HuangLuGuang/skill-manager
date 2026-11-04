@@ -770,7 +770,7 @@ refresh the first page.
 
 设备详情提供“Agent 日志观察”，首先显示合并调用与结果的可读操作，支持 Agent、会话、工具、结果和时间筛选。详情展示脱敏命令、目标、结果依据及来源证据，JSON 放在次级区域。来源覆盖、能力和计数可展开，当前缺口仍醒目提示。进程关联保持未知；离线统计取自最后一次心跳。
 
-在设备详情允许上报，并签发绑定该设备的 client 凭证，授予 `aidr:heartbeat`、`aidr:report-events`。服务端校验设备身份，管理查询和启停复用设备可见性及角色权限。`aidr-sync` 显式运行并通过已验证的持久化 ACK 清理待发队列，不安装常驻服务。命令、批量限制、退避和容量语义见 [上传说明](../scanner/internal/aidr/upload/README.md)。全链路验收状态见 [P1 平台验收记录](../experiments/aidr-agentlog/PLATFORM_ACCEPTANCE.md)。
+管理员配置的采集策略启用后默认允许上报；显式暂停的设备需恢复上报。签发绑定该设备的 client 凭证，授予 `aidr:heartbeat`、`aidr:report-events`。服务端校验设备身份，管理查询和启停复用设备可见性及角色权限。`aidr-sync` 显式运行并通过已验证的持久化 ACK 清理待发队列，不安装常驻服务。命令、批量限制、退避和容量语义见 [上传说明](../scanner/internal/aidr/upload/README.md)。全链路验收状态见 [P1 平台验收记录](../experiments/aidr-agentlog/PLATFORM_ACCEPTANCE.md)。
 
 ## macOS 运行时只读连接（开发阶段）
 

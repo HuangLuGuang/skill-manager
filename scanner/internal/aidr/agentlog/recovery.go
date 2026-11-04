@@ -6,6 +6,13 @@ import (
 
 const contextRepairVersion = 5
 
+func repairVersionFor(agent string) int {
+	if agent == "codex" {
+		return codexContextRepairVersion
+	}
+	return contextRepairVersion
+}
+
 func needsContextRepair(s Source, c Cursor) bool {
 	f := logAdapters[s.Agent].Repair
 	return f != nil && f(c)

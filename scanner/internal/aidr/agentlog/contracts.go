@@ -204,7 +204,7 @@ func ValidateCursor(c Cursor, s Source) error {
 	if len(c.CodeBuddyWorkspace) > 2048 {
 		return errors.New("aidr_log_cursor_invalid")
 	}
-	if c.ContextRepairVersion < 0 || c.ContextRepairVersion > contextRepairVersion {
+	if c.ContextRepairVersion < 0 || c.ContextRepairVersion > repairVersionFor(s.Agent) {
 		return errors.New("aidr_log_cursor_invalid")
 	}
 	if r := c.ContextRepair; r != nil {

@@ -678,13 +678,32 @@ def update_client_audit_policy(client_id: str, body: ClientAuditPolicyUpdate, re
     return client_audit_policy_view(db, client_id, user)
 
 
+def policy_allows_reporting(policy):
+    target = policy["runtime_governance"]
+    channels = target.get("channels")
+    return not policy["runtime_governance_builtin"] and target["enabled"] and (channels is None or any(channels.values()))
+
+
 def runtime_device(db, client_id, authorization, request, scope, *, allow_paused=False):
     token = resolve_access_token(db, authorization, required_scope=scope, request=request)
-    device = db.get(models.AidrDevice, client_id)
     if token.token_type != "client" or not token.bound_client_id or token.bound_client_id != client_id:
         fail(403, "device_binding_mismatch", "凭证绑定的设备不匹配", "Credential device binding mismatch")
     _client_or_404(db, client_id)
-    if not device or (not device.enabled and not allow_paused):
+    device = db.get(models.AidrDevice, client_id)
+    # A device without a configuring user follows the effective collection policy.
+    if device is not None and device.created_by:
+        enabled = device.enabled
+    else:
+        from ..client_governance import policy_view
+        enabled = policy_allows_reporting(policy_view(db, client_id))
+        if device is None and enabled:
+            db.execute(insert(models.AidrDevice).values(client_id=client_id, created_by="")
+                       .on_conflict_do_nothing(index_elements=["client_id"]))
+            db.commit()
+            device = db.get(models.AidrDevice, client_id)
+            if device.created_by:
+                enabled = device.enabled
+    if not device or (not enabled and not allow_paused):
         fail(403, "reporting_disabled", "设备未允许上报", "Reporting is not enabled for this device")
     return device
 
@@ -697,14 +716,12 @@ class Configuration(BaseModel):
 @router.put("/configuration")
 def configure(client_id: str, body: Configuration, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_admin_user)):
     _ensure_visible(_client_or_404(db, client_id), user)
-    device = db.get(models.AidrDevice, client_id)
-    if not device:
-        device = models.AidrDevice(client_id=client_id, created_by=user.username)
-        db.add(device)
-    device.enabled = body.enabled
+    values = {"enabled": body.enabled, "created_by": user.username}
+    db.execute(insert(models.AidrDevice).values(client_id=client_id, **values)
+               .on_conflict_do_update(index_elements=["client_id"], set_=values))
     _operation(db, user, "aidr.configure", client_id, dump(body.model_dump()))
     db.commit()
-    return {"client_id": client_id, "enabled": device.enabled}
+    return {"client_id": client_id, "enabled": body.enabled}
 
 
 class Capability(BaseModel):
@@ -878,16 +895,17 @@ def status(client_id: str, db: Session = Depends(get_db), user: models.User = De
     runtime = db.get(Observation, client_id)
     report = json.loads(runtime.report_json) if runtime else None
     log_channel = channel_view(policy, report)['logs']
-    online = bool(device and device.enabled and device.last_seen_at and datetime.utcnow() - device.last_seen_at <= timedelta(seconds=90))
+    enabled = device.enabled if device and device.created_by else policy_allows_reporting(policy)
+    online = bool(device and enabled and device.last_seen_at and datetime.utcnow() - device.last_seen_at <= timedelta(seconds=90))
     if log_channel['health']['state'] == 'running' and not online:
         log_channel['health'] = {'state': 'transport_offline', 'code': 'aidr_channel_transport_offline', 'severity': 'warning'}
     audit_policy = aidr_policy.current(db, client_id)
     if log_channel['target_enabled'] is True and audit_policy.get('lifecycle', {}).get('enabled') is False:
         log_channel['health'] = {'state': 'audit_paused', 'code': 'aidr_channel_audit_paused', 'severity': 'info'}
-    elif log_channel['target_enabled'] is True and device and not device.enabled:
+    elif log_channel['target_enabled'] is True and device and not enabled:
         log_channel['health'] = {'state': 'reporting_paused', 'code': 'aidr_channel_reporting_paused', 'severity': 'info'}
     if not device:
-        return {"configured": False, "log_channel": log_channel, "audit_redaction": audit_policy}
+        return {"configured": False, "enabled": enabled, "log_channel": log_channel, "audit_redaction": audit_policy}
     # Metadata only: a reader heartbeat is not evidence of each product's delivery.
     cutoff = datetime.utcnow() - timedelta(minutes=15)
     arrivals = db.query(models.AidrEvent.agent, models.AidrEvent.kind,
@@ -897,7 +915,7 @@ def status(client_id: str, db: Session = Depends(get_db), user: models.User = De
     ).group_by(models.AidrEvent.agent, models.AidrEvent.kind).all()
     receipts = [{"agent": agent, "kind": kind, "last_received_at": at.isoformat() + "Z", "count": count}
                 for agent, kind, at, count in arrivals]
-    result = {"audit_redaction": audit_policy, "configured": True, "enabled": device.enabled,
+    result = {"audit_redaction": audit_policy, "configured": True, "enabled": enabled,
             "online": online, "log_channel": log_channel, "product_receipts": receipts, "receipt_window_seconds": 900,
             "last_seen_at": device.last_seen_at, "capabilities": json.loads(device.capabilities_json), "health": json.loads(device.health_json)}
     # Collection status polls live health; history totals are only needed by diagnostics.
