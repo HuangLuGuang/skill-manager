@@ -417,7 +417,7 @@ func installApprovedPending(ctx context.Context, home string, inventory Inventor
 		defer cleanup()
 	}
 	return installApprovedSkillVersionWithPackage(ctx, home, local, policy, api, store, item.AgentType, managedAgentID, item.SkillID, item.VersionID, false,
-		[]map[string]any{{"expected_root": root, "expected_path": item.OriginalPath, "expected_targets": targets}}, prepared)
+		[]map[string]any{{"expected_root": root, "expected_path": item.OriginalPath, "expected_targets": targets}}, prepared, &item)
 }
 
 // Only missing or mismatched local content falls back to the signed package.
