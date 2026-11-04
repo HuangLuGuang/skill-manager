@@ -124,7 +124,7 @@ export const i18n = createI18n({
         jobs: {
           title: '历史提交记录', backToRecords: '返回历史提交记录', filename: 'ZIP 包名称', createdAt: '导入时间', id: '任务编号', state: '状态', progress: '已处理 / 总数', results: '结果',
           accepted: '后台任务已创建', viewResults: '查看结果',
-          resultTitle: '导入结果', noResults: '任务尚未产生导入结果',
+          resultTitle: '导入结果', noResults: '任务尚未产生导入结果', waitingImport: '等待导入',
           loadFailed: '暂时无法更新任务状态，正在重试。', itemFailed: '此 Skill 导入失败，请检查文件后重新上传。',
           status: { QUEUED: '排队中', RUNNING: '导入中', COMPLETED: '导入完成', PARTIAL: '部分失败', FAILED: '导入失败' },
         },
@@ -1312,7 +1312,7 @@ export const i18n = createI18n({
         jobs: {
           title: 'Submission history', backToRecords: 'Back to submission history', filename: 'ZIP filename', createdAt: 'Import time', id: 'Job ID', state: 'Status', progress: 'Processed / total', results: 'Results',
           accepted: 'Background task created', viewResults: 'View results',
-          resultTitle: 'Import results', noResults: 'No import results yet',
+          resultTitle: 'Import results', noResults: 'No import results yet', waitingImport: 'Waiting to import',
           loadFailed: 'Unable to refresh job status. Retrying.', itemFailed: 'This Skill could not be imported. Check its files and upload again.',
           status: { QUEUED: 'Queued', RUNNING: 'Importing', COMPLETED: 'Import complete', PARTIAL: 'Partially failed', FAILED: 'Import failed' },
         },
