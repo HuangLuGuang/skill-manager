@@ -15,7 +15,7 @@ REVISION_KEY = "aidr_audit_revision"
 def current(db, client_id=None):
     row = db.get(models.SystemConfig, KEY)
     value = json.loads(row.value) if row else {"enabled": True, "version": "1", "updated_by": None, "updated_at": None,
-                                            "capture": {"prompt": False, "tool_output": False, "file_body": False, "command_body": True}}
+                                            "capture": {"prompt": True, "model_response": True, "tool_output": False, "file_body": True, "command_body": True}}
     policy = {**value, 'skill_audit': skill_audit_policy(value.get('skill_audit')), 'capture': value.get('capture', {'prompt': False, 'tool_output': False, 'file_body': False}),
             'lifecycle': value.get('lifecycle', {'enabled': True, 'retention_days': 7})}
     if client_id is None:

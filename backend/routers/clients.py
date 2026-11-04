@@ -2518,6 +2518,9 @@ def save_default_governance(body: client_governance.PolicyChange, db: Session = 
     _governance_scope(db, client_governance.DEFAULT_SCOPE, current_user)
     previous_runtime = client_governance.policy_view(db)["runtime_governance"]
     result = client_governance.save_policy(db, client_governance.DEFAULT_SCOPE, body, current_user)
+    if result["version"] == body.expected_version:
+        db.commit()
+        return result
     _operation(db, current_user, "更新客户端默认分类策略", "default", _dump(jsonable_encoder(result)))
     if previous_runtime != result["runtime_governance"]:
         _operation(db, current_user, "aidr.runtime_policy_changed", "default", _dump({"version": result["runtime_governance_version"], "before": previous_runtime, "after": result["runtime_governance"]}))
@@ -2543,6 +2546,9 @@ def save_client_governance(client_id: str, body: client_governance.PolicyChange,
     _governance_scope(db, client_id, current_user)
     previous_runtime = client_governance.policy_view(db, client_id)["runtime_governance"]
     result = client_governance.save_policy(db, client_id, body, current_user)
+    if result["version"] == body.expected_version:
+        db.commit()
+        return result
     if previous_runtime != result["runtime_governance"]:
         _operation(db, current_user, "aidr.runtime_policy_changed", client_id, _dump({"version": result["runtime_governance_version"], "before": previous_runtime, "after": result["runtime_governance"]}))
     _operation(db, current_user, "更新客户端分类策略", client_id, _dump(jsonable_encoder(result)))

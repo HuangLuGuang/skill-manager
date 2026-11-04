@@ -76,7 +76,7 @@ def configure(factory, **values):
 def test_scope_defaults_legacy_negotiation_and_forgery(service):
     client, factory = service
     default = issue(client)
-    assert default['capture'] == dict.fromkeys(SCOPE, False)
+    assert default['capture'] == dict(prompt=True, tool_output=False, file_body=True)
     assert submit(client, event_batch(default)).status_code == 422
     configure(factory)
     scoped = issue(client)

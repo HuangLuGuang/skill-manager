@@ -23,10 +23,6 @@
       <a-alert v-if="saveFailed" type="error" :message="t('aidr.redactionSettings.saveFailed')" show-icon>
         <template #action><a-button :disabled="loading || busy" @click="load">{{ t('aidr.redactionSettings.retry') }}</a-button></template>
       </a-alert>
-      <section v-if="section === 'content'" class="other-policy"><h4>{{ t('aidr.policyNavigation.redaction') }}</h4>
-      <div class="setting-switch-row"><a-switch v-model:checked="enabled" :disabled="fieldsDisabled" :aria-label="t('aidr.policyNavigation.redaction')" /><span>{{ t(enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }}</span></div>
-      <p class="setting-help">{{ t('aidr.contentSettings.redaction') }}</p>
-      </section>
       <SkillAuditPolicyFields v-if="section === 'skill'" v-model="skillAudit" :disabled="fieldsDisabled" />
       <div v-if="section === 'skill'" class="delivery-state">
         <strong>{{ t('aidr.skillUse.policy.delivery') }}</strong>
@@ -37,36 +33,47 @@
         </template>
         <p v-else-if="clientId">{{ t('aidr.skillUse.policy.noReport') }}</p>
       </div>
-      <section v-if="section === 'content'" class="other-policy"><h4>{{ t('aidr.content.scopeTitle') }}</h4>
-      <div class="setting-switch-row"><a-switch v-model:checked="lifecycle.enabled" :disabled="fieldsDisabled" :aria-label="t('aidr.lifecycle.collection')" /><span>{{ t(lifecycle.enabled ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }}</span></div>
+      <section v-if="section === 'content'" class="other-policy">
+      <div class="setting-header"><h4>{{ t('aidr.contentSettings.collectionTitle') }}</h4><div class="setting-switch-row"><a-switch v-model:checked="lifecycle.enabled" :disabled="fieldsDisabled" :aria-label="t('aidr.contentSettings.collectionTitle')" /><span>{{ t(lifecycle.enabled ? 'aidr.contentSettings.enabled' : 'aidr.contentSettings.disabled') }}</span></div></div>
       <p class="setting-help">{{ t('aidr.contentSettings.collection') }} <a-tooltip :title="t('aidr.lifecycle.collectionHelp')"><a-button type="text" size="small" :aria-label="t('aidr.lifecycle.collection')"><QuestionCircleOutlined /></a-button></a-tooltip></p>
-      <div class="capture-options"><a-checkbox v-for="kind in scopeKinds" :key="kind" v-model:checked="capture[kind]" :disabled="fieldsDisabled">{{ t('aidr.content.kinds.' + kind) }}</a-checkbox></div>
+      <div class="capture-settings" :class="{ 'capture-paused': !lifecycle.enabled }">
+      <h5>{{ t('aidr.content.scopeTitle') }}</h5>
+      <div class="capture-options"><a-checkbox v-for="kind in scopeKinds" :key="kind" v-model:checked="capture[kind]" :disabled="captureDisabled">{{ t('aidr.content.kinds.' + kind) }}</a-checkbox></div>
       <p class="setting-help">{{ t('aidr.contentSettings.scope') }} <a-tooltip :title="t('aidr.content.support')"><a-button type="text" size="small" :aria-label="t('aidr.content.scopeTitle')"><QuestionCircleOutlined /></a-button></a-tooltip></p>
       <div class="content-limits">
-        <label><span>{{ t('aidr.content.fragmentLimit') }}</span><a-input-number v-model:value="capture.max_fragment_bytes" :min="256" :max="32768" :precision="0" :disabled="fieldsDisabled" :aria-label="t('aidr.content.fragmentLimit')" /></label>
-        <label><span>{{ t('aidr.content.eventLimit') }}</span><a-input-number v-model:value="capture.max_event_bytes" :min="256" :max="32768" :precision="0" :disabled="fieldsDisabled" :aria-label="t('aidr.content.eventLimit')" /></label>
+        <label><span>{{ t('aidr.content.fragmentLimit') }}</span><a-input-number v-model:value="capture.max_fragment_bytes" :min="256" :max="32768" :precision="0" :disabled="captureDisabled" :aria-label="t('aidr.content.fragmentLimit')" /></label>
+        <label><span>{{ t('aidr.content.eventLimit') }}</span><a-input-number v-model:value="capture.max_event_bytes" :min="256" :max="32768" :precision="0" :disabled="captureDisabled" :aria-label="t('aidr.content.eventLimit')" /></label>
       </div>
       <p v-if="!validLimits" class="limit-error" role="alert">{{ t('aidr.content.invalidLimits') }}</p>
       <p class="setting-help">{{ t('aidr.contentSettings.limits') }}</p>
+      </div>
+      </section>
+      <section v-if="section === 'content'" class="other-policy">
+      <div class="setting-header"><h4>{{ t('aidr.policyNavigation.redaction') }}</h4><div class="setting-switch-row"><a-switch v-model:checked="enabled" :disabled="fieldsDisabled" :aria-label="t('aidr.policyNavigation.redaction')" /><span>{{ t(enabled ? 'aidr.contentSettings.enabled' : 'aidr.contentSettings.disabled') }}</span></div></div>
+      <p class="setting-help" :class="{ 'redaction-warning': !enabled }">{{ t(enabled ? 'aidr.contentSettings.redacted' : 'aidr.contentSettings.redaction') }}</p>
+      </section>
+      <section v-if="section === 'content'" class="other-policy"><h4>{{ t('aidr.contentSettings.historyTitle') }}</h4>
       <div class="content-limits"><label for="aidr-retention-days"><span>{{ t('aidr.lifecycle.retention') }}</span><a-input-number id="aidr-retention-days" v-model:value="lifecycle.retention_days" :min="1" :max="365" :precision="0" :disabled="fieldsDisabled" /></label></div>
+      <p v-if="!validRetention" class="limit-error" role="alert">{{ t('aidr.contentSettings.invalidRetention') }}</p>
       <p class="setting-help">{{ t('aidr.contentSettings.retention') }}</p>
       </section>
       <a-button v-if="editable && !externalActions" type="primary" :loading="busy" :disabled="!canReview" @click="review">{{ t(section === 'skill' ? 'clientPolicy.saveUsage' : 'aidr.redactionSettings.save') }}</a-button>
     </template>
     <a-modal :z-index="1020" :width="720" wrap-class-name="aidr-policy-review" v-model:open="reviewOpen" :title="t('aidr.redactionSettings.reviewTitle')" :ok-text="t('aidr.redactionSettings.confirmSave')" :cancel-text="t('aidr.redactionSettings.cancelReview')" :confirm-loading="busy" :ok-button-props="{ disabled: busy || !editable || (requiresAcknowledgement && !acknowledged) }" :cancel-button-props="{ disabled: busy }" :closable="!busy" :mask-closable="!busy" :keyboard="!busy" @ok="save" @cancel="cancelReview">
       <template v-if="reviewTarget">
+        <p v-if="section === 'content'">{{ clientId ? t('aidr.policyNavigation.clientIdentity', { id: clientId }) : t('aidr.policyReview.globalScope') }}</p>
         <p v-if="section === 'content'">{{ t('aidr.policyReview.comparison') }}</p>
         <p v-if="clientId" class="setting-help">{{ t(reviewTarget.inherit ? 'aidr.policyNavigation.inherited' : 'aidr.policyNavigation.clientScope') }}</p>
         <SkillAuditPolicyReview v-if="section === 'skill'" :current="policy.skill_audit" :target="reviewTarget.skill_audit" />
         <a-descriptions v-if="section === 'content'" :column="1" size="small">
-          <a-descriptions-item :label="t('aidr.policyNavigation.redaction')">{{ t(policy.enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }} → {{ t(reviewTarget.enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }}</a-descriptions-item>
-          <a-descriptions-item :label="t('aidr.lifecycle.collection')">{{ t((policy.lifecycle?.enabled ?? true) ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }} → {{ t(reviewTarget.lifecycle.enabled ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }}</a-descriptions-item>
-          <a-descriptions-item v-for="kind in scopeKinds" :key="kind" :label="t('aidr.content.kinds.' + kind)">{{ t((policy.capture?.[kind] ?? false) ? 'aidr.redactionSettings.collect' : 'aidr.redactionSettings.doNotCollect') }} → {{ t(reviewTarget.capture[kind] ? 'aidr.redactionSettings.collect' : 'aidr.redactionSettings.doNotCollect') }}</a-descriptions-item>
-          <a-descriptions-item :label="t('aidr.lifecycle.retention')">{{ policy.lifecycle?.retention_days ?? 7 }} → {{ reviewTarget.lifecycle.retention_days }}</a-descriptions-item>
-          <a-descriptions-item v-for="(fallback, key) in limitDefaults" :key="key" :label="t(key === 'max_fragment_bytes' ? 'aidr.content.fragmentLimit' : 'aidr.content.eventLimit')">{{ policy.capture?.[key] ?? fallback }} → {{ reviewTarget.capture[key] }}</a-descriptions-item>
+          <a-descriptions-item v-if="policy.enabled !== reviewTarget.enabled" :label="t('aidr.policyNavigation.redaction')">{{ t(policy.enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }} → {{ t(reviewTarget.enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }}</a-descriptions-item>
+          <a-descriptions-item v-if="(policy.lifecycle?.enabled ?? true) !== reviewTarget.lifecycle.enabled" :label="t('aidr.lifecycle.collection')">{{ t((policy.lifecycle?.enabled ?? true) ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }} → {{ t(reviewTarget.lifecycle.enabled ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }}</a-descriptions-item>
+          <a-descriptions-item v-for="kind in changedKinds" :key="kind" :label="t('aidr.content.kinds.' + kind)">{{ t((policy.capture?.[kind] ?? false) ? 'aidr.redactionSettings.collect' : 'aidr.redactionSettings.doNotCollect') }} → {{ t(reviewTarget.capture[kind] ? 'aidr.redactionSettings.collect' : 'aidr.redactionSettings.doNotCollect') }}</a-descriptions-item>
+          <a-descriptions-item v-if="(policy.lifecycle?.retention_days ?? 7) !== reviewTarget.lifecycle.retention_days" :label="t('aidr.lifecycle.retention')">{{ policy.lifecycle?.retention_days ?? 7 }} → {{ reviewTarget.lifecycle.retention_days }}</a-descriptions-item>
+          <a-descriptions-item v-for="[key, fallback] in changedLimits" :key="key" :label="t(key === 'max_fragment_bytes' ? 'aidr.content.fragmentLimit' : 'aidr.content.eventLimit')">{{ policy.capture?.[key] ?? fallback }} → {{ reviewTarget.capture[key] ?? fallback }}</a-descriptions-item>
         </a-descriptions>
         <p v-if="section === 'content'" class="setting-help">{{ t('aidr.policyReview.contentEffect') }}</p>
-        <a-alert v-if="requiresAcknowledgement" type="warning" show-icon :message="t('aidr.policyReview.risk')" />
+        <a-alert v-if="requiresAcknowledgement" type="warning" show-icon :message="riskKeys.map(key => t('aidr.policyReview.' + key)).join(' ')" />
         <a-checkbox v-if="requiresAcknowledgement" v-model:checked="acknowledged" :disabled="busy" style="margin-top: 12px">{{ t('aidr.policyReview.acknowledge') }}</a-checkbox>
       </template>
     </a-modal>
@@ -92,9 +99,10 @@ const policy = ref({ enabled: true, version: '1' }), enabled = ref(true)
 const fieldsDisabled = computed(() => busy.value || !editable.value || (!!props.clientId && inherit.value))
 const scopeKinds = ['prompt', 'model_response', 'tool_output', 'file_body', 'command_body']
 const limitDefaults = { max_fragment_bytes: 1024, max_event_bytes: 2048 }
-const capture = ref({ prompt: false, model_response: false, tool_output: false, file_body: false })
+const capture = ref({})
 const skillAudit = ref(normalizeSkillAudit())
 const lifecycle = ref({ enabled: true, retention_days: 7 })
+const captureDisabled = computed(() => fieldsDisabled.value || !lifecycle.value.enabled)
 const validRetention = computed(() => Number.isInteger(lifecycle.value.retention_days) && lifecycle.value.retention_days >= 1 && lifecycle.value.retention_days <= 365)
 const validLimits = computed(() => Object.keys(limitDefaults).every(key => Number.isInteger(capture.value[key]) && capture.value[key] >= 256 && capture.value[key] <= 32768) && capture.value.max_fragment_bytes <= capture.value.max_event_bytes)
 const changed = computed(() => props.section === 'skill'
@@ -104,12 +112,17 @@ const loading = ref(false), failed = ref(false), saveFailed = ref(false), busy =
 const reviewOpen = ref(false), reviewTarget = ref(null), acknowledged = ref(false)
 const canReview = computed(() => !busy.value && !loading.value && !failed.value && !reviewOpen.value && editable.value && changed.value)
 defineExpose({ editable, canReview, busy, reviewOpen, review })
-const requiresAcknowledgement = computed(() => props.section === 'content' && reviewTarget.value && (
-  (policy.value.enabled && !reviewTarget.value.enabled) ||
-  scopeKinds.some(kind => reviewTarget.value.capture[kind] && !(policy.value.capture?.[kind] ?? false)) ||
-  Object.entries(limitDefaults).some(([key, fallback]) => reviewTarget.value.capture[key] > (policy.value.capture?.[key] ?? fallback)) ||
-  reviewTarget.value.lifecycle.retention_days < (policy.value.lifecycle?.retention_days ?? 7)
-))
+const changedKinds = computed(() => scopeKinds.filter(kind => (policy.value.capture?.[kind] ?? false) !== (reviewTarget.value.capture[kind] ?? false)))
+const changedLimits = computed(() => Object.entries(limitDefaults).filter(([key, fallback]) => (policy.value.capture?.[key] ?? fallback) !== (reviewTarget.value.capture[key] ?? fallback)))
+const riskKeys = computed(() => {
+  if (props.section !== 'content' || !reviewTarget.value) return []
+  const target = reviewTarget.value, risks = []
+  if (policy.value.enabled && !target.enabled) risks.push('redactionOff')
+  if (changedKinds.value.some(kind => target.capture[kind]) || changedLimits.value.some(([key, fallback]) => (target.capture[key] ?? fallback) > (policy.value.capture?.[key] ?? fallback))) risks.push('expanded')
+  if (target.lifecycle.retention_days < (policy.value.lifecycle?.retention_days ?? 7)) risks.push('shorterRetention')
+  return risks
+})
+const requiresAcknowledgement = computed(() => riskKeys.value.length > 0)
 let mounted = true
 onMounted(load)
 onBeforeUnmount(() => { mounted = false; reviewOpen.value = false; reviewTarget.value = null })
@@ -192,7 +205,14 @@ async function save() {
 .content-limits .ant-input-number { width: 100%; }
 .limit-error { color: #b42318; }
 .other-policy { padding: 16px 0; } .other-policy + .other-policy { border-top: 1px solid #e2e8f0; } .other-policy h4 { font-weight: 600; margin: 0 0 12px; }
+.setting-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.setting-header h4 { margin: 0; }
+.setting-header .setting-switch-row { flex-wrap: nowrap; flex-shrink: 0; }
+.capture-settings { margin-top: 20px; }
+.capture-settings h5 { font-size: 14px; font-weight: 500; margin: 0; }
+.capture-paused { opacity: .6; }
 .setting-help { color: #64748b; font-size: 12px; margin: 8px 0 12px; }
+.redaction-warning { color: #ad6800; }
 .capture-options { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin:12px 0; }.capture-options .ant-checkbox-wrapper { margin:0; }
 @media(max-width:600px) { .capture-options, .content-limits { grid-template-columns:1fr; } }
 .delivery-state { background: #f8fafc; border-radius: 8px; padding: 12px 14px; margin: 16px 0; font-size: 12px; } .delivery-state p { margin: 8px 0 0; color: #64748b; }

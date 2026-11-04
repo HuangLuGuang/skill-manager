@@ -89,7 +89,7 @@ def test_preview_invalidates_when_inventory_or_policy_changes(db):
         governance.save_policy(db, "client-1", change, SimpleNamespace(username="admin"))
     assert error.value.code == "client.policy_preview_required"
     db.rollback()
-    apply(db, governance.DEFAULT_SCOPE, {"malicious": "record"})
+    apply(db, governance.DEFAULT_SCOPE, {"malicious": "quarantine"})
     with pytest.raises(ApiError) as error:
         governance.preview(db, "client-1", change)
     assert error.value.code == "client.policy_changed"
@@ -226,3 +226,38 @@ def test_scan_followup_alert_also_requires_capability(db):
     change = governance.PolicyChange(rules={"unverified": "submit_scan"}, expected_version="0:0")
     result = governance.preview(db, governance.DEFAULT_SCOPE, change)
     assert result["incompatible_clients"][0]["rules"] == ["unverified_scan_rejected"]
+
+def test_noop_save_and_unrelated_legacy_rules(db):
+    add_client(db, protocol=2)
+    scope = governance.DEFAULT_SCOPE
+    apply(db, scope, {"unverified": "record_only", "malicious": "uninstall"})
+    governance.record_protocol(db, "client-1", 1)
+    db.commit()
+    current = governance.policy_view(db)
+    change = governance.PolicyChange(expected_version=current["version"], rules=current["rules"],
+                                     desktop_menu_visibility=current["desktop_menu_visibility"])
+    result = governance.preview(db, scope, change)
+    assert not result["has_changes"] and not result["contains_uninstall"]
+    change.preview_id = result["preview_id"]
+    tasks = db.query(models.ClientTask).count()
+    assert governance.save_policy(db, scope, change, SimpleNamespace(username="admin"))["version"] == current["version"]
+    assert db.query(models.ClientTask).count() == tasks
+    db.commit()
+    change = governance.PolicyChange(expected_version=current["version"], rules=current["rules"],
+                                     runtime_governance={**current["runtime_governance"], "hosts": ["codex"]})
+    result = governance.preview(db, scope, change)
+    assert result["has_changes"] and not result["incompatible_clients"] and not result["contains_uninstall"]
+    change.preview_id = result["preview_id"]
+    assert governance.save_policy(db, scope, change, SimpleNamespace(username="admin"))["runtime_governance"]["hosts"] == ["codex"]
+
+
+def test_inheriting_uninstall_warns_and_equal_override_can_be_saved(db):
+    add_client(db, protocol=2)
+    apply(db, governance.DEFAULT_SCOPE, {"malicious": "uninstall"})
+    apply(db, "client-1", {"malicious": "record"})
+    current = governance.policy_view(db, "client-1")
+    inherit = governance.PolicyChange(expected_version=current["version"], rules={})
+    assert governance.preview(db, "client-1", inherit)["contains_uninstall"]
+    override = governance.PolicyChange(expected_version=current["version"], rules={"malicious": "record", "unverified": current["rules"]["unverified"]})
+    result = governance.preview(db, "client-1", override)
+    assert result["has_changes"] and not result["contains_uninstall"]

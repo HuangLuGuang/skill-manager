@@ -837,11 +837,11 @@ Upgrade creates a partial index for non-expired session messages, avoiding scans
 
 客户端配置弹窗通过页签、分组标题和字段表达配置用途；继承与覆盖、已保存值、平台默认值、独立保存范围和客户端应用状态保留在相应位置。菜单显示说明区分界面入口与后台任务，模型配置说明保留凭据影响范围，Skill 分类说明保留恶意优先和检测异常的处置边界。发现配置恢复全局时清除覆盖及本客户端专属定义的提示、正文采集和脱敏风险、权限与错误提示均保留。
 
-配置页签保持单行，空间不足时横向滚动；表单宽屏使用两列，窄屏使用一列。内容与脱敏的继承控制独立成行，首组无顶部分隔线；字节上限和保留期限均采用上方标签。Agent 发现的搜索与恢复全局操作同栏，客户端界面的报告时间与重置操作同栏。各页保存入口统一放在弹窗底部，Skill 使用审计仍进入独立确认弹窗，分类处置仍先预览再保存。
+配置页签保持单行，空间不足时横向滚动；表单宽屏使用两列，窄屏使用一列。“采集内容与脱敏”紧随“采集与接入”。未配置时默认采集用户输入、模型回复、文件正文和命令正文，工具输出默认关闭。设备可继承全局或单独配置，预览后保存。继承控制独立成行，首组无顶部分隔线；字节上限和保留期限均采用上方标签。Agent 发现的搜索与恢复全局操作同栏，客户端界面的报告时间与重置操作同栏。各页保存入口统一放在弹窗底部，Skill 使用审计仍进入独立确认弹窗，分类处置仍先预览再保存。
 
-影响范围预览按客户端界面、运行防护和模型配置分组，普通摘要直接展示；Skill 处置统一按“当前 → 预计”对比。客户端覆盖、无法预估、兼容性问题、重新检查步骤和卸载风险仍在相关位置展示。
+影响范围预览以“配置项、当前值、保存后”列出本次变更，客户端名单可展开，运行凭证影响单独展示；仅分类处置预览显示 Skill 校验与动作明细，默认收起，仅列出有候选 Skill 的客户端。客户端覆盖、无法预估、兼容性问题、重新检查步骤和卸载风险仍在相关位置展示。
 
-内容与脱敏、Skill 使用审计的确认弹窗统一按“当前配置 → 本次配置”展示字段，单客户端保留继承来源。同步时机、旧客户端兼容性及告警总开关关系保留；扩大采集、关闭脱敏和缩短保留期限仍需确认风险后保存。
+内容与脱敏、Skill 使用审计的确认弹窗只展示本次变更的字段，单客户端保留继承来源。同步时机、旧客户端兼容性及告警总开关关系保留；扩大采集、关闭脱敏和缩短保留期限按本次变更分别提示风险。分类动作改为卸载时提示卸载风险，兼容性仅检查本次改变的有效动作。客户端治理策略无变更时保持原版本。
 
 **English:** Content/redaction and Skill usage audit confirmations compare current and proposed values, retaining inheritance for individual clients. Sync timing, older-client compatibility and the alert master switch remain explained. Expanding collection, disabling redaction or shortening retention still requires risk acknowledgement before saving.
 
@@ -957,7 +957,7 @@ Current issues are separated from task history. Exact-target later successes and
 
 ### 会话日志中的输入与模型回复
 
-在客户端策略的“审计采集与脱敏 → 扩展内容采集”中，分别选择“用户输入（Prompt）”与“模型回复（过程与最终）”。可使用全局默认或单台客户端覆盖。更新后的客户端读取新增日志并沿用设备认证、持久队列、上传确认与保留策略；不会自动回放已越过采集游标的历史记录。旧客户端需要更新才能采集会话消息。未开启正文采集时仅记录消息身份与阶段，不上传正文。
+在客户端策略的“采集内容与脱敏 → 审计采集 → 正文采集范围”中，分别选择“用户输入（Prompt）”与“模型回复（过程与最终）”。可使用全局默认或单台客户端覆盖。更新后的客户端读取新增日志并沿用设备认证、持久队列、上传确认与保留策略；不会自动回放已越过采集游标的历史记录。旧客户端需要更新才能采集会话消息。未开启正文采集时仅记录消息身份与阶段，不上传正文。
 
 页面位于 **客户端详情 → 行为审计 → 会话活动 → 会话日志（输入 / 回复 / 工具）**，按日志时间展示用户输入、过程回复、最终回复及工具操作。Codex 使用 `message.phase=commentary/final_answer`；Claude Code 使用明确的 `stop_reason=tool_use/end_turn`。无明确标记的模型文本显示“模型回复（阶段未标注）”，API 错误生成的合成 assistant 文本不作为模型回复。正文直接展示，使用现有审计正文权限、脱敏、截断提示与访问审计。正文长度在同一策略页配置：默认单片段 1024、单事件合计 2048 UTF-8 字节，两项范围均为 256–32768 字节，单事件上限不得小于单片段上限。先脱敏再截断；每事件最多 4 个片段。截断的正文显示原始字节数、实际保存字节数及当时的策略上限。
 
@@ -3002,9 +3002,9 @@ AIDR P1 自动日志发现使用持久化目录前沿，近期活动与历史回
 
 策略与审批的 `GET /api/v1/clients/{client_id}/aidr/hook-policy` 返回策略版本、策略内容、编辑权限、规则差异、接收器运行状态和插件状态。历史过期数量由采集诊断接口按需统计，审计保留天数由审计策略配置，后台按保留策略执行到期清理。
 
-客户端详情的“策略与审批”保留审批记录与系统策略；“安全规则”按钮打开客户端配置中的同名页签。安全规则统一保存风险检测与工具管控草稿。详情头部将在线状态与名称并列显示，名称旁的信息图标提供客户端 ID 复制和注册人信息；系统与最后心跳位于次要信息行。心跳旁的刷新图标读取平台最近收到的设备详情，概览统计保留独立刷新。右侧提供“客户端配置”入口，弹窗按采集与接入、模型与请求、Agent 发现、Skill 治理、客户端界面、内容与脱敏、安全规则平级分组，切换分组保留草稿。Skill 治理提供“使用审计 / Usage audit”和“分类处置 / Classification actions”两个子标签，默认进入使用审计（无审计查看权限时进入分类处置）；切换保留未保存草稿，每个子标签独立预览和保存。使用审计与内容脱敏分别继承全局；旧配置沿用原继承状态。采集与接入、模型与请求、客户端界面统一预览并保存；Agent 发现独立保存；内容与脱敏独立预览并保存审计内容策略。Agent 发现支持全局配置与单客户端按 Agent 覆盖，未覆盖条目跟随全局；可逐项恢复继承或全部恢复，全部恢复也会移除客户端专属定义。安装、更新与重试按需展开。配置页通过继承来源、报告时间和配置一致性说明同步状态。
+客户端详情的“策略与审批”保留审批记录与系统策略；“安全规则”按钮打开客户端配置中的同名页签。安全规则统一保存风险检测与工具管控草稿。详情头部将在线状态与名称并列显示，名称旁的信息图标提供客户端 ID 复制和注册人信息；系统与最后心跳位于次要信息行。心跳旁的刷新图标读取平台最近收到的设备详情，概览统计保留独立刷新。右侧提供“客户端配置”入口，弹窗按采集与接入、采集内容与脱敏、模型与请求、Agent 发现、Skill 治理、客户端界面、安全规则平级分组，切换分组保留草稿。Skill 治理提供“使用审计 / Usage audit”和“分类处置 / Classification actions”两个子标签，默认进入使用审计（无审计查看权限时进入分类处置）；切换保留未保存草稿，每个子标签独立预览和保存。使用审计与内容脱敏分别继承全局；旧配置沿用原继承状态。采集与接入、模型与请求、客户端界面统一预览并保存；Agent 发现独立保存；内容与脱敏独立预览并保存审计内容策略。Agent 发现支持全局配置与单客户端按 Agent 覆盖，未覆盖条目跟随全局；可逐项恢复继承或全部恢复，全部恢复也会移除客户端专属定义。安装、更新与重试按需展开。配置页通过继承来源、报告时间和配置一致性说明同步状态。
 
-In client details, **Policies & approvals** retains **Approval requests** and **System policy**; its **Security rules** action opens the matching client settings tab. **Client settings** has seven peer tabs: collection/setup, models/requests, Agent discovery, Skill governance, client interface, content/redaction, and security rules. Security rules combines the rule list and path sets, preserving independent detection/control inheritance. Agent discovery saves independently and supports global definitions, per-Agent client overrides and client-only definitions. Skill governance contains Usage audit and Classification actions, each with its own save flow. Usage audit and content/redaction inherit independently. Collection/setup, models/requests and client interface share their existing preview and save flow. Drafts persist across configuration tabs.
+In client details, **Policies & approvals** retains **Approval requests** and **System policy**; its **Security rules** action opens the matching client settings tab. **Client settings** has seven peer tabs: collection/setup, collected content and redaction, models/requests, Agent discovery, Skill governance, client interface, and security rules. Security rules combines the rule list and path sets, preserving independent detection/control inheritance. Agent discovery saves independently and supports global definitions, per-Agent client overrides and client-only definitions. Skill governance contains Usage audit and Classification actions, each with its own save flow. Usage audit and content/redaction inherit independently. Collection/setup, models/requests and client interface share their existing preview and save flow. Drafts persist across configuration tabs.
 
 手工验收 / Manual verification:
 - 中英文、桌面与窄屏检查三个策略入口、状态信息、规则表和弹窗底部按钮，确认长文案换行且可键盘操作。 / Check both languages, desktop and narrow layouts, keyboard navigation, long labels, and modal footer visibility.

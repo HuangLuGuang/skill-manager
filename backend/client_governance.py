@@ -345,6 +345,19 @@ def preview(db: Session, scope: str, change: PolicyChange):
     menu_impacts = []
     if current["version"] != change.expected_version:
         raise ApiError(409, "client.policy_changed", "策略已变化，请重新加载预览", "Policy changed; reload the preview")
+    proposed_rules = {**(DEFAULT_RULES if default_scope else current["defaults"]), **change.rules}
+    has_changes = (proposed_rules != current["rules"] if default_scope else change.rules != current["overrides"])
+    if "desktop_menu_visibility" in change.model_fields_set:
+        proposed_menu = {**DEFAULT_MENUS, **change.desktop_menu_visibility} if default_scope else change.desktop_menu_visibility
+        has_changes |= proposed_menu != current["desktop_menu_defaults" if default_scope else "desktop_menu_overrides"]
+    for key in ("runtime_governance", "prompt_guard", "compression", "model_routing"):
+        if key in change.model_fields_set:
+            value = getattr(change, key)
+            target = value.model_dump() if value is not None else None
+            if default_scope and target is None:
+                default_model = {"prompt_guard": PromptGuardConfig, "compression": CompressionConfig, "model_routing": ModelRoutingConfig}[key]
+                target = default_model().model_dump()
+            has_changes |= target != current[key + ("_default" if default_scope else "_override")]
     menu_only_request = ("desktop_menu_visibility" in change.model_fields_set
                          and change.model_fields_set <= {"desktop_menu_visibility", "rules", "expected_version", "preview_id"}
                          and change.rules == current["overrides"])
@@ -423,9 +436,9 @@ def preview(db: Session, scope: str, change: PolicyChange):
                                      "reason": "heartbeat_required" if view["supported"] else "upgrade_required"})
             continue
         scopes.append({"client_id": client.client_id, "client_name": client.name, "version": view["version"]})
-        defaults = policy_view(db)["rules"]
-        rules = {**DEFAULT_RULES, **change.rules, **view["overrides"]} if default_scope else {**defaults, **change.rules}
-        unsupported = incompatible_rules(rules, view["protocol"])
+        rules = {**proposed_rules, **view["overrides"]} if default_scope else proposed_rules
+        changed_rules = {key: action for key, action in rules.items() if view["rules"][key] != action}
+        unsupported = incompatible_rules(changed_rules, view["protocol"])
         if unsupported:
             incompatible_clients.append({"client_id": client.client_id, "client_name": client.name, "rules": unsupported})
         skills = db.query(models.ClientSkillInstall).filter(models.ClientSkillInstall.client_id == client.client_id)
@@ -494,7 +507,8 @@ def preview(db: Session, scope: str, change: PolicyChange):
             "compression_impacts": compression_impacts,
             "model_routing_impacts": model_routing_impacts,
             "candidate_count": len(items), "excluded_clients": excluded_clients,
-            "incompatible_clients": incompatible_clients, "rules": change.rules, "contains_uninstall": "uninstall" in change.rules.values()}
+            "incompatible_clients": incompatible_clients, "rules": change.rules, "has_changes": has_changes,
+            "contains_uninstall": any(action == "uninstall" and current["rules"][key] != action for key, action in proposed_rules.items())}
 
 
 def save_policy(db: Session, scope: str, change: PolicyChange, user):
@@ -504,6 +518,8 @@ def save_policy(db: Session, scope: str, change: PolicyChange, user):
         raise ApiError(409, "client.policy_capability_required", "部分客户端不支持所选动作，请升级客户端后重新预览", "Some clients do not support the selected actions. Upgrade them and preview again")
     if change.preview_id != result["preview_id"]:
         raise ApiError(409, "client.policy_preview_required", "请确认最新影响范围后保存策略", "Confirm the latest impact preview before saving")
+    if not result["has_changes"]:
+        return policy_view(db, None if scope == DEFAULT_SCOPE else scope)
     previous = {item["client_id"]: policy_view(db, item["client_id"]) for item in result["clients"]}
     previous_scope = policy_view(db, None if scope == DEFAULT_SCOPE else scope)
     row = db.get(models.ClientGovernancePolicy, scope)
