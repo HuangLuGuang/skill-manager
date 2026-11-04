@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "智能体生命周期管理系统客户端",
+        "visible": false,
         "width": 1080,
         "height": 720,
         "minWidth": 900,

@@ -153,8 +153,6 @@ struct ClientConfig {
 #[derive(Serialize)]
 struct ConnectionStatus {
     configured: bool,
-    connected: bool,
-    error: Option<String>,
     server: String,
     name: String,
     token_hint: String,
@@ -163,7 +161,6 @@ struct ConnectionStatus {
     service_detail: String,
     local: serde_json::Value,
     inventory: serde_json::Value,
-    platform: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -557,12 +554,10 @@ async fn platform_request(request: serde_json::Value) -> Result<serde_json::Valu
 }
 
 #[tauri::command]
-async fn get_connection_status() -> Result<ConnectionStatus, String> {
+async fn get_local_connection_status() -> Result<ConnectionStatus, String> {
     let Some(config) = try_load_client_config()? else {
         return Ok(ConnectionStatus {
             configured: false,
-            connected: false,
-            error: None,
             server: String::new(),
             name: String::new(),
             token_hint: String::new(),
@@ -571,7 +566,6 @@ async fn get_connection_status() -> Result<ConnectionStatus, String> {
             service_detail: String::new(),
             local: serde_json::json!({}),
             inventory: serde_json::json!({"agents": []}),
-            platform: None,
         });
     };
     let service: serde_json::Value = serde_json::from_str(&execute_client_sync(
@@ -591,11 +585,8 @@ async fn get_connection_status() -> Result<ConnectionStatus, String> {
     };
     let local = snapshot.local;
     let inventory = snapshot.inventory;
-    let response = platform_request(serde_json::json!({"version":1,"method":"platform-status"})).await;
-    let mut result = ConnectionStatus {
+    Ok(ConnectionStatus {
         configured: true,
-        connected: false,
-        error: None,
         server: config.server,
         name: config.name,
         token_hint: mask_token(&config.token),
@@ -614,18 +605,12 @@ async fn get_connection_status() -> Result<ConnectionStatus, String> {
             .to_string(),
         local,
         inventory,
-        platform: None,
-    };
-    let response = match response {
-        Ok(response) => response,
-        Err(error) => {
-            result.error = Some(error);
-            return Ok(result);
-        }
-    };
-    result.platform = Some(response);
-    result.connected = true;
-    Ok(result)
+    })
+}
+
+#[tauri::command]
+async fn get_platform_connection_status() -> Result<serde_json::Value, String> {
+    platform_request(serde_json::json!({"version":1,"method":"platform-status"})).await
 }
 
 #[tauri::command]
@@ -692,8 +677,12 @@ async fn check_client_update(
         config.server.trim_end_matches('/'),
     ))
     .map_err(|error| format!("Agent Manager 地址无效: {error}"))?;
+    let platform_origin = endpoint.origin();
     let updater = app
         .updater_builder()
+        .configure_client(|client| client
+            .danger_accept_invalid_certs(true)
+            .redirect(reqwest::redirect::Policy::none()))
         .endpoints(vec![endpoint])
         .map_err(|error| format!("更新地址配置失败: {error}"))?
         .header("Authorization", format!("Bearer {}", config.token))
@@ -715,6 +704,9 @@ async fn check_client_update(
             notes: None,
         });
     };
+    if update.download_url.origin() != platform_origin {
+        return Err("更新包下载地址与当前平台不一致".to_string());
+    }
     let display_version = display_release_version(&update.version);
     let result = UpdateResult {
         supported: true,
@@ -1014,6 +1006,7 @@ fn main() {
     tauri::Builder::default()
         .manage(background::BackgroundMenu::default())
         .manage(background::WindowDraft::default())
+        .manage(background::MainWindowReady::default())
         .manage(background_runtime::Runtime::default())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -1044,6 +1037,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             background::sync_background_menu,
             background::take_window_draft,
+            background::main_window_ready,
             background::retire_main_window,
             background_runtime::sync_background_runtime,
             execute_client,
@@ -1062,7 +1056,8 @@ fn main() {
             open_client_location,
             export_diagnostics,
             record_desktop_diagnostic,
-            get_connection_status,
+            get_local_connection_status,
+            get_platform_connection_status,
             refresh_model_catalog,
             manual_model::manual_model_action,
             get_local_snapshot,

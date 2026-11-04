@@ -35,16 +35,20 @@
           <div class="header-tools">
             <button id="settings-trigger" class="header-icon-button" title="设置" aria-label="打开设置"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.6v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3V9.6h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.15.37.36.71.6 1 .3.3.68.44 1.1.4h.09v4h-.09c-.42-.04-.8.1-1.1.4-.24.29-.45.63-.6 1Z"/></svg></button>
             <button id="notification-trigger" class="notification-trigger" title="安全通知" aria-label="打开安全通知" hidden><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33"/></svg><em id="notification-nav-badge" class="notification-count" hidden>0</em></button>
-            <span id="connection-state" class="state">未接入</span>
+            <span id="connection-state" class="state" role="status" data-i18n="ui.connection.reading">正在读取接入状态…</span>
           </div>
         </header>
 
         <section id="connect" class="panel active">
-          <div id="connection-intro" class="panel-copy">
+          <div id="connection-read-error" class="inline-error" hidden>
+            <span id="connection-error-detail" role="alert"></span>
+            <button id="retry-connection-read" type="button" data-i18n="ui.connection.retry">重新读取</button>
+          </div>
+          <div id="connection-intro" hidden class="panel-copy">
             <h2>配置一次，后台持续运行</h2>
             <p>使用“客户端接入凭证”接入 Agent Manager。凭证只写入当前用户可读的本地配置文件。</p>
           </div>
-          <div id="credential-tip" class="credential-tip">
+          <div id="credential-tip" hidden class="credential-tip">
             <strong>凭证创建位置</strong>
             <span>管理台 → 智能体管理 → 统一凭证中心 → 创建凭证，类型选择“客户端接入凭证”。</span>
             <span><span id="credential-scope-prefix">保留默认的 8 个</span> <code>client:*</code> <span id="credential-scope-middle">权限即可，其中</span> <code>client:submit-skill</code> <span id="credential-scope-suffix">用于提交停用 Skill 到平台检测。</span></span>
@@ -128,7 +132,7 @@
             </div>
           </div>
 
-          <form id="connect-form" class="form-grid">
+          <form id="connect-form" hidden class="form-grid">
             <label>Agent Manager 地址<input id="server" type="url" placeholder="http://127.0.0.1:8001" required /></label>
             <label>客户端接入凭证<input id="token" type="password" placeholder="amat_..." required /></label>
             <label>客户端名称<input id="client-name" type="text" placeholder="研发客户端" /></label>
