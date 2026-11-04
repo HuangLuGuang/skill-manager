@@ -185,6 +185,38 @@ def test_agent_runtime_can_explicitly_select_non_blocking_prompt_guard(tmp_path)
     assert created.json()["record"]["prompt_guard_mode"] == "warn"
 
 
+def test_client_credential_defaults_include_aidr_scopes(tmp_path):
+    client = _client(tmp_path)
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={"name": "managed-host", "token_type": "client"},
+    )
+    assert created.status_code == 200
+    assert set(created.json()["record"]["scopes"]) == set(
+        access_tokens.CLIENT_SCOPES + access_tokens.AIDR_SCOPES
+    )
+
+    restricted = client.post(
+        "/api/v1/access/tokens",
+        json={"name": "heartbeat-only", "token_type": "client", "scopes": ["client:heartbeat"]},
+    )
+    assert restricted.status_code == 200
+    assert restricted.json()["record"]["scopes"] == ["client:heartbeat"]
+
+
+def test_create_credential_rejects_explicit_empty_scopes(tmp_path):
+    client = _client(tmp_path)
+    for token_type in access_tokens.DEFAULT_SCOPES_BY_TYPE:
+        for scopes in ([], [" "], ["", " "]):
+            response = client.post(
+                "/api/v1/access/tokens",
+                json={"name": "empty-permissions", "token_type": token_type, "scopes": scopes},
+            )
+            assert response.status_code == 400
+            assert response.json()["error_code"] == "credential.scopes_required"
+    assert client.get("/api/v1/access/tokens").json()["items"] == []
+
+
 def test_only_client_credential_can_allow_agent_credential_issuance(tmp_path):
     client = _client(tmp_path)
     created = client.post(

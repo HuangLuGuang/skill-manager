@@ -52,7 +52,7 @@ DEFAULT_SCOPES_BY_TYPE = {
     "model_gateway": ["model:chat"],
     "agent_runtime": list(AGENT_VERIFICATION_SCOPES),
     "scanner": list(SCANNER_SCOPES),
-    "client": list(CLIENT_SCOPES),
+    "client": CLIENT_SCOPES + AIDR_SCOPES,
     "mcp_gateway": list(MCP_SCOPES),
 }
 LAST_USED_WRITE_INTERVAL = timedelta(minutes=5)
@@ -90,7 +90,7 @@ def _hash_token(token: str) -> str:
 def _normalize_scopes(token_type: str, scopes: list[str] | None) -> list[str]:
     if token_type == "openapi" and not scopes:
         raise ApiError(400, "external_access.scopes_required", "请选择至少一项接口权限", "Select at least one API permission")
-    requested = scopes if scopes else DEFAULT_SCOPES_BY_TYPE.get(token_type, [])
+    requested = scopes if scopes is not None else DEFAULT_SCOPES_BY_TYPE.get(token_type, [])
     result: list[str] = []
     for scope in requested:
         value = str(scope).strip()
@@ -116,6 +116,8 @@ def _normalize_scopes(token_type: str, scopes: list[str] | None) -> list[str]:
             result.append(value)
     if token_type == "openapi" and not result:
         raise ApiError(400, "external_access.scopes_required", "请选择至少一项接口权限", "Select at least one API permission")
+    if not result:
+        raise ApiError(400, "credential.scopes_required", "请选择至少一项权限", "Select at least one permission")
     return result
 
 
@@ -564,7 +566,7 @@ async def create_access_token(
         raise ApiError(400, "external_access.name_too_long", "凭证名称最多128个字符", "Credential names allow up to 128 characters")
     _validate_agent_credential_issuance(body.token_type, body.allow_agent_credential_issuance)
     _validate_manual_credential_export(body.token_type, body.allow_agent_credential_issuance, body.allow_manual_credential_export)
-    scopes = _normalize_scopes(body.token_type, body.scopes)
+    scopes = _normalize_scopes(body.token_type, body.scopes if "scopes" in body.model_fields_set else None)
     _validate_privacy_policy(db, body.privacy_policy_id, body.token_type, scopes, body.allow_agent_credential_issuance)
     allowed_mcp_gateways = _validate_subject_bindings(
         db,

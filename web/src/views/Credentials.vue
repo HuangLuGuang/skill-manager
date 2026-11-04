@@ -197,7 +197,7 @@
           <a-button v-if="!editingRecord" type="link" @click="createStage = 'choose'">{{ $t('credentials.changeCaller') }}</a-button>
         </div>
 
-        <a-form layout="vertical" :model="form" :disabled="creating" class="credential-form">
+        <a-form ref="credentialForm" layout="vertical" :model="form" :disabled="creating" class="credential-form">
           <a-alert v-if="editingRecord" type="info" show-icon :message="$t('credentials.editPermissionsHint')" />
           <p v-if="editingRecord?.token_type === 'client'" class="field-hint">{{ $t('credentials.editClientPermissionsHint') }}</p>
           <section class="form-section">
@@ -207,12 +207,12 @@
             </div>
             <a-row :gutter="16">
               <a-col :xs="24" :md="12">
-                <a-form-item :label="$t('credentials.nameLabel')" required>
+                <a-form-item name="name" :label="$t('credentials.nameLabel')" :rules="[{ required: true, whitespace: true, message: t('credentials.nameRequired') }]">
                   <a-input v-model:value="form.name" :disabled="!!editingRecord" :placeholder="$t('credentials.namePlaceholder')" />
                 </a-form-item>
               </a-col>
               <a-col v-if="form.token_type === 'agent_runtime'" :xs="24" :md="12">
-                <a-form-item :label="$t('credentials.boundAgent')" required>
+                <a-form-item name="bound_agent_id" :label="$t('credentials.boundAgent')" :rules="[{ required: true, message: t('credentials.agentRequired') }]">
                   <a-select :get-popup-container="trigger => trigger.parentElement"
                     v-model:value="form.bound_agent_id"
                     :disabled="!!editingRecord"
@@ -243,6 +243,7 @@
             <a-checkbox v-model:checked="form.allow_manual_credential_export" :disabled="!form.allow_agent_credential_issuance">{{ $t('credentials.allowManualExport') }}</a-checkbox>
             <p class="field-hint">{{ $t('credentials.manualExportHelp') }}</p>
             <a-alert
+              v-if="form.allow_agent_credential_issuance"
               type="warning"
               show-icon
               class="client-issuance-permissions"
@@ -284,7 +285,7 @@
                 </a-form-item>
               </a-col>
               <a-col v-if="supportsMcp" :xs="24" :md="supportsModels ? 12 : 24">
-                <a-form-item :label="$t('credentials.allowedGateways')" required>
+                <a-form-item name="allowed_mcp_gateways" :label="$t('credentials.allowedGateways')" :rules="[{ required: true, type: 'array', min: 1, message: t('credentials.gatewayRequired') }]">
                   <template v-if="form.token_type === 'agent_runtime'">
                     <p class="field-hint">{{ $t('agentMcp.credentialHint') }}</p>
                     <a-alert v-if="!boundAgent" type="info" :message="$t('agentMcp.agentRequired')" />
@@ -309,7 +310,7 @@
             <a-collapse-panel key="advanced" :header="$t(editingRecord ? 'credentials.permissionDetails' : 'credentials.advancedTitle')">
               <p v-if="!editingRecord" class="advanced-intro">{{ $t('credentials.advancedDescription') }}</p>
 
-              <a-form-item v-if="editingRecord || form.agent_preset === 'custom' || form.token_type !== 'agent_runtime'" :label="$t('credentials.rawPermissions')" :required="!!editingRecord">
+              <a-form-item v-if="editingRecord || form.agent_preset === 'custom' || form.token_type !== 'agent_runtime'" name="scopes" :label="$t('credentials.rawPermissions')" :rules="[{ required: true, type: 'array', min: 1, message: t('credentials.scopesRequired') }]">
                 <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.scopes" mode="multiple" style="width: 100%" @change="handleScopesChange">
                   <a-select-option v-for="scope in availableScopes" :key="scope" :value="scope">{{ scope }}</a-select-option>
                 </a-select>
@@ -415,7 +416,7 @@
 <script setup>
 import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess, pageAllowed } from '../access'
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import AgentMcpGateways from '../components/AgentMcpGateways.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
@@ -441,6 +442,7 @@ const router = useRouter()
 const t = (key, params) => i18n.global.t(key, params)
 const loading = ref(false)
 const creating = ref(false)
+const credentialForm = ref(null)
 const editingRecord = ref(null)
 const privacyPolicies = ref([])
 const privacyPolicyOptions = computed(() => [
@@ -553,12 +555,13 @@ const typeDefaults = {
     'client:submit-skill',
     'client:download-approved-skill',
     'client:request-skill-actions',
+    'aidr:heartbeat',
+    'aidr:report-events',
   ],
   mcp_gateway: ['mcp:connect', 'mcp:list-tools', 'mcp:call-tools'],
 }
 const scopeOptionsByType = {
   ...typeDefaults,
-  client: [...typeDefaults.client, 'aidr:heartbeat', 'aidr:report-events'],
   agent_runtime: [...agentScopePresets.governance_model_mcp, 'runtime:memory', 'runtime:trace'],
 }
 
@@ -738,6 +741,7 @@ const toggleManualExport = async record => {
   } finally { actionId.value = null }
 }
 const resetForm = (tokenType, defaults = {}) => {
+  credentialForm.value?.clearValidate()
   Object.assign(form, {
     privacy_policy_id: defaults.privacy_policy_id || 0,
     name: defaults.name || '',
@@ -903,19 +907,18 @@ const openCreateFromQuery = async () => {
 const handleCreate = async () => {
   if (creating.value) return
   if (Array.from(form.prompt_guard_business_scope || '').length > 2000) return message.warning(t('promptGuard.topicScope.invalid'))
+  if (!form.scopes.length) {
+    advancedSections.value = ['advanced']
+    await nextTick()
+  }
+  try {
+    await credentialForm.value.validate()
+  } catch (error) {
+    credentialForm.value?.scrollToField(error.errorFields?.[0]?.name, { block: 'center' })
+    return
+  }
+  if (creating.value) return
   if (editingRecord.value) return savePermissions()
-  if (!form.name.trim()) {
-    message.warning(t('credentials.nameRequired'))
-    return
-  }
-  if (form.token_type === 'agent_runtime' && !form.bound_agent_id) {
-    message.warning(t('credentials.agentRequired'))
-    return
-  }
-  if (supportsMcp.value && !form.allowed_mcp_gateways.length) {
-    message.warning(t('credentials.gatewayRequired'))
-    return
-  }
   if (supportsMcp.value && form.token_type === 'agent_runtime' && form.allowed_mcp_gateways.some(slug => !boundAgent.value?.allowed_mcp_gateways?.includes(slug))) {
     message.warning(t('agentMcp.outOfScope'))
     return
@@ -1317,6 +1320,7 @@ onMounted(async () => {
 .selected-route > div {
   display: flex;
   flex: 1;
+  min-width: 0;
   flex-direction: column;
   gap: 2px;
 }
@@ -1339,7 +1343,7 @@ onMounted(async () => {
   overflow-y: auto;
 }
 
-.credential-config { display: flex; flex-direction: column; min-height: 0; }
+.credential-config { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .credential-config > .selected-route,
 .credential-config > .creation-summary,
 .credential-config > .modal-actions { flex-shrink: 0; }
@@ -1514,6 +1518,35 @@ onMounted(async () => {
 }
 
 @media (max-width: 720px) {
+  .selected-route {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+  }
+
+  .selected-route > .ant-btn {
+    grid-column: 2;
+    justify-self: start;
+    height: auto;
+    padding: 0;
+    white-space: normal;
+  }
+
+  .selected-route > div > span {
+    display: none;
+  }
+
+  .modal-actions {
+    flex-wrap: wrap;
+  }
+
+  .modal-actions :deep(.ant-btn) {
+    max-width: 100%;
+    height: auto;
+    min-height: 32px;
+    white-space: normal;
+  }
   .route-grid {
     grid-template-columns: 1fr;
   }
