@@ -488,7 +488,27 @@ const setProgress = (id, state) => {
   element.classList.remove('done', 'current')
   if (state) element.classList.add(state)
 }
+const setConnectionState = (key, online = false) => {
+  const badge = $('#connection-state')
+  badge.dataset.i18n = key
+  badge.textContent = t(key)
+  badge.classList.toggle('online', online)
+}
+
+const renderConnectionReadError = error => {
+  connection = null
+  renderDesktopMenus()
+  $('.workspace').dataset.connected = 'false'
+  for (const id of ['connection-intro', 'credential-tip', 'connect-form', 'connected-overview', 'notification-trigger']) {
+    $('#' + id).hidden = true
+  }
+  setConnectionState('ui.connection.readFailed')
+  $('#connection-error-detail').textContent = String(error)
+  $('#connection-read-error').hidden = false
+}
+
 const renderDisconnected = () => {
+  $('#connection-read-error').hidden = true
   renderDesktopMenus()
   $('.workspace').dataset.connected = 'false'
   $('#connection-intro').hidden = false
@@ -499,8 +519,7 @@ const renderDisconnected = () => {
   $('#token').value = ''
   $('#token').placeholder = 'amat_...'
   $('#connect-submit').textContent = t('ui.nonmak')
-  $('#connection-state').textContent = t('ui.1gwretz')
-  $('#connection-state').classList.remove('online')
+  setConnectionState('ui.1gwretz')
   $('#notification-trigger').hidden = true
   $('#external-gateway-policy-banner').hidden = true
   $('#external-model-readiness').hidden = true
@@ -653,7 +672,9 @@ const renderConnected = data => {
   const local = data.local || {}
   const inventorySynced = Boolean(local.sync?.inventory?.last_success_at)
   const patrolActive = Boolean(data.service_running)
-  const connectionError = !data.connected
+  const checking = data.connected == null
+  const connectionError = data.connected === false
+  const badgeKey = checking ? 'ui.connection.verifying' : connectionError ? 'ui.19towct' : 'ui.id9tin'
   if (connectionError) {
     todos.push({ title: t('ui.1i3u5zy'), detail: runtimeText(data.error || t('ui.14ahndy')), action: t('ui.xhhfbd'), actionType: 'refresh', error: true })
   }
@@ -680,13 +701,13 @@ const renderConnected = data => {
   $('#connect-form').hidden = true
   $('#token').value = ''
   $('#connected-overview').hidden = false
-  $('#connection-state').textContent = data.connected ? t('ui.id9tin') : t('ui.19towct')
-  $('#connection-state').classList.toggle('online', data.connected)
+  $('#connection-read-error').hidden = true
+  setConnectionState(badgeKey, data.connected === true)
   $('#notification-trigger').hidden = false
   const activePanel = document.querySelector('.panel.active')?.id || 'connect'
   $('#panel-title').textContent = panelTitle(activePanel)
   $('#overview-badge').className = `overview-badge${connectionError ? ' error' : ''}`
-  $('#overview-badge').textContent = connectionError ? t('ui.19towct') : t('ui.id9tin')
+  $('#overview-badge').textContent = t(badgeKey)
   $('#overview-title').textContent = platform.name || data.name || data.inventory?.hostname || t('ui.13nfgz7')
   const lastSync = t('ui.overview.synced').replace('{time}', formatTime(local.sync?.inventory?.last_success_at || platform.last_seen_at))
   $('#overview-subtitle').textContent = connectionError ? runtimeText(data.error || t('ui.cvy3o')) : lastSync
@@ -711,14 +732,14 @@ const renderConnected = data => {
   if (appliedPolicy?.prompt_guard) {
     const guard = appliedPolicy.prompt_guard
     const modeKey = ['off', 'log', 'warn', 'block'].includes(guard.mode) ? guard.mode : 'unknown'
-    const synchronized = !connectionError && platform.classification?.version === appliedPolicy.version
+    const synchronized = data.connected && platform.classification?.version === appliedPolicy.version
     $('#overview-policy-rules').insertAdjacentHTML('beforeend', `<section class="policy-rule-group"><h3>${escapeHtml(t('ui.promptGuard.title'))}</h3><dl class="detail-list"><div class="policy-rule-row"><dt>${escapeHtml(t('ui.promptGuard.mode'))}</dt><dd>${escapeHtml(t(`ui.promptGuard.${modeKey}`))}</dd></div><div class="policy-rule-row"><dt>${escapeHtml(t('ui.promptGuard.llmReview'))}</dt><dd>${escapeHtml(t(guard.llm_review ? 'ui.promptGuard.enabled' : 'ui.promptGuard.disabled'))}</dd></div><div class="policy-rule-row"><dt>${escapeHtml(t('ui.promptGuard.syncStatus'))}</dt><dd>${escapeHtml(t(synchronized ? 'ui.promptGuard.synced' : connectionError ? 'ui.promptGuard.cached' : 'ui.promptGuard.pending'))}</dd></div></dl><p>${escapeHtml(t('ui.promptGuard.description'))}</p></section>`)
   }
   $('#overview-last-sync').textContent = lastSync
   if (appliedPolicy?.compression) {
     const compression = appliedPolicy.compression
     const level = ['auto', 'conservative', 'aggressive'].includes(compression.level) ? compression.level : 'unknown'
-    const synchronized = !connectionError && platform.classification?.version === appliedPolicy.version
+    const synchronized = data.connected && platform.classification?.version === appliedPolicy.version
     $('#overview-policy-rules').insertAdjacentHTML('beforeend', `<section class="policy-rule-group"><h3>${escapeHtml(t('ui.compression.title'))}</h3><dl class="detail-list"><div class="policy-rule-row"><dt>${escapeHtml(t('ui.compression.enabled'))}</dt><dd>${escapeHtml(t(compression.enabled ? 'ui.promptGuard.enabled' : 'ui.promptGuard.disabled'))}</dd></div>${compression.enabled ? `<div class="policy-rule-row"><dt>${escapeHtml(t('ui.compression.level'))}</dt><dd>${escapeHtml(t(`ui.compression.${level}`))}</dd></div>` : ''}<div class="policy-rule-row"><dt>${escapeHtml(t('ui.promptGuard.syncStatus'))}</dt><dd>${escapeHtml(t(synchronized ? 'ui.promptGuard.synced' : connectionError ? 'ui.promptGuard.cached' : 'ui.promptGuard.pending'))}</dd></div></dl><p>${escapeHtml(t('ui.compression.description'))}</p></section>`)
   }
   $('#overview-sync').textContent = connectionError ? t('ui.xhhfbd') : t('ui.2fhcc7')
@@ -730,8 +751,8 @@ const renderConnected = data => {
   $('#metric-todos').textContent = todos.length
   $('#metric-todos').hidden = todos.length === 0
   $('#overview-todo-summary').textContent = todos.length ? t('ui.overview.todo_hint').replace('{count}', todos.length) : ''
-  $('#overview-all-clear').hidden = todos.length !== 0
-  $('#progress-summary').textContent = data.connected
+  $('#overview-all-clear').hidden = checking || todos.length !== 0
+  $('#progress-summary').textContent = checking ? t(badgeKey) : data.connected
     ? t('ui.agentManagement.automatic')
     : t('ui.agentManagement.offline')
   setProgress('step-connect', data.connected ? 'done' : 'current')
@@ -741,9 +762,9 @@ const renderConnected = data => {
   $('#step-service span').textContent = t('ui.background.title')
   setProgress('step-service', patrolActive ? 'done' : 'current')
   $('#detail-service').textContent = patrolActive ? t('ui.yp0d17') : t('ui.background.start_failed')
-  $('#detail-governance').textContent = governanceLabel(platform.governance_mode)
+  $('#detail-governance').textContent = checking ? '—' : governanceLabel(platform.governance_mode)
   $('#detail-last-seen').textContent = formatTime(local.sync?.inventory?.last_success_at || platform.last_seen_at)
-  $('#detail-token-status').textContent = data.connected ? tf`有效 · ${data.token_hint}` : tf`需检查 · ${data.token_hint}`
+  $('#detail-token-status').textContent = checking ? t(badgeKey) : data.connected ? tf`有效 · ${data.token_hint}` : tf`需检查 · ${data.token_hint}`
   $('#detail-queued-events').textContent = local.queued_events || 0
   $('#detail-local-scan').textContent = formatTime(local.last_inventory_at)
   $('#detail-name').textContent = platform.name || data.name || data.inventory?.hostname || '-'
@@ -752,10 +773,9 @@ const renderConnected = data => {
   $('#detail-version').textContent = platform.client_version || data.inventory?.client_version || '-'
   $('#detail-server').textContent = data.server
   const capabilities = platform.detection_capabilities || {}
-  renderCapability('#capability-rules', capabilities.rules)
-  renderCapability('#capability-deep-scan', capabilities.deep_scan)
-  renderCapability('#capability-sandbox', capabilities.sandbox)
-  renderCapability('#capability-llm', capabilities.llm)
+  for (const [id, key] of [['rules', 'rules'], ['deep-scan', 'deep_scan'], ['sandbox', 'sandbox'], ['llm', 'llm']]) {
+    renderCapability('#capability-' + id, capabilities[key], checking)
+  }
   renderStatus(data)
   renderModelSwitcher(data)
 
@@ -1692,32 +1712,47 @@ const reconcileTrackedSkillActions = tasks => {
   }
 }
 
-async function refreshConnection() {
+async function verifyPlatformConnection(generation) {
+  let platform
+  try {
+    platform = await invoke('get_platform_connection_status')
+  } catch (error) {
+    if (generation !== connectionRefreshGeneration) return
+    connection.error = String(error)
+  }
+  if (generation !== connectionRefreshGeneration) return
+  connection.connected = Boolean(platform)
+  connection.platform = platform
+  if (platform) connection.platform.tasks = mergeLocalTaskStatuses(connection.platform.tasks, connection.local?.tasks)
+  renderConnected(connection)
+  syncExternalGatewayPolicyPrompt(connection)
+  if (activePanelName() === 'discover') renderInventory()
+  reconcileTrackedSkillActions(connection.platform?.tasks)
+  await loadBuiltinAgentSettings().catch(error => {
+    $('#builtin-agent-settings').innerHTML = tf`<div class="inline-error"><strong>读取扫描目录失败</strong><span>${escapeHtml(error)}</span></div>`
+  })
+  await loadPending().catch(error => log(error))
+  if (generation !== connectionRefreshGeneration) return
+  if (!checkClientUpdateFromLongPoll(connection.local)) checkClientUpdateAutomatically()
+}
+
+async function refreshConnection({ backgroundVerification = false } = {}) {
   void refreshBackgroundRuntime()
   const generation = ++connectionRefreshGeneration
   try {
-    const nextConnection = await invoke('get_connection_status')
+    const current = await invoke('get_local_connection_status')
     if (generation !== connectionRefreshGeneration) return
-    connection = nextConnection
-    await loadSavedConnections().catch(error => log(error))
-    if (!connection.configured) return renderDisconnected()
-    if (connection.platform) {
-      connection.platform.tasks = mergeLocalTaskStatuses(connection.platform.tasks, connection.local?.tasks)
-    }
-    inventory = connection.inventory
-    lastInventoryAt = connection.local?.last_inventory_at || lastInventoryAt
-    renderConnected(connection)
-    syncExternalGatewayPolicyPrompt(connection)
-    if (activePanelName() === 'discover') renderInventory()
-    reconcileTrackedSkillActions(connection.platform?.tasks)
-    await loadBuiltinAgentSettings().catch(error => {
-      $('#builtin-agent-settings').innerHTML = tf`<div class="inline-error"><strong>读取扫描目录失败</strong><span>${escapeHtml(error)}</span></div>`
-    })
-    await loadPending().catch(error => log(error))
-    if (!checkClientUpdateFromLongPoll(connection.local)) checkClientUpdateAutomatically()
+    connection = current
+    void loadSavedConnections().catch(log)
+    if (!current.configured) return renderDisconnected()
+    inventory = current.inventory
+    lastInventoryAt = current.local?.last_inventory_at || lastInventoryAt
+    renderConnected(current)
+    const verification = verifyPlatformConnection(generation).catch(log)
+    if (!backgroundVerification) await verification
   } catch (error) {
     if (generation !== connectionRefreshGeneration) return
-    renderDisconnected()
+    renderConnectionReadError(error)
     log(error)
   }
 }
@@ -1767,10 +1802,11 @@ const refreshLocalStateFromEvent = async ({ source = 'event', eventType = '', re
   }
   localStateRefreshBusy = true
   const startedAt = Date.now()
-  const generation = ++connectionRefreshGeneration
+  const generation = connectionRefreshGeneration
+  const current = connection
   try {
     const snapshot = await invoke('get_local_snapshot', { recovery: activePanelName() === 'discover' })
-    if (generation !== connectionRefreshGeneration || !connection) return false
+    if (generation !== connectionRefreshGeneration || connection !== current) return false
     connection.local = snapshot.local
     connection.inventory = snapshot.inventory
     if (connection.platform) {
@@ -1837,6 +1873,7 @@ document.querySelectorAll('[data-notification-filter]').forEach(button => {
   })
 })
 
+$('#retry-connection-read').addEventListener('click', refreshConnection)
 $('#refresh-notifications').addEventListener('click', refreshConnection)
 $('#notification-trigger').addEventListener('click', () => showPanel('notifications'))
 $('#test-system-notification').addEventListener('click', async () => {
@@ -4037,8 +4074,13 @@ $('#confirm-install-skill').addEventListener('click', async () => {
   await startPlatformInstall(skill, versionId, targets)
 })
 
-function renderCapability(selector, capability) {
+function renderCapability(selector, capability, checking) {
   const element = $(selector)
+  if (checking) {
+    element.className = ''
+    element.textContent = '—'
+    return
+  }
   const enabled = Boolean(capability?.enabled)
   element.className = enabled ? 'available' : 'unavailable'
   element.textContent = enabled ? tf`已启用${capability.detail ? ` · ${runtimeText(capability.detail)}` : ''}` : t('ui.n1gs62')
@@ -4057,7 +4099,7 @@ invoke('get_build_version').then(version => {
   syncSettingsControls()
 })
 const initializeClient = async () => {
-  const draft = await invoke('take_window_draft')
+  const draft = await invoke('take_window_draft').catch(error => { log(error); return null })
   if (draft?.notifiedVersion) localStorage.setItem(CLIENT_UPDATE_NOTIFIED_KEY, draft.notifiedVersion)
   try {
     const result = JSON.parse(await run('reconcile-service'))
@@ -4065,7 +4107,7 @@ const initializeClient = async () => {
   } catch (error) {
     log(tf`后台服务自检失败：${error}`)
   }
-  await refreshConnection()
+  await refreshConnection({ backgroundVerification: true })
   if (connection?.configured && document.querySelector('.panel.active')?.id === 'connect' && document.querySelector(`#${clientSettings.defaultPanel}`)) {
     showPanel(clientSettings.defaultPanel)
   }
@@ -4077,7 +4119,6 @@ const initializeClient = async () => {
     input.dispatchEvent(new Event('input', { bubbles: true }))
     changedDraftFields.add(id)
   }
-  await syncBackgroundRuntime()
 }
 const changedDraftFields = new Set()
 const isDraftInput = input => input.tagName === 'TEXTAREA' ||
@@ -4124,7 +4165,14 @@ if (window.__TAURI__.event?.listen) {
 }
 
 void syncBackgroundMenu()
-initializeClient().catch(log)
+initializeClient()
+  .catch(error => {
+    renderConnectionReadError(error)
+    log(error)
+  })
+  .finally(() => invoke('main_window_ready'))
+  .then(syncBackgroundRuntime)
+  .catch(log)
 setInterval(checkClientUpdateAutomatically, CLIENT_UPDATE_CHECK_INTERVAL_MS)
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
@@ -4148,11 +4196,13 @@ window.addEventListener('agent-manager-client-locale-change', async () => {
   if (pendingItems.length) {
     await loadPending()
   }
-  if (connection) {
+  if (connection?.configured) {
     renderConnected(connection)
     renderStatus(connection)
-  } else {
+  } else if (connection?.configured === false) {
     renderDisconnected()
+  } else {
+    setConnectionState($('#connection-read-error').hidden ? 'ui.connection.reading' : 'ui.connection.readFailed')
   }
   if ($('#quarantine-list').children.length) await loadQuarantine()
   if ($('#install-skill-dialog')?.open) {

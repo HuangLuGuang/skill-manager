@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use serde::Deserialize;
@@ -51,21 +52,39 @@ pub struct Labels {
     quit: String,
 }
 
+#[derive(Default)]
+pub struct MainWindowReady(AtomicBool);
+
+fn reveal(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    window.unminimize()?;
+    window.show()?;
+    window.set_focus()
+}
+
+#[tauri::command]
+pub fn main_window_ready(window: tauri::WebviewWindow, ready: State<'_, MainWindowReady>) -> Result<(), String> {
+    ready.0.store(true, Ordering::Release);
+    reveal(&window).map_err(|error| error.to_string())
+}
+
 pub fn show_main_window(app: &AppHandle) {
+    let ready = app.state::<MainWindowReady>();
     if app.get_webview_window("main").is_none() {
+        ready.0.store(false, Ordering::Release);
         if let Some(config) = app.config().app.windows.first() {
             if let Err(error) = tauri::WebviewWindowBuilder::from_config(app, config)
                 .and_then(|builder| builder.build())
             {
                 eprintln!("could not recreate client window: {error}");
-                return;
             }
         }
+        return;
+    }
+    if !ready.0.load(Ordering::Acquire) {
+        return;
     }
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+        let _ = reveal(&window);
     }
 }
 

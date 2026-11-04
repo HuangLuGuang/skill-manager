@@ -57,12 +57,12 @@
               <a-form-item :label="t('clientGovernance.runtime.userEnrollment')" :tooltip="t('clientGovernance.runtime.userEnrollmentHint')">
                 <a-switch v-model:checked="runtimeGovernance.allow_user_enrollment" :disabled="runtimeDisabled" />
               </a-form-item>
-              <a-form-item :label="t('clientGovernance.runtime.hosts')">
+              <a-form-item :label="t('clientGovernance.runtime.hosts')" :tooltip="t('clientGovernance.runtime.hostsHint')">
                 <a-select :value="selectedProductGroups(runtimeGovernance.hosts)" mode="multiple" :disabled="runtimeDisabled" @change="setHookProducts"><a-select-option v-for="product in hookProductOptions" :key="product.id" :value="product.id" :disabled="!product.entries.some(hookEntryEligible)">{{ product.name }}</a-select-option></a-select>
                 <details v-if="selectedProductGroups(runtimeGovernance.hosts).includes('qoder')" class="effective">
                   <summary>{{ t('clientGovernance.runtime.qoderEntries') }}</summary>
                   <a-checkbox-group :value="runtimeGovernance.hosts.filter(id => productGroupId(id) === 'qoder')" :disabled="runtimeDisabled" @change="setQoderHookEntries">
-                    <a-space wrap><a-checkbox v-for="entry in qoderHookEntries" :key="entry.id" :value="entry.id" :aria-label="qoderEntryLabel(entry)" :disabled="!hookEntryEligible(entry)">{{ qoderEntryLabel(entry) }}</a-checkbox></a-space>
+                    <a-space wrap><a-checkbox v-for="entry in qoderHookEntries" :key="entry.id" :value="entry.id" :aria-label="hookProductLabel(entry.id)" :disabled="!hookEntryEligible(entry)">{{ hookProductLabel(entry.id) }}</a-checkbox></a-space>
                   </a-checkbox-group>
                 </details>
               </a-form-item>
@@ -167,7 +167,7 @@
             <a-descriptions size="small" :column="{ xs: 1, sm: 2 }">
               <a-descriptions-item :label="t('clientGovernance.runtime.enabled')">{{ t(impact.runtime_proposed?.enabled ? 'clientGovernance.prompt.enabled' : 'clientGovernance.prompt.disabled') }}</a-descriptions-item>
               <a-descriptions-item v-for="channel in ['hooks','system']" :key="channel" :label="t(`clientGovernance.runtime.mode_${channel}`)">{{ t(`clientGovernance.runtime.mode_${impact.runtime_proposed?.modes?.[channel] || 'legacy'}`) }}</a-descriptions-item>
-              <a-descriptions-item :label="t('clientGovernance.runtime.hosts')">{{ impact.runtime_proposed?.hosts?.join(' / ') || '—' }}</a-descriptions-item>
+              <a-descriptions-item :label="t('clientGovernance.runtime.hosts')">{{ impact.runtime_proposed?.hosts?.map(hookProductLabel).join(' / ') || '—' }}</a-descriptions-item>
               <a-descriptions-item v-if="impact.runtime_proposed?.channels" :label="t('clientGovernance.runtime.channels')" :span="2">{{ ['logs', 'hooks', 'system'].filter(name => impact.runtime_proposed.channels[name]).map(name => t(`clientGovernance.runtime.channel_${name}`)).join(' · ') || t('clientGovernance.runtime.noChannels') }}</a-descriptions-item>
               <a-descriptions-item v-for="field in ['installation', 'access_mode', 'updates']" :key="field" :label="t(`clientGovernance.runtime.${field}`)">{{ t(`clientGovernance.runtime.${field}_${impact.runtime_proposed?.[field]}`) }}</a-descriptions-item>
               <a-descriptions-item :label="t('clientGovernance.runtime.retry')">{{ t(`clientGovernance.runtime.retry_${impact.runtime_proposed?.retry?.mode}`) }}</a-descriptions-item>
@@ -304,7 +304,7 @@ const logSourceOptions = computed(() => groupProductEntries(products.filter(prod
 const hookProductOptions = groupProductEntries(products.filter(product => product.hooks))
 const qoderHookEntries = hookProductOptions.find(product => product.id === 'qoder')?.entries || []
 const hookEntryEligible = entry => runtimeGovernance.value.access_mode !== 'managed' || entry.managed
-const qoderEntryLabel = entry => entry.entry === 'shared-settings' ? t('clientGovernance.runtime.qoderSharedHook') : t('agentRuntimeGovernance.catalog.entries.' + entry.entry)
+const hookProductLabel = id => id === 'qoder-hooks' ? t('clientGovernance.runtime.qoderSharedHook') : products.find(product => product.id === id)?.name || id
 function setLogProducts(value) {
   runtimeGovernance.value.log_sources = expandProductSelection(value, runtimeGovernance.value.log_sources || ['claude', 'codex'], logSourceOptions.value)
 }

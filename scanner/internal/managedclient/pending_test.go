@@ -686,15 +686,18 @@ func TestDaemonAutomaticallyInstallsApprovedPendingWithClassification(t *testing
 }
 
 func TestAutomaticInstallBindsOriginalRootAndCurrentContent(t *testing.T) {
-	for _, scenario := range []string{"secondary", "unchanged", "edited", "changed_during_download", "removed_root"} {
+	for _, scenario := range []string{"secondary", "unchanged", "skillhub_alias", "edited", "changed_during_download", "removed_root"} {
 		t.Run(scenario, func(t *testing.T) {
 			home := t.TempDir()
 			root := filepath.Join(home, "secondary")
 			source := filepath.Join(root, "safe-skill")
+			if scenario == "skillhub_alias" {
+				source += "__skillhub"
+			}
 			snapshot := filepath.Join(home, "snapshot")
 			os.MkdirAll(snapshot, 0700)
 			os.WriteFile(filepath.Join(snapshot, "SKILL.md"), []byte("---\nname: safe-skill\n---\n"), 0600)
-			if scenario == "unchanged" || scenario == "edited" || scenario == "changed_during_download" {
+			if scenario == "unchanged" || scenario == "skillhub_alias" || scenario == "edited" || scenario == "changed_during_download" {
 				os.MkdirAll(source, 0700)
 				content := []byte("---\nname: safe-skill\n---\n")
 				if scenario == "edited" {
@@ -733,7 +736,19 @@ func TestAutomaticInstallBindsOriginalRootAndCurrentContent(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if scenario == "secondary" || scenario == "unchanged" {
+			if scenario == "skillhub_alias" {
+				if items, err := store.PendingItems(); err != nil || len(items) != 0 {
+					t.Fatalf("alias installation left a pending retry: %#v, %v", items, err)
+				}
+				if _, err := os.Lstat(filepath.Join(root, "safe-skill")); !os.IsNotExist(err) {
+					t.Fatal("installed a duplicate under the package name")
+				}
+				installs, err := store.Installations()
+				if err != nil || len(installs) != 1 || installs[0].TargetPath != source || installs[0].SkillName != "safe-skill" {
+					t.Fatalf("wrong installation: %#v, %v", installs, err)
+				}
+			}
+			if scenario == "secondary" || scenario == "unchanged" || scenario == "skillhub_alias" {
 				if !changed {
 					t.Fatal("approved content not installed")
 				}

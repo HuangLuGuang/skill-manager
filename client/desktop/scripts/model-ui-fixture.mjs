@@ -58,7 +58,11 @@ window.__TAURI__={core:{invoke:async (name, input={}) => {
   return manualHandoff;
  }
  if(name==='get_build_version') return 'UI fixture';
- if(name==='get_connection_status') return structuredClone(connection);
+ if(name==='get_local_connection_status') {
+  const {platform, connected, ...localStatus} = connection;
+  return structuredClone(localStatus);
+ }
+ if(name==='get_platform_connection_status') return structuredClone(connection.platform);
  if(name==='get_local_snapshot') return structuredClone({local:connection.local,inventory});
  if(name==='refresh_model_catalog') {
   await new Promise(resolve=>setTimeout(resolve,500));

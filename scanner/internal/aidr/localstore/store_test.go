@@ -791,7 +791,7 @@ func TestCodexMetadataRepairKeepsOriginalEvidence(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if checkpoint.Cursor.ContextRepairVersion == 5 {
+		if checkpoint.Cursor.ContextRepair == nil && checkpoint.Cursor.Session != "" {
 			break
 		}
 	}

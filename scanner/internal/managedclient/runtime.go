@@ -746,7 +746,7 @@ func InstallApprovedSkillVersionBatch(
 
 	for _, target := range eligible {
 		emit(InstallProgress{Stage: "target", AgentType: target.AgentType, Status: "running", Completed: completed})
-		err := installApprovedSkillVersionWithPackage(ctx, home, inventory, policy, api, store, target.AgentType, target.ManagedAgentID, skillID, versionID, false, nil, &prepared)
+		err := installApprovedSkillVersionWithPackage(ctx, home, inventory, policy, api, store, target.AgentType, target.ManagedAgentID, skillID, versionID, false, nil, &prepared, nil)
 		completed++
 		result := InstallTargetResult{AgentType: target.AgentType, Success: err == nil}
 		status := "succeeded"
@@ -769,10 +769,10 @@ func InstallApprovedSkillVersionBatch(
 }
 
 func installApprovedSkillVersion(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, agentType, managedAgentID, skillID, versionID string, repair bool, taskPayload ...map[string]any) error {
-	return installApprovedSkillVersionWithPackage(ctx, home, inventory, policy, api, store, agentType, managedAgentID, skillID, versionID, repair, taskPayload, nil)
+	return installApprovedSkillVersionWithPackage(ctx, home, inventory, policy, api, store, agentType, managedAgentID, skillID, versionID, repair, taskPayload, nil, nil)
 }
 
-func installApprovedSkillVersionWithPackage(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, agentType, managedAgentID, skillID, versionID string, repair bool, taskPayload []map[string]any, prepared *preparedInstallPackage) error {
+func installApprovedSkillVersionWithPackage(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, agentType, managedAgentID, skillID, versionID string, repair bool, taskPayload []map[string]any, prepared *preparedInstallPackage, pending *PendingItem) error {
 	if !validInstallComponent(skillID) || (versionID != "" && !validInstallComponent(versionID)) {
 		return fmt.Errorf("invalid install identifier")
 	}
@@ -822,6 +822,14 @@ func installApprovedSkillVersionWithPackage(ctx context.Context, home string, in
 	}
 	target := filepath.Join(ManagedSkillsRoot(home), skillID, "versions", resolvedVersionID, "release")
 	link := filepath.Join(agent.SkillsPath, filepath.Base(manifest.Name))
+	if pending != nil && link != pending.OriginalPath {
+		// Pending approval binds the original directory, which can differ from the signed Skill name.
+		dirName := filepath.Base(pending.OriginalPath)
+		if pending.SkillName != manifest.Name || !validInstallComponent(dirName) {
+			return fmt.Errorf("skill_target_unavailable")
+		}
+		link = filepath.Join(agent.SkillsPath, dirName)
+	}
 	ctx, releaseMutation, err := withFileLocks(ctx, home, link, filepath.Join(ManagedSkillsRoot(home), skillID))
 	if err != nil {
 		return err

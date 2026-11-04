@@ -48,6 +48,7 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 
 // replayEnd bounds repair to the committed checkpoint; replayEvents also restores projections.
 func readWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since time.Time, policy *AuditPolicy, replayEnd int64, replayEvents bool, observer *SkillObserver) (ReadBatch, error) {
+	repairVersion := repairVersionFor(s.Agent)
 	out := ReadBatch{SchemaVersion: SchemaVersion, Source: s, Events: []Event{}, Cursor: old, Coverage: Coverage{Status: "complete", Reasons: []string{}}}
 	expected, e := NewSource(s.Agent, s.Root, s.Path)
 	if e != nil || expected.ID != s.ID || !b.valid() {
@@ -92,7 +93,7 @@ func readWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 		if since.IsZero() {
 			since = time.Now().Add(-24 * time.Hour)
 		}
-		c = Cursor{ContextRepairVersion: contextRepairVersion, ProjectionVersion: 2, SchemaVersion: SchemaVersion, ParserVersion: ParserVersion, SourceID: s.ID, FileIdentity: identity, Generation: 1, Since: since, Gaps: []string{}}
+		c = Cursor{ContextRepairVersion: repairVersion, ProjectionVersion: 2, SchemaVersion: SchemaVersion, ParserVersion: ParserVersion, SourceID: s.ID, FileIdentity: identity, Generation: 1, Since: since, Gaps: []string{}}
 	} else if c.FileIdentity != identity {
 		reset = "aidr_log_rotated"
 	} else if info.Size() < c.Offset {
@@ -126,7 +127,7 @@ func readWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 		c.RecoveryGaps = nil
 		c.RecoveryDetailsTruncated = false
 		c.ContextRepair = nil
-		c.ContextRepairVersion = contextRepairVersion
+		c.ContextRepairVersion = repairVersion
 		if !logAdapters[s.Agent].Snapshot {
 			addGap(&c, reset)
 		}
@@ -138,13 +139,13 @@ func readWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 	reproject := replayEnd == 0 && (codexMetadataReplay(f, s, c) || completionReplay)
 	if replayEnd == 0 && (reproject || needsContextRepair(s, c)) {
 		var checkpoint Cursor
-		if c.ContextRepair != nil && (!reproject || c.ContextRepair.ContextRepairVersion == contextRepairVersion) && (!completionReplay || c.ContextRepair.CompletionSchema >= policy.CompletionSchema) {
+		if c.ContextRepair != nil && (!reproject || c.ContextRepair.ContextRepairVersion == repairVersion) && (!completionReplay || c.ContextRepair.CompletionSchema >= policy.CompletionSchema) {
 			checkpoint = *c.ContextRepair
 		} else if reproject {
 			checkpoint = Cursor{SchemaVersion: SchemaVersion, ParserVersion: ParserVersion,
 				SourceID: s.ID, FileIdentity: c.FileIdentity, Generation: c.Generation,
 				Anchor: digest(""), Since: c.Since, ProjectionVersion: c.ProjectionVersion,
-				ContextRepairVersion: contextRepairVersion}
+				ContextRepairVersion: repairVersion}
 		}
 		var replayPolicy *AuditPolicy
 		if reproject {
@@ -163,7 +164,7 @@ func readWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 			c.CallTurns = replay.Cursor.CallTurns
 			c.QoderLinks = replay.Cursor.QoderLinks
 			c.ModelContext, c.ModelProvider, c.ModelTurn = replay.Cursor.ModelContext, replay.Cursor.ModelProvider, replay.Cursor.ModelTurn
-			c.ContextRepair, c.ContextRepairVersion = nil, contextRepairVersion
+			c.ContextRepair, c.ContextRepairVersion = nil, repairVersion
 			if completionReplay {
 				c.CompletionSchema = policy.CompletionSchema
 			}
@@ -179,7 +180,7 @@ func readWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 		out.Coverage.mark("partial", "aidr_log_read_budget")
 		return out, nil
 	}
-	c.ContextRepairVersion = contextRepairVersion
+	c.ContextRepairVersion = repairVersion
 	if restore := logAdapters[s.Agent].Restore; restore != nil {
 		restore(f, &c)
 	}

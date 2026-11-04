@@ -147,8 +147,14 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#connection-state",
     "nodeIndex": 0,
-    "key": "ui.1gwretz",
-    "source": "未接入"
+    "key": "ui.connection.reading",
+    "source": "正在读取接入状态…"
+  },
+  {
+    "selector": "#retry-connection-read",
+    "nodeIndex": 0,
+    "key": "ui.connection.retry",
+    "source": "重新读取"
   },
   {
     "selector": "#connection-intro>h2:nth-of-type(1)",

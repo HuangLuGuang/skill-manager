@@ -407,7 +407,7 @@ def test_hook_connection_states_do_not_infer_authorization_from_receiver():
     host = {'agent':'codex','installed':False,'enabled':False,'hook_trust':'unknown','reported_at':at,'source_code':'aidr_plugin_not_installed'}
     observation = {'hosts':[host], 'channels':{'hooks':{'state':'running','reported_at':at}}}
     def state(data=observation, stale=False, target=policy):
-        return hook_connections(target, data, stale, {'hosts':[]})[1]
+        return next(row for row in hook_connections(target, data, stale, {'hosts':[]}) if row['agent'] == 'codex')
     assert state()['installation'] == 'not_installed'
     assert state()['authorization'] == 'unknown'
     assert state()['receiver'] == 'running'

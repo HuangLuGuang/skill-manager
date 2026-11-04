@@ -109,7 +109,7 @@ a {
 
 .page-card > .ant-card-head { padding-block: 12px; }
 .app-sider .ant-menu { background: transparent; }
-.app-sider .ant-menu-inline :is(.ant-menu-item, .ant-menu-submenu-title) {
+#app-navigation .ant-menu-inline :is(.ant-menu-item, .ant-menu-submenu-title) {
   height: auto;
   min-height: 40px;
   padding-block: 10px;
