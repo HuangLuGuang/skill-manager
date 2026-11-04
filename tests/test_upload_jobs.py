@@ -13,6 +13,8 @@ def test_persistent_queue_recovers_expired_work_and_retains_partial_results(tmp_
     with queue.connect() as db:
         db.execute("UPDATE jobs SET status='RUNNING', completed=1, results=?, owner='old', lease=0 WHERE id=?",
                    (json.dumps([{"name": "done"}]), job["job_id"]))
+    assert job["pending_paths"] == ["done", "bad", "good"]
+    assert queue.list()[0]["pending_paths"] == ["bad", "good"]
     processed = []
     def process(payload, path):
         processed.append(path)
@@ -34,6 +36,7 @@ def test_persistent_queue_recovers_expired_work_and_retains_partial_results(tmp_
         assert processed == ["bad", "good"]
         assert result["results"] == [{"name": "done"}, {"name": "good"}]
         assert result["errors"] == [{"path": "bad", "error_code": "upload.import_failed"}]
+        assert result["pending_paths"] == []
     finally:
         resumed.close()
 

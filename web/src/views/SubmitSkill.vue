@@ -245,7 +245,7 @@
       <a-button v-if="selectedUploadJobId" style="margin-bottom: 16px" @click="uploadResultsOpen = false; uploadJobsOpen = true; stopPolling()">{{ t('skillUpload.jobs.backToRecords') }}</a-button>
       <p v-if="selectedUploadJob">{{ t(`skillUpload.jobs.status.${selectedUploadJob.status}`) }} · {{ selectedUploadJob.completed }} / {{ selectedUploadJob.total }}</p>
       <a-alert v-for="error in selectedUploadJobErrors" :key="error.path" type="error" show-icon style="margin-top: 8px" :message="t('skillUpload.jobs.itemFailed')" :description="error.path" />
-      <a-empty v-if="!submitResults.length && !selectedUploadJobErrors.length" :description="t('skillUpload.jobs.noResults')" />
+      <a-empty v-if="!displaySubmitResults.length && !selectedUploadJobErrors.length" :description="t('skillUpload.jobs.noResults')" />
       <a-alert
         v-if="submitResults.some((item) => item.status === 'PENDING')"
         style="margin-bottom: 16px"
@@ -254,16 +254,20 @@
         :message="$t('legacy.h472o0')"
         :description="$t('legacy.1mofivi')"
       />
-      <a-table v-if="submitResults.length"
-        :data-source="submitResults"
+      <a-table v-if="displaySubmitResults.length"
+        :data-source="displaySubmitResults"
         :columns="resultColumns"
-        row-key="skill_id"
+        :row-key="record => record.skill_id || record.path"
         :pagination="{ pageSize: 20 }"
         :scroll="{ x: 1000 }"
         size="small"
       >
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'status'">
+          <template v-if="record.waitingImport && column.key !== 'name'">
+            <a-tag v-if="column.key === 'status'">{{ t('skillUpload.jobs.waitingImport') }}</a-tag>
+            <template v-else>-</template>
+          </template>
+          <template v-else-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)" :title="record.status">{{ statusTitle(record.status) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'risk_level'">
@@ -335,6 +339,15 @@ const selectedUploadJobId = ref('')
 const uploadResultsOpen = ref(false)
 const selectedUploadJob = computed(() => uploadJobs.value.find(job => job.job_id === selectedUploadJobId.value))
 const selectedUploadJobErrors = computed(() => selectedUploadJob.value?.errors || [])
+const submittedUploadNames = ref({})
+const displaySubmitResults = computed(() => [
+  ...submitResults.value,
+  ...(selectedUploadJob.value?.pending_paths || []).map(path => ({
+    path,
+    name: submittedUploadNames.value[path] || path.split('/').pop(),
+    waitingImport: true,
+  })),
+])
 const uploadJobColumns = computed(() => [
   { title: t('skillUpload.jobs.id'), dataIndex: 'job_id', key: 'job_id', ellipsis: true },
   { title: t('skillUpload.jobs.filename'), key: 'filename', width: 240, ellipsis: true },
@@ -345,6 +358,7 @@ const uploadJobColumns = computed(() => [
 ])
 let uploadJobsTimer = null
 let uploadJobsInFlight = false
+let uploadJobsRefreshRequested = false
 let uploadJobsDisposed = false
 const showUploadJob = job => {
   uploadJobsOpen.value = false
@@ -352,13 +366,19 @@ const showUploadJob = job => {
   selectedUploadJobId.value = job.job_id
   submitResults.value = job.results || []
   startPolling()
+  void refreshUploadJobs(true)
 }
-const refreshUploadJobs = async () => {
-  if (uploadJobsInFlight || uploadJobsDisposed) return
+const refreshUploadJobs = async (immediate = false) => {
+  if (uploadJobsDisposed) return
+  if (uploadJobsInFlight) {
+    if (immediate) uploadJobsRefreshRequested = true
+    return
+  }
   uploadJobsInFlight = true
+  const jobId = selectedUploadJobId.value
   try {
     const response = await getUploadImportJobs()
-    if (uploadJobsDisposed) return
+    if (uploadJobsDisposed || jobId !== selectedUploadJobId.value) return
     uploadJobs.value = response.items || []
     uploadJobsError.value = false
     const job = uploadJobs.value.find(item => item.job_id === selectedUploadJobId.value)
@@ -370,6 +390,10 @@ const refreshUploadJobs = async () => {
     if (!uploadJobsDisposed) uploadJobsError.value = true
   } finally {
     uploadJobsInFlight = false
+    if (uploadJobsRefreshRequested) {
+      uploadJobsRefreshRequested = false
+      void refreshUploadJobs()
+    }
   }
 }
 const managerStatus = ref({})
@@ -876,6 +900,9 @@ const handleZipSubmit = async () => {
       use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
     })
+    for (const item of uploadCandidates.value) {
+      if (selectedUploadPaths.value.includes(item.path)) submittedUploadNames.value[item.path] = item.name
+    }
     uploadJobs.value = [result, ...uploadJobs.value.filter(job => job.job_id !== result.job_id)]
     selectedUploadJobId.value = ''
     submitResults.value = []

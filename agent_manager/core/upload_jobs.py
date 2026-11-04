@@ -46,6 +46,7 @@ class UploadImportJobs:
         payload = json.loads(row["payload"])
         return {"job_id": row["id"], "status": row["status"], "completed": row["completed"],
                 "total": len(payload["paths"]), "results": json.loads(row["results"]),
+                "pending_paths": payload["paths"][row["completed"]:],
                 "errors": json.loads(row["errors"]), "created_at": row["created"],
                 "filename": payload.get("filename", "")}
 
