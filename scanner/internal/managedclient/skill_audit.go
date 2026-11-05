@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +35,7 @@ func ResolveAuditSkillPath(home, path string) (string, error) {
 	if err != nil || info.Mode()&os.ModeSymlink != 0 {
 		return "", fmt.Errorf("aidr_skill_source_unknown")
 	}
-	dsn := (&url.URL{Scheme: "file", Path: filepath.Join(RuntimeRoot(home), "client.db")}).String() + "?mode=ro"
+	dsn := sqliteURI(filepath.Join(RuntimeRoot(home), "client.db"), "mode=ro")
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return "", err

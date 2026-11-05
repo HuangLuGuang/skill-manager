@@ -30,7 +30,9 @@ const panelTitle = panel => ({
 }[panel] || panel)
 let inventory = null
 let connection = null
-let savedConnections = []
+let connectionReadError = ''
+let savedConnections = null
+let savedConnectionsError = ''
 let pendingConnectionSwitch = null
 const submittingObservedPaths = new Set()
 let pendingSkillAction = null
@@ -145,7 +147,9 @@ const syncSettingsControls = () => {
   $('#settings-notification-level').disabled = !clientSettings.systemNotifications
   $('#settings-auto-update').checked = clientSettings.autoCheckUpdates
   $('#settings-update-channel').value = clientSettings.updateChannel
-  $('#settings-service-detail').textContent = !connection?.configured
+  $('#settings-service-detail').textContent = !connection
+    ? connectionReadError ? connectionErrorText(connectionReadError) : t('ui.connection.reading')
+    : !connection.configured
     ? t('请先完成客户端接入。')
     : connection.service_running
       ? t('后台治理服务正在运行，并会在登录系统后自动启动。')
@@ -160,6 +164,10 @@ const syncSettingsControls = () => {
 const renderSavedConnections = () => {
   const element = $('#saved-connections')
   if (!element) return
+  if (savedConnectionsError || savedConnections === null) {
+    element.textContent = savedConnectionsError ? connectionErrorText(savedConnectionsError) : t('ui.settings.loading_connections')
+    return
+  }
   if (!savedConnections.length) {
     element.innerHTML = `<div class="saved-connections-empty">${escapeHtml(t('ui.settings.not_connected'))}</div>`
     return
@@ -180,8 +188,15 @@ const renderSavedConnections = () => {
 }
 
 const loadSavedConnections = async () => {
-  savedConnections = JSON.parse(await run('connections'))
-  renderSavedConnections()
+  try {
+    savedConnections = JSON.parse(await run('connections'))
+    savedConnectionsError = ''
+  } catch (error) {
+    savedConnectionsError = String(error)
+    throw error
+  } finally {
+    renderSavedConnections()
+  }
 }
 
 const $ = selector => document.querySelector(selector)
@@ -359,7 +374,7 @@ const showPanel = panel => {
   if (panel === 'discover' && connection?.configured) {
     requestAnimationFrame(() => { syncAgentScroll(); revealSelectedAgent() })
   }
-  if (panel === 'models' && connection) renderModelSwitcher(connection)
+  if (panel === 'models') renderModelSwitcher(connection)
   if (panel === 'records') {
     if (previousPanel !== 'records') recordState.page = 1
     if (connection?.configured) void loadRecordHistory()
@@ -367,6 +382,7 @@ const showPanel = panel => {
   if (panel === 'runtime-governance' && !$('#aidr-plugin-settings').hidden) void window.aidrGovernance?.refresh()
   if (panel === 'settings') {
     syncSettingsControls()
+    void loadSavedConnections().catch(log)
     void loadBackups().catch(log)
   }
   if (connection?.configured) {
@@ -497,14 +513,17 @@ const setConnectionState = (key, online = false) => {
 
 const renderConnectionReadError = error => {
   connection = null
+  connectionReadError = String(error)
   renderDesktopMenus()
   $('.workspace').dataset.connected = 'false'
   for (const id of ['connection-intro', 'credential-tip', 'connect-form', 'connected-overview', 'notification-trigger']) {
     $('#' + id).hidden = true
   }
   setConnectionState('ui.connection.readFailed')
-  $('#connection-error-detail').textContent = String(error)
+  $('#connection-error-detail').textContent = connectionErrorText(error)
   $('#connection-read-error').hidden = false
+  renderModelSwitcher(null)
+  syncSettingsControls()
 }
 
 const renderDisconnected = () => {
@@ -969,13 +988,32 @@ const syncExternalGatewayPolicyPrompt = data => {
 }
 
 const renderModelSwitcher = data => {
+  if (!data?.configured) {
+    $('#refresh-models').disabled = true
+    $('#external-gateway-policy-banner').hidden = true
+    $('#external-model-readiness').hidden = true
+    $('.model-catalog-toolbar').hidden = true
+    $('#model-current').hidden = true
+    $('#model-catalog').hidden = data?.configured !== false
+    $('#model-permission-note').textContent = data?.configured === false
+      ? t('client.models.connect_first')
+      : connectionReadError ? connectionErrorText(connectionReadError) : t('ui.connection.reading')
+    $('#model-agent-tabs').innerHTML = ''
+    $('#model-current').textContent = ''
+    $('#model-catalog').classList.add('empty')
+    $('#model-catalog').textContent = data?.configured === false ? t('client.models.connect_to_load') : ''
+    $('#model-result-count').textContent = ''
+    return
+  }
+  $('#model-current').hidden = false
+  $('#model-catalog').hidden = !data.platform?.model_configuration
   const agents = (data?.inventory?.agents || []).filter(agent => (agent.capabilities?.model_config_auto_apply || visibleAgent(agent)) && !isSharedSkills(agent))
   const permission = data?.platform?.model_configuration || {}
   if (!selectedModelAgentID || !agents.some(agent => agent.local_agent_id === selectedModelAgentID)) {
     selectedModelAgentID = agents[0]?.local_agent_id || ''
   }
   const selected = agents.find(agent => agent.local_agent_id === selectedModelAgentID)
-  $('.model-catalog-toolbar').hidden = Boolean(selected && !selected.capabilities?.model_config_auto_apply)
+  $('.model-catalog-toolbar').hidden = !data.platform?.model_configuration || Boolean(selected && !selected.capabilities?.model_config_auto_apply)
   const platformAgent = selected ? platformAgentForLocal(data, selected) : null
   const routing = permission.model_routing || {}
   const internalModels = routing.external_gateway_enabled
@@ -1009,7 +1047,9 @@ const renderModelSwitcher = data => {
   const externalStatus = externalCatalog
     ? ` · ${externalCatalog.status === 'active' ? t('client.models.catalog_ready') : t('client.models.catalog_error')}${externalCatalog.models_refreshed_at ? ` · ${formatTime(externalCatalog.models_refreshed_at)}` : ''}`
     : ''
-  $('#model-permission-note').textContent = selected && !selected.capabilities?.model_config_auto_apply
+  $('#model-permission-note').textContent = !data?.platform?.model_configuration
+    ? data.connected === false ? connectionErrorText(data.error || 'client_status_unavailable') : t('ui.connection.verifying')
+    : selected && !selected.capabilities?.model_config_auto_apply
     ? t(permission.can_export_manual_credentials ? 'ui.manualModel.permissionReady' : 'ui.manualModel.permissionHelp')
     : permission.can_configure_models
     ? hasExternalCatalog
@@ -1738,12 +1778,13 @@ async function verifyPlatformConnection(generation) {
 
 async function refreshConnection({ backgroundVerification = false } = {}) {
   void refreshBackgroundRuntime()
+  void loadSavedConnections().catch(log)
   const generation = ++connectionRefreshGeneration
   try {
     const current = await invoke('get_local_connection_status')
     if (generation !== connectionRefreshGeneration) return
     connection = current
-    void loadSavedConnections().catch(log)
+    connectionReadError = ''
     if (!current.configured) return renderDisconnected()
     inventory = current.inventory
     lastInventoryAt = current.local?.last_inventory_at || lastInventoryAt
@@ -4203,6 +4244,8 @@ window.addEventListener('agent-manager-client-locale-change', async () => {
     renderDisconnected()
   } else {
     setConnectionState($('#connection-read-error').hidden ? 'ui.connection.reading' : 'ui.connection.readFailed')
+    if (connectionReadError) $('#connection-error-detail').textContent = connectionErrorText(connectionReadError)
+    renderModelSwitcher(null)
   }
   if ($('#quarantine-list').children.length) await loadQuarantine()
   if ($('#install-skill-dialog')?.open) {

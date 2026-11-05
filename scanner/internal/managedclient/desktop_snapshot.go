@@ -5,13 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"path/filepath"
 )
 
 func desktopMenuReceipt(ctx context.Context, home string) map[string]bool {
 	path := filepath.Join(home, ".agent-manager", "client.db")
-	db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: filepath.ToSlash(path), RawQuery: "mode=ro"}).String())
+	db, err := sql.Open("sqlite", sqliteURI(path, "mode=ro"))
 	if err != nil {
 		return nil
 	}
@@ -28,7 +27,7 @@ func desktopMenuReceipt(ctx context.Context, home string) map[string]bool {
 // A separate read-only connection leaves the daemon's writer available in WAL mode.
 func DesktopSnapshot(ctx context.Context, home string, includeRecovery ...bool) (map[string]any, error) {
 	path := filepath.Join(home, ".agent-manager", "client.db")
-	db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: filepath.ToSlash(path), RawQuery: "mode=ro"}).String())
+	db, err := sql.Open("sqlite", sqliteURI(path, "mode=ro"))
 	if err != nil {
 		return nil, err
 	}
