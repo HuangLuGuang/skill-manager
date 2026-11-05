@@ -3,7 +3,6 @@ package managedclient
 import (
 	"database/sql"
 	"encoding/json"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -28,7 +27,7 @@ func discoveryCatalog(home string) *DiscoveryCatalog {
 	if _, err := os.Stat(path); err != nil {
 		return nil
 	}
-	db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: filepath.ToSlash(path), RawQuery: "mode=ro"}).String())
+	db, err := sql.Open("sqlite", sqliteURI(path, "mode=ro"))
 	if err != nil {
 		return nil
 	}

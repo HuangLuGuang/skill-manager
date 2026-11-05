@@ -1,0 +1,44 @@
+name: Windows client test package
+on:
+  push:
+    branches: [codex/windows-client-fix-20261105]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    env:
+      AGENT_MANAGER_CLIENT_VERSION: 26.11.05.1
+      AGENT_MANAGER_RELEASE_VERSION: 26.11.05.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: scanner/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify Windows SQLite reads
+        working-directory: scanner
+        run: go test ./internal/managedclient -run 'TestSQLiteURIWindowsDriveAndEscaping|TestDesktopReadOnlyPathsWithSpecialCharacters' -count=1 -v
+      - run: npm ci
+        working-directory: client/desktop
+      - run: npm run test:i18n
+        working-directory: client/desktop
+      - name: Configure test package version
+        shell: pwsh
+        run: |
+          '{"version":"26.11.501"}' | Set-Content client/desktop/src-tauri/tauri.test-package.conf.json
+      - name: Build Windows desktop installer
+        working-directory: client/desktop
+        run: npx tauri build --config src-tauri/tauri.test-package.conf.json --bundles nsis
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-manager-client-26.11.05.1-windows-x86_64
+          path: client/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14

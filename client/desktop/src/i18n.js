@@ -1577,6 +1577,7 @@
     'ui.settings.platform_address': { 'zh-CN': '平台地址', 'en-US': 'Platform address' },
     'ui.settings.edit_connection': { 'zh-CN': '修改地址与凭证', 'en-US': 'Edit address and credential' },
     'ui.settings.not_connected': { 'zh-CN': '尚未配置平台连接', 'en-US': 'No platform connection configured' },
+    'ui.settings.loading_connections': { 'zh-CN': '正在读取已保存的连接…', 'en-US': 'Loading saved connections…' },
     'ui.settings.add_connection': { 'zh-CN': '新增连接', 'en-US': 'Add connection' },
     'ui.settings.add_connection_title': { 'zh-CN': '新增 Agent Manager 连接', 'en-US': 'Add Agent Manager Connection' },
     'ui.settings.edit_connection_title': { 'zh-CN': '修改 Agent Manager 连接', 'en-US': 'Edit Agent Manager Connection' },

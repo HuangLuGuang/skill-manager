@@ -42,6 +42,9 @@ if (params.has('manual')) {
 let manualHandoff=null;
 let manualCopyAvailable=false;
 window.__TAURI__={core:{invoke:async (name, input={}) => {
+ if(params.get('local')==='failed' && ['get_local_connection_status','get_local_snapshot'].includes(name)) throw 'client_snapshot_unavailable';
+ if(params.get('platform')==='failed' && name==='get_platform_connection_status') throw 'client_status_unavailable';
+ if(params.get('connections')==='failed' && name==='execute_client' && input.command==='connections') throw 'client_snapshot_unavailable';
  if(name==='aidr_system_targets')return {items:[],selected_ids:[],configured:false,enabled:false,requirements:{selection_mode:'client',products:[]}};
  if(name==='manual_model_action') {
   if(input.operation==='clear'){manualCopyAvailable=false;return {}};

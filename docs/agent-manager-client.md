@@ -1,5 +1,11 @@
 # Agent Manager Client 使用说明
 
+## 本机状态读取 / Local state reads
+
+Windows 本机数据库的只读访问使用包含盘符的文件 URI（如 `file:///C:/Users/.../client.db`），保留只读模式及路径中的空格、中文和特殊字符。概览读取失败时显示双语错误及重试入口；设置中的已保存连接独立读取，只有成功返回空列表才显示未配置。模型页在本机状态或平台权限尚未读到时显示对应读取状态，权限判定使用成功返回的结果。
+
+**English:** Read-only local database access uses drive-aware file URIs on Windows, preserving spaces, Unicode and special characters. Overview failures show a localized error and retry action. Saved connections load independently; only a successful empty result means none are configured. The model page distinguishes unavailable local state or platform permissions from confirmed permission settings.
+
 ## 客户端菜单显示 / Client menu visibility
 
 在“默认客户端策略”或单客户端策略弹窗的“采集与治理配置 → 客户端界面”设置菜单。客户端概览固定保留；Agent 管理、模型切换、执行记录、Agent 运行治理默认显示。全局使用显示开关，单客户端逐项选择“跟随全局 / 显示 / 隐藏”；“全部跟随全局”修改草稿，预览并保存后生效。单项覆盖不影响其他菜单继续继承。全局写入沿用超级管理员权限，单客户端写入沿用客户端管理权限及可见范围。
@@ -435,7 +441,7 @@ Claude Code 2.1.220的真实文本Read Hook提供 `tool_response.type=text` 与 
 
 ## 可配置扩展内容 / Configurable source content（2026-10-01）
 
-“客户端管理 → 客户端策略 → 审计采集与脱敏”管理全局默认脱敏和采集范围；进入具体客户端的“客户端策略 → 审计采集与脱敏”，可关闭“继承全局审计策略”并单独配置。管理员分别配置 `capture.prompt`、`capture.tool_output`、`capture.file_body`，默认均关闭；脱敏默认开启。选项只作用于后续来源事件，不回读业务文件或重采旧原文，也不改变行为字段白名单。版本4行为与版本2 Hook支持这些选项；旧客户端继续行为字段范围，其正文支持与实际应用保持未知。
+“客户端管理 → 客户端策略 → 审计采集与脱敏”管理全局默认脱敏和采集范围；进入具体客户端的“客户端策略 → 审计采集与脱敏”，可关闭“继承全局审计策略”并单独配置。该阶段支持的三个选项为 `capture.prompt`、`capture.tool_output`、`capture.file_body`。当前全局默认采集用户输入、模型回复、文件正文与命令正文，工具输出默认关闭，脱敏默认开启。选项只作用于后续来源事件，不回读业务文件或重采旧原文，也不改变行为字段白名单。版本4行为与版本2 Hook支持这些选项；旧客户端继续行为字段范围，其正文支持与实际应用保持未知。
 
 Prompt当前明确适配 `UserPromptSubmit.prompt`；文件正文适配Write/Edit/MultiEdit的明确内容、apply_patch的原始补丁字符串、明确patch/command字段以及可靠调用绑定的Read文本结果；工具输出适配文本结果、明确stdout/stderr/output字段和文本块。未知参数不完整透传，包装调用不会据字符串推断文件正文。日志结果只在来源会话内的明确call/turn绑定下分类；有界游标保存16个调用绑定，歧义或缺失时不推测。每事件最多4片段、每片段1024 UTF-8字节、合计2048字节；先执行所选脱敏策略再截断，记录来源字段、源字节数、脱敏及截断标记。截断切中脱敏替换时缩短尾部，保持可验证且不增加预算。
 
@@ -445,7 +451,7 @@ Prompt当前明确适配 `UserPromptSubmit.prompt`；文件正文适配Write/Edi
 
 **实际证据：**隔离设备在无手动接收器、无桥接环境变量下运行Codex0.159.0，开启脱敏时Prompt与工具输出中的虚构秘密已遮蔽，关闭时虚构Token及完整git文本保留（git文本仅为printf输出，未执行提交）。该阶段3次有限模型任务新增17条真实Hook，流内54条本地/平台回执ID相等、待发与冻结批次均0，原242条平台Hook摘要不变。文件正文实机任务被原生只读沙箱拒绝，文件未生成，Hook未提供正文；该项未通过。后续真实中英文网页已核对来源描述、按需正文、脱敏Prompt/输出、关闭脱敏时的完整git文本及收起清除；接口证据与网页证据分别记录。隔离配置已恢复开启脱敏、三类正文关闭，该阶段实际应用版本4；日常后台未改。
 
-**English:** The existing audit settings own three independent, default-off source-content options. Behavior v4 / Hook v2 clients receive device/stream/sequence-bound scope receipts; legacy receipts and frozen bytes survive. Explicit source fragments are bounded to 4 items, 1024 UTF-8 bytes each and 2048 bytes total, with redaction before truncation. Lists contain descriptors only; content requires separate permission and an audited, no-store request. Live Codex0.159.0 proves Prompt/tool-output ON and OFF handling with fictional data. The file-write probe was rejected by the native read-only sandbox and is not a file-body acceptance pass. The original conservative test policy has been restored. Bilingual content viewing passed; Restricted-reader browser checks passed in both languages; managed system authorization remains pending.
+**English:** This release introduced three independent source-content options. Current global defaults enable user input, model replies, file bodies and command bodies, with tool output off and redaction on. Behavior v4 / Hook v2 clients receive device/stream/sequence-bound scope receipts; legacy receipts and frozen bytes survive. Explicit source fragments are bounded to 4 items, 1024 UTF-8 bytes each and 2048 bytes total, with redaction before truncation. Lists contain descriptors only; content requires separate permission and an audited, no-store request. Live Codex0.159.0 proves Prompt/tool-output ON and OFF handling with fictional data. The file-write probe was rejected by the native read-only sandbox and is not a file-body acceptance pass. The original conservative test policy has been restored. Bilingual content viewing passed; Restricted-reader browser checks passed in both languages; managed system authorization remains pending.
 
 ## 平台自动接入策略进展（2026-10-01）
 
@@ -1242,7 +1248,7 @@ PYTHON
 
 `aidr-sync` 启动后先读取缓存并尝试认证获取策略，以后每 30 秒重试，下一轮有界采集生效。网络往返及当前采集轮次会增加延迟，这不是硬实时 SLA。离线/获取失败使用已持久化缓存，首次失败默认开启（版本 0）；状态码为 `aidr_policy_applied`、`aidr_policy_cached`、`aidr_policy_response_invalid`。本地 `agent-log-collect` 使用同一状态目录的缓存，无平台连接时不主动刷新。
 
-脱敏关闭时按已授权采集范围保存原文；真实凭证可能进入本地数据库及后台。白名单、UTF-8 字节上限、截断和控制字符处理保持。Prompt、工具输出与文件正文由独立默认关闭的范围选项控制，仅采集来源明确提供的有界片段；未知参数不完整透传。明确的内联正文/脚本参数及 heredoc 仍省略，标记 `body_omitted`，不冒充凭证脱敏。普通 `git commit -m "fix scanner ownership across client credential rotation" && git status --short --branch` 在两种策略下均完整保留。明确 `--password`、秘密环境变量赋值、Authorization/Bearer、Cookie 和受支持令牌格式在开启时遮蔽其值，保持引号与操作符。
+脱敏关闭时按已授权采集范围保存原文；真实凭证可能进入本地数据库及后台。白名单、UTF-8 字节上限、截断和控制字符处理保持。未配置策略时默认采集用户输入、模型回复、文件正文和命令正文，工具输出默认关闭，各项可独立配置，仅采集来源明确提供的有界片段；未知参数不完整透传。明确的内联正文/脚本参数及 heredoc 仍省略，标记 `body_omitted`，不冒充凭证脱敏。普通 `git commit -m "fix scanner ownership across client credential rotation" && git status --short --branch` 在两种策略下均完整保留。明确 `--password`、秘密环境变量赋值、Authorization/Bearer、Cookie 和受支持令牌格式在开启时遮蔽其值，保持引号与操作符。
 
 升级不删除或重建本地数据。平台新增策略下发记录表；本地 metadata 增加策略缓存及应用序列边界。事件 `behavior.policy` 保存 `version/enabled/receipt`，`redacted` 表示发生替换，`body_omitted` 单独说明正文排除。服务端以绑定设备/stream 的真实下发记录授权，开启策略再次检查敏感模式，未下发版本或错误设备/序列拒绝（`aidr.redaction_policy_invalid`）。客户端持久化应用新策略后，在下次刷新确认上报旧数据序列上界；只有确认后才关闭旧策略范围，响应丢失仍可重试。冻结批次不修改、不重算摘要；旧队列按采集策略补传，即使当前目标已开启，合法 OFF 积压仍可接收。离线采集时间无法由服务端独立证明，策略依赖认证客户端正确报告应用边界，不提供终端可信执行证明。
 
