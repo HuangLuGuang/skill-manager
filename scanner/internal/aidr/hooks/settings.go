@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	products "skill-manager/scanner/internal/aidr/catalog"
 	"strings"
 	"time"
@@ -20,7 +21,12 @@ func settingsPath(agent, home string) (string, error) {
 	}
 	return filepath.Join(home, filepath.FromSlash(format.Path)), nil
 }
-func shellArg(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
+func shellArg(s string) string {
+	if runtime.GOOS == "windows" {
+		return `"` + s + `"`
+	}
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
 func settingsEntries(agent, binary, connection string) map[string]map[string]any {
 	p, _ := products.Get(agent)
 	out := map[string]map[string]any{}

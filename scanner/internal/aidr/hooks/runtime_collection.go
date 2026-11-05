@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"skill-manager/scanner/internal/aidr/localstore"
+	"skill-manager/scanner/internal/aidr/privatefs"
 	"strconv"
 	"strings"
 	"time"
@@ -46,7 +48,7 @@ func PendingUploads(ctx context.Context, directory string) (int, error) {
 		return 0, nil
 	}
 	real, resolved := filepath.EvalSymlinks(directory)
-	if err != nil || resolved != nil || real != directory || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+	if err != nil || resolved != nil || real != directory || !info.IsDir() || privatefs.Check(directory) != nil {
 		return 0, code("aidr_hook_store_invalid")
 	}
 	path := filepath.Join(directory, "hooks.db")
@@ -54,13 +56,11 @@ func PendingUploads(ctx context.Context, directory string) (int, error) {
 	if os.IsNotExist(err) {
 		return 0, nil
 	}
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+	if err != nil || !info.Mode().IsRegular() || privatefs.Check(path) != nil {
 		return 0, code("aidr_hook_store_invalid")
 	}
-	u := &url.URL{Scheme: "file", Path: path}
 	q := url.Values{"mode": {"ro"}, "_pragma": {"busy_timeout(1000)"}}
-	u.RawQuery = q.Encode()
-	db, err := sql.Open("sqlite", u.String())
+	db, err := sql.Open("sqlite", localstore.SQLiteURI(path, q.Encode()))
 	if err != nil {
 		return 0, code("aidr_hook_storage_failed")
 	}

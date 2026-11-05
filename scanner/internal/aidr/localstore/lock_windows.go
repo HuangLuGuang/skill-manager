@@ -6,19 +6,11 @@ import (
 	"errors"
 	"golang.org/x/sys/windows"
 	"os"
+	"skill-manager/scanner/internal/aidr/privatefs"
 )
 
-// The Windows deployment must supply a per-user ACL-protected state directory.
-// POSIX permission bits cannot certify Windows ACL isolation.
 func privateDirectory(path string) error {
-	i, e := os.Stat(path)
-	if e != nil {
-		return e
-	}
-	if !i.IsDir() {
-		return errors.New("aidr_store_path_invalid")
-	}
-	return nil
+	return privatefs.PrepareDirectory(path)
 }
 func lockDirectory(path string) (*os.File, error) {
 	f, e := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)

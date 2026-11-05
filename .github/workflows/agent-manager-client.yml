@@ -46,6 +46,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: scanner/go.mod
+      - name: Verify Windows Hook receiver
+        if: runner.os == 'Windows'
+        run: go test ./internal/aidr/hooks ./internal/aidr/localstore ./internal/aidr/privatefs -run 'TestWindows' -count=1
+        working-directory: scanner
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

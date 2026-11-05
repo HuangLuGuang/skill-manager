@@ -104,7 +104,7 @@ func (s *hookSupervision) failure(code string, retry managedclient.ReceiverRetry
 type managedHookContextKey struct{}
 
 func automaticHookReady(ctx context.Context, home string) bool {
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return true
 	}
 	prefs, err := loadDesktopPreferences(home)
@@ -128,7 +128,7 @@ func automaticHookReady(ctx context.Context, home string) bool {
 }
 
 func runAutomaticHooks(ctx context.Context, home string) {
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return
 	}
 	manageAutomaticHooks(ctx, home, time.Second, func(ctx context.Context) error {

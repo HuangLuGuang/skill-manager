@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"skill-manager/scanner/internal/aidr/hooks"
+	"skill-manager/scanner/internal/aidr/privatefs"
 	"skill-manager/scanner/internal/managedclient"
 )
 
@@ -142,9 +143,14 @@ func desktopBinding(home string) (managedclient.Config, desktopPaths, error) {
 	hostname, _ := os.Hostname()
 	p.Device = managedclient.DeviceID(hostname, home)
 	p.Root = filepath.Join(home, ".agent-manager", "aidr")
+	if runtime.GOOS == "windows" {
+		if e := privatefs.PrepareDirectory(p.Root); e != nil {
+			return cfg, p, e
+		}
+	}
 	if info, e := os.Lstat(p.Root); e == nil {
 		real, e := filepath.EvalSymlinks(p.Root)
-		if e != nil || real != p.Root || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+		if e != nil || real != p.Root || !info.IsDir() || privatefs.Check(p.Root) != nil {
 			return cfg, p, errors.New("aidr_desktop_config_invalid")
 		}
 	} else if !os.IsNotExist(e) {
@@ -159,7 +165,7 @@ func desktopBinding(home string) (managedclient.Config, desktopPaths, error) {
 	if runtime.GOOS == "windows" {
 		p.Binary += ".exe"
 	}
-	if len(p.Socket) > 100 {
+	if runtime.GOOS != "windows" && len(p.Socket) > 100 {
 		return cfg, p, errors.New("aidr_desktop_socket_path_long")
 	}
 	return cfg, p, nil
@@ -219,7 +225,7 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 	if *localOnly && *action != "inspect" {
 		return errors.New("aidr_desktop_config_invalid")
 	}
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return errors.New("aidr_desktop_platform_unsupported")
 	}
 	var release func()
