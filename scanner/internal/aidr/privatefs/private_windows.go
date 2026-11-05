@@ -50,7 +50,7 @@ func Check(path string) error {
 		return err
 	}
 	owner, _, err := sd.Owner()
-	if err != nil || owner.String() != sid {
+	if err != nil || !trustedOwner(owner, sid) {
 		return errors.New("aidr_private_path_invalid")
 	}
 	acl, _, err := sd.DACL()
@@ -106,7 +106,7 @@ func PrepareDirectory(path string) error {
 		return err
 	}
 	owner, _, err := current.Owner()
-	if err != nil || owner.String() != sid {
+	if err != nil || !trustedOwner(owner, sid) {
 		return errors.New("aidr_private_path_invalid")
 	}
 	sd, err := windows.SecurityDescriptorFromString("D:P(A;OICI;FA;;;" + sid + ")(A;OICI;FA;;;SY)")
@@ -121,4 +121,10 @@ func PrepareDirectory(path string) error {
 		return err
 	}
 	return Check(path)
+}
+
+// Elevated Windows processes can create files owned by Administrators. The
+// protected DACL still grants access only to this user and LocalSystem.
+func trustedOwner(owner *windows.SID, sid string) bool {
+	return owner != nil && (owner.String() == sid || owner.String() == "S-1-5-32-544" || owner.String() == "S-1-5-18")
 }
