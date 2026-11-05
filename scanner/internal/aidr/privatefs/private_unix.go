@@ -26,3 +26,5 @@ func PrepareDirectory(path string) error {
 	}
 	return Check(path)
 }
+
+func SecureFile(path string) error { return Check(path) }

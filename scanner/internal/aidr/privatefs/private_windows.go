@@ -97,6 +97,29 @@ func PrepareDirectory(path string) error {
 	if err := os.MkdirAll(path, 0700); err != nil {
 		return err
 	}
+	return protect(path)
+}
+
+// SecureFile upgrades existing client-owned files whose POSIX mode was ignored
+// on Windows; never follow a link or change an unrelated owner's file.
+func SecureFile(path string) error {
+	i, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !i.Mode().IsRegular() {
+		return errors.New("aidr_private_path_invalid")
+	}
+	if err := PrepareDirectory(filepath.Dir(path)); err != nil {
+		return err
+	}
+	if Check(path) == nil {
+		return nil
+	}
+	return protect(path)
+}
+
+func protect(path string) error {
 	sid, err := UserSID()
 	if err != nil {
 		return err

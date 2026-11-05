@@ -31,4 +31,10 @@ func TestWindowsPrivateACL(t *testing.T) {
 	if Check(file) == nil {
 		t.Fatal("Everyone ACL accepted")
 	}
+	if err := SecureFile(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := Check(file); err != nil {
+		t.Fatal("existing private file migration failed", err)
+	}
 }

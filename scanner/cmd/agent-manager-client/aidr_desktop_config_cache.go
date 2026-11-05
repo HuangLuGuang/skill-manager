@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"skill-manager/scanner/internal/aidr/privatefs"
 	"sync"
 )
 
@@ -27,7 +28,7 @@ func readDesktopConfigBytes(path string) ([]byte, error) {
 	desktopConfigCache.Lock()
 	defer desktopConfigCache.Unlock()
 	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+	if err != nil || !info.Mode().IsRegular() || privatefs.SecureFile(path) != nil {
 		delete(desktopConfigCache.files, path)
 		return nil, errors.New("aidr_desktop_config_unreadable")
 	}
@@ -41,7 +42,7 @@ func readDesktopConfigBytes(path string) ([]byte, error) {
 	}
 	defer f.Close()
 	opened, err := f.Stat()
-	if err != nil || !os.SameFile(info, opened) || !opened.Mode().IsRegular() || opened.Mode().Perm()&0077 != 0 {
+	if err != nil || !os.SameFile(info, opened) || !opened.Mode().IsRegular() || privatefs.Check(path) != nil {
 		return nil, errors.New("aidr_desktop_config_unreadable")
 	}
 	body, err := io.ReadAll(io.LimitReader(f, 65537))
@@ -49,7 +50,7 @@ func readDesktopConfigBytes(path string) ([]byte, error) {
 		return nil, errors.New("aidr_desktop_config_invalid")
 	}
 	after, err := os.Lstat(path)
-	if err != nil || !os.SameFile(opened, after) || !after.Mode().IsRegular() || after.Mode().Perm()&0077 != 0 {
+	if err != nil || !os.SameFile(opened, after) || !after.Mode().IsRegular() || privatefs.Check(path) != nil {
 		return nil, errors.New("aidr_desktop_config_unreadable")
 	}
 	if sameDesktopConfigFile(info, after) {
