@@ -48,6 +48,7 @@ struct MenuLabels {
 #[derive(Deserialize)]
 pub struct Labels {
     title: String,
+    window_title: String,
     open: String,
     quit: String,
 }
@@ -106,9 +107,11 @@ pub fn close_to_background(window: &tauri::WebviewWindow) {
 #[tauri::command]
 pub fn sync_background_menu(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, BackgroundMenu>,
     labels: Labels,
 ) -> Result<(), String> {
+    window.set_title(&labels.window_title).map_err(|error| error.to_string())?;
     sync_menu(&app, &state, labels).map_err(|error| error.to_string())
 }
 

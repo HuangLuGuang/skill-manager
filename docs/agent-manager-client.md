@@ -1,5 +1,9 @@
 # Agent Manager Client 使用说明
 
+客户端显示语言同时应用于页面、原生窗口标题及托盘菜单；重新打开窗口时沿用本机保存的语言。
+
+**English:** The display language applies to pages, the native window title and tray menus. Reopened windows use the language saved on this device.
+
 ## 本机状态读取 / Local state reads
 
 Windows 本机数据库的只读访问使用包含盘符的文件 URI（如 `file:///C:/Users/.../client.db`），保留只读模式及路径中的空格、中文和特殊字符。概览读取失败时显示双语错误及重试入口；设置中的已保存连接独立读取，只有成功返回空列表才显示未配置。模型页在本机状态或平台权限尚未读到时显示对应读取状态，权限判定使用成功返回的结果。
