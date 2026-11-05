@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -19,6 +18,7 @@ import (
 
 	_ "modernc.org/sqlite"
 	"skill-manager/scanner/internal/aidr/agentlog"
+	"skill-manager/scanner/internal/aidr/privatefs"
 )
 
 var (
@@ -121,7 +121,7 @@ func Open(dir string, limits Limits) (*Store, error) {
 	}
 	for _, name := range []string{"state.db", "state.db-wal", "state.db-shm", "writer.lock"} {
 		i, err := os.Lstat(filepath.Join(dir, name))
-		if err == nil && (!i.Mode().IsRegular() || i.Mode().Perm()&0077 != 0) {
+		if err == nil && (!i.Mode().IsRegular() || privatefs.Check(filepath.Join(dir, name)) != nil) {
 			return nil, errors.New("aidr_store_path_invalid")
 		}
 		if err != nil && !os.IsNotExist(err) {
@@ -139,7 +139,7 @@ func Open(dir string, limits Limits) (*Store, error) {
 		return nil, err
 	}
 	f.Close()
-	db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String())
+	db, err := sql.Open("sqlite", SQLiteURI(path, ""))
 	if err != nil {
 		lock.Close()
 		return nil, err

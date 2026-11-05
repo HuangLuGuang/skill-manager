@@ -5,7 +5,7 @@ import json
 from .aidr_skill_contract import SkillUse
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from sqlalchemy import lambda_stmt
 from sqlalchemy.dialects.sqlite import insert
 
@@ -138,11 +138,20 @@ class BridgeProcess(Strict):
 class HookRecord(Strict):
     event_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     source_seq: str = Field(pattern=r"^[1-9][0-9]{0,18}$")
-    user_scope: str = Field(pattern=r"^(0|[1-9][0-9]{0,9})$")
+    user_scope: str = Field(pattern=r"^(?:0|[1-9][0-9]{0,9}|S-1-(?:0|[1-9][0-9]{0,14})(?:-(?:0|[1-9][0-9]{0,9})){1,15})$")
     received_at: str = Field(max_length=40)
     event: HookEvent
     receiver_instance: str = Field(default="", pattern=r"^$|^[0-9a-f]{32}$")
     bridge_process: BridgeProcess | None = None
+
+    @field_validator('user_scope')
+    @classmethod
+    def user_identity(cls, value):
+        if value.startswith('S-'):
+            parts = value.split('-')
+            if int(parts[2]) >= 2**48 or any(int(part) >= 2**32 for part in parts[3:]):
+                raise ValueError('hook_user_scope_invalid')
+        return value
 
 
 class HookBatch(Strict):

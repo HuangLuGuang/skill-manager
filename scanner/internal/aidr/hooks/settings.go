@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	products "skill-manager/scanner/internal/aidr/catalog"
 	"strings"
 	"time"
@@ -18,6 +19,11 @@ func settingsPath(agent, home string) (string, error) {
 	if format == nil || !products.SupportedHookOS(product) || !filepath.IsAbs(home) {
 		return "", code("aidr_plugin_host_unsupported")
 	}
+	if agent == "qoder-hooks" && runtime.GOOS == "windows" {
+		if info, err := os.Stat(filepath.Join(home, ".qoder-cn")); err == nil && info.IsDir() {
+			return filepath.Join(home, ".qoder-cn", "settings.json"), nil
+		}
+	}
 	return filepath.Join(home, filepath.FromSlash(format.Path)), nil
 }
 func shellArg(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
@@ -26,6 +32,10 @@ func settingsEntries(agent, binary, connection string) map[string]map[string]any
 	out := map[string]map[string]any{}
 	for event := range p.HookEvents {
 		out[event] = map[string]any{"command": shellArg(binary) + " aidr-hook --agent " + shellArg(agent) + " --event " + shellArg(event) + " --connection-file " + shellArg(connection), "timeout": hookAdapters[agent].Settings.Timeout}
+		if runtime.GOOS == "windows" && agent == "qoder-hooks" {
+			out[event]["command"] = binary
+			out[event]["args"] = []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection}
+		}
 		if p.Approval && IsPreTool(agent, event) {
 			out[event]["timeout"] = 315
 		}
@@ -34,6 +44,15 @@ func settingsEntries(agent, binary, connection string) map[string]map[string]any
 		}
 	}
 	return out
+}
+
+func ownedSettingsEntry(existing, expected map[string]any) bool {
+	if existing["command"] != expected["command"] {
+		return false
+	}
+	a, _ := json.Marshal(existing["args"])
+	b, _ := json.Marshal(expected["args"])
+	return bytes.Equal(a, b)
 }
 func readSettings(path string) (map[string]json.RawMessage, []byte, os.FileMode, error) {
 	for p := filepath.Dir(path); ; p = filepath.Dir(p) {
@@ -126,7 +145,7 @@ func MergeSettingsHooks(agent, home, binary, connection string, remove bool) (Pl
 					if !ok {
 						return PluginStatus{}, code("aidr_plugin_config_invalid")
 					}
-					if h["command"] != entry["command"] {
+					if !ownedSettingsEntry(h, entry) {
 						remaining = append(remaining, child)
 					} else {
 						changed = true
@@ -141,7 +160,7 @@ func MergeSettingsHooks(agent, home, binary, connection string, remove bool) (Pl
 				}
 				continue
 			}
-			if existing["command"] != entry["command"] {
+			if !ownedSettingsEntry(existing, entry) {
 				kept = append(kept, existing)
 			} else {
 				changed = true
@@ -265,7 +284,7 @@ func InspectSettingsHooks(agent, home, binary, connection string) (PluginStatus,
 				children, _ := existing["hooks"].([]any)
 				for _, child := range children {
 					h, _ := child.(map[string]any)
-					if h["command"] == entry["command"] {
+					if ownedSettingsEntry(h, entry) {
 						count++
 						if h["timeout"] != float64(entry["timeout"].(int)) {
 							currentBudget = false
@@ -274,7 +293,7 @@ func InspectSettingsHooks(agent, home, binary, connection string) (PluginStatus,
 				}
 				continue
 			}
-			if existing["command"] == entry["command"] {
+			if ownedSettingsEntry(existing, entry) {
 				count++
 				if existing["timeout"] != float64(entry["timeout"].(int)) {
 					currentBudget = false

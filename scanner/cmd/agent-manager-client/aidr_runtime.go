@@ -29,7 +29,7 @@ func init() {
 }
 
 func prepareHookUpgrade(home string) (func(), error) {
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return func() {}, nil
 	}
 	prefs, err := loadDesktopPreferences(home)
@@ -168,7 +168,7 @@ func executeAIDRTask(ctx context.Context, home string, task managedclient.Task) 
 // probe or raw settings/credential ever enters a heartbeat.
 func aidrRuntimeSnapshot(home string) map[string]any {
 	result := map[string]any{"protocol": 5, "plugin_version": hooks.BundledPluginVersion, "hosts": []any{}, "receiver_code": "aidr_desktop_stopped"}
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		result["protocol"] = 0
 		result["receiver_code"] = "aidr_desktop_platform_unsupported"
 		return result

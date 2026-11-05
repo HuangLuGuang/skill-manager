@@ -1361,7 +1361,9 @@ WorkBuddy 的 Agent Manager 接入使用用户 `settings.json` 中的 Hook 命�
 
 对外原生插件名为 **Agent Manager**，设置型接入为 **Agent Manager Hook**，共享服务为 **Agent Manager 本地接收器 / Agent Manager Local Receiver**。内部 `aidr-claude`、`aidr-codex`、`qoder-cli`、`qoder-hooks`、`qoder-work`、队列标识、协议字段及旧事件不迁移。Qoder 对外为一个产品，各入口在详情中分别说明。Claude manifest 没有确认过的独立显示名字段，原生插件列表仍可能显示兼容 ID；管理界面和描述统一名称。安装器继续增量合并且只卸载自有配置。
 
-接收器通过用户 home 下的 `~/.agent-manager/aidr/hook.sock` 和 `bridge.json` 共享；同一用户下各已接入产品共用接收器，上传队列按平台与设备绑定。它不是全机所有用户共享服务。在线、已安装、已授权、宿主加载、首个事件、上传 ACK 是不同证据，保持分开呈现。
+接收器通过用户 home 下的 `~/.agent-manager/aidr/hook.sock` 和 `bridge.json` 共享；macOS/Linux 使用 Unix Socket，Windows 使用限制到当前用户 SID 的 Named Pipe，`hook.sock` 是私有状态标记。同一用户下各已接入产品共用接收器，上传队列按平台与设备绑定。Windows Qoder 接入配置选择、重启和验收边界见[Windows Hook 接收器](agent-manager-client.md#windows-hook-接收器--windows-hook-receiver)。它不是全机所有用户共享服务。在线、已安装、已授权、宿主加载、首个事件、上传 ACK 是不同证据，保持分开呈现。
+
+**English:** macOS/Linux use a Unix socket; Windows uses a named pipe restricted to the current user SID, with `hook.sock` serving as a private marker. Product support, host loading and actual event/approval delivery require separate acceptance; see the Windows receiver instructions linked above.
 
 #### 数据与核对边界
 

@@ -20,6 +20,7 @@ import (
 	"skill-manager/scanner/internal/aidr/agentlog"
 	products "skill-manager/scanner/internal/aidr/catalog"
 	"skill-manager/scanner/internal/aidr/localstore"
+	"skill-manager/scanner/internal/aidr/privatefs"
 )
 
 // Store owns a separate hook state directory. The existing P1 directory guard
@@ -81,7 +82,7 @@ func OpenStore(directory, platform, device string, capacity int) (*Store, error)
 	}
 	for _, name := range []string{"hooks.db", "hooks.db-wal", "hooks.db-shm"} {
 		if info, e := os.Lstat(filepath.Join(directory, name)); e == nil {
-			if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+			if !info.Mode().IsRegular() || privatefs.Check(filepath.Join(directory, name)) != nil {
 				return fail(code("aidr_hook_store_invalid"))
 			}
 		} else if !os.IsNotExist(e) {
@@ -94,7 +95,7 @@ func OpenStore(directory, platform, device string, capacity int) (*Store, error)
 		return fail(err)
 	}
 	f.Close()
-	db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: file}).String())
+	db, err := sql.Open("sqlite", localstore.SQLiteURI(file, ""))
 	if err != nil {
 		return fail(err)
 	}

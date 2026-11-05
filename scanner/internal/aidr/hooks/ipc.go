@@ -9,9 +9,7 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	products "skill-manager/scanner/internal/aidr/catalog"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -75,49 +73,12 @@ type IPCResponse struct {
 
 type Receiver struct {
 	store     *Store
-	listener  *net.UnixListener
+	listener  net.Listener
 	path      string
 	file      os.FileInfo
-	uid       uint32
 	accepted  atomic.Uint64
 	rejected  atomic.Uint64
 	startedAt string
-}
-
-// Listen requires an existing private, caller-owned directory. Existing sockets
-// are never removed: an active or stale listener is a visible startup failure.
-func Listen(path string, store *Store) (*Receiver, error) {
-	if store == nil || !filepath.IsAbs(path) {
-		return nil, code("aidr_hook_socket_invalid")
-	}
-	dir := filepath.Dir(path)
-	real, err := filepath.EvalSymlinks(dir)
-	if err != nil || real != dir {
-		return nil, code("aidr_hook_socket_invalid")
-	}
-	info, err := os.Lstat(dir)
-	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 || !ownedBy(info, uint32(os.Geteuid())) {
-		return nil, code("aidr_hook_socket_invalid")
-	}
-	if _, err = os.Lstat(path); !os.IsNotExist(err) {
-		return nil, code("aidr_hook_socket_exists")
-	}
-	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
-	if err != nil {
-		return nil, code("aidr_hook_socket_unavailable")
-	}
-	l.SetUnlinkOnClose(false)
-	if err = os.Chmod(path, 0600); err != nil {
-		l.Close()
-		os.Remove(path)
-		return nil, code("aidr_hook_socket_invalid")
-	}
-	info, err = os.Lstat(path)
-	if err != nil {
-		l.Close()
-		return nil, code("aidr_hook_socket_invalid")
-	}
-	return &Receiver{store: store, listener: l, path: path, file: info, uid: uint32(os.Geteuid()), startedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
 }
 
 // Close releases the listener and only the socket instance created by Listen.
@@ -151,7 +112,7 @@ func (r *Receiver) Serve(ctx context.Context) error {
 		}
 	}()
 	for {
-		c, err := r.listener.AcceptUnix()
+		c, err := r.listener.Accept()
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -187,9 +148,9 @@ func (r *Receiver) Serve(ctx context.Context) error {
 	}
 }
 
-func (r *Receiver) handle(ctx context.Context, c *net.UnixConn) IPCResponse {
-	uid, err := peerUID(c)
-	if err != nil || uid != r.uid {
+func (r *Receiver) handle(ctx context.Context, c net.Conn) IPCResponse {
+	user, err := authenticatedPeer(c)
+	if err != nil {
 		return IPCResponse{Code: "aidr_hook_peer_rejected"}
 	}
 	var req IPCRequest
@@ -216,7 +177,7 @@ func (r *Receiver) handle(ctx context.Context, c *net.UnixConn) IPCResponse {
 		if mode == "audit" {
 			return IPCResponse{Code: "aidr_hook_decision", Decision: &ToolDecision{Decision: "allow", Code: "aidr_hook_audit_only"}}
 		}
-		d, err := r.store.PollApproval(ctx, req.EventID, strconv.FormatUint(uint64(uid), 10), req.Method == "CancelApproval", time.Now())
+		d, err := r.store.PollApproval(ctx, req.EventID, user, req.Method == "CancelApproval", time.Now())
 		if err != nil {
 			return storageFailure(err)
 		}
@@ -225,7 +186,7 @@ func (r *Receiver) handle(ctx context.Context, c *net.UnixConn) IPCResponse {
 	if req.Method != "SubmitEvent" {
 		return IPCResponse{Code: "aidr_hook_method_unsupported"}
 	}
-	record, err := r.store.receiveWithBridge(ctx, req.EventID, strconv.FormatUint(uint64(uid), 10), req.Agent, req.Hook, req.Raw, bridgeProcess(c))
+	record, err := r.store.receiveWithBridge(ctx, req.EventID, user, req.Agent, req.Hook, req.Raw, bridgeProcessForConn(c))
 	if err != nil {
 		if ctx.Err() != nil {
 			return storageFailure(ctx.Err())
@@ -325,16 +286,14 @@ func writeFrame(w io.Writer, value any) error {
 
 func Exchange(ctx context.Context, path string, req IPCRequest) (IPCResponse, error) {
 	var response IPCResponse
-	d := net.Dialer{Timeout: time.Second}
-	c, err := d.DialContext(ctx, "unix", path)
+	c, err := dialHookEndpoint(ctx, path)
 	if err != nil {
 		return response, code("aidr_hook_receiver_unavailable")
 	}
 	defer c.Close()
 	stop := context.AfterFunc(ctx, func() { _ = c.SetDeadline(time.Now()) })
 	defer stop()
-	uid, err := peerUID(c.(*net.UnixConn))
-	if err != nil || uid != uint32(os.Geteuid()) {
+	if _, err := authenticatedPeer(c); err != nil {
 		return response, code("aidr_hook_peer_rejected")
 	}
 	deadline := time.Now().Add(2 * time.Second)

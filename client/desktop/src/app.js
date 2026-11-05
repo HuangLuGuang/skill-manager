@@ -8,6 +8,7 @@ const isEnglish = () => window.clientI18n?.getLocale?.() === 'en-US'
 const syncBackgroundMenu = () => invoke('sync_background_menu', {
   labels: {
     title: t('ui.background.trayTitle'),
+    window_title: t('ui.window.title'),
     open: t('ui.background.openWindow'),
     quit: t('ui.background.quitApp'),
   },
@@ -4222,10 +4223,10 @@ document.addEventListener('visibilitychange', () => {
   }
 })
 window.addEventListener('agent-manager-client-locale-change', async () => {
+  void syncBackgroundMenu()
   await syncBackgroundRuntime()
   syncSettingsControls()
   $('#client-build-version').textContent = tf`版本 ${clientBuildVersion}`
-  void syncBackgroundMenu()
   const activePanel = document.querySelector('.panel.active')?.id || 'connect'
   if (connection?.configured) void loadRecordHistory()
   if ($('#event-record-dialog').open) renderEventRecordDetail()

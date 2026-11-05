@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	products "skill-manager/scanner/internal/aidr/catalog"
+	"skill-manager/scanner/internal/aidr/privatefs"
 	"time"
 )
 
@@ -37,14 +38,14 @@ func ValidateBridgePrivateFile(path string) error {
 	dir := filepath.Dir(path)
 	real, err := filepath.EvalSymlinks(dir)
 	info, statErr := os.Lstat(dir)
-	if err != nil || real != dir || statErr != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 || !ownedBy(info, uint32(os.Geteuid())) {
+	if err != nil || real != dir || statErr != nil || !info.IsDir() || privatefs.Check(dir) != nil {
 		return code("aidr_hook_gap_report_failed")
 	}
 	info, err = os.Lstat(path)
 	if os.IsNotExist(err) {
 		return nil
 	}
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || !ownedBy(info, uint32(os.Geteuid())) {
+	if err != nil || !info.Mode().IsRegular() || privatefs.Check(path) != nil {
 		return code("aidr_hook_gap_report_failed")
 	}
 	return nil

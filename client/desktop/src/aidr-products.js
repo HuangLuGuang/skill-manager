@@ -303,7 +303,8 @@ window.aidrProducts = [
     "name": "Qoder Hooks",
     "entry": "shared-settings",
     "os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "logs": "",
     "roots": [],
@@ -334,7 +335,8 @@ window.aidrProducts = [
     "sample_versions": [],
     "log_os": [],
     "hook_os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "skill_usage": {
       "invocation": false,

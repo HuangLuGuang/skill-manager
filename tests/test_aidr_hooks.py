@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import json
+import pytest
 from concurrent.futures import ThreadPoolExecutor
 
 from tests.test_aidr_api import service
@@ -20,6 +21,29 @@ def hook_batch(seq=1):
 
 def send(client, value=None, target="one", token="one"):
     return client.post(f"/api/v1/clients/{target}/aidr/hooks:batch", content=json.dumps(value or hook_batch(), separators=(",", ":")), headers={"authorization": "Bearer test-"+token, "content-type": "application/json"})
+
+
+@pytest.mark.parametrize('scope', ['0', '501', 'S-1-5-21-1234567890-2345678901-3456789012-1001', 'S-1-5-18'])
+def test_hook_user_identity_roundtrip(service, scope):
+    client, _ = service
+    value = hook_batch()
+    value['records'][0]['user_scope'] = scope
+    value['records'][0]['event']['agent'] = 'qoder-hooks'
+    for _ in range(2):
+        response = send(client, value)
+        assert response.status_code == 200, response.text
+    saved = client.get('/api/v1/clients/one/aidr/hooks').json()['items']
+    assert len(saved) == 1 and saved[0]['record']['user_scope'] == scope
+
+
+@pytest.mark.parametrize('scope', ['', '0501', '-1', 'S-2-5-18', 'S-1-5', 'S-1-05-18',
+    'S-1-5-018', 'S-1-281474976710656-1', 'S-1-5-4294967296', 'S-1-5' + '-1'*16, 'S-1-5-18\n'])
+def test_hook_user_identity_rejects_invalid_scope(service, scope):
+    client, _ = service
+    value = hook_batch()
+    value['records'][0]['user_scope'] = scope
+    response = send(client, value)
+    assert response.status_code == 422 and response.json()['error_code'] == 'aidr.invalid_batch'
 
 
 def test_control_decision_upload_and_timeline(service):

@@ -1578,6 +1578,7 @@
     'ui.settings.edit_connection': { 'zh-CN': '修改地址与凭证', 'en-US': 'Edit address and credential' },
     'ui.settings.not_connected': { 'zh-CN': '尚未配置平台连接', 'en-US': 'No platform connection configured' },
     'ui.settings.loading_connections': { 'zh-CN': '正在读取已保存的连接…', 'en-US': 'Loading saved connections…' },
+    'ui.window.title': { 'zh-CN': '智能体生命周期管理系统客户端', 'en-US': 'Agent Manager Client' },
     'ui.settings.add_connection': { 'zh-CN': '新增连接', 'en-US': 'Add connection' },
     'ui.settings.add_connection_title': { 'zh-CN': '新增 Agent Manager 连接', 'en-US': 'Add Agent Manager Connection' },
     'ui.settings.edit_connection_title': { 'zh-CN': '修改 Agent Manager 连接', 'en-US': 'Edit Agent Manager Connection' },
@@ -2420,7 +2421,7 @@
 
   const updateBrand = () => {
     document.documentElement.lang = locale
-    document.title = locale === 'en-US' ? 'Agent Manager Client' : '智能体生命周期管理系统客户端'
+    document.title = t('ui.window.title')
     document.querySelectorAll('[data-system-name]').forEach(element => {
       element.textContent = locale === 'en-US' ? 'Agent Manager' : '智能体生命周期管理系统'
     })
