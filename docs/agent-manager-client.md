@@ -12,6 +12,10 @@ Windows 本机数据库的只读访问使用包含盘符的文件 URI（如 `fil
 
 ## Windows Hook 接收器 / Windows Hook receiver
 
+Hook 上传和审批范围保留 Windows SID，macOS/Linux 保留数字 UID；平台须支持两种用户标识。
+
+**English:** Hook uploads and approval scopes preserve Windows SIDs and numeric macOS/Linux UIDs; the platform must accept both identities.
+
 Windows 后台治理服务运行用户级 Hook 自动接收器，使用仅当前用户 SID 可访问的 Named Pipe，并校验两端进程用户。`~/.agent-manager/aidr/hook.sock` 在 Windows 上是私有状态标记，实际通信不使用 TCP 或 Unix Socket；目录和队列使用 Windows ACL，不能用 POSIX 权限位替代。后台任务停止后管道由系统释放，重开后保留事件与上传队列，旧审批授权和等待中的尝试失效。
 
 Windows 当前开放 Qoder 共享 Hook 入口。存在 `.qoder-cn` 数据目录时使用其 `settings.json`，否则使用 `.qoder/settings.json`；同时安装两个入口时，此入口选择 CN 配置。原生命令采用 `command` 加 `args` 的 exec form，保留中文、空格路径和原始 stdin，不依赖 Bash。安装与撤回按命令及参数识别本客户端条目，保留其他配置。宿主是否加载和实际阻断必须通过新调用验证；接收器可用不代表其他产品、系统级防护或全机受管加载已适配 Windows。

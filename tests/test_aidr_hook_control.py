@@ -130,10 +130,11 @@ def test_twenty_concurrent_terminal_receipts_keep_exact_identity(control):
         assert db.query(control_logic.HookAttemptReportRow).count() == 20
 
 
-def pending(client, seq=1):
+def pending(client, seq=1, user_scope='501'):
     batch = hook_batch(seq)
     row = batch["records"][0]
     row["receiver_instance"] = INSTANCE
+    row['user_scope'] = user_scope
     event = row["event"]
     event.update(hook_event="PreToolUse", kind="tool.pre", tool="Bash", turn_id="turn", native_call_id=f"call-{seq}", input_digest="c"*64)
     event["behavior"] = {"version": 3, "policy": event["policy"], "body_omitted": False, "category": "command", "method": "direct_fields", "actions": [{"tool": "Bash", "category": "command", "command": "/bin/sleep 1", "cwd": "/private/tmp", "targets": [], "source_fields": ["command", "cwd"]}], "status": "unknown", "result_basis": [], "redacted": False, "truncated": False, "uncertainty": []}
@@ -149,11 +150,13 @@ def decision(client, row, action, key="a", expected=None):
     return client.post(ROOT+f"/hook-approvals/{row['id']}/decision", json={"request_id": key*32, "expected_revision": expected or row["revision"], "decision": action})
 
 
-def test_policy_request_decision_signature_idempotence_and_revocation(control):
+@pytest.mark.parametrize('user_scope', ['501', 'S-1-5-21-1234567890-2345678901-3456789012-1001'])
+def test_policy_request_decision_signature_idempotence_and_revocation(control, user_scope):
     client, factory, key = control
     assert client.put(ROOT+"/hook-policy", json=policy()).json()["revision"] == "1"
     assert client.put(ROOT+"/hook-policy", json=policy()).status_code == 409
-    row, request = pending(client)
+    row, request = pending(client, user_scope=user_scope)
+    assert row['scope']['user_scope'] == user_scope
     detail = client.get(ROOT+f"/hook-approvals/{row['id']}")
     assert detail.status_code == 200
     assert detail.json()["approval"] == row
