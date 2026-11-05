@@ -10,6 +10,16 @@ Windows 本机数据库的只读访问使用包含盘符的文件 URI（如 `fil
 
 **English:** Read-only local database access uses drive-aware file URIs on Windows, preserving spaces, Unicode and special characters. Overview failures show a localized error and retry action. Saved connections load independently; only a successful empty result means none are configured. The model page distinguishes unavailable local state or platform permissions from confirmed permission settings.
 
+## Windows Hook 接收器 / Windows Hook receiver
+
+Windows 后台治理服务运行用户级 Hook 自动接收器，使用仅当前用户 SID 可访问的 Named Pipe，并校验两端进程用户。`~/.agent-manager/aidr/hook.sock` 在 Windows 上是私有状态标记，实际通信不使用 TCP 或 Unix Socket；目录和队列使用 Windows ACL，不能用 POSIX 权限位替代。后台任务停止后管道由系统释放，重开后保留事件与上传队列，旧审批授权和等待中的尝试失效。
+
+Windows 当前开放 Qoder 共享 Hook 入口。存在 `.qoder-cn` 数据目录时使用其 `settings.json`，否则使用 `.qoder/settings.json`；同时安装两个入口时，此入口选择 CN 配置。原生命令采用 `command` 加 `args` 的 exec form，保留中文、空格路径和原始 stdin，不依赖 Bash。安装与撤回按命令及参数识别本客户端条目，保留其他配置。宿主是否加载和实际阻断必须通过新调用验证；接收器可用不代表其他产品、系统级防护或全机受管加载已适配 Windows。
+
+**English:** The Windows user-session daemon hosts the automatic Hook receiver over a current-user SID restricted named pipe and verifies peer process users. `hook.sock` is a private state marker on Windows. State uses Windows ACLs. Restart preserves queued evidence and invalidates old grants and pending attempts. The Windows Qoder shared Hook entry uses `.qoder-cn/settings.json` when the CN data directory exists, otherwise `.qoder/settings.json`; CN takes precedence when both exist. Native exec-form commands preserve Unicode paths and stdin. Installation/removal matches both executable and arguments and preserves unrelated settings. Verify host loading, blocking and approval with fresh calls; receiver support does not imply Windows support for every product or system-level enforcement.
+
+UI 手工验证 Todo：中英文运行治理状态；Qoder 启用/撤回和重复启用；包含中文及空格路径；允许、拒绝、批准、审批拒绝及超时；桌面退出重开、后台重启后队列和旧授权；窄窗口布局。原生 Windows 测试与真实 Qoder 会话验收分别记录。
+
 ## 客户端菜单显示 / Client menu visibility
 
 在“默认客户端策略”或单客户端策略弹窗的“采集与治理配置 → 客户端界面”设置菜单。客户端概览固定保留；Agent 管理、模型切换、执行记录、Agent 运行治理默认显示。全局使用显示开关，单客户端逐项选择“跟随全局 / 显示 / 隐藏”；“全部跟随全局”修改草稿，预览并保存后生效。单项覆盖不影响其他菜单继续继承。全局写入沿用超级管理员权限，单客户端写入沿用客户端管理权限及可见范围。

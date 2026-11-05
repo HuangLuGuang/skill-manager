@@ -32,7 +32,11 @@ func processIdentity(ctx context.Context, pid int) (string, string) {
 
 func DiagnoseReceiver(ctx context.Context, socket, queue, server, device, expectedBinary string) ReceiverDiagnostic {
 	d := ReceiverDiagnostic{Ownership: "unavailable", Socket: socket, Queue: queue, ExpectedServer: diagnosticServer(server), Device: device, Code: "aidr_hook_receiver_unavailable"}
-	d.AuditGap, _ = ReadBridgeGap(filepath.Join(queue, "bridge-gap.json"))
+	var gapErr error
+	d.AuditGap, gapErr = ReadBridgeGap(filepath.Join(queue, "bridge-gap.json"))
+	if gapErr != nil {
+		d.AuditGapCode = "aidr_hook_gap_report_failed"
+	}
 	c, err := dialHookEndpoint(ctx, socket)
 	if err != nil {
 		return d

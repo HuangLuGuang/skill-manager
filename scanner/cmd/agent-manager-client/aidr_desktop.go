@@ -145,7 +145,7 @@ func desktopBinding(home string) (managedclient.Config, desktopPaths, error) {
 	p.Root = filepath.Join(home, ".agent-manager", "aidr")
 	if runtime.GOOS == "windows" {
 		if e := privatefs.PrepareDirectory(p.Root); e != nil {
-			return cfg, p, e
+			return cfg, p, errors.New("aidr_desktop_config_invalid")
 		}
 	}
 	if info, e := os.Lstat(p.Root); e == nil {

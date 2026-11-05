@@ -15,7 +15,10 @@ import (
 
 func upgradeSocket(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := privatefs.PrepareDirectory(dir); err != nil {
 		t.Fatal(err)
 	}
