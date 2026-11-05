@@ -114,15 +114,16 @@ def responses_to_openai_response(payload: dict[str, Any]) -> dict[str, Any]:
     if calls:
         message["tool_calls"] = calls
     usage = payload.get("usage") or {}
-    prompt = usage.get("input_tokens", 0)
-    completion = usage.get("output_tokens", 0)
+    prompt = usage.get("input_tokens") or 0
+    completion = usage.get("output_tokens") or 0
     reason = "length" if payload.get("status") == "incomplete" else "tool_calls" if calls else "stop"
     return {"id": payload.get("id"), "object": "chat.completion", "created": payload.get("created_at", 0),
             "model": payload.get("model"), "choices": [{"index": 0, "message": message, "finish_reason": reason}],
             "usage": {"prompt_tokens": prompt, "completion_tokens": completion,
                       "total_tokens": usage.get("total_tokens", prompt + completion),
                       "prompt_tokens_details": usage.get("input_tokens_details") or {},
-                      "completion_tokens_details": usage.get("output_tokens_details") or {}}}
+                      "completion_tokens_details": usage.get("output_tokens_details") or {}}
+            if any(usage.get(key) is not None for key in ("input_tokens", "output_tokens", "total_tokens")) else {}}
 
 
 class ResponsesStreamAdapter:

@@ -55,7 +55,7 @@ const routes = [
   { path: '/model-gateway/skill-alerts', name: 'model-gateway-skill-alerts', component: () => import('../views/ModelSkillAlerts.vue'), meta: { requiresAuth: true } },
   { path: '/model-gateway/audit', name: 'model-gateway-audit', component: () => import('../views/ModelGateway.vue'), meta: { requiresAuth: true, gatewayTab: 'audit' } },
   { path: '/model-gateway/stats', name: 'model-gateway-stats', component: () => import('../views/ModelGatewayStats.vue'), meta: { requiresAuth: true } },
-  { path: '/model-gateway/user-stats', name: 'model-gateway-user-stats', component: () => import('../views/UserTokenStats.vue'), meta: { requiresAuth: true } },
+  { path: '/model-gateway/user-stats', redirect: { path: '/model-gateway/stats', query: { dimension: 'user' } } },
   { path: '/pipeline-trace', name: 'pipeline-trace', component: () => import('../views/PipelineTrace.vue'), meta: { requiresAuth: true } },
   { path: '/settings', name: 'settings', component: () => import('../views/SystemSettings.vue'), meta: { requiresAuth: true } },
   { path: '/external-access', name: 'external-access', component: () => import('../views/ExternalAccess.vue'), meta: { requiresAuth: true } },

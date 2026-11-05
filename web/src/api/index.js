@@ -377,6 +377,8 @@ export const getLlmStatsOverview = (params = {}) => api.get('/v1/llm-stats/overv
 export const getLlmStatsDaily = (params = {}) => api.get('/v1/llm-stats/daily', { params })
 export const getLlmStatsByModel = (params = {}) => api.get('/v1/llm-stats/by-model', { params })
 export const getLlmStatsByUser = (params = {}) => api.get('/v1/llm-stats/by-user', { params })
+export const getLlmStatsDashboard = (params = {}) => api.get('/v1/llm-stats/dashboard', { params })
+export const getLlmStatsRequest = requestId => api.get(`/v1/llm-stats/requests/${encodeURIComponent(requestId)}`)
 export const testPromptGuard = (data) => api.post('/v1/prompt-guard/test', data, { timeout: 195000 })
 export const getPromptGuardConfig = () => api.get('/v1/prompt-guard/config')
 export const savePromptGuardConfig = (data) => api.put('/v1/prompt-guard/config', data)

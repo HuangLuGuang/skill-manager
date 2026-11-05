@@ -3,7 +3,6 @@ package managedclient
 import (
 	"context"
 	"database/sql"
-	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -25,7 +24,7 @@ func (c *assetCollector) zcodeProjects(home string) []string {
 			return nil
 		}
 	}
-	db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(100)"}).String())
+	db, err := sql.Open("sqlite", sqliteURI(path, "mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(100)"))
 	if err != nil {
 		return nil
 	}

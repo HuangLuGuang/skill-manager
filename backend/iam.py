@@ -58,6 +58,15 @@ def initialize(db):
             and audit_menu.title_zh == '审计追踪' and audit_menu.title_en == 'Skill Audit'):
         audit_menu.title_key = 'iam.navigation.skill-audit'
         audit_menu.title_en = 'Audit Trail'
+    user_stats_menu = db.get(im.Menu, 'user-stats')
+    if user_stats_menu and user_stats_menu.is_system:
+        user_stats_menu.is_active = False
+    stats_menu = db.get(im.Menu, 'stats')
+    if (stats_menu and stats_menu.is_system and stats_menu.title_zh == 'Token 压缩统计'
+            and stats_menu.title_en == 'Token Compression'):
+        stats_menu.title_zh = '用量统计'
+        stats_menu.title_en = 'Usage Analytics'
+        stats_menu.title_key = 'iam.navigation.stats'
     db.commit()
 
 

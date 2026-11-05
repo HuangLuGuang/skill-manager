@@ -48,6 +48,7 @@ import { agentMcpMessages } from './agentMcp.js'
 import { docsArchitectureMessages } from './docsArchitecture.js'
 import { agentWorkspaceMessages } from './agent-workspace.js'
 import { localAssetMessages } from './localAssets.js'
+import { gatewayStatsMessages } from './gatewayStats.js'
 
 import { domainKey, domainMessages } from './domain.js'
 import { legacyKey, legacyMessages } from './legacy.js'
@@ -67,6 +68,7 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      gatewayStats: gatewayStatsMessages['zh-CN'],
       securityRules: securityRulesMessages['zh-CN'],
       promptGuard: promptGuardMessages['zh-CN'],
       aidrRisk: aidrRiskMessages['zh-CN'],
@@ -1300,6 +1302,7 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      gatewayStats: gatewayStatsMessages['en-US'],
       securityRules: securityRulesMessages['en-US'],
       promptGuard: promptGuardMessages['en-US'],
       aidrRisk: aidrRiskMessages['en-US'],

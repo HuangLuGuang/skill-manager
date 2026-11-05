@@ -1,5 +1,11 @@
 # Agent Manager Client 使用说明
 
+## 本机状态读取 / Local state reads
+
+Windows 本机数据库的只读访问使用包含盘符的文件 URI（如 `file:///C:/Users/.../client.db`），保留只读模式及路径中的空格、中文和特殊字符。概览读取失败时显示双语错误及重试入口；设置中的已保存连接独立读取，只有成功返回空列表才显示未配置。模型页在本机状态或平台权限尚未读到时显示对应读取状态，权限判定使用成功返回的结果。
+
+**English:** Read-only local database access uses drive-aware file URIs on Windows, preserving spaces, Unicode and special characters. Overview failures show a localized error and retry action. Saved connections load independently; only a successful empty result means none are configured. The model page distinguishes unavailable local state or platform permissions from confirmed permission settings.
+
 ## 客户端菜单显示 / Client menu visibility
 
 在“默认客户端策略”或单客户端策略弹窗的“采集与治理配置 → 客户端界面”设置菜单。客户端概览固定保留；Agent 管理、模型切换、执行记录、Agent 运行治理默认显示。全局使用显示开关，单客户端逐项选择“跟随全局 / 显示 / 隐藏”；“全部跟随全局”修改草稿，预览并保存后生效。单项覆盖不影响其他菜单继续继承。全局写入沿用超级管理员权限，单客户端写入沿用客户端管理权限及可见范围。

@@ -2734,6 +2734,74 @@ def test_user_token_stats_include_access_token_users_and_limit(tmp_path, monkeyp
     assert data["users"][1]["total_tokens"] == 30
 
 
+@pytest.mark.parametrize("usage,recorded", [({}, False), ({"prompt_tokens": 0, "completion_tokens": 0}, True),
+                                           ({"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}, True)])
+def test_gateway_records_usage_presence_and_full_compression_savings(tmp_path, monkeypatch, usage, recorded):
+    from backend.compression import CompressionResult
+    client, token, factory = _client(tmp_path, monkeypatch)
+    with factory() as db:
+        db.query(models.LlmApiKey).one().enable_compression = True
+        db.commit()
+
+    async def upstream(_db, _model, body):
+        return {"choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}}], "usage": usage}
+
+    monkeypatch.setattr(llm_gateway, "_call_upstream", upstream)
+    monkeypatch.setattr(llm_gateway, "compress_messages", lambda messages, **kwargs: CompressionResult(
+        messages=messages, pre_tokens=1000, post_tokens=200, tokens_saved=800, ratio=.8))
+    response = client.post('/v1/chat/completions', headers={"Authorization": f"Bearer {token}"},
+                           json={"model": "mock-model", "messages": [{"role": "user", "content": "hello"}]})
+    assert response.status_code == 200
+    with factory() as db:
+        metric = db.query(models.LlmUsageMetric).one()
+        assert metric.usage_recorded is recorded
+        assert metric.tokens_saved == 800 and metric.pre_compression_tokens == 1000
+
+
+@pytest.mark.parametrize("usage,recorded,total", [(None, False, 0), ({}, False, 0),
+    ({"prompt_tokens": 0, "completion_tokens": 0}, True, 0), ({"total_tokens": 7}, True, 7)])
+def test_stream_records_missing_zero_and_total_only_usage(tmp_path, monkeypatch, usage, recorded, total):
+    from backend.compression import CompressionResult
+    client, token, factory = _client(tmp_path, monkeypatch)
+    with factory() as db:
+        db.query(models.LlmApiKey).one().enable_compression = True
+        db.commit()
+    monkeypatch.setattr(llm_gateway, 'compress_messages', lambda messages, **kwargs: CompressionResult(
+        messages=messages, pre_tokens=1000, post_tokens=200, tokens_saved=800, ratio=.8))
+
+    class Stream:
+        async def __aenter__(self):
+            events = [{"choices": [{"index": 0, "delta": {"content": "ok"}}]}]
+            if usage is not None:
+                events.append({"choices": [], "usage": usage})
+            return httpx.Response(200, text=''.join('data: ' + json.dumps(event) + '\n\n' for event in events) + 'data: [DONE]\n\n')
+
+        async def __aexit__(self, *args):
+            pass
+
+    class Upstream:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def stream(self, *args, **kwargs):
+            return Stream()
+
+    monkeypatch.setattr(llm_gateway.httpx, 'AsyncClient', Upstream)
+    response = client.post('/v1/chat/completions', headers={"Authorization": f"Bearer {token}"},
+        json={"model": "mock-model", "stream": True, "messages": [{"role": "user", "content": "hello"}]})
+    assert response.status_code == 200 and '[DONE]' in response.text
+    with factory() as db:
+        metric = db.query(models.LlmUsageMetric).one()
+        assert metric.usage_recorded is recorded and metric.total_tokens == total
+        assert metric.tokens_saved == 800
+
+
 def test_privacy_mapping_list_search_and_delete(tmp_path, monkeypatch):
     client, _token, session_factory = _client(tmp_path, monkeypatch)
     db = session_factory()

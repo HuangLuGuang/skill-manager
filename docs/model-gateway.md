@@ -824,6 +824,32 @@ AIDR 正文和行为摘要复用预编译的控制字符扫描，避免逐字符
 
 ---
 
+## 用量统计 / Usage analytics
+
+在“模型网关 → 用量统计”查看请求、Token、耗时和压缩收益。顶部支持最近365天内的起止日期筛选，提供近7、14、30、90个北京时间自然日快捷选项（含今天）；模型、日期、状态与用户筛选同时作用于概览、趋势、模型分布和明细。点击趋势日期或“查看请求”下钻，表格支持服务端排序和分页，详情保留错误原文且不读取 Prompt、响应或 Pipeline Trace。“按用户”包含输入、输出 Token 和加权节省率；旧用户 Token 分析地址跳转至此，独立菜单已合并。
+
+- 请求审计通过 `request_id` 左关联用量，每个请求只计一次。历史仅有用量的记录按成功请求保留。总量包含成功、失败与防护阻断；失败率为失败数除以总量。认证拒绝等未写入审计的调用不在统计中。
+- Token 汇总已记录的上游用量。新记录用 `usage_recorded` 区分零用量与未返回用量；历史缺少该标记且全零的记录显示“未记录”，不改写原始数据。界面显示有用量记录的请求数。
+- 平均耗时与 P95 仅使用已记录的正耗时，包含成功、失败和阻断；P95 使用最邻近秩法（排序后第 `ceil(0.95 × N)` 项）。耗时是请求完成耗时，历史零耗时按未记录处理。
+- 压缩前后计数来自压缩器本地估算，与上游用量分别展示。每次节省量为 `max(0, pre_compression_tokens - post_compression_tokens)`，按同一请求集合汇总；加权节省率为节省量除以该集合的压缩前计数，不使用平均百分比或上游输入作为分母。覆盖率为有压缩计数的成功请求数除以成功请求数。失败但未保存压缩计数的请求不推测收益。新采集的节省量不再按上游输入截断；历史 `tokens_saved` 保留，统计读取已有前后计数。
+- 用户按凭证类型和归属关联，兼容旧 LLM API Key 及统一凭证；历史类型缺失且两类凭证 ID 对应不同用户时归入“未归属”。未归属仍参与总量及用户维度汇总。
+
+`GET /api/v1/llm-stats/dashboard` 一次返回概览、每日趋势、模型分布、分页明细与模型选项。公共参数：`days`（1～365，兼容周期参数）、`start_date` / `end_date`（同时传入、最近365天内的北京时间日期，包含起止日，优先于days）、`model`、`day`（周期内北京时间日期）、`status`（success/error/blocked）、`user_id`（0 代表未归属）；明细参数：`dimension`（model/user/requests）、`page`、`page_size`（1～100）、`sort`、`descending`。原有 overview/daily/by-model/by-user 接口复用同一统计查询。`GET /api/v1/llm-stats/requests/{request_id}` 返回最近 365 个自然日内的单次请求摘要。接口沿用 `privacy_audit:view`，不增加原始隐私链路读取权限。
+
+升级时幂等增加可空的 `llm_usage_metrics.usage_recorded` 和两张表的 `created_at` 索引；历史标记保持空值。首次创建索引会扫描现有记录并短暂占用 SQLite 写锁，宜在低流量时升级。
+
+**English:** Model Gateway → Usage Analytics provides request counts, recorded upstream tokens, completion latency and compression savings for a selected date range within the last 365 days, with 7, 14, 30 and 90 Beijing calendar-day shortcuts including today. Model, date, status and user filters apply consistently to all views. Select a trend date or drill into model/user rows; request records use server-side sorting and pagination. Details retain original errors without loading prompts, responses or Pipeline Trace. The user breakdown includes input/output tokens and weighted savings. The former User Token Analytics URL redirects here, with its separate menu consolidated.
+
+Audits left-join usage by request ID, counting each request once. Historical usage-only records count as successful requests. Totals include success, errors and guard blocks; error rate is errors divided by total. Calls without an audit, including authentication rejections, are outside this dataset. A nullable usage flag distinguishes explicit zero usage from missing usage; historical unmarked all-zero records remain unknown. Mean latency and nearest-rank P95 use recorded positive durations across all outcomes. Compression uses local before/after estimates for the same request set, separately from upstream tokens. Savings sum nonnegative per-request differences; weighted savings divide by original input counts, and coverage divides successful requests with compression counts by all successful requests. Failed requests without compression counts imply no estimated savings. Credential types resolve user ownership; ambiguous historical collisions remain unassigned and stay in totals. Historical data is not rewritten.
+
+The dashboard API above returns all sections and a paginated breakdown. The existing aggregate APIs share the same query. Request details cover the last 365 calendar days. Endpoints retain `privacy_audit:view`; they do not grant raw trace access. Startup idempotently adds the nullable usage flag and creation-time indexes. First-time index construction scans historical records and briefly holds a SQLite write lock; upgrade during low traffic.
+
+人工验收 / Manual UI checklist:
+
+- [ ] 中英文与窄屏：四类趋势、状态表头筛选、日期选择、用户/模型下钻、请求详情与错误原文可读。 / Check all four trends, status filtering, dates, drill-down and request details in both languages and at narrow widths.
+- [ ] 切换周期/筛选回第一页，保留每页数量；排序、分页和手动刷新结果一致，快速切换条件不被旧请求覆盖。 / Filters reset the page while preserving page size; verify sorting, paging, refresh and rapid changes.
+- [ ] 用同一批真实请求核对概览、每日及模型/用户合计；明确零用量、未记录、失败、阻断和压缩 no-op，核对北京时间边界。 / Reconcile the same real requests across all sections, including explicit zero, missing usage, failures, blocks, compression no-ops and Beijing date boundaries.
+
 ## 12. 智能上下文压缩
 
 > 历史实施记录见 [headroom-compression-integration.md](headroom-compression-integration.md)，当前行为以本节和实际链路追踪为准。

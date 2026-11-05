@@ -110,6 +110,7 @@ def migrate() -> None:
             ).fetchall()
         }
         for col_name, col_type in [
+            ("usage_recorded", "BOOLEAN"),
             ("pre_compression_tokens", "INTEGER NOT NULL DEFAULT 0"),
             ("post_compression_tokens", "INTEGER NOT NULL DEFAULT 0"),
             ("tokens_saved", "INTEGER NOT NULL DEFAULT 0"),
@@ -139,6 +140,10 @@ def migrate() -> None:
                 conn.exec_driver_sql(
                     f"ALTER TABLE llm_request_audit ADD COLUMN {col_name} {col_type}"
                 )
+        for table in ("llm_request_audit", "llm_usage_metrics"):
+            columns = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+            if "created_at" in columns:
+                conn.exec_driver_sql(f"CREATE INDEX IF NOT EXISTS idx_{table}_created_at ON {table} (created_at)")
 
 
 if __name__ == "__main__":
