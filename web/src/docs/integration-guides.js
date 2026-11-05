@@ -48,8 +48,8 @@ const zh = {
       },
       {
         id: 'dify',
-        title: '场景三：Dify 通过 API 做资产和风险纳管',
-        paragraphs: ['平台分别使用 Dify Console、App 和 Knowledge API 获取配置证据、执行测试和按授权检查知识资产。'],
+        title: '场景三：Dify 资产检查与运行治理',
+        paragraphs: ['资产检查分别使用 Dify Console、App 和 Knowledge API 获取配置证据、执行测试和按授权检查知识资产。运行治理则在智能体列表登记 Dify 应用，并部署配套 Runtime Adapter，使用绑定 Agent 的运行凭证查看节点、Skill 准入、Shell 调用和管控审批。两条路径分别配置。'],
         table: { columns: ['接入点', '平台得到什么', '后续验证'], rows: [
           ['Console API / 无密钥 DSL', '应用档案、工作流、节点、Prompt 摘要、Tool、MCP 和知识库引用', '节点执行情况见运行轨迹'],
           ['App API', '对已发布应用执行授权范围内的动态测试', '单次测试不能证明全部业务路径安全'],
@@ -227,8 +227,8 @@ const en = {
         link: { path: '/docs/runtime-integration', label: 'Read Runtime API, Verifier, and Hook integration' },
       },
       {
-        id: 'dify', title: 'Scenario 3: govern Dify assets and risks through APIs',
-        paragraphs: ['Dify Console, App, and Knowledge APIs provide configuration evidence, authorized tests, and bounded knowledge inspection.'],
+        id: 'dify', title: 'Scenario 3: Dify asset checks and runtime governance',
+        paragraphs: ['Dify Console, App, and Knowledge APIs provide configuration evidence, authorized tests, and bounded knowledge inspection. For runtime governance, register the Dify app under Agents and deploy the matching Runtime Adapter with an Agent-bound credential to inspect nodes, Skill admission, Shell calls, and approvals. Configure these paths separately.'],
         table: { columns: ['Integration point', 'Evidence obtained', 'Further verification'], rows: [
           ['Console API / secret-free DSL', 'App profile, workflow, nodes, prompt metadata, tools, MCP, and knowledge references', 'Review runtime traces for node execution'],
           ['App API', 'Authorized dynamic tests against the published app', 'One test does not cover every business path'],

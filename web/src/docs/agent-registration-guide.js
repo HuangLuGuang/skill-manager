@@ -64,6 +64,11 @@ const zh = {
   sections: [
     ...agentIntegrationChoices['zh-CN'],
     {
+      id: 'dify-registration', title: 'Dify 应用的登记入口',
+      paragraphs: ['Dify 应用需要运行治理时，登记表的“接入类型”选择 Dify，填写 Dify 实例标识、Workspace ID 和 App ID，再填写平台 Agent 身份及责任归属。保存后从智能体列表打开独立工作台，查看“概览”“行为审计”“Skill”“管控策略”和“接入配置”。实例、工作区与应用标识创建后不可在编辑表单中修改。', '扫描目标中的 Console / App / Knowledge 凭据用于资产检查和授权测试；运行接入使用绑定该 Agent 的运行凭证及配套 Adapter。两条路径按实际目标分别配置。'],
+      link: { path: '/docs/dify-security-access#runtime-governance', label: '查看 Dify 运行治理、Skill 准入与 Adapter 接入' },
+    },
+    {
       id: 'source-specific-details', title: '确定需要登记后：创建过程总览',
       paragraphs: ['确认本次需要手动登记后，按下面的顺序完成配置。已有身份可直接进入它的接入指引；普通网关应用和 Scanner 按上面的对应路线继续。'],
       flow: [
@@ -169,6 +174,11 @@ const en = {
   summary: 'Decide whether you need an Agent identity and choose the integration for your scenario. If manual registration is needed, fill in the form, authorize resources and configure the runtime.',
   sections: [
     ...agentIntegrationChoices['en-US'],
+    {
+      id: 'dify-registration', title: 'Register a Dify app for runtime governance',
+      paragraphs: ['Choose Dify as the integration type, enter the Dify instance ID, Workspace ID, and App ID, then complete the platform Agent identity and ownership. After saving, open its dedicated workspace from Agents: Overview, Behavior Audit, Skills, Control Policies, and Connection Settings. Instance, workspace, and app IDs are read-only when editing an existing registration.', 'Console / App / Knowledge credentials on a scan target serve asset checks and authorized tests. Runtime integration uses an Agent-bound runtime credential and the matching adapter. Configure these paths separately for their respective goals.'],
+      link: { path: '/docs/dify-security-access#runtime-governance', label: 'Read Dify runtime governance, Skill admission, and adapter setup' },
+    },
     {
       id: 'source-specific-details', title: 'When registration is needed: creation overview',
       paragraphs: ['If manual registration is needed, follow the sequence below. Existing identities can open their integration guide directly; ordinary gateway apps and Scanner users can continue on the routes above.'],

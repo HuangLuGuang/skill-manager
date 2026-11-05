@@ -122,8 +122,8 @@ const zh = {
         {
           id: 'check-system',
           title: '1. 检查平台状态',
-          paragraphs: ['平台总览按账号权限展示治理资产、Skill 审核与 MCP 调用审批、运行观察、最近活动及统计图。待办标签为完整数量，每类列表展示最近 20 条；点击 MCP 待办可直接打开审批详情。', '运行观察的今日计数与模型趋势按 UTC 自然日统计。趋势统计已记录用量的请求，支持近 7 天和 30 天；Skill 风险分布保留未判定 / 未知项。AIDR 显示最近 24 小时收到且仍保留的日志 / Hook 记录及去重上报客户端数，采集正在测试中。', '核心服务状态请到系统总览查看。LLM 与 Sandbox 是否启用取决于管理员配置，未配置的检测项会在提交页禁用。'],
-          image: { name: 'dashboard', alt: '平台总览页面', caption: '总览展示当前账号可见的资产、待办、运行记录与统计；刷新失败会明确提示。' },
+          paragraphs: ['平台总览按账号权限展示治理资产，并分为“资产”“行为”“风险”三个标签。默认“资产”展示平台登记资产、智能体上报资产、客户端在线状态和产品分布，点击图表可查看明细或进入对应列表。客户端在线依据最近 10 分钟心跳。', '“行为”按客户端、数据来源和近 7 / 30 天查看工具调用趋势、调用构成及命令 / 工具排行，下方展示模型调用趋势和运行观察。“风险”展示当前未处置风险、期间新增风险、等级与类型分布，并提供 Skill 风险分布及 Skill / MCP 待办。待办数量为完整数量，每类列表展示最近 20 条。', '运行观察的今日计数与模型趋势按 UTC 自然日统计；模型趋势仅统计已记录用量的请求。AIDR 运行观察显示最近 24 小时收到且仍保留的日志 / Hook 记录及去重上报客户端数。当前未处置风险为快照，与所选期间新增风险分别统计。', '核心服务状态请到系统总览查看。LLM 与 Sandbox 是否启用取决于管理员配置，未配置的检测项会在提交页禁用。'],
+          image: { name: 'dashboard', alt: '平台总览的资产标签', caption: '当前账号可见的资产总览；切换“行为”或“风险”查看运行统计与待办。截图中的数量和状态仅代表采集时刻。' },
           link: { path: '/dashboard', label: '打开平台总览' },
         },
         {
@@ -401,7 +401,7 @@ const zh = {
             "可治理内容和完整性，不能仅凭目录证明调用者"
           ],
           [
-            "客户端策略",
+            "全局客户端配置",
             "先仅记录，再按触发情况恢复可信版本",
             "核对具体规则和本机有效策略"
           ]
@@ -456,7 +456,7 @@ const zh = {
       "id": "discover",
       "title": "发现 Agent、目录和共用边界",
       "paragraphs": [
-        "在平台“Agent 发现配置”搜索 Codex 和 Claude Code，核对启用状态与 Skill 目录。客户端同步后，在“Agent 管理”选择对应 Agent 查看本地 Skills。"
+        "在平台“全局客户端配置 → Agent 发现”搜索 Codex 和 Claude Code，核对启用状态与 Skill 目录。客户端同步后，在“Agent 管理”选择对应 Agent 查看本地 Skills。"
       ],
       "steps": [
         {
@@ -535,7 +535,7 @@ const zh = {
       "image": {
         "name": "client-app-status",
         "alt": "客户端概览 → 运行与同步：后台治理、最近同步和待上报事件。",
-        "caption": "客户端概览 → 运行与同步：后台治理、最近同步和待上报事件。 2026-10-10 直接截取本机 macOS Dev 客户端；所示状态是当时观测值。"
+        "caption": "客户端概览 → 运行与同步：后台治理、最近同步和待上报事件。 2026-11-04 截取自已安装的 macOS 客户端 26.11.04.5；数值与状态仅代表截图时刻。"
       }
     },
     {
@@ -660,8 +660,8 @@ const zh = {
           "id": "list-columns",
           "title": "自定义显示列",
           "paragraphs": [
-            "点击“显示列”选择需要展示的列，可配置全部 13 列。默认显示 Skill 名称、最新版本、最新可信、状态、风险等级、LLM 判定结果、审批人、扫描时间和操作。Skill ID、规则扫描、深度扫描和 Sandbox 默认隐藏。",
-            "列设置按当前账号保存在本浏览器中；点击“恢复默认”回到默认组合。横向滚动可查看较宽表格中的其他列。"
+            "点击“显示列”选择需要展示的列，可配置全部 13 列。默认显示 Skill 名称、最新版本、最新可信、状态、风险、LLM 判定结果、审批人、更新时间和操作。Skill ID、规则扫描、深度扫描和 Sandbox 默认隐藏。",
+            "列设置按当前账号保存在本浏览器中；至少保留一项可配置列，最后一项不能取消。点击“恢复默认”回到默认组合。默认按更新时间降序排列；可排序列在升序和降序之间切换。横向滚动可查看较宽表格中的其他列。"
           ],
           "image": {
             "name": "skill-columns",
@@ -687,7 +687,7 @@ const zh = {
             }
           ],
           "paragraphs": [
-            "LLM 不可用时，先到“模型网关 > 模型管理”添加可用模型，再到“Skill 治理 > 策略配置 > 高级配置 > AI 分析服务”选择模型，并在“检测设置”启用 AI 分析。"
+            "LLM 不可用时，先到“模型网关 > 供应商与模型”添加可用模型，再到“Skill 治理 > 策略配置 > 高级配置 > AI 分析服务”选择模型，并在“检测设置”启用 AI 分析。"
           ],
           "image": {
             "name": "skill-rescan",
@@ -906,7 +906,7 @@ const zh = {
           "title": "LLM 分析：最后一次语义研判",
           "paragraphs": [
             "勾选 LLM 后，系统等待已选的 Scanner、规则、深度扫描和 Sandbox 完成，再把 Skill 内容快照及分析证据交给已配置模型，进行一次最终语义研判。LLM 不直接执行 Skill。",
-            "LLM 不可用时，先到“模型网关 > 模型管理”添加可用模型，再到“Skill 治理 > 策略配置 > 高级配置 > AI 分析服务”选择模型，并在“检测设置”启用 AI 分析。"
+            "LLM 不可用时，先到“模型网关 > 供应商与模型”添加可用模型，再到“Skill 治理 > 策略配置 > 高级配置 > AI 分析服务”选择模型，并在“检测设置”启用 AI 分析。"
           ],
           "bullets": [
             "输出 benign、suspicious 或 malicious 风险、专业分析报告、证据接受或排除说明，以及适用时的攻击链和安全框架映射。",
@@ -1184,7 +1184,7 @@ const zh = {
           "title": "检测开关与服务配置",
           "bullets": [
             "“检测设置”启用 AI 分析与 Sandbox，并选择哪些中间风险需要补跑 Sandbox。规则分析始终执行。",
-            "“高级配置 > AI 分析服务”选择模型及超时、文件数量和字符上限。模型先在“模型网关 > 模型管理”添加；提交页和重扫弹窗仍需勾选 LLM 分析。",
+            "“高级配置 > AI 分析服务”选择模型及超时、文件数量和字符上限。模型先在“模型网关 > 供应商与模型”添加；提交页和重扫弹窗仍需勾选 LLM 分析。",
             "“高级配置 > Sandbox 服务”配置本地 Docker 或远程服务，以及网络、资源和执行时长；远程服务可测试连接。",
             "“高级配置”还可设置相同内容与检测上下文的结果复用；主动重新检测会执行新检测。",
             "开关说明能力是否可用；实际执行情况以报告的 completed、skipped、unavailable、failed 为准。"
@@ -1260,7 +1260,7 @@ const zh = {
         {
           id: 'boundaries',
           title: '需要理解的边界',
-          bullets: ['MCP服务保存上游连接；MCP网关决定向调用方暴露哪些Tool。', 'Schema变化后暂停暴露，重新保存网关后才批准新Schema。', '审批按凭证、网关、Tool和Schema生效，不把参数当作永久签名。', 'MCP凭证不代表Agent身份；Agent同时使用MCP时需要各自的凭证。'],
+          bullets: ['MCP服务保存上游连接；MCP网关决定向调用方暴露哪些Tool。', 'Schema变化后暂停暴露，重新保存网关后才批准新Schema。', '审批按凭证、网关、Tool和Schema生效，不把参数当作永久签名。', '独立 MCP Client 使用 MCP 网关凭证，不代表平台 Agent。已登记 Agent 可以在同一张绑定身份的运行凭证上组合 MCP 权限，并限制允许访问的网关。'],
           link: { path: '/mcp-governance/servers', label: '打开 MCP 服务' },
         },
         {
@@ -1599,7 +1599,7 @@ const zh = {
       "image": {
         "name": "client-app-overview",
         "alt": "客户端概览：待关注事项与管理范围。",
-        "caption": "客户端概览：待关注事项与管理范围。 2026-10-10 直接截取本机 macOS Dev 客户端；所示状态是当时观测值。"
+        "caption": "客户端概览：待关注事项与管理范围。 2026-11-04 截取自已安装的 macOS 客户端 26.11.04.5；数值与状态仅代表截图时刻。"
       }
     },
     {
@@ -1660,8 +1660,8 @@ const zh = {
       "id": "discovery-config",
       "title": "在平台配置 Agent 发现目录",
       "paragraphs": [
-        "进入“客户端管理 → Agent 发现配置”，按 Agent 名称或标识搜索，配置启用状态、适用系统和 Skill 目录；每行一个目录。相对路径以客户端用户主目录为起点，例如 .qoderwork/skills；动态用户目录可以使用单独的 * 路径段。保存会提交全部配置，搜索只筛选显示。",
-        "内置目录包含 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes、TRAE、Cursor、CodeBuddy、WorkBuddy、TeleAgent，以及 Qoder、Qoder CN、QoderWork、ZCode。TeleAgent 默认使用 .config/TeleAgent/users/*/skills，只展开已存在的用户 Skill 目录，不依赖固定用户 ID。Claude Desktop、Kimi Work、Doubao Work 的预置条目未启用且没有默认目录，应核对实际目录后配置。",
+        "进入“客户端管理 → 全局客户端配置 → Agent 发现”，按 Agent 名称或标识搜索，配置启用状态、适用系统和 Skill 目录；每行一个目录。相对路径以客户端用户主目录为起点，例如 .qoderwork/skills；动态用户目录可以使用单独的 * 路径段。此页单独保存，提交全部发现配置；搜索只筛选显示。单机覆盖位于设备详情的“客户端配置 → Agent 发现”。",
+        "内置目录包含 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes、TRAE、Cursor、CodeBuddy、WorkBuddy、TeleAgent、QwenWork CN，以及 Qoder、Qoder CN、QoderWork、ZCode；共用 Skills 默认读取 .agents/skills。QwenWork CN 包含 .qwenworkcn/skills 和 .qwenworkcn/identity-data/v1/*/skills。TeleAgent 默认使用 .config/TeleAgent/users/*/skills，只展开已存在的用户 Skill 目录，不依赖固定用户 ID。Claude Desktop、Kimi Work、Doubao Work 的预置条目未启用且没有默认目录，应核对实际目录后配置。",
         "在线客户端通过配置同步任务获取更新并重新发现；离线时沿用已缓存配置。本机单独设置的目录优先。保存目录不会安装 Agent，也不会创建不存在的目录。",
         "目录未生效时，依次核对平台保存值、同步任务、本机覆盖设置、适用系统和目录是否存在。"
       ],
@@ -1694,10 +1694,10 @@ const zh = {
       "id": "governance-modes",
       "title": "默认策略与单台客户端策略",
       "paragraphs": [
-        "平台“客户端管理 → 客户端策略”提供公共规则；单机设置进入“设备详情 → 策略与审批 → 采集与治理配置”。“模型与请求”设置 Token 压缩和 Prompt 防护，“Skill 处置”设置分类规则。Prompt 防护默认仅记录，Token 压缩默认关闭；两者均可继承平台默认或为单台客户端覆盖。Skill 规则可逐项继承。默认更新不覆盖客户端显式设置。",
+        "平台“客户端管理 → 全局客户端配置”提供公共规则；单机设置进入“设备详情 → 客户端配置”。配置按“采集与接入”“采集内容与脱敏”“模型与请求”“Agent 发现”“Skill 治理”“客户端界面”“安全规则”分类。“模型与请求”设置 Token 压缩和 Prompt 防护；“Skill 治理”分别提供“使用审计”和“分类处置”。Prompt 防护默认仅记录，Token 压缩默认关闭；两者均可继承平台默认或为单台客户端覆盖。Skill 规则可逐项继承。默认更新不覆盖客户端显式设置。",
         "客户端“检测策略”展示本机已同步的有效规则。Prompt 防护保存后更新模型切换自动创建的有效凭证，新建和轮换凭证继承当前值，网关后续请求立即使用新配置；长轮询同步桌面端配置与版本。LLM 复核开关目前仅保存，尚未执行复核。平台默认值与客户端不同，先核对覆盖项，再检查同步任务。"
       ],
-      "image": { "name": "client-app-policy", "alt": "客户端概览 → 检测策略：当前同步的 Skill 处置规则。", "caption": "客户端概览 → 检测策略：当前同步的 Skill 处置规则。 2026-10-10 直接截取本机 macOS Dev 客户端；所示状态是当时观测值。" },
+      "image": { "name": "client-app-policy", "alt": "客户端概览 → 检测策略：当前同步的 Skill 处置规则。", "caption": "客户端概览 → 检测策略：当前同步的 Skill 处置规则。 2026-11-04 截取自已安装的 macOS 客户端 26.11.04.5；数值与状态仅代表截图时刻。" },
       "table": {
         "columns": [
           "触发情况",
@@ -1777,10 +1777,11 @@ const zh = {
       "id": "policy-preview",
       "title": "预览影响后再保存",
       "paragraphs": [
-        "点击“预览影响范围”，默认按客户端显示 Agent 数、Skill 数和预计处置汇总；展开客户端查看 Agent，再展开查看 Skill、目录及预估动作。",
+        "修改配置后点击“预览影响范围”；Skill 分类处置使用“预览并保存分类处置”。预览先逐项展示配置项、当前值和保存后值，再显示受影响客户端及 Skill 目录范围。展开处置汇总可查看 Skill、目录和预估动作。",
         "预览依据平台已收到的内容资料。资料不足时显示暂无法预估，实际动作仍由客户端校验当前内容后决定。需要更准确的预估，可完成一次巡检和上报后重新预览。",
         "保存后查看策略同步任务。策略已应用表示配置已读取并保存，不表示所有 Skill 处置已经完成；实际处置结果要查看事件和执行记录。"
-      ]
+      ],
+      "image": { "name": "client-policy-preview", "alt": "分类处置变更与影响范围预览", "caption": "未保存的示例草稿：将未经平台认证的 Skill 从仅记录改为记录且告警，预览只展示实际变更及对应范围。" }
     },
     {
       "id": "model-policy-sync",
@@ -1799,7 +1800,7 @@ const zh = {
       "image": {
         "name": "client-app-status",
         "alt": "客户端概览 → 运行与同步：后台治理、最近同步和待上报事件。",
-        "caption": "客户端概览 → 运行与同步：后台治理、最近同步和待上报事件。 2026-10-10 直接截取本机 macOS Dev 客户端；所示状态是当时观测值。"
+        "caption": "客户端概览 → 运行与同步：后台治理、最近同步和待上报事件。 2026-11-04 截取自已安装的 macOS 客户端 26.11.04.5；数值与状态仅代表截图时刻。"
       }
     },
     {
@@ -1835,7 +1836,7 @@ const zh = {
       "id": "recent-events",
       "title": "翻页查看最近事件",
       "paragraphs": [
-        "在客户端详情底部使用分页器查看更早事件。刷新保留当前页，切换客户端从第一页开始；事件按最近发生时间排序。"
+        "进入“客户端详情 → Agent 与资产 → 治理记录”，按关键词、Agent、事件类别、处理情况和时间范围筛选；点击事件查看原因与处置证据。底部分页可查看更早记录。刷新保留当前页，切换客户端从第一页开始；事件按最近发生时间排序。"
       ],
       "image": {
         "name": "client-events",
@@ -1853,7 +1854,7 @@ const zh = {
         },
         {
           "title": "选择本机 Agent",
-          "body": "进入桌面客户端“模型切换”，选择已发现的Claude Code、Codex或Hermes。页面从本机配置文件读取当前模型、网关地址和配置路径。"
+          "body": "进入桌面客户端“模型切换”，选择已发现且支持模型配置的 Agent，例如 Claude Code、Codex、Gemini CLI、OpenCode 或 Hermes。页面从本机配置文件读取当前模型、网关地址和配置路径。"
         },
         {
           "title": "确认网关地址来源",
@@ -1947,7 +1948,7 @@ const zh = {
           id: 'client-agent-issuance',
           title: '客户端如何自动创建 Agent 运行凭证',
           paragraphs: ['创建客户端凭证时可以开启“允许客户端为本机 Agent 自动创建运行凭证”。该选项默认关闭，并不把 model:chat 或 mcp:* 直接授予客户端凭证。'],
-          bullets: ['本机 Agent 必须先被客户端发现；尚无运行身份时，第一次切换自动创建归属当前客户端的托管 Agent 并绑定。', '托管 Agent 是凭证身份和审计载体，不表示模型需要与 Agent 类型匹配。', '客户端凭证可以限制允许配置的网关模型；该范围不是客户端直接模型调用权限。', '只有具体模型切换任务才能触发领取，凭证明文不进入任务载荷、列表接口或桌面渲染进程。', '生成的凭证固定包含 runtime:verify-signature、runtime:can-load、runtime:check-tool 和 model:chat，并且只允许任务选择的模型；不包含 runtime:govern。平台Agent已有MCP网关时，同时保留三项mcp:*调用权限和网关允许列表。', '吊销或删除父客户端凭证时，会吊销由它自动生成的有效 Agent 凭证。', '当前自动写入支持Claude Code、Codex和Hermes；其他Agent仍需经过配置格式和协议验证。'],
+          bullets: ['本机 Agent 必须先被客户端发现；尚无运行身份时，第一次切换自动创建归属当前客户端的托管 Agent 并绑定。', '托管 Agent 是凭证身份和审计载体，不表示模型需要与 Agent 类型匹配。', '客户端凭证可以限制允许配置的网关模型；该范围不是客户端直接模型调用权限。', '只有具体模型切换任务才能触发领取，凭证明文不进入任务载荷、列表接口或桌面渲染进程。', '生成的凭证固定包含 runtime:verify-signature、runtime:can-load、runtime:check-tool 和 model:chat，并且只允许任务选择的模型；不包含 runtime:govern。平台Agent已有MCP网关时，同时保留三项mcp:*调用权限和网关允许列表。', '吊销或删除父客户端凭证时，会吊销由它自动生成的有效 Agent 凭证。', '模型自动写入范围由配套客户端的适配能力决定；页面对能力未确认的产品明确提示。核对实际配置、重启要求和真实调用验证结果。'],
         },
         {
           id: 'composite-agent-runtime',
@@ -2035,7 +2036,7 @@ const zh = {
     'audit-trail': {
       eyebrow: '智能体管理',
       title: '审计追踪',
-      summary: '按时间、事件类型和关键词追踪 Skill 提交审核、运行校验、Tool 调用和客户端处置，区分请求、失败、阻断与成功。',
+      summary: '按智能体、客户端、事件类别、结果和时间追踪身份、配置、授权与运行事件，区分平台决策和实际执行结果。',
       sections: [
         {
           id: 'what-is-recorded',
@@ -2051,13 +2052,13 @@ const zh = {
           id: 'query',
           title: '怎样定位一次事件',
           steps: [
-            { title: '选择时间范围', body: '页面提供最近 24 小时、7 天和 30 天。先覆盖事件发生时间，避免把“查不到”误认为“没有发生”。' },
-            { title: '选择事件类型', body: '先用阻断、内容不一致、审核或客户端处置等稳定事件类型缩小范围。' },
-            { title: '使用关键词', body: '输入 Skill、Agent、凭证 Actor 或事件详情中的关键词即自动刷新结果；事件类型和时间范围选定后立即生效，筛选变化会回到第一页。' },
-            { title: '交叉核对', body: '表格按时间、事件、对象、Agent 与来源、操作人展示记录；对象下显示 Skill ID，Agent 下显示来源 IP。Skill 链接可跳转到详情。' },
-            { title: '展开证据', body: '点击“查看”在当前行下展开原因和事件 ID；原因仅在记录提供时显示。“原始 JSON”保留事件的完整字段和值，用于按事件 ID 排障、核对来源或向技术支持提供证据；日常浏览无需打开。' },
+            { title: '选择对象和时间', body: '按智能体、客户端、事件类别和结果筛选；时间支持最近 24 小时、7 天、30 天或全部。所有时间按北京时间（UTC+8）显示，仅查询当前账号权限范围内的记录。' },
+            { title: '搜索与排序', body: '输入关键词自动筛选，也可按回车立即查询；修改筛选回到第一页。时间列支持升降序，默认最新在前。' },
+            { title: '核对身份与事件', body: '列表依次展示智能体 / 客户端、事件与对象、结果、时间。平台智能体、本地 Agent 和客户端分别标明；巡检记录同时展示最近发现时间与累计次数。' },
+            { title: '打开事件详情', body: '点击事件名称或整行，右侧展示原因、关联对象、可读来源字段及事件编码和来源标识；窄屏在列表下方查看。客户端处置记录复用客户端事件详情。按可用入口查看智能体、客户端、Skill 或运行任务。' },
+            { title: '区分决策与执行', body: '平台允许或审批授权不等于工具已经执行成功。结合任务回执、宿主结果和对应运行证据确认结果；关闭详情可返回原筛选列表。' },
           ],
-          image: { name: 'audit-trail', alt: '审计追踪表格与行内事件详情', caption: '示例数据：在表格内展开原因和事件 ID，按需查看完整原始 JSON。' },
+          image: { name: 'audit-trail', alt: '审计追踪列表与事件详情', caption: '实际页面：按智能体、客户端、类别、结果和时间筛选，点击事件查看来源与处置证据。' },
           link: { path: '/audit', label: '打开审计追踪' },
         },
         {
@@ -2078,9 +2079,9 @@ const zh = {
           table: {
             columns: ['页面', '解决的问题'],
             rows: [
-              ['供应商管理 / 模型管理', '配置上游端点、密钥、模型名称、上下文窗口和输出限制。'],
-              ['组策略绑定 / 隐私策略', '把用户组、模型范围、PII替换和Prompt防护规则绑定起来。'],
-              ['Prompt防护测试', '在不依赖上游模型回复的情况下验证注入、提示泄露和凭据外传规则。'],
+              ['供应商与模型', '配置上游端点、密钥、模型名称、上下文窗口和输出限制。'],
+              ['组策略绑定 / 隐私策略', '维护 PII 处理策略、系统默认策略和用户组绑定；凭证可直接指定隐私策略。'],
+              ['Prompt 防护', '按分类配置文本规则、AI 判定项、检测模型和风险等级，并用文本或图片测试。'],
               ['Skill告警', '核对模型请求声明的Skill与平台登记、状态和Agent授权是否一致。'],
               ['隐私审计 / 隐私链路追踪', '查看请求结果及原始、替换、压缩、上游和还原阶段。'],
               ['Token压缩统计 / 用户Token分析', '查看请求量、Token消耗、压缩节省、耗时和用户用量。'],
@@ -2093,11 +2094,27 @@ const zh = {
           steps: [
             { title: '添加供应商', body: '选择 OpenAI Chat Completions、OpenAI Responses API 或 Anthropic Messages 兼容格式，配置端点和供应商密钥。' },
             { title: '登记模型', body: '设置模型名称、上下文窗口、最大输出和启用状态。' },
-            { title: '配置用户组和隐私策略', body: '决定PII实体类型、Prompt防护和会话映射策略。' },
+            { title: '配置隐私策略与 Prompt 防护', body: '设置 PII 实体和会话映射策略，选择系统默认、用户组绑定或凭证指定的隐私策略；在 Prompt 防护页配置文本与 AI 检测，再为调用凭证选择防护模式。' },
             { title: '签发模型调用凭证', body: '限制允许模型、请求大小和并发；也可以只为指定凭证启用压缩。' },
             { title: '发起调用并查看链路', body: '通过OpenAI或Anthropic兼容入口调用，再在隐私链路追踪中核对处理结果。' },
           ],
-          link: { path: '/model-gateway/providers', label: '打开供应商管理' },
+          link: { path: '/model-gateway/providers', label: '打开供应商与模型' },
+        },
+        {
+          id: 'privacy-selection', title: '隐私策略怎样选择',
+          paragraphs: ['请求优先使用调用凭证指定的隐私策略；凭证未指定时按用户组选择，未匹配时使用系统默认策略。系统默认策略也可以绑定用户组。先在“隐私策略”维护内容，再在凭证或“组策略绑定”中选择；实际应用结果以本次隐私链路为准。'],
+          link: { path: '/model-gateway/policies', label: '打开隐私策略' },
+        },
+        {
+          id: 'prompt-guard', title: '配置并测试 Prompt 防护',
+          steps: [
+            { title: '选择检测模型', body: '打开“Prompt 防护 → 防护设置”，编辑默认检测模型、图片检测模型和共用超时。图片检测需要支持多模态的通用模型；通用分类可以单独指定模型或跟随默认。瑞数检测模型使用对应的原生检测能力。' },
+            { title: '维护检测分类', body: '选择或新增分类，分别配置“AI 判定项”和“文本规则”。分类开关控制本类文本规则和通用 AI 判定项；判定项支持启停与命中风险等级，自定义项支持编辑和删除。文本规则与 AI 配置分别保存。' },
+            { title: '测试后保存', body: '使用“测试模型”或“防护测试”检查样例和实际检测状态。AI 语义与图片检测会调用所选检测模型；只有文本规则测试不需要模型推理。保存分类、AI 判定项、风险等级和模型配置后，再核对调用凭证的防护模式。' },
+            { title: '核对实际处置', body: '风险等级参与汇总，是否阻断由调用凭证的关闭、仅记录、警告或阻断模式决定。测试结果、检测失败和真实业务请求的处置需分别核对。' },
+          ],
+          image: { name: 'prompt-guard', alt: 'Prompt 防护的分类与 AI 判定项工作台', caption: '实际页面：检测模型、分类、AI 判定项与文本规则分别配置；截图状态仅代表采集时刻。' },
+          link: { path: '/model-gateway/prompt-guard', label: '打开 Prompt 防护' },
         },
         {
           id: 'provider-protocols',
@@ -2155,6 +2172,41 @@ const zh = {
       title: '系统管理',
       summary: '配置账号、角色、菜单与平台品牌，查询三类日志，并检查系统服务状态。',
       sections: [
+        {
+          "id": "openapi-access",
+          "title": "开放 API：接入方、凭证、方案与调用记录",
+          "paragraphs": [
+            "从系统总览或统一凭证中心打开“开放 API 管理”。接入方管理、访问凭证、检测与评测方案、回调配置、网关配置和调用日志分别维护；页面时间均为北京时间（UTC+8）。"
+          ],
+          "table": {
+            "columns": [
+              "入口",
+              "操作与核对"
+            ],
+            "rows": [
+              [
+                "接入方管理",
+                "设置固定接入方标识、名称和部门到用户组的映射。"
+              ],
+              [
+                "访问凭证",
+                "绑定接入方、授权部门、接口权限与到期时间；明文创建后只显示一次，支持停用、启用和吊销。外部接口使用 Authorization: Bearer ACCESS_TOKEN，可通过 GET /openapi/v1/access-context 检查授权范围。"
+              ],
+              [
+                "检测与评测方案",
+                "分别维护 Skill 扫描和智能体评测方案，配置检测项、策略、模型和检查范围，并按接入方授权。修改生成新版本；已受理任务与历史报告保留原快照。"
+              ],
+              [
+                "调用日志",
+                "API 请求按接入方、凭证、请求编号、接口、结果和时间查询，展示 HTTP 状态、耗时、来源和错误；回调与同步查看异步投递。调用方追踪号与内部请求编号分别保留。"
+              ]
+            ]
+          },
+          "link": {
+            "path": "/external-access",
+            "label": "打开开放 API 管理"
+          }
+        },
         { id: 'openapi-callbacks', title: '开放 API 回调配置', paragraphs: ['在“开放 API 管理 → 回调配置”创建或编辑名称、callback_id、接入方、HTTP/HTTPS地址、Bearer令牌和通知类型。令牌加密保存、掩码展示，编辑时留空保留。页面保存后，Skill检测和智能体评测可直接使用callback_id。', '已有任务使用原配置版本。停用或删除后停止后续投递并保留历史记录；重新启用后可重投失败记录。测试通知独立于真实任务，在投递记录中核对用途、时间、失败原因和回执。'], link: { path: '/external-access?tab=callbacks', label: '打开回调配置' } },
         { id: 'openapi-gateways', title: '开放 API 网关配置', paragraphs: ['在“开放 API 管理 → 网关配置”选择已有外部 AI 网关，填写结果同步配置编号（gateway_id）、接入方及接口路径。完整地址由网关管理地址和接口路径组成，认证复用该网关的Token ID、加密Token Value及HMAC-SHA256签名。gateway_id提供给智能体开发平台发起评测，创建后保持不变。旧配置补充路径后生成新版本，历史任务保留原版本和原报告；发送及重试读取当前网关凭据。管理地址变更后需保存新的同步配置版本，旧地址投递会记录失败原因。', '测试通知独立记录，AI安全网关返回相同sync_id及accepted=true。在投递记录中查看状态、发起人、时间、失败原因和回执并重试失败记录；停用或删除停止后续投递，保留历史。'], link: { path: '/external-access?tab=gateways', label: '打开网关配置' } },
         {"id": "accounts", "title": "账号管理", "paragraphs": ["在“系统管理 → 账号管理”新增账号、分配角色和用户组，或维护账号状态。"], "bullets": ["新增时填写用户名、初始密码，按需填写邮箱，并选择角色、用户组和启用状态。用户名只允许大小写英文字母、数字、下划线、点和短横线，最多 64 个字符。", "编辑可修改邮箱、角色和用户组；用户名创建后只读。重置密码使用独立入口。", "禁用账号或重置密码后，原有登录会话失效。有关联业务记录的账号可先禁用。", "可按关键词、角色、状态、用户组筛选；可按创建时间或最后登录时间排序。可执行的操作由当前账号权限决定。"], "link": {"path": "/users", "label": "打开账号管理"}, "image": {"name": "system-accounts", "alt": "账号管理", "caption": "账号管理"}},
@@ -2437,7 +2489,7 @@ const en = {
     'quick-start': {
       eyebrow: 'Get started', title: 'Complete your first Skill governance flow', summary: 'Use a test ZIP with no production secrets or personal data to complete submission, scanning, review, Agent authorization, and runtime verification.',
       sections: [
-        { id: 'check-system', title: '1. Check platform status', paragraphs: ['The overview shows governed assets, Skill reviews, MCP call approvals, runtime activity and charts according to your permissions. Tab counts include all pending work; each type lists its latest 20 items. MCP items open the corresponding approval details.', 'Daily runtime counters and model trends use UTC calendar days. The 7 / 30-day trend counts requests with recorded usage. Skill risk distribution includes unassessed / unknown items. AIDR shows retained log / Hook records received in the last 24 hours and distinct reporting clients; collection is in testing.', 'Check core services in System Overview. LLM and Sandbox checks depend on administrator configuration; unavailable checks remain disabled on the submission page.'], image: { name: 'dashboard', alt: 'Platform dashboard', caption: 'Assets, pending work, runtime records and statistics visible to the current account. Refresh failures are explicitly indicated.' }, link: { path: '/dashboard', label: 'Open dashboard' } },
+        { id: 'check-system', title: '1. Check platform status', paragraphs: ['The permission-scoped overview has Assets, Behavior, and Risks tabs. Assets opens by default, showing platform assets, Agent-reported assets, client connectivity, and product distribution. Select a chart to inspect details or open the corresponding list. Clients are online when their latest heartbeat is within 10 minutes.', 'Behavior filters tool-call trends, composition, and command / tool rankings by client, source, and the last 7 / 30 days; model trends and runtime observations appear below. Risks shows unresolved risk snapshots, new risks in the selected period, severity and type distributions, Skill risk distribution, and Skill / MCP pending work. Pending counts include all items; each type lists its latest 20.', 'Daily runtime counters and model trends use UTC calendar days; model trends count only requests with recorded usage. AIDR runtime observations show retained log / Hook records received in the last 24 hours and distinct reporting clients. Current unresolved risks and new risks in the selected period are separate measures.', 'Check core services in System Overview. LLM and Sandbox checks depend on administrator configuration; unavailable checks remain disabled on the submission page.'], image: { name: 'dashboard', alt: 'Assets tab in the platform overview', caption: 'Assets visible to the current account. Switch to Behavior or Risks for runtime statistics and pending work. Counts and states reflect capture time.' }, link: { path: '/dashboard', label: 'Open dashboard' } },
         {
           "id": "submit-zip",
           "title": "2. Upload a ZIP or folder and select Skills",
@@ -2675,7 +2727,7 @@ const en = {
             "Govern content and integrity; do not infer caller identity"
           ],
           [
-            "Client policies",
+            "Global client settings",
             "Record only first; restore trusted content for the selected trigger",
             "Verify the specific rule and locally effective policy"
           ]
@@ -2809,7 +2861,7 @@ const en = {
       "image": {
         "name": "client-app-status",
         "alt": "Client Overview → Runtime & Sync: background governance, last sync and queued events.",
-        "caption": "Client Overview → Runtime & Sync: background governance, last sync and queued events. Captured directly from the installed macOS Dev client on 2026-10-10; displayed states are observations at capture time."
+        "caption": "Client Overview → Runtime & Sync: background governance, last sync and queued events. Captured from installed macOS client 26.11.04.5 on 2026-11-04; values and states reflect capture time."
       }
     },
     {
@@ -2903,8 +2955,8 @@ const en = {
           "id": "list-columns",
           "title": "Choose visible columns",
           "paragraphs": [
-            "Open Columns to configure all 13 columns. Defaults show Skill Name, Latest version, Latest trusted, Status, Risk Level, LLM verdict, Approver, Scan Time, and Actions. Skill ID, Rule scan, Deep scan, and Sandbox are hidden by default.",
-            "Preferences are saved for the current account in this browser. Restore defaults resets the selection. Scroll horizontally to see additional columns in a wide table."
+            "Open Columns to configure all 13 columns. Defaults show Skill Name, Latest version, Latest trusted, Status, Risk, LLM verdict, Approver, Updated Time, and Actions. Skill ID, Rule scan, Deep scan, and Sandbox are hidden by default.",
+            "Preferences are saved for the current account in this browser. Keep at least one configurable column selected; the last selection cannot be cleared. Restore defaults resets the selection. The default order is Updated Time descending; sortable columns alternate between ascending and descending. Scroll horizontally to see additional columns in a wide table."
           ],
           "image": {
             "name": "skill-columns",
@@ -2930,7 +2982,7 @@ const en = {
             }
           ],
           "paragraphs": [
-            "If LLM is unavailable, add an available model under Model Gateway > Model Management, select it under Skill Governance > Policy Settings > Advanced configuration > AI analysis service, and enable AI analysis in Detection settings."
+            "If LLM is unavailable, add an available model under Model Gateway > Providers & models, select it under Skill Governance > Policy Settings > Advanced configuration > AI analysis service, and enable AI analysis in Detection settings."
           ],
           "image": {
             "name": "skill-rescan",
@@ -3097,7 +3149,7 @@ const en = {
           "title": "LLM analysis: one final semantic assessment",
           "paragraphs": [
             "When requested, the system waits for selected Scanner, rule, deep-scan, and Sandbox work, then sends a Skill content snapshot and analyzer evidence to the configured model for one final semantic assessment. The LLM does not execute the Skill.",
-            "If LLM is unavailable, add an available model under Model Gateway > Model Management, select it under Skill Governance > Policy Settings > Advanced configuration > AI analysis service, and enable AI analysis in Detection settings."
+            "If LLM is unavailable, add an available model under Model Gateway > Providers & models, select it under Skill Governance > Policy Settings > Advanced configuration > AI analysis service, and enable AI analysis in Detection settings."
           ],
           "bullets": [
             "Outputs include benign, suspicious, or malicious risk, a security report, accepted or dismissed evidence, and—when applicable—an attack chain and security-framework mapping.",
@@ -3384,7 +3436,7 @@ const en = {
       "image": {
         "name": "client-app-overview",
         "alt": "Client Overview: items needing attention and management scope.",
-        "caption": "Client Overview: items needing attention and management scope. Captured directly from the installed macOS Dev client on 2026-10-10; displayed states are observations at capture time."
+        "caption": "Client Overview: items needing attention and management scope. Captured from installed macOS client 26.11.04.5 on 2026-11-04; values and states reflect capture time."
       }
     },
     {
@@ -3445,8 +3497,8 @@ const en = {
       "id": "discovery-config",
       "title": "Configure Agent discovery from the console",
       "paragraphs": [
-        "Open Client Management → Agent Discovery. Search by Agent name or identifier and set enabled state, operating systems, and Skill roots, one root per line. Relative paths start at the client user home, for example .qoderwork/skills; dynamic user directories may use a standalone * path segment. Saving submits the complete configuration; search only filters the display.",
-        "Built-in definitions cover Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes, TRAE, Cursor, CodeBuddy, WorkBuddy, TeleAgent, Qoder, Qoder CN, QoderWork, and ZCode. TeleAgent defaults to .config/TeleAgent/users/*/skills and expands only existing user Skill directories, so it does not depend on a fixed user ID. Claude Desktop, Kimi Work, and Doubao Work are initially disabled with empty roots; verify their actual directories before enabling them.",
+        "Open Client management → Global client settings → Agent discovery. Search by Agent name or identifier and set enabled state, operating systems, and Skill roots, one root per line. Relative paths start at the client user home, for example .qoderwork/skills; dynamic user directories may use a standalone * path segment. This section saves the complete discovery configuration separately; search only filters the display. Device overrides are under Client details → Client settings → Agent discovery.",
+        "Built-in definitions cover Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes, TRAE, Cursor, CodeBuddy, WorkBuddy, TeleAgent, QwenWork CN, Qoder, Qoder CN, QoderWork, and ZCode. Shared Skills defaults to .agents/skills. QwenWork CN includes .qwenworkcn/skills and .qwenworkcn/identity-data/v1/*/skills. TeleAgent defaults to .config/TeleAgent/users/*/skills and expands only existing user Skill directories, so it does not depend on a fixed user ID. Claude Desktop, Kimi Work, and Doubao Work are initially disabled with empty roots; verify their actual directories before enabling them.",
         "Online clients receive configuration-sync tasks and rediscover. Offline clients keep cached configuration. Local root overrides take precedence. Saving a path neither installs an Agent nor creates a missing directory.",
         "If a root does not take effect, check the saved value, synchronization task, local overrides, operating system, and directory existence."
       ],
@@ -3479,10 +3531,10 @@ const en = {
       "id": "governance-modes",
       "title": "Default and per-client policies",
       "paragraphs": [
-        "Client management → Client policies provides shared rules. For a device, open Client details → Policies and approvals → Collection and governance settings. Model and requests configures Token compression and Prompt Guard; Skill handling configures classification rules. Prompt Guard defaults to log only and Token compression defaults to off. Both support default inheritance or a per-client override; Skill rules inherit individually. Default updates preserve explicit client overrides.",
+        "Client management → Global client settings provides shared rules; device overrides are under Client details → Client settings. Sections are Collection & setup, Content collection & redaction, Models & requests, Agent discovery, Skill governance, Client interface, and Security rules. Models & requests configures Token compression and Prompt Guard; Skill governance separates Usage audit from Classification actions. Prompt Guard defaults to log only and Token compression defaults to off. Both support default inheritance or a per-client override; Skill rules inherit individually. Default updates preserve explicit client overrides.",
         "Desktop Scan policies show synchronized rules. Saving Prompt Guard updates active credentials created by model switching; new and rotated credentials inherit the current values. Subsequent gateway requests use the saved configuration, while long polling synchronizes desktop settings and versions. The LLM review flag is stored without executing a review. Check overrides and synchronization tasks when values differ."
       ],
-      "image": { "name": "client-app-policy", "alt": "Client Overview → Scan policies: synchronized Skill handling rules.", "caption": "Client Overview → Scan policies: synchronized Skill handling rules. Captured directly from the installed macOS Dev client on 2026-10-10; displayed states are observations at capture time." },
+      "image": { "name": "client-app-policy", "alt": "Client Overview → Scan policies: synchronized Skill handling rules.", "caption": "Client Overview → Scan policies: synchronized Skill handling rules. Captured from installed macOS client 26.11.04.5 on 2026-11-04; values and states reflect capture time." },
       "table": {
         "columns": [
           "Trigger",
@@ -3562,10 +3614,11 @@ const en = {
       "id": "policy-preview",
       "title": "Preview impact before saving",
       "paragraphs": [
-        "Preview Impact initially shows client-level Agent and Skill counts with estimated actions. Expand the client and then an Agent to inspect individual Skills, paths, and actions.",
+        "After editing, select Preview impact; Skill classification uses Preview and save classification. The preview first lists each changed setting with its current and saved values, then affected clients and Skill directories. Expand action summaries to inspect individual Skills, paths, and estimated actions.",
         "Estimates use content information already reported to the platform. Insufficient information produces an unavailable estimate; actual handling still depends on client validation. Run an inspection, wait for reporting, and preview again when more evidence is needed.",
         "After saving, inspect the policy-sync task. Policy applied means configuration was retrieved and saved, not that all Skill remediation finished. Review events and activity records for actual remediation."
-      ]
+      ],
+      "image": { "name": "client-policy-preview", "alt": "Classification changes and impact preview", "caption": "Unsaved example draft: change uncertified Skills from Record only to Record and alert. The preview shows actual changes and their affected scope." }
     },
     {
       "id": "model-policy-sync",
@@ -3584,7 +3637,7 @@ const en = {
       "image": {
         "name": "client-app-status",
         "alt": "Client Overview → Runtime & Sync: background governance, last sync and queued events.",
-        "caption": "Client Overview → Runtime & Sync: background governance, last sync and queued events. Captured directly from the installed macOS Dev client on 2026-10-10; displayed states are observations at capture time."
+        "caption": "Client Overview → Runtime & Sync: background governance, last sync and queued events. Captured from installed macOS client 26.11.04.5 on 2026-11-04; values and states reflect capture time."
       }
     },
     {
@@ -3620,7 +3673,7 @@ const en = {
       "id": "recent-events",
       "title": "Page through recent events",
       "paragraphs": [
-        "Use the pagination controls at the bottom of Client details to inspect older events. Refresh preserves the current page; opening another client starts at page one. Events are sorted by latest occurrence."
+        "Open Client details → Agents and Assets → Governance history. Filter by keyword, Agent, event category, handling, and time, then select an event to inspect reasons and remediation evidence. Use the bottom pagination for older events. Refresh preserves the page; another client starts at page one. Events are sorted by latest occurrence."
       ],
       "image": {
         "name": "client-events",
@@ -3638,7 +3691,7 @@ const en = {
         },
         {
           "title": "Choose a local Agent",
-          "body": "Open Model Switching and select discovered Claude Code, Codex, or Hermes. The page reads the current model, gateway URL, and configuration path from disk."
+          "body": "Open Model Switching and select a discovered Agent with model-configuration support, such as Claude Code, Codex, Gemini CLI, OpenCode, or Hermes. The page reads the current model, gateway URL, and configuration path from disk."
         },
         {
           "title": "Confirm where the gateway URL comes from",
@@ -3683,8 +3736,20 @@ const en = {
     'model-gateway': {
       eyebrow: 'Feature guide', title: 'Model gateway', summary: 'Proxy model traffic and centralize access control, Prompt protection, privacy replacement, optional context compression, usage analysis, and call audits.',
       sections: [
-        { id: 'feature-map', title: 'Pages and capabilities', table: { columns: ['Page', 'What it controls or explains'], rows: [['Providers / Models', 'Register upstream endpoints and model limits, formats, and enabled state.'], ['Group policies / Privacy policies', 'Bind model access and PII handling to user groups.'], ['Prompt Guard', 'Test and audit prompt injection, system prompt leakage, and credential exfiltration patterns.'], ['Skill Alerts', 'Compare Skills declared by callers with registry, state, and Agent authorization.'], ['Privacy Audit / Pipeline Trace', 'Inspect results and original, replaced, compressed, upstream, and restored stages.'], ['Token Compression Stats / User Token Analytics', 'Inspect requests, token use, savings, processing time, and user-level consumption.']] } },
-        { id: 'setup-flow', title: 'Setup order', steps: [{ title: 'Add a provider', body: 'Select OpenAI Chat Completions, OpenAI Responses API, or Anthropic Messages compatibility, then configure the endpoint and provider secret.' }, { title: 'Register models', body: 'Set model name, context size, output limits, and enabled state.' }, { title: 'Configure groups and privacy policies', body: 'Choose PII entities, Prompt protection, and session mapping behavior.' }, { title: 'Issue a model credential', body: 'Limit models, request size, and concurrency; compression may also be enabled only for selected credentials.' }, { title: 'Call and inspect the trace', body: 'Use an OpenAI- or Anthropic-compatible endpoint, then inspect the privacy pipeline.' }], link: { path: '/model-gateway/providers', label: 'Open Providers' } },
+        { id: 'feature-map', title: 'Pages and capabilities', table: { columns: ['Page', 'What it controls or explains'], rows: [['Providers & models', 'Register upstream endpoints and model limits, formats, and enabled state.'], ['Group policies / Privacy policies', 'Bind model access and PII handling to user groups.'], ['Prompt Guard', 'Test and audit prompt injection, system prompt leakage, and credential exfiltration patterns.'], ['Skill Alerts', 'Compare Skills declared by callers with registry, state, and Agent authorization.'], ['Privacy Audit / Pipeline Trace', 'Inspect results and original, replaced, compressed, upstream, and restored stages.'], ['Token Compression Stats / User Token Analytics', 'Inspect requests, token use, savings, processing time, and user-level consumption.']] } },
+        { id: 'setup-flow', title: 'Setup order', steps: [{ title: 'Add a provider', body: 'Select OpenAI Chat Completions, OpenAI Responses API, or Anthropic Messages compatibility, then configure the endpoint and provider secret.' }, { title: 'Register models', body: 'Set model name, context size, output limits, and enabled state.' }, { title: 'Configure groups and privacy policies', body: 'Configure PII entities and session mappings, select a system default, group-bound, or credential-specific privacy policy, and configure text and AI detection under Prompt Guard. Choose protection mode on the calling credential.' }, { title: 'Issue a model credential', body: 'Limit models, request size, and concurrency; compression may also be enabled only for selected credentials.' }, { title: 'Call and inspect the trace', body: 'Use an OpenAI- or Anthropic-compatible endpoint, then inspect the privacy pipeline.' }], link: { path: '/model-gateway/providers', label: 'Open Providers & models' } },
+        { id: 'privacy-selection', title: 'How a privacy policy is selected', paragraphs: ['A credential-specific privacy policy takes precedence. Otherwise the request uses a user-group policy, then the system default when no group matches. The system default may also be bound to groups. Maintain policies first, then select them on credentials or Group policies. Inspect the request pipeline for the policy actually applied.'], link: { path: '/model-gateway/policies', label: 'Open Privacy policies' } },
+        {
+          id: 'prompt-guard', title: 'Configure and test Prompt Guard',
+          steps: [
+            { title: 'Choose detection models', body: 'Open Prompt Guard → Protection settings and edit the default model, image model, and shared timeout. Images require a multimodal generic model. Generic categories may override the default model; RSGuard uses its native detection capabilities.' },
+            { title: 'Maintain categories', body: 'Select or add a category and configure AI checks and Text rules separately. Category switches control their text rules and generic AI checks. Checks have enabled state and finding severity; custom items support editing and deletion. Text rules and AI configuration save separately.' },
+            { title: 'Test and save', body: 'Use Test model or Protection test and inspect actual detection status. Semantic and image detection call the selected detection model; text-rule-only tests do not need model inference. Save categories, AI checks, severities, and model configuration, then verify protection mode on the calling credential.' },
+            { title: 'Verify request handling', body: 'Finding severity contributes to risk aggregation. The calling credential selects off, log-only, warn, or block behavior. Keep test results, detection failures, and real-request outcomes distinct.' },
+          ],
+          image: { name: 'prompt-guard', alt: 'Prompt Guard category and AI-check workbench', caption: 'Actual UI: configure models, categories, AI checks, and text rules. States reflect capture time.' },
+          link: { path: '/model-gateway/prompt-guard', label: 'Open Prompt Guard' },
+        },
         { id: 'provider-protocols', title: 'Upstream protocols and model discovery', bullets: ['Providers default to Bearer authentication; Raw Authorization sends the key without the Bearer prefix. Custom headers override defaults by case-insensitive name, including Host and Authorization.', 'Configure up to 32 headers with names up to 128 characters and printable ASCII values up to 4096 characters without surrounding whitespace. Framing, connection and proxy authentication headers are managed by the client. Values are encrypted: blank keeps a saved value under the same name, removing a row deletes it, and new or renamed headers require a value.', 'Existing configurations retain Bearer behavior. Discovery, tests, runtime calls and Agent/Skill scans using the model gateway share these settings. Provider changes affect subsequent requests for all associated models. Independent direct LLM connections use their own configuration.'], paragraphs: ['Include the provider version path in the Base URL. Chat Completions appends /chat/completions, Responses API appends /responses, and Anthropic appends /messages. Full inference endpoints are accepted.', 'All three formats discover models through the sibling /models endpoint; Anthropic supports cursor pagination. Compatible services may omit listing. Add a model manually and use Test to verify actual inference access.', 'Different providers may register the same upstream model name. Already added applies only to the current provider. Gateway model names are globally unique, generated when omitted, and fixed after creation. Credential, documentation, Skill policy, Agent and client selectors show provider identity and store the gateway name.', 'Responses supports text, images, function tools and results, structured output, reasoning effort, and SSE through the gateway authorization and privacy pipeline with store: false. Response persistence and background jobs are outside this adapter.'] },
         { id: 'pipeline', title: 'What happens to a request', bullets: ['Validate credential state, model scope, request size, and concurrency.', 'When the matching policy enables it, detect prompt injection, system prompt leakage, and credential exfiltration patterns.', 'When a privacy policy matches, replace PII with session-scoped pseudonymous tokens.', 'When the calling credential enables compression, process context before the upstream call.', 'Restore the response and record audit, usage, and trace stages.'] },
         { id: 'compatible-endpoints', title: 'Choose the compatible endpoint for each Agent', table: { columns: ['Caller', 'Gateway endpoint', 'Purpose'], rows: [['Claude Code', 'POST /v1/messages', 'Anthropic Messages-compatible requests.'], ['Codex', 'POST /v1/responses', 'Responses protocol through a custom model_provider.'], ['Hermes and regular OpenAI-compatible clients', 'POST /v1/chat/completions', 'Chat Completions-compatible requests.'], ['Model discovery', 'GET /v1/models', 'Credential-filtered OpenAI or Anthropic model lists with cursor pagination.'], ['Model details', 'GET /v1/models/{model_id}', 'Retrieve an authorized model.'], ['Token estimate', 'POST /v1/messages/count_tokens', 'Local estimate; response header identifies estimated-utf8.']] }, callout: { type: 'note', title: 'Protocol boundary', body: 'All three endpoints share credential, model-scope, privacy, and audit checks, but their wire fields are not interchangeable. Model Switching writes the correct endpoint and disables server-side web search and image generation for Codex. Send full Responses history with store set to false.' } },
@@ -3696,6 +3761,41 @@ const en = {
     'system-management': {
       eyebrow: 'Feature guide', title: 'System management', summary: 'Configure accounts, roles, menus, and branding; inspect login, operation, and security logs; and check system health.',
       sections: [
+        {
+          "id": "openapi-access",
+          "title": "Open API: partners, credentials, profiles, and logs",
+          "paragraphs": [
+            "Open Open API Management from System Overview or Credentials. Partner Management, Access Credentials, Scan & evaluation profiles, Callback configuration, Gateway configuration, and Request Logs have separate tabs. All times use Beijing time (UTC+8)."
+          ],
+          "table": {
+            "columns": [
+              "Tab",
+              "Actions and checks"
+            ],
+            "rows": [
+              [
+                "Partner Management",
+                "Set a stable partner ID, name, and department-to-group mappings."
+              ],
+              [
+                "Access Credentials",
+                "Bind partners, authorized departments, API permissions, and expiry. Plaintext appears once; disabling, enabling, and revocation are supported. External APIs use Authorization: Bearer ACCESS_TOKEN; GET /openapi/v1/access-context reports authorized scope."
+              ],
+              [
+                "Scan & evaluation profiles",
+                "Maintain Skill-scan and Agent-evaluation profiles, including analyzers, policy, models, checks, and authorized partners. Changes create a new version; accepted tasks and historical reports retain their snapshots."
+              ],
+              [
+                "Request Logs",
+                "Filter API requests by partner, credential, request ID, endpoint, outcome, and time. Inspect HTTP status, latency, source, and errors. Callbacks & sync shows asynchronous delivery. Caller trace IDs and internal request IDs remain distinct."
+              ]
+            ]
+          },
+          "link": {
+            "path": "/external-access",
+            "label": "Open Open API Management"
+          }
+        },
         { id: 'openapi-callbacks', title: 'Open API callback configuration', paragraphs: ['In Open API Management → Callback Configuration, set the name, callback_id, partners, HTTP/HTTPS URL, Bearer token and notification types. Tokens are encrypted and masked; leave the token blank when editing to retain it. Skill and Agent submissions can use the saved callback_id directly.', 'Accepted tasks retain their configuration version. Disabling or deleting stops future delivery and preserves history; failed records can be retried after re-enabling. Test notifications are separate from real tasks. Inspect purpose, times, failures and receipts in delivery records.'], link: { path: '/external-access?tab=callbacks', label: 'Open callback configuration' } },
         { id: 'openapi-gateways', title: 'Open API gateway configuration', paragraphs: ['In Open API Management → Gateway Configuration, select an existing external AI gateway and configure gateway_id, partners and the result API path. The destination combines its management URL and path. HMAC-SHA256 authentication reuses its Token ID and encrypted Token Value. The development platform supplies the stable gateway_id when starting an evaluation. Add a path to older configurations for new tasks. Accepted tasks retain their original version and report; each attempt uses current gateway credentials. A changed management URL stops old-destination delivery; save a new configuration version for new tasks.', 'Separate test notifications expect a matching sync_id and accepted=true acknowledgement. Delivery records show status, initiator, times, failures and receipts, and allow failed deliveries to be retried. Disabling or deleting stops future delivery and preserves history.'], link: { path: '/external-access?tab=gateways', label: 'Open gateway configuration' } },
         {"id": "accounts", "title": "Account management", "paragraphs": ["Use System Management → Accounts to create accounts, assign roles and groups, and manage account status."], "bullets": ["Enter a username and initial password, optionally add an email, and choose a role, groups, and status. Usernames allow English letters, digits, underscores, dots, and hyphens, up to 64 characters.", "Edit email, role, and groups; the username is read-only after creation. Reset passwords through the separate action.", "Disabling an account or resetting its password invalidates existing sessions. Disable accounts that still have business references when appropriate.", "Filter by keyword, role, status, or group, and sort by creation or last sign-in time. Available actions depend on your permissions."], "link": {"path": "/users", "label": "Open Accounts"}, "image": {"name": "system-accounts", "alt": "Account management", "caption": "Account management"}},
@@ -3901,7 +4001,7 @@ en.articles['credential-management'] = {
     {
       id: 'client-agent-issuance', title: 'How a Client automatically creates Agent runtime credentials',
       paragraphs: ['A Client credential may enable “Allow the Client to create runtime credentials for local Agents.” It is off by default and does not grant model:chat or mcp:* directly to the Client credential.'],
-      bullets: ['The local Agent must first be discovered. Client registration creates its Client-owned runtime identity automatically.', 'The managed Agent is a credential identity and audit anchor; it does not mean the model must match the Agent type.', 'The Client credential may restrict the gateway models it can configure. This is not direct model-call permission for the Client.', 'Only a concrete model-switch task may retrieve the secret; plaintext never enters task payloads, list responses, or the desktop renderer.', 'The generated credential includes runtime:verify-signature, runtime:can-load, runtime:check-tool, and model:chat restricted to the selected model. It excludes runtime:govern. If the managed Agent already has MCP gateways, it preserves the three mcp:* call scopes and gateway allowlist.', 'Revoking or deleting the parent Client credential revokes active Agent credentials it generated.', 'Automatic writing currently supports Claude Code, Codex, and Hermes. Other Agents still require verified configuration and protocol adapters.'],
+      bullets: ['The local Agent must first be discovered. Client registration creates its Client-owned runtime identity automatically.', 'The managed Agent is a credential identity and audit anchor; it does not mean the model must match the Agent type.', 'The Client credential may restrict the gateway models it can configure. This is not direct model-call permission for the Client.', 'Only a concrete model-switch task may retrieve the secret; plaintext never enters task payloads, list responses, or the desktop renderer.', 'The generated credential includes runtime:verify-signature, runtime:can-load, runtime:check-tool, and model:chat restricted to the selected model. It excludes runtime:govern. If the managed Agent already has MCP gateways, it preserves the three mcp:* call scopes and gateway allowlist.', 'Revoking or deleting the parent Client credential revokes active Agent credentials it generated.', 'Automatic writing depends on the matching client adapter capabilities. Products without confirmed support are labeled accordingly. Check actual configuration, restart requirements, and real-call verification.'],
     },
     {
       id: 'composite-agent-runtime', title: 'Use one runtime credential for one Agent',
@@ -3997,13 +4097,13 @@ en.articles['audit-trail'] = {
     {
       id: 'query', title: 'Locate one event',
       steps: [
-        { title: 'Choose a time range', body: 'The page provides the last 24 hours, 7 days, and 30 days. Cover the actual event time before concluding that no event exists.' },
-        { title: 'Choose an event type', body: 'Narrow by a stable type such as block, content mismatch, review, or Client enforcement.' },
-        { title: 'Search by keyword', body: 'Results refresh as you type a Skill, Agent, credential Actor, or event-detail keyword. Event and time filters apply immediately; filter changes return to page one.' },
-        { title: 'Cross-check fields', body: 'The table shows time, event, object, Agent and source, and actor. Skill IDs appear below object names, and source IPs below Agents. Skill links open their details.' },
-        { title: 'Expand evidence', body: 'Select View to expand the event ID and any recorded reason. Original JSON preserves every event field and value for troubleshooting by event ID, checking the source, or sharing evidence with technical support; routine review does not require opening it.' },
+        { title: 'Choose identities and time', body: 'Filter by Agent, client, event category, and result. Choose the last 24 hours, 7 days, 30 days, or all time. Times use Beijing time (UTC+8), and results respect the current account permissions.' },
+        { title: 'Search and sort', body: 'Keywords apply automatically; Enter applies immediately. Filter changes return to page one. The time column alternates between ascending and descending, newest first by default.' },
+        { title: 'Cross-check identity and event', body: 'Columns show Agent / Client, event and object, result, and time. Platform Agents, local Agents, and clients are distinct. Inspection records also show the latest discovery time and accumulated occurrences.' },
+        { title: 'Open event details', body: 'Select an event name or row to see reasons, related objects, readable source fields, event code, and source identity in the right panel, or below the list on narrow screens. Client remediation records reuse client event details. Available links open the Agent, client, Skill, or runtime task.' },
+        { title: 'Separate decisions from execution', body: 'Platform permission or approval does not prove successful tool execution. Check task receipts, host outcomes, and runtime evidence. Closing details returns to the filtered list.' },
       ],
-      image: { name: 'audit-trail', alt: 'Audit trail table with inline event details', caption: 'Example data: expand the recorded reason and event ID, then inspect the complete original JSON when needed.' },
+      image: { name: 'audit-trail', alt: 'Audit trail list and event details', caption: 'Actual UI: filter by Agent, client, category, result, and time; open an event to inspect its source and remediation evidence.' },
       link: { path: '/audit', label: 'Open Audit trail' },
     },
     {
@@ -4199,7 +4299,7 @@ en.articles['skill-policy'] = {
           "title": "Detection switches and service configuration",
           "bullets": [
             "Detection settings enables AI analysis and Sandbox, and selects intermediate risks that require Sandbox. Rule analysis always runs.",
-            "Advanced configuration > AI analysis service selects the model, timeout, file count, and character limits. Add the model under Model Gateway > Model Management first. Select LLM analysis when submitting or rescanning.",
+            "Advanced configuration > AI analysis service selects the model, timeout, file count, and character limits. Add the model under Model Gateway > Providers & models first. Select LLM analysis when submitting or rescanning.",
             "Advanced configuration > Sandbox service configures Docker or a remote service, network, resources, and timeout. Remote connections can be tested.",
             "Advanced configuration also controls reuse for identical content and scan context. An explicit rescan performs a new scan.",
             "Switches control availability; completed, skipped, unavailable, and failed in a report describe actual execution."

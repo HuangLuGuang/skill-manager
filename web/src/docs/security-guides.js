@@ -147,6 +147,33 @@ guide('security-scan-guide', ['安全扫描操作指南', 'Security scanning gui
 
 guide('dify-security-access', ['Dify 应用纳管、三种凭据与资产清单', 'Dify application governance, credentials, and asset inventory'],
   ['按资产发现、动态测试、知识授权和运行证据分别接入 Dify；逐步配置三种凭据并执行资产采集与排错。', 'Connect Dify separately for asset discovery, dynamic testing, knowledge authorization, and runtime evidence; configure three credentials and collect inventory.'], [
+    ['runtime-governance', {
+      title: 'Dify 运行治理：登记应用并接入 Adapter',
+      paragraphs: ['扫描目标的 API 资产检查与 Dify 运行治理分别配置。需要观察节点、审核调用或检查 Skill 准入时，在“智能体列表 → 登记智能体”选择 Dify，填写实例标识、Workspace ID 和 App ID；每个应用对应一个平台智能体。'],
+      steps: [
+        { title: '配置运行接入', body: '保存后打开 Dify 独立详情的“接入配置”，下载配置并检查 Dify 容器可访问的平台地址。在凭证中心签发绑定当前 Agent 的运行凭证：观察需要 runtime:trace，管控还需要 runtime:govern；Skill 上传与准入校验同时需要这两项权限。凭证归属按详情中的用户或用户组设置。' },
+        { title: '安装配套接入包', body: '按随版本交付的 integrations/dify-runtime 接入说明准备 config.json 和 credentials.json，权限设置为 0600。安装器生成 Compose 覆盖文件；维护窗口保留原部署参数并重建 api、worker。Dify 1.16.1 新版 Agent 的运行检查还需挂载并重建 agent_backend。' },
+        { title: '核对概览与真实行为', body: '概览汇总最近 100 次运行及关联调用，近 7 天趋势只统计其中记录。“行为审计”按原生 Run ID 查看节点、Skill 检查、Shell 命令、返回内容、失败原因和审批；心跳在线仅证明进程上报。' },
+        { title: '查看 Skill 检测与发布准入', body: '“Skill”列出上传或发布检查中观察到的包版本、指纹、检测审批状态和报告，属于检测历史。Dify 1.16.1 管控模式要求发布包已批准且内容一致；观察模式记录状态并允许发布。批准与内容认证分别核对，历史事件保留当时的放行或阻断原因。' },
+        { title: '设置管控与审批', body: '“管控策略”设置观察、管控或停用模式、默认动作、工作流版本、审批等待时长和调用上限。调用规则从上到下首个匹配生效，单条规则的条件同时满足。先在观察模式核对证据，再在隔离应用验证允许、拒绝和审批的实际结果。' },
+      ],
+      callout: { type: 'note', title: '按实际检查点验收', body: '适配版本及部署命令以随包说明为准。运行检查覆盖已接入的工作流、Skill 和 Shell 执行点；不等于逐次系统调用审计，也不撤回已开始的外部副作用。升级 Dify 或 Adapter 后重新验证覆盖与审批恢复。' },
+      image: { name: 'dify-runtime', alt: 'Dify 智能体独立运行治理工作台', caption: '2026-11-04 截取自本地平台已有测试应用：概览、行为审计、Skill、管控策略和接入配置分别查看。统计是已有记录的快照。' },
+      link: { path: '/agents', label: '打开智能体列表' },
+    }, {
+      title: 'Dify runtime governance: register an app and install the adapter',
+      paragraphs: ['API asset checks and Dify runtime governance are configured separately. For node observation, call review, or Skill admission, open Agents → Register Agent, select Dify, and enter the instance ID, Workspace ID, and App ID. Each app maps to one platform Agent.'],
+      steps: [
+        { title: 'Configure runtime access', body: 'Open Connection Settings in the Dify workspace, download configuration, and check that Dify containers can reach the platform URL. Issue an Agent-bound runtime credential: observation needs runtime:trace; enforcement also needs runtime:govern. Skill upload and admission checks require both scopes. Follow the user or group ownership shown in the workspace.' },
+        { title: 'Install the matching package', body: 'Follow the delivered integrations/dify-runtime instructions. Prepare config.json and credentials.json with mode 0600. Generate the Compose override and recreate api and worker in a maintenance window, retaining original deployment arguments. Dify 1.16.1 Agent runtime checks also require mounting the adapter in agent_backend and recreating it.' },
+        { title: 'Review overview and real activity', body: 'Overview summarizes the latest 100 runs and their calls; the seven-day trend includes only those retained runs. Behavior Audit uses native Run IDs to show nodes, Skill checks, Shell commands, results, failures, and approvals. An online heartbeat proves reporting only.' },
+        { title: 'Review Skill scans and publication admission', body: 'Skills lists package versions, fingerprints, scan/approval states, and report links observed during uploads or publication checks. It is detection history. On Dify 1.16.1, enforce mode requires approved, matching publication packages; observe mode records state and permits publication. Approval and certification remain distinct, and historical events retain their original decision reasons.' },
+        { title: 'Configure control and approvals', body: 'Control Policies sets observe, enforce, or disabled mode, default action, allowed workflow versions, approval timeout, and call limits. The first matching rule applies from top to bottom, and all conditions in a rule must match. Observe first, then verify real allow, deny, and approval outcomes in an isolated app.' },
+      ],
+      callout: { type: 'note', title: 'Verify actual checkpoints', body: 'Use the delivered package for supported versions and installation commands. Checks cover integrated workflow, Skill, and Shell execution points; they do not audit every syscall or undo external effects already started. Revalidate coverage and approval recovery after upgrades.' },
+      image: { name: 'dify-runtime', alt: 'Dedicated Dify Agent runtime-governance workspace', caption: 'Captured from an existing local test app on 2026-11-04: Overview, Behavior Audit, Skills, Control Policies, and Connection Settings. Statistics are snapshots of existing records.' },
+      link: { path: '/agents', label: 'Open Agents' },
+    }],
     ['credential-map', {
       title: '先按操作选择凭据，三个 Key 不能混用',
       table: { columns: ['管理台凭据用途', '从哪里取得', '用于什么'], rows: [
