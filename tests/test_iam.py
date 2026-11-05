@@ -633,3 +633,21 @@ def test_prompt_guard_menu_title_upgrade_preserves_custom_names(tmp_path):
         db.commit()
         iam.initialize(db)
         assert (menu.title_zh, menu.title_en, menu.title_key) == ('企业提示防护', 'Enterprise Guard', None)
+
+
+def test_user_stats_menu_is_consolidated_on_new_and_upgraded_installs(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'stats-menu.db'}")
+    Base.metadata.create_all(engine)
+    with sessionmaker(bind=engine)() as db:
+        iam.initialize(db)
+        assert db.get(im.Menu, 'user-stats') is None
+        db.add(im.Menu(name='user-stats', parent_name='model-gateway', title_zh='用户 Token 分析',
+                       title_en='User Token Analytics', path='/model-gateway/user-stats', is_system=True))
+        db.commit()
+        iam.initialize(db)
+        iam.initialize(db)
+        assert db.get(im.Menu, 'user-stats').is_active is False
+        nav = json.dumps(iam.visible_navigation(db, {'privacy_audit:view'}))
+        assert '/model-gateway/stats' in nav
+        assert '/model-gateway/user-stats' not in nav
+    engine.dispose()

@@ -694,6 +694,7 @@ class PseudonymMapping(Base):
 
 class LlmRequestAudit(Base):
     __tablename__ = "llm_request_audit"
+    __table_args__ = (Index("idx_llm_request_audit_created_at", "created_at"),)
 
     id = Column(Integer, primary_key=True, index=True)
     request_id = Column(String(64), unique=True, index=True, nullable=False)
@@ -733,6 +734,7 @@ class LlmRequestAudit(Base):
 
 class LlmUsageMetric(Base):
     __tablename__ = "llm_usage_metrics"
+    __table_args__ = (Index("idx_llm_usage_metrics_created_at", "created_at"),)
 
     id = Column(Integer, primary_key=True, index=True)
     request_id = Column(String(64), unique=True, index=True, nullable=False)
@@ -744,6 +746,7 @@ class LlmUsageMetric(Base):
     prompt_tokens = Column(Integer, default=0, nullable=False)
     completion_tokens = Column(Integer, default=0, nullable=False)
     total_tokens = Column(Integer, default=0, nullable=False)
+    usage_recorded = Column(Boolean, nullable=True)
     pii_hits_json = Column(Text, default="{}", nullable=False)
     created_tokens = Column(Integer, default=0, nullable=False)
     reused_tokens = Column(Integer, default=0, nullable=False)

@@ -12,7 +12,7 @@ import uuid
 from base64 import b64decode, b64encode, urlsafe_b64encode
 from binascii import Error as Base64Error
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
@@ -21,7 +21,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
-from sqlalchemy import func, or_, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, object_session
 from sqlalchemy.exc import IntegrityError
 
@@ -60,6 +60,7 @@ from ..responses_upstream import ResponsesStreamAdapter, openai_to_responses_req
 from ..runtime_trace_schemas import RuntimeTraceInternalEvent
 from ..services.gateway_db import run_db, run_sync
 from ..services import gateway_sessions
+from ..services import llm_stats
 from ..services.runtime_traces import best_effort_trace_publisher, ingest_transaction, publish_events_best_effort
 from ..sqlite_db import get_db
 from .access_tokens import resolve_access_token
@@ -2001,9 +2002,10 @@ async def _stream_upstream(
                         except json.JSONDecodeError:
                             yield f"data: {data}\n\n"
                             continue
-                        if isinstance(chunk.get("usage"), dict):
+                        if isinstance(chunk.get("usage"), dict) and any(chunk["usage"].get(name) is not None for name in ("prompt_tokens", "completion_tokens", "total_tokens")):
                             usage.update(chunk["usage"])
-                            usage["total_tokens"] = int(usage.get("prompt_tokens") or 0) + int(usage.get("completion_tokens") or 0)
+                            if chunk["usage"].get("total_tokens") is None:
+                                usage["total_tokens"] = int(usage.get("prompt_tokens") or 0) + int(usage.get("completion_tokens") or 0)
                         if first_output_at is None and _stream_chunk_has_output(chunk):
                             first_output_at = time.perf_counter()
                         for choice in chunk.get("choices", []) or []:
@@ -2183,11 +2185,12 @@ def _record_llm_success(
             completion_tokens=int(usage.get("completion_tokens") or 0),
             total_tokens=int(usage.get("total_tokens") or 0),
             pii_hits_json=_json_dumps(detected_counts),
+            usage_recorded=any(usage.get(name) is not None for name in ("prompt_tokens", "completion_tokens", "total_tokens")),
             created_tokens=created_total,
             reused_tokens=reused_total,
             pre_compression_tokens=compression_result.pre_tokens if compression_result else 0,
             post_compression_tokens=compression_result.post_tokens if compression_result else 0,
-            tokens_saved=(min(compression_result.tokens_saved, int(usage.get("prompt_tokens") or 0)) if compression_result else 0),
+            tokens_saved=compression_result.tokens_saved if compression_result else 0,
             compression_ratio=compression_result.ratio if compression_result else 0.0,
             compression_duration_ms=compression_result.duration_ms if compression_result else 0.0,
         )
@@ -3700,235 +3703,75 @@ async def get_compression_diagnostics(
     }
 
 
-def _usage_base_query(db: Session, days: int, model: str | None = None):
-    """查询最近 N 天的用量指标"""
-    since = _now() - timedelta(days=max(1, min(days, 365)))
-    q = db.query(models.LlmUsageMetric).filter(
-        models.LlmUsageMetric.created_at >= since,
-    )
-    if model:
-        q = q.filter(models.LlmUsageMetric.model == model)
-    return q
+@admin_router.get("/llm-stats/dashboard")
+def get_llm_stats_dashboard(
+    filters: llm_stats.StatsFilters = Depends(),
+    dimension: Literal["model", "user", "requests"] = "model",
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    sort: Literal["total_requests", "error_requests", "prompt_tokens", "completion_tokens", "total_tokens", "tokens_saved", "compression_rate", "avg_request_ms", "created_at"] = "total_tokens",
+    descending: bool = True,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    if (dimension != "requests" and sort == "created_at") or (dimension == "requests" and sort in {"prompt_tokens", "completion_tokens", "compression_rate"}):
+        sort = "total_tokens"
+    return llm_stats.dashboard(db, filters, dimension, page, page_size, sort, descending)
 
 
-def _audit_base_query(db: Session, days: int, model: str | None = None):
-    """查询最近 N 天的审计记录"""
-    since = _now() - timedelta(days=max(1, min(days, 365)))
-    q = db.query(models.LlmRequestAudit).filter(
-        models.LlmRequestAudit.created_at >= since,
-    )
-    if model:
-        q = q.filter(models.LlmRequestAudit.model == model)
-    return q
+@admin_router.get("/llm-stats/requests/{request_id}")
+def get_llm_stats_request(
+    request_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    source = llm_stats.request_rows(llm_stats.StatsFilters(365, None, None, None, None))
+    row = db.execute(select(source).where(source.c.request_id == request_id)).mappings().first()
+    if row is None:
+        raise ApiError(404, "gateway.stats.request_not_found", "请求记录不存在或已超出统计保留范围", "Request not found or outside the reporting window")
+    return llm_stats.request_item(row)
 
 
 @admin_router.get("/llm-stats/overview")
-async def get_llm_stats_overview(
-    days: int = Query(default=30, ge=1, le=365),
-    model: str | None = Query(default=None),
+def get_llm_stats_overview(
+    filters: llm_stats.StatsFilters = Depends(),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    """统计总览卡片数据"""
-    metrics_q = _usage_base_query(db, days, model)
-    audit_q = _audit_base_query(db, days, model)
-
-    total_requests = audit_q.filter(models.LlmRequestAudit.status == "success").count()
-    total_requests_with_error = audit_q.filter(models.LlmRequestAudit.status == "error").count()
-    compression_requests = audit_q.filter(
-        models.LlmRequestAudit.compression_enabled.is_(True),
-        models.LlmRequestAudit.status == "success",
-    ).count()
-
-    agg = metrics_q.with_entities(
-        func.coalesce(func.sum(models.LlmUsageMetric.prompt_tokens), 0),
-        func.coalesce(func.sum(models.LlmUsageMetric.completion_tokens), 0),
-        func.coalesce(func.sum(models.LlmUsageMetric.total_tokens), 0),
-        func.coalesce(func.sum(models.LlmUsageMetric.tokens_saved), 0),
-        func.coalesce(func.avg(models.LlmUsageMetric.compression_ratio), 0),
-        func.coalesce(func.avg(models.LlmUsageMetric.compression_duration_ms), 0),
-    ).first()
-
-    prompt_tokens, completion_tokens, total_tokens, tokens_saved, avg_ratio, avg_duration = agg
-    duration_agg = audit_q.with_entities(
-        func.coalesce(func.avg(models.LlmRequestAudit.request_duration_ms), 0),
-        func.coalesce(func.avg(models.LlmRequestAudit.upstream_duration_ms), 0),
-        func.coalesce(func.avg(models.LlmRequestAudit.platform_duration_ms), 0),
-    ).first()
-    avg_request_ms, avg_upstream_ms, avg_platform_ms = duration_agg
-
-    return {
-        "days": days,
-        "total_requests": total_requests,
-        "error_requests": total_requests_with_error,
-        "compression_requests": compression_requests,
-        "prompt_tokens": int(prompt_tokens),
-        "completion_tokens": int(completion_tokens),
-        "total_tokens": int(total_tokens),
-        "tokens_saved": int(tokens_saved),
-        "avg_compression_ratio": round(float(avg_ratio or 0), 4),
-        "avg_compression_ms": round(float(avg_duration or 0), 1),
-        "avg_request_ms": round(float(avg_request_ms or 0), 1),
-        "avg_upstream_ms": round(float(avg_upstream_ms or 0), 1),
-        "avg_platform_ms": round(float(avg_platform_ms or 0), 1),
-    }
+    return {"days": filters.days, **llm_stats.aggregate(db, llm_stats.request_rows(filters))[0]}
 
 
 @admin_router.get("/llm-stats/daily")
-async def get_llm_stats_daily(
-    days: int = Query(default=30, ge=1, le=365),
-    model: str | None = Query(default=None),
+def get_llm_stats_daily(
+    filters: llm_stats.StatsFilters = Depends(),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    """按天统计的折线图数据"""
-    since = _now() - timedelta(days=max(1, min(days, 365)))
-
-    q = db.query(
-        func.strftime("%Y-%m-%d", models.LlmUsageMetric.created_at).label("date"),
-        func.coalesce(func.sum(models.LlmUsageMetric.prompt_tokens), 0).label("prompt"),
-        func.coalesce(func.sum(models.LlmUsageMetric.completion_tokens), 0).label("completion"),
-        func.coalesce(func.sum(models.LlmUsageMetric.tokens_saved), 0).label("saved"),
-        func.count(models.LlmUsageMetric.id).label("requests"),
-    ).filter(models.LlmUsageMetric.created_at >= since)
-    if model:
-        q = q.filter(models.LlmUsageMetric.model == model)
-    rows = q.group_by("date").order_by("date").all()
-
-    return {
-        "days": days,
-        "series": [
-            {
-                "date": row.date,
-                "prompt_tokens": int(row.prompt),
-                "completion_tokens": int(row.completion),
-                "tokens_saved": int(row.saved),
-                "requests": row.requests,
-            }
-            for row in rows
-        ],
-    }
+    source = llm_stats.request_rows(filters)
+    rows = llm_stats.aggregate(db, source, llm_stats.beijing_day(source.c.created_at))
+    return {"days": filters.days, "series": [{"date": row.pop("group_key"), **row} for row in rows]}
 
 
 @admin_router.get("/llm-stats/by-model")
-async def get_llm_stats_by_model(
-    days: int = Query(default=30, ge=1, le=365),
-    model: str | None = Query(default=None),
+def get_llm_stats_by_model(
+    filters: llm_stats.StatsFilters = Depends(),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    """按模型统计的柱状图数据"""
-    since = _now() - timedelta(days=max(1, min(days, 365)))
-
-    q = db.query(
-        models.LlmUsageMetric.model,
-        func.coalesce(func.sum(models.LlmUsageMetric.prompt_tokens), 0).label("prompt"),
-        func.coalesce(func.sum(models.LlmUsageMetric.completion_tokens), 0).label("completion"),
-        func.coalesce(func.sum(models.LlmUsageMetric.total_tokens), 0).label("total"),
-        func.coalesce(func.sum(models.LlmUsageMetric.tokens_saved), 0).label("saved"),
-        func.count(models.LlmUsageMetric.id).label("requests"),
-    ).filter(models.LlmUsageMetric.created_at >= since)
-    if model:
-        q = q.filter(models.LlmUsageMetric.model == model)
-    rows = q.group_by(models.LlmUsageMetric.model).order_by(func.sum(models.LlmUsageMetric.total_tokens).desc()).all()
-    duration_q = db.query(
-        models.LlmRequestAudit.model,
-        func.coalesce(func.avg(models.LlmRequestAudit.request_duration_ms), 0).label("avg_request_ms"),
-        func.coalesce(func.avg(models.LlmRequestAudit.upstream_duration_ms), 0).label("avg_upstream_ms"),
-        func.coalesce(func.avg(models.LlmRequestAudit.platform_duration_ms), 0).label("avg_platform_ms"),
-    ).filter(models.LlmRequestAudit.created_at >= since)
-    if model:
-        duration_q = duration_q.filter(models.LlmRequestAudit.model == model)
-    duration_rows = {row.model: row for row in duration_q.group_by(models.LlmRequestAudit.model).all()}
-
-    return {
-        "days": days,
-        "models": [
-            {
-                "model": row.model,
-                "prompt_tokens": int(row.prompt),
-                "completion_tokens": int(row.completion),
-                "total_tokens": int(row.total),
-                "tokens_saved": int(row.saved),
-                "requests": row.requests,
-                "avg_request_ms": round(float(getattr(duration_rows.get(row.model), "avg_request_ms", 0) or 0), 1),
-                "avg_upstream_ms": round(float(getattr(duration_rows.get(row.model), "avg_upstream_ms", 0) or 0), 1),
-                "avg_platform_ms": round(float(getattr(duration_rows.get(row.model), "avg_platform_ms", 0) or 0), 1),
-            }
-            for row in rows
-        ],
-    }
+    rows = llm_stats.grouped(db, llm_stats.request_rows(filters), "model")
+    return {"days": filters.days, "models": sorted(rows, key=lambda r: r["total_tokens"] or 0, reverse=True)}
 
 
 @admin_router.get("/llm-stats/by-user")
-async def get_llm_stats_by_user(
-    days: int = Query(default=30, ge=1, le=365),
-    limit: int = Query(default=10, ge=1, le=100),
-    model: str | None = Query(default=None),
+def get_llm_stats_by_user(
+    filters: llm_stats.StatsFilters = Depends(),
+    limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    """按用户统计 Token 用量，覆盖旧 LLM API Key 和统一凭证中心。"""
-    since = _now() - timedelta(days=max(1, min(days, 365)))
-    users = {row.id: row.username for row in db.query(models.User).all()}
-    api_key_users = {
-        row.id: row.user_id
-        for row in db.query(models.LlmApiKey.id, models.LlmApiKey.user_id).all()
-        if row.user_id
-    }
-    access_token_users = {
-        row.id: row.user_id
-        for row in db.query(models.AccessToken.id, models.AccessToken.user_id)
-        .filter(models.AccessToken.token_type.in_(["model_gateway", "agent_runtime"]))
-        .all()
-        if row.user_id
-    }
-    stats = {
-        user_id: {
-            "user_id": user_id,
-            "username": username or f"user-{user_id}",
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-            "tokens_saved": 0,
-            "requests": 0,
-        }
-        for user_id, username in users.items()
-    }
-    q = db.query(models.LlmUsageMetric).filter(models.LlmUsageMetric.created_at >= since)
-    if model:
-        q = q.filter(models.LlmUsageMetric.model == model)
-    for metric in q.all():
-        # Unified access tokens are the current path; fall back to legacy LLM API keys.
-        user_id = access_token_users.get(metric.api_key_id) or api_key_users.get(metric.api_key_id)
-        if not user_id:
-            continue
-        row = stats.setdefault(user_id, {
-            "user_id": user_id,
-            "username": users.get(user_id) or f"user-{user_id}",
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-            "tokens_saved": 0,
-            "requests": 0,
-        })
-        row["prompt_tokens"] += int(metric.prompt_tokens or 0)
-        row["completion_tokens"] += int(metric.completion_tokens or 0)
-        row["total_tokens"] += int(metric.total_tokens or 0)
-        row["tokens_saved"] += int(metric.tokens_saved or 0)
-        row["requests"] += 1
-    rows = sorted(
-        stats.values(),
-        key=lambda item: (item["total_tokens"], item["requests"], item["username"]),
-        reverse=True,
-    )[:limit]
-
-    return {
-        "days": days,
-        "model": model,
-        "limit": limit,
-        "users": rows,
-    }
+    rows = llm_stats.grouped(db, llm_stats.request_rows(filters), "user")
+    rows.sort(key=lambda r: (r["total_tokens"] or 0, r["requests"]), reverse=True)
+    return {"days": filters.days, "model": filters.model, "limit": limit, "users": rows[:limit]}
 
 
 async def _chat_completions_impl(
@@ -4299,11 +4142,12 @@ def _prepare_chat_completions(
                 completion_tokens=int(usage.get("completion_tokens") or 0),
                 total_tokens=int(usage.get("total_tokens") or 0),
                 pii_hits_json=_json_dumps(detected_counts),
+                usage_recorded=any(usage.get(name) is not None for name in ("prompt_tokens", "completion_tokens", "total_tokens")),
                 created_tokens=created_total,
                 reused_tokens=reused_total,
                 pre_compression_tokens=compression_result.pre_tokens if compression_result else 0,
                 post_compression_tokens=compression_result.post_tokens if compression_result else 0,
-                tokens_saved=(min(compression_result.tokens_saved, int(usage.get("prompt_tokens") or 0)) if compression_result else 0),
+                tokens_saved=compression_result.tokens_saved if compression_result else 0,
                 compression_ratio=compression_result.ratio if compression_result else 0.0,
                 compression_duration_ms=compression_result.duration_ms if compression_result else 0.0,
             )

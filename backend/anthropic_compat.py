@@ -239,7 +239,7 @@ def anthropic_to_openai_response(payload: dict[str, Any]) -> dict[str, Any]:
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "total_tokens": prompt_tokens + completion_tokens,
-        },
+        } if any(usage.get(key) is not None for key in ("input_tokens", "output_tokens")) else {},
     }
 
 
@@ -252,7 +252,7 @@ def anthropic_stream_event_to_openai(event: str, payload: dict[str, Any]) -> lis
             "object": "chat.completion.chunk",
             "model": message.get("model"),
             "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
-            "usage": {"prompt_tokens": int(usage.get("input_tokens") or 0), "completion_tokens": 0, "total_tokens": int(usage.get("input_tokens") or 0)},
+            "usage": {"prompt_tokens": int(usage.get("input_tokens") or 0), "completion_tokens": 0, "total_tokens": int(usage.get("input_tokens") or 0)} if usage.get("input_tokens") is not None else {},
         }]
     if event == "content_block_start":
         block = payload.get("content_block") or {}
@@ -273,7 +273,7 @@ def anthropic_stream_event_to_openai(event: str, payload: dict[str, Any]) -> lis
         output_tokens = int(usage.get("output_tokens") or 0)
         return [{
             "choices": [{"index": 0, "delta": {}, "finish_reason": _openai_finish_reason((payload.get("delta") or {}).get("stop_reason"))}],
-            "usage": {"completion_tokens": output_tokens},
+            "usage": {"completion_tokens": output_tokens} if usage.get("output_tokens") is not None else {},
         }]
     if event == "message_stop":
         return ["[DONE]"]
