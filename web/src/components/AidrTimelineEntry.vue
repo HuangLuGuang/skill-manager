@@ -8,6 +8,10 @@
           <span>{{ controlReason }}</span>
           <span v-if="control.rule_id">{{ t(control.rule_id === 'default' ? 'aidr.sessions.controlDefault' : 'aidr.sessions.controlRule') }}<code v-if="control.rule_id !== 'default'"> {{ control.rule_id }}</code></span>
         </div>
+        <div v-if="event.kind === 'tool.pre'" class="control-summary">
+          <p v-if="matchedControlRules.length">{{ t('aidr.sessions.disposition.matched', { count: matchedControlRules.length }) }}</p>
+          <p>{{ t('aidr.sessions.disposition.' + disposition) }}</p>
+        </div>
         <p v-if="event.skill_use" class="skill-evidence"><a-tag color="blue">{{ t('aidr.skillUse.' + event.skill_use.behavior) }}</a-tag>{{ event.skill_use.name || event.skill_use.path }}</p>
         <p v-if="!isTool && !item.message" class="event-code">{{ event.hook_event }}</p>
         <AidrAuditContent v-if="item.message" :content-mode="contentMode" :show-heading="false" :client-id="clientId" source="log" :record-id="item.message.logical_event_id" :evidence="item.message" />
@@ -82,8 +86,23 @@ const preview = computed(() => {
 })
 const exitCode = computed(() => result.value?.behavior?.exit_code)
 const control = computed(() => event.value.control_decision)
-const blocked = computed(() => control.value?.decision === 'deny')
+const approvalResult = computed(() => records.value.find(record => record.record.event.kind === 'tool.pre')?.control_result)
+const blocked = computed(() => control.value?.decision === 'deny' || approvalResult.value?.source === 'client_report' && approvalResult.value.state === 'denied')
+const matchedControlRules = computed(() => event.value.command_match?.matched || control.value?.matched_rule_ids || [])
+const disposition = computed(() => {
+  if (event.value.control_mode === 'audit') return 'audit'
+  if (control.value?.decision === 'deny') return 'denied'
+  if (control.value?.decision === 'allow') return 'allowed'
+  if (control.value?.decision !== 'ask') return 'unknown'
+  const result = approvalResult.value
+  if (result?.source === 'client_report') {
+    if (result.state === 'consumed') return 'consumed'
+    return result.code === 'aidr_hook_approval_timeout' ? 'timeout' : 'approvalDenied'
+  }
+  return { pending: 'pending', approved: 'approved', denied: 'platformDenied', revoked: 'revoked', expired: 'expired' }[result?.state] || 'requested'
+})
 const controlReason = computed(() => {
+  if (approvalResult.value?.source === 'client_report' && approvalResult.value.state === 'denied') return t('aidr.sessions.disposition.' + disposition.value)
   const key = { aidr_hook_rule_deny: 'rule', aidr_hook_policy_missing: 'policyMissing', aidr_hook_approval_unsupported: 'approvalUnsupported', aidr_hook_audit_disabled_requires_evidence: 'evidenceRequired' }[control.value?.code]
   return key ? t('aidr.sessions.controlReasons.' + key) : control.value?.code
 })

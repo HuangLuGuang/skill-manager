@@ -12,6 +12,17 @@ Windows 本机数据库的只读访问使用包含盘符的文件 URI（如 `fil
 
 ## Windows Hook 接收器 / Windows Hook receiver
 
+Hook 执行前记录保存接收当时的 `control_mode`，与已命中的规则及 `control_decision` 分别呈现。仅审计记录明确标记未执行拒绝或审批；旧记录未保存处置时显示“处置未记录”，不使用当前模式推断历史。审批卡片区分平台决定和客户端回执，批准或授权已消费均不等于工具执行成功。此字段需先升级平台接收契约，再升级客户端；规则页生效状态提示及历史已有决定的展示可先随平台升级。
+
+**English:** Pre-tool records preserve `control_mode` at receipt time, separately from rule matches and `control_decision`. Audit records state that deny and approval actions were not enforced. Historical records without disposition remain unrecorded; current modes do not rewrite history. Approval cards distinguish platform decisions from client receipts; approval or authorization consumption does not establish successful tool execution. Upgrade the platform contract before the client for this field. Rule-page execution context and existing historical decisions can be displayed with the platform update.
+
+安全规则新增“命令包含关键词”，对受支持命令工具的原始命令及参数进行任意/全部文本匹配，可忽略大小写。平台须先升级，客户端随后升级并报告 `command_keywords_schema=1` 后才能接收关键词动作规则；普通命令规则保持原有协议字段。仅审计模式继续只采集，拦截模式才执行规则决定。关键词不执行正则、变量展开或解码，命令正文未开启采集时仍可在接收器内判断，上传继续遵循正文采集策略。
+
+命令 IP 网段规则支持 IPv4/IPv6 CIDR；按命令原文中的 IP 判断归属，不进行域名解析或变量展开。客户端上报 `command_networks_schema=1` 后可应用相应执行前动作；先升级平台，再升级客户端。 / Command IP subnet rules support IPv4/IPv6 CIDR and evaluate literal IPs without DNS or variable expansion. Pre-execution actions require client reporting of `command_networks_schema=1`. Upgrade the platform before the client.
+
+
+**English:** Command keyword rules match any/all literal terms in supported command-tool inputs, optionally ignoring case. Upgrade the platform first, then the client; keyword action policies require `command_keywords_schema=1` reporting. Ordinary command policies retain their existing wire fields. Audit mode collects events; intercept mode enforces decisions. Matching does not interpret regex, expand variables or decode content, and receiver evaluation remains independent of whether command-body capture is enabled.
+
 日志、Hook 上传和审批范围保留 Windows SID，macOS/Linux 保留数字 UID；平台须支持两种用户标识。工具 Hook 未带轮次 ID 时，按同一设备、用户、会话、工具及原生调用 ID 与日志精确关联轮次；缺少用户标识的历史日志保持未归属，不按时间猜测补齐。升级此修复时须先更新平台，再更新客户端；客户端更新后以新操作验证。
 
 **English:** Log and Hook uploads and approval scopes preserve Windows SIDs and numeric macOS/Linux UIDs; the platform must accept both identities. Tool Hooks without native turn IDs link to logs using the exact device, user, session, tool and native call ID. Historical logs without user identity remain unassigned; timestamps do not establish identity. Deploy this platform fix before upgrading the client, then verify with new operations.

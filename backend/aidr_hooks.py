@@ -56,6 +56,7 @@ class ControlDecision(Strict):
 
 
 class HookEvent(Strict):
+    control_mode: Literal['audit', 'plugin_pre_tool'] | None = None
     control_decision: ControlDecision | None = None
     command_match: CommandObservation | None = None
     context: HostContext | None = None
@@ -79,6 +80,8 @@ class HookEvent(Strict):
 
     @model_validator(mode="after")
     def validate_evidence(self):
+        if self.control_mode and (self.kind != 'tool.pre' or (self.control_mode == 'audit' and self.control_decision)):
+            raise ValueError('hook_control_mode_scope_invalid')
         if self.control_decision and self.kind != 'tool.pre':
             raise ValueError('hook_control_decision_scope_invalid')
         if self.command_match and (self.kind != 'tool.pre' or not self.input_digest):

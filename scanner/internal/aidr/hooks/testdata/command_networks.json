@@ -1,0 +1,372 @@
+[
+  {
+    "command": "curl http://10.10.71.23",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ssh user@10.10.71.200",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 10.10.71.0",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 10.10.71.255",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "curl http://10.10.71.23:8080/a",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "x --host=10.10.71.1",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "curl http://[2001:db8::23]:443/a",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 2001:DB8:abcd:ffff::1",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 2001:0db8:0000:0000:0000:0000:0000:0001",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "powershell.exe -Command \"Test-NetConnection 10.10.71.2\"",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "sh -c \"curl http://10.10.71.1\"",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "echo \"10.10.71.2\"",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 10.10.72.1; ping 10.10.71.2",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "curl http://10.10.72.23",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 2001:db9::1",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "curl http://10.10.71.23.example.com",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "echo file10.10.71.23",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 010.10.71.23",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 10.10.71.256",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 10.10.71.2:99999",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 10.10.71.2:abc",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 10.10.71.2:0",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "curl http://example.com",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping $HOST",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 2001:db8::g",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 2001:db8::1%eth0",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping ::ffff:10.10.71.2",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "",
+    "want": "unresolved",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 192.0.2.3",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "0.0.0.0/0"
+      ]
+    }
+  },
+  {
+    "command": "ping ::1",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "::/0"
+      ]
+    }
+  },
+  {
+    "command": "ping 10.10.71.1",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.200/24"
+      ]
+    }
+  },
+  {
+    "command": "ping 10.10.71.23",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "10.10.71.23/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 10.10.71.24",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.23/32"
+      ]
+    }
+  },
+  {
+    "command": "ping 2001:db8::1",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "2001:db8::1/128"
+      ]
+    }
+  },
+  {
+    "command": "ping 2001:db8::2",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "2001:db8::1/128"
+      ]
+    }
+  },
+  {
+    "command": "ping ::ffff:10.10.71.2",
+    "want": "matched",
+    "networks": {
+      "subnets": [
+        "::ffff:10.10.71.0/120"
+      ]
+    }
+  },
+  {
+    "command": "ping 10.10.71.2",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "::ffff:10.10.71.0/120"
+      ]
+    }
+  },
+  {
+    "command": "curl http://10.10.71.2:99999999999999999999999999999999999999999999999999999999999999999999999999999999",
+    "want": "unmatched",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24"
+      ]
+    }
+  }
+]

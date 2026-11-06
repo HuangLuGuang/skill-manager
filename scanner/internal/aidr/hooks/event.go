@@ -32,6 +32,7 @@ var catalog = func() map[string]map[string]string {
 }()
 
 type Event struct {
+	ControlMode     string               `json:"control_mode,omitempty"`
 	ControlDecision *ToolDecision        `json:"control_decision,omitempty"`
 	CommandMatch    *CommandObservation  `json:"command_match,omitempty"`
 	Context         *HostContext         `json:"context,omitempty"`

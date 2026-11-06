@@ -333,6 +333,17 @@ def command_assessment(command, cwd, config, platform):
         return assess_command(command, cwd, config, platform)
     if not config['enabled']:
         return {'status': 'disabled', 'matches': [], 'unresolved_rules': []}
+    text_rules = [rule for rule in config.get('custom_commands', []) if (rule['condition'].get('keywords') or rule['condition'].get('networks'))]
+    if text_rules:
+        remaining = [rule for rule in config['custom_commands'] if not (rule['condition'].get('keywords') or rule['condition'].get('networks'))]
+        result = command_assessment(command, cwd, {**config, 'custom_commands': remaining}, platform) if remaining or config.get('command_rules', commands.LEGACY_COMMANDS) else {'status': 'unmatched', 'matches': [], 'unresolved_rules': []}
+        for rule, state in commands.custom_matches(command, cwd, platform, text_rules):
+            if state == 'matched':
+                result['matches'].append(match_record('custom_command', rule['severity'], rule_id=rule['id'], name=rule['name'], condition=rule['condition']))
+            elif state == 'unresolved':
+                result['unresolved_rules'].append(rule['id'])
+        result['status'] = 'matched' if result['matches'] else 'unresolved' if result['unresolved_rules'] or result['status'] == 'unresolved' else 'unmatched'
+        return result
     if platform == 'windows':
         return windows_assessment(command, cwd, config)
     if platform not in ('linux', 'darwin') or '[REDACTED]' in command or parse(command) is None:

@@ -50,6 +50,8 @@ class Rule(Strict):
             raise ValueError('unknown_builtin')
         if self.kind == 'command' and (self.condition is None or self.condition.path_prefix):
             raise ValueError('command_requires_condition_and_path_reference')
+        if self.condition and (self.condition.keywords or self.condition.networks) and self.path_set:
+            raise ValueError('text_rule_has_no_path_condition')
         if self.kind != 'command' and self.condition is not None:
             raise ValueError('unexpected_command_condition')
         if self.kind == 'tool' and self.path_set:

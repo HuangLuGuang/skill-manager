@@ -5,15 +5,24 @@ import (
 	"path"
 	"regexp"
 	"strings"
+
+	"golang.org/x/text/cases"
 )
 
 // CommandCondition matches literal argv, never redacted display summaries.
 type CommandCondition struct {
-	Executable string   `json:"executable"`
-	ArgsAll    []string `json:"args_all"`
-	ArgsAny    []string `json:"args_any"`
-	PathPrefix string   `json:"path_prefix"`
-	PipeTo     []string `json:"pipe_to"`
+	Networks   *NetworkCondition `json:"networks,omitempty"`
+	Keywords   *KeywordCondition `json:"keywords,omitempty"`
+	Executable string            `json:"executable"`
+	ArgsAll    []string          `json:"args_all"`
+	ArgsAny    []string          `json:"args_any"`
+	PathPrefix string            `json:"path_prefix"`
+	PipeTo     []string          `json:"pipe_to"`
+}
+type KeywordCondition struct {
+	Terms      []string `json:"terms"`
+	Mode       string   `json:"mode"`
+	IgnoreCase bool     `json:"ignore_case"`
 }
 type CommandObservation struct {
 	Schema     int      `json:"schema_version"`
@@ -27,6 +36,21 @@ var pipeName = regexp.MustCompile(`^[A-Za-z0-9_.+-]{1,128}$`)
 var shortFlags = regexp.MustCompile(`^-[A-Za-z]{2,}$`)
 
 func (c *CommandCondition) valid() bool {
+	if c.Networks != nil {
+		return c.Keywords == nil && c.Executable == "" && len(c.ArgsAll) == 0 && len(c.ArgsAny) == 0 && c.PathPrefix == "" && len(c.PipeTo) == 0 && c.Networks.valid()
+	}
+	if c.Keywords != nil {
+		k := c.Keywords
+		if c.Executable != "" || len(c.ArgsAll) != 0 || len(c.ArgsAny) != 0 || c.PathPrefix != "" || len(c.PipeTo) != 0 || len(k.Terms) == 0 || len(k.Terms) > 16 || (k.Mode != "any" && k.Mode != "all") {
+			return false
+		}
+		for _, term := range k.Terms {
+			if strings.TrimSpace(term) == "" || len(term) > 256 || strings.IndexFunc(term, func(r rune) bool { return r < 32 }) >= 0 {
+				return false
+			}
+		}
+		return true
+	}
 	if !commandName.MatchString(c.Executable) || len(c.ArgsAll) > 16 || len(c.ArgsAny) > 16 || len(c.PipeTo) > 8 || len(c.PathPrefix) > 512 {
 		return false
 	}
@@ -149,6 +173,40 @@ func parseCommand(command string) ([]shellPart, bool) {
 	return parts, true
 }
 func commandMatch(c *CommandCondition, command, cwd, decision string) string {
+	if c.Networks != nil {
+		if command == "" || len(command) > 32768 {
+			return "unresolved"
+		}
+		if c.Networks.matches(command) {
+			return "matched"
+		}
+		return "unmatched"
+	}
+	if k := c.Keywords; k != nil {
+		if command == "" || len(command) > 32768 {
+			return "unresolved"
+		}
+		text := command
+		if k.IgnoreCase {
+			text = cases.Fold().String(text)
+		}
+		matched := k.Mode == "all"
+		for _, term := range k.Terms {
+			if k.IgnoreCase {
+				term = cases.Fold().String(term)
+			}
+			hit := strings.Contains(text, term)
+			if k.Mode == "all" {
+				matched = matched && hit
+			} else {
+				matched = matched || hit
+			}
+		}
+		if matched {
+			return "matched"
+		}
+		return "unmatched"
+	}
 	parts, ok := parseCommand(command)
 	if !ok {
 		return "unresolved"

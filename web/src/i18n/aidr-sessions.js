@@ -1,5 +1,6 @@
 export const sessionMessages = {
   'zh-CN': {
+    disposition: { matched: '命中 {count} 条动作规则', audit: '当时为仅审计模式，未执行拒绝或审批动作。', unknown: '处置未记录。', denied: '客户端决定：拒绝本次调用。', allowed: '客户端决定：允许本次调用；执行结果另行核对。', requested: '客户端决定：申请审批；审批进度尚未记录。', pending: '等待审批。', approved: '平台已批准，等待客户端消费授权。', platformDenied: '平台已拒绝审批，等待客户端回执。', revoked: '平台已撤销授权。', expired: '审批授权已过期。', consumed: '客户端已消费审批授权；执行结果另行核对。', timeout: '客户端回报审批超时，已拒绝本次调用。', approvalDenied: '客户端回报审批未通过，已拒绝本次调用。' },
     endHookMissing: '结束 Hook 缺失',
     executionInferred: '身份关联为推断',
     executionStates: { failed: '日志报告失败', completed: '日志报告完成', cancelled: '日志报告取消', result_returned: '已有工具返回 · 成败未知' },
@@ -53,6 +54,7 @@ export const sessionMessages = {
     permissionRequest: '请求权限', truncated: '部分内容已截断，展开查看已采集内容。',
   },
   'en-US': {
+    disposition: { matched: 'Matched {count} action rules', audit: 'Audit mode at the time: deny and approval actions were not enforced.', unknown: 'Disposition was not recorded.', denied: 'Client decision: deny this call.', allowed: 'Client decision: allow this call; verify execution separately.', requested: 'Client decision: request approval; approval progress was not recorded.', pending: 'Awaiting approval.', approved: 'Approved by the platform; awaiting authorization consumption by the client.', platformDenied: 'Approval denied by the platform; awaiting a client receipt.', revoked: 'Authorization revoked by the platform.', expired: 'Approval authorization expired.', consumed: 'The client consumed approval authorization; verify execution separately.', timeout: 'The client reported an approval timeout and denied this call.', approvalDenied: 'The client reported approval failure and denied this call.' },
     endHookMissing: 'End Hook missing',
     executionInferred: 'Identity association inferred',
     executionStates: { failed: 'Log reports failure', completed: 'Log reports completion', cancelled: 'Log reports cancellation', result_returned: 'Tool returned · Outcome unknown' },

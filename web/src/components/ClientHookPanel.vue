@@ -81,7 +81,7 @@
         </div>
         <p v-else>{{ t('aidr.hooks.scope.impact', policy.impact || {}) }}</p>
         <p v-if="!canEdit">{{ t('aidr.hooks.readonly') }}</p>
-        <a-form-item :label="t('aidr.hooks.wait.label')" :validate-status="waitInvalid ? 'error' : ''" :help="waitInvalid ? t('aidr.hooks.wait.invalid') : t('aidr.hooks.wait.help')">
+        <a-form-item :label="t('aidr.hooks.wait.label')" :tooltip="t('aidr.hooks.wait.detail')" :validate-status="waitInvalid ? 'error' : ''" :help="waitInvalid ? t('aidr.hooks.wait.invalid') : t('aidr.hooks.wait.help')">
           <a-input-number v-model:value="draft.approval_wait_seconds" :step="1" :disabled="(!global && inherit) || !canEdit || saving || policyLoading || !!policyError" :aria-label="t('aidr.hooks.wait.label')" />
         </a-form-item>
         <AidrCommandRules v-model:rules="draft.rules" :products="products" :disabled="(!global && inherit) || !canEdit || saving || policyLoading || !!policyError" />

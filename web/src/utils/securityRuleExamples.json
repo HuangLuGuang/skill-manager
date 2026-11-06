@@ -1,0 +1,95 @@
+[
+  {
+    "id": "rmReview",
+    "action": "ask",
+    "executable": "rm",
+    "command": "rm test.txt",
+    "miss": "ls test.txt"
+  },
+  {
+    "id": "rmRecursive",
+    "action": "deny",
+    "executable": "rm",
+    "args_all": [
+      "-r",
+      "-f"
+    ],
+    "command": "rm -rf demo",
+    "miss": "rm test.txt"
+  },
+  {
+    "id": "gitForce",
+    "action": "ask",
+    "executable": "git",
+    "args_all": [
+      "push",
+      "--force"
+    ],
+    "command": "git push --force",
+    "miss": "git push --force-with-lease"
+  },
+  {
+    "id": "gitReset",
+    "action": "deny",
+    "executable": "git",
+    "args_all": [
+      "reset",
+      "--hard"
+    ],
+    "command": "git reset --hard",
+    "miss": "git reset --soft HEAD"
+  },
+  {
+    "id": "npmInstall",
+    "action": "ask",
+    "executable": "npm",
+    "args_all": [
+      "install"
+    ],
+    "command": "npm install lodash",
+    "miss": "npm ci"
+  },
+  {
+    "id": "curlRecord",
+    "action": "none",
+    "executable": "curl",
+    "command": "curl https://example.com",
+    "miss": "wget https://example.com"
+  },
+  {
+    "id": "toolDeny",
+    "action": "deny",
+    "kind": "tool"
+  },
+  {
+    "id": "sensitiveRead",
+    "action": "none",
+    "kind": "builtin",
+    "code": "sensitive_path_read"
+  },
+  {
+    "id": "keywordDeny",
+    "action": "deny",
+    "keywords": {
+      "terms": [
+        "test.txt"
+      ],
+      "mode": "any",
+      "ignore_case": false
+    },
+    "command": "rm test.txt",
+    "miss": "rm other.txt"
+  },
+  {
+    "id": "networkDeny",
+    "action": "deny",
+    "networks": {
+      "subnets": [
+        "10.10.71.0/24",
+        "2001:db8::/32"
+      ]
+    },
+    "command": "curl http://10.10.71.23 && curl http://[2001:db8::23]",
+    "miss": "curl http://10.10.72.23 && curl http://[2001:db9::23]"
+  }
+]

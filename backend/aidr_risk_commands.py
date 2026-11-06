@@ -5,7 +5,8 @@ import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from .aidr_command_rules import CommandCondition, command_match
+from .aidr_command_rules import CommandCondition, KeywordCondition, command_match
+from .aidr_command_networks import NetworkCondition
 
 LEGACY_COMMANDS = ['destructive_command', 'download_to_shell']
 COMMANDS = LEGACY_COMMANDS + ['filesystem_format', 'device_write', 'protected_permissions']
@@ -13,7 +14,9 @@ COMMANDS = LEGACY_COMMANDS + ['filesystem_format', 'device_write', 'protected_pe
 
 class DetectionCommandCondition(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
-    executable: str = Field(min_length=1, max_length=128)
+    executable: str = Field(default='', max_length=128)
+    keywords: KeywordCondition | None = None
+    networks: NetworkCondition | None = None
     args_all: list[str] = Field(default_factory=list, max_length=16)
     args_any: list[str] = Field(default_factory=list, max_length=16)
     path_prefix: str = Field(default='', max_length=512)

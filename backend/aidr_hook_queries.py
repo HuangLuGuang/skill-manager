@@ -14,7 +14,17 @@ def event_field(name):
 
 def present(row, db, log_ceiling=MAX_ID):
     record = project_context(db, row, json.loads(row.payload_json), log_ceiling)
-    return {'id': str(row.id), 'stream_id': row.stream_id, 'record': metadata_view(record)}
+    item = {'id': str(row.id), 'stream_id': row.stream_id, 'record': metadata_view(record)}
+    if (record['event'].get('control_decision') or {}).get('decision') == 'ask':
+        from .aidr_hook_control import HookAttemptReportRow, HookApprovalRow
+        report = db.query(HookAttemptReportRow).filter_by(client_id=row.client_id, stream_id=row.stream_id, event_id=row.event_id).first()
+        approval = db.query(HookApprovalRow).filter_by(client_id=row.client_id, stream_id=row.stream_id, event_id=row.event_id).first()
+        if report:
+            result = json.loads(report.payload)
+            item['control_result'] = {'state': result['state'], 'code': result['code'], 'source': 'client_report'}
+        elif approval:
+            item['control_result'] = {'state': approval.state, 'source': 'platform'}
+    return item
 
 def page(db, client_id, *, after=None, before=None, snapshot_id=None, limit=100, filters=None, keyword=None):
     query = db.query(AidrHookEvent).filter(AidrHookEvent.client_id == client_id, AidrHookEvent.expired_at.is_(None))

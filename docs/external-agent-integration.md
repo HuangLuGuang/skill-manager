@@ -1371,6 +1371,13 @@ WorkBuddy 的 Agent Manager 接入使用用户 `settings.json` 中的 Hook 命�
 
 **English:** macOS/Linux use a Unix socket; Windows uses a named pipe restricted to the current user SID, with `hook.sock` serving as a private marker. Product support, host loading and actual event/approval delivery require separate acceptance; see the Windows receiver instructions linked above.
 
+命令关键词动作使用受支持命令工具的原始输入，按任意/全部文本包含匹配，可忽略大小写；不执行或展开命令。接收器新增 `command_keywords_schema=1` 能力报告，平台发布关键词动作前验证近期报告。应先更新平台，再更新客户端；原有命令规则保留原字段，审计模式与拦截模式的边界保持。平台风险与草稿预览使用相同匹配语义。
+
+命令 IP 网段规则支持 IPv4/IPv6 CIDR；按命令原文中的 IP 判断归属，不进行域名解析或变量展开。客户端上报 `command_networks_schema=1` 后可应用相应执行前动作；先升级平台，再升级客户端。 / Command IP subnet rules support IPv4/IPv6 CIDR and evaluate literal IPs without DNS or variable expansion. Pre-execution actions require client reporting of `command_networks_schema=1`. Upgrade the platform before the client.
+
+
+**English:** Keyword actions evaluate any/all literal terms in supported command-tool inputs, optionally ignoring case, without executing or expanding commands. Receivers report `command_keywords_schema=1`; the platform checks recent reports before publishing keyword actions. Upgrade the platform before clients. Existing command wire fields and audit/intercept boundaries remain intact; platform risk evaluation and draft previews use the same matching semantics.
+
 #### 数据与核对边界
 
 - `skill_use` 是可选元数据：行为、名称、来源路径、提取依据、可选宿主加载阶段、观察摘要及时间。旧事件与逻辑 ID 不变；历史未结构化事件不回填为新调用。

@@ -3,6 +3,8 @@
     <strong>{{ hit.name || (te(`aidrRisk.settings.builtins.${hit.id}`) ? tr(`settings.builtins.${hit.id}`) : hit.id.startsWith('path_') ? tr('settings.customPaths') : tr(`codes.${hit.risk_code}`)) }}</strong>
     <a-tag :color="hit.severity === 'high' ? 'red' : 'orange'">{{ tr(`severity.${hit.severity}`) }}</a-tag>
     <dl v-if="hit.condition">
+<template v-if="hit.condition.networks"><dt>{{ t('securityRules.subnets') }}</dt><dd>{{ hit.condition.networks.subnets.join('\n') }}</dd></template>
+      <template v-if="hit.condition.keywords"><dt>{{ t('securityRules.keywordTerms') }}</dt><dd>{{ hit.condition.keywords.terms.join('\n') }}</dd><dt>{{ t('securityRules.keywordMode') }}</dt><dd>{{ t('securityRules.keywordModes.' + hit.condition.keywords.mode) }} · {{ t('securityRules.ignoreCase') }}: {{ t(hit.condition.keywords.ignore_case ? 'securityRules.enabled' : 'securityRules.disabled') }}</dd></template>
       <template v-for="key in ['agent', 'tool', 'executable', 'args_all', 'args_any', 'path_prefix', 'pipe_to', 'paths']" :key="key">
         <template v-if="hit.condition[key]?.length"><dt>{{ tr(`commandRules.conditions.${key}`) }}</dt><dd>{{ Array.isArray(hit.condition[key]) ? hit.condition[key].join('\n') : hit.condition[key] }}</dd></template>
       </template>

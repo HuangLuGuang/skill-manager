@@ -1130,7 +1130,9 @@ def security_configuration(client_id, response, db, user):
                      else global_risk_configuration(response, db, user))
     control = hook_policy_view(client_id, db, user) if client_id else global_tool_policy(db, user)
     control['can_edit'] = control['can_edit'] and (not client_id or 'clients:update' in permissions)
-    return {'detection': detection, 'control': control, **security_rules.document_view(db, detection, control, client_id)}
+    from ..aidr_rule_execution import view as execution_view
+    return {'detection': detection, 'control': control, 'execution': execution_view(db, client_id, control),
+            **security_rules.document_view(db, detection, control, client_id)}
 
 
 @security_router.get('')
@@ -1277,7 +1279,7 @@ def save_client_security_configuration(client_id: str, body: dict, response: Res
 
 def preview_security_document(client_id, body, response, db, user):
     from pydantic import ValidationError
-    security_configuration(client_id, response, db, user)
+    configuration_view = security_configuration(client_id, response, db, user)
     iam.check(db, user, 'settings:view')
     try:
         if set(body) != {'document', 'command', 'cwd', 'platform', 'agent', 'tool', 'enabled', 'default_action'}:
@@ -1292,7 +1294,7 @@ def preview_security_document(client_id, body, response, db, user):
         assessment = aidr_risk.command_assessment(config.command, config.cwd, configuration, config.platform) if body['command'] else {'status': 'unmatched', 'matches': [], 'unresolved_rules': []}
         assessment['matches'] = aidr_risk.detect_matches(event, configuration, windows=config.platform == 'windows')
         assessment['status'] = 'matched' if assessment['matches'] else 'disabled' if not body['enabled'] else 'unresolved' if assessment['unresolved_rules'] else 'unmatched'
-        return {'risk': assessment, 'control': control}
+        return {'risk': assessment, 'control': control, 'execution': configuration_view['execution']}
     except ValidationError:
         security_rules.invalid()
 

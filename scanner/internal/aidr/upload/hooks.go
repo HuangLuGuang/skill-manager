@@ -88,9 +88,11 @@ func (c *Client) ReportHookRuntime(ctx context.Context, s *hooks.Store, sequence
 	}
 	seq := strconv.FormatUint(sequence, 10)
 	payload := map[string]any{"schema_version": 1, "stream_id": state.Stream,
-		"command_rules_schema": 1,
-		"approval_wait_schema": 1,
-		"receiver_instance":    state.ReceiverInstance, "report_sequence": seq,
+		"command_keywords_schema": 1,
+		"command_networks_schema": 1,
+		"command_rules_schema":    1,
+		"approval_wait_schema":    1,
+		"receiver_instance":       state.ReceiverInstance, "report_sequence": seq,
 		"control_mode": state.ControlMode, "control_revision": state.ControlRevision,
 		"control_code": state.ControlCode, "queued_records": state.Queued,
 		"upload_code": c.hookUploadCode, "next_upload_at": utcTime(c.hookNextUpload), "last_event_ack_at": state.LastAcknowledgedAt}
