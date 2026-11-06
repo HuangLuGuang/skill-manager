@@ -20,6 +20,24 @@ def test_shared_event_contract():
                 Event.model_validate(case["event"])
 
 
+@pytest.mark.parametrize('scope', ['0', '501', 'S-1-5-18', 'S-1-5-21-1234567890-2345678901-3456789012-1001'])
+def test_log_user_identity_roundtrip(scope):
+    vectors = json.loads(VECTORS.read_text())
+    event = next(case['event'] for case in vectors if case['valid'])
+    event['user_scope'] = scope
+    assert Event.model_validate(event).user_scope == scope
+
+
+@pytest.mark.parametrize('scope', ['', '0501', '-1', 'S-2-5-18', 'S-1-5', 'S-1-05-18',
+    'S-1-5-018', 'S-1-281474976710656-1', 'S-1-5-4294967296', 'S-1-5' + '-1'*16, 'S-1-5-18\n'])
+def test_log_user_identity_rejects_invalid_scope(scope):
+    vectors = json.loads(VECTORS.read_text())
+    event = next(case['event'] for case in vectors if case['valid'])
+    event['user_scope'] = scope
+    with pytest.raises(ValueError):
+        Event.model_validate(event)
+
+
 def test_batch_rejects_raw_content_duplicate_keys_and_numeric_offsets():
     vectors = json.loads(VECTORS.read_text())
     event = next(case["event"] for case in vectors if case["valid"])
