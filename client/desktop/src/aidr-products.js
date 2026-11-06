@@ -1,21 +1,61 @@
 window.aidrProducts = [
   {
-    "id": "zcode", "name": "ZCode", "entry": "desktop", "os": ["darwin"],
-    "logs": "zcode-sqlite", "roots": [".zcode/cli/db"],
-    "hooks": "zcode-settings", "hook_setup": {"host_authorization": false, "host_enablement": false},
-    "block": true, "approval": true, "evidence": "local-source-and-log-sample",
-    "docs": ["https://zcode.z.ai/en/docs/hooks"],
-    "hook_events": {"SessionStart": "session.start", "UserPromptSubmit": "turn.submit", "PreToolUse": "tool.pre", "PostToolUse": "tool.post", "PostToolUseFailure": "tool.failure", "Stop": "turn.stop"},
-    "managed": false, "sample_versions": ["macOS 3.16.3.8992, embedded 0.17.0"],
-    "log_os": ["darwin"], "hook_os": ["darwin"],
-    "skill_usage": {"invocation": true, "file_access": true, "result_source": "unverified", "new_call_e2e": "unverified"}
+    "id": "zcode",
+    "name": "ZCode",
+    "entry": "desktop",
+    "os": [
+      "darwin",
+      "windows"
+    ],
+    "logs": "zcode-sqlite",
+    "roots": [
+      ".zcode/cli/db"
+    ],
+    "hooks": "zcode-settings",
+    "hook_setup": {
+      "host_authorization": false,
+      "host_enablement": false
+    },
+    "block": true,
+    "approval": true,
+    "evidence": "local-source-and-log-sample",
+    "docs": [
+      "https://zcode.z.ai/en/docs/hooks"
+    ],
+    "hook_events": {
+      "SessionStart": "session.start",
+      "UserPromptSubmit": "turn.submit",
+      "PreToolUse": "tool.pre",
+      "PostToolUse": "tool.post",
+      "PostToolUseFailure": "tool.failure",
+      "Stop": "turn.stop"
+    },
+    "managed": false,
+    "sample_versions": [
+      "macOS 3.16.3.8992, embedded 0.17.0"
+    ],
+    "log_os": [
+      "darwin",
+      "windows"
+    ],
+    "hook_os": [
+      "darwin",
+      "windows"
+    ],
+    "skill_usage": {
+      "invocation": true,
+      "file_access": true,
+      "result_source": "unverified",
+      "new_call_e2e": "unverified"
+    }
   },
   {
     "id": "qwenwork",
     "name": "QwenWork CN",
     "entry": "desktop",
     "os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "logs": "qwenwork-jsonl",
     "roots": [
@@ -45,10 +85,12 @@ window.aidrProducts = [
       "CN 1.4.0 (26102705), embedded 1.1.71"
     ],
     "log_os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "hook_os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "skill_usage": {
       "invocation": true,
@@ -104,7 +146,8 @@ window.aidrProducts = [
     ],
     "hook_os": [
       "darwin",
-      "linux"
+      "linux",
+      "windows"
     ],
     "skill_usage": {
       "invocation": true,
@@ -156,7 +199,8 @@ window.aidrProducts = [
     ],
     "hook_os": [
       "darwin",
-      "linux"
+      "linux",
+      "windows"
     ],
     "skill_usage": {
       "invocation": false,
@@ -170,7 +214,8 @@ window.aidrProducts = [
     "name": "WorkBuddy",
     "entry": "desktop",
     "os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "logs": "workbuddy-jsonl",
     "roots": [
@@ -201,10 +246,12 @@ window.aidrProducts = [
       "5.6.2"
     ],
     "log_os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "hook_os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "skill_usage": {
       "invocation": true,
@@ -218,7 +265,8 @@ window.aidrProducts = [
     "name": "CodeBuddy IDE",
     "entry": "ide",
     "os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "logs": "codebuddy-session-json",
     "roots": [
@@ -250,10 +298,12 @@ window.aidrProducts = [
       "4.12.2"
     ],
     "log_os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "hook_os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "skill_usage": {
       "invocation": true,
@@ -261,14 +311,20 @@ window.aidrProducts = [
       "result_source": "native_base_directory",
       "new_call_e2e": "passed_macos_4.12.2_2026-10-26"
     },
-    "enrollment_log_source": "codebuddy"
+    "enrollment_log_source": "codebuddy",
+    "roots_by_os": {
+      "windows": [
+        "AppData/Local/CodeBuddyExtension/Data"
+      ]
+    }
   },
   {
     "id": "qoder-cli",
     "name": "Qoder CLI",
     "entry": "cli",
     "os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "logs": "qoder-jsonl",
     "roots": [
@@ -288,7 +344,8 @@ window.aidrProducts = [
       "1.1.61"
     ],
     "log_os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "hook_os": [],
     "skill_usage": {
@@ -296,6 +353,12 @@ window.aidrProducts = [
       "file_access": true,
       "result_source": "unverified",
       "new_call_e2e": "unverified"
+    },
+    "roots_by_os": {
+      "windows": [
+        ".qoder/projects",
+        ".qoder-cn/projects"
+      ]
     }
   },
   {
@@ -623,7 +686,8 @@ window.aidrProducts = [
     "name": "TRAE",
     "entry": "desktop",
     "os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "logs": "trae-hook-log",
     "roots": [
@@ -653,16 +717,23 @@ window.aidrProducts = [
       "3.6.4"
     ],
     "log_os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "hook_os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "skill_usage": {
       "invocation": true,
       "file_access": true,
       "result_source": "result.metadata",
       "new_call_e2e": "host-hook-and-log"
+    },
+    "roots_by_os": {
+      "windows": [
+        "AppData/Roaming/Trae/logs"
+      ]
     }
   },
   {
@@ -670,7 +741,8 @@ window.aidrProducts = [
     "name": "TRAE CN",
     "entry": "desktop",
     "os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "logs": "trae-hook-log",
     "roots": [
@@ -701,16 +773,23 @@ window.aidrProducts = [
       "3.4.9"
     ],
     "log_os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "hook_os": [
-      "darwin"
+      "darwin",
+      "windows"
     ],
     "skill_usage": {
       "invocation": true,
       "file_access": true,
       "result_source": "result.metadata",
       "new_call_e2e": "unverified"
+    },
+    "roots_by_os": {
+      "windows": [
+        "AppData/Roaming/Trae CN/logs"
+      ]
     }
   }
 ];

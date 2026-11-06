@@ -32,15 +32,28 @@ func settingsEntries(agent, binary, connection string) map[string]map[string]any
 	out := map[string]map[string]any{}
 	for event := range p.HookEvents {
 		out[event] = map[string]any{"command": shellArg(binary) + " aidr-hook --agent " + shellArg(agent) + " --event " + shellArg(event) + " --connection-file " + shellArg(connection), "timeout": hookAdapters[agent].Settings.Timeout}
-		if runtime.GOOS == "windows" && agent == "qoder-hooks" {
-			out[event]["command"] = binary
-			out[event]["args"] = []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection}
+		if runtime.GOOS == "windows" {
+			args := []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection}
+			out[event]["command"] = windowsHookCommand(binary, args)
+			if agent == "workbuddy" || agent == "qwenwork" || agent == "trae" || agent == "trae-cn" {
+				out[event]["command"] = windowsHookScript(binary, args)
+				if agent == "workbuddy" || agent == "qwenwork" {
+					out[event]["shell"] = "powershell"
+				}
+			}
+			if agent == "qoder-hooks" || agent == "zcode" {
+				out[event]["command"] = binary
+				out[event]["args"] = args
+			}
 		}
 		if p.Approval && IsPreTool(agent, event) {
 			out[event]["timeout"] = 315
 		}
 		if hookAdapters[agent].Settings.Nested {
 			out[event]["type"] = "command"
+		}
+		if runtime.GOOS == "windows" && agent == "zcode" {
+			out[event]["type"] = "process"
 		}
 	}
 	return out

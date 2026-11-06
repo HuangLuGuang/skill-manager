@@ -63,7 +63,7 @@ func automaticLogPlan(home string, policy managedclient.Policy) (logRunPlan, err
 				}
 				continue
 			}
-			for _, relative := range product.Roots {
+			for _, relative := range catalog.RelativeLogRoots(product) {
 				root := upload.Root{Agent: agent, Path: filepath.Join(home, relative)}
 				if !catalog.SupportedLogOS(product) {
 					root.UnavailableCode = "aidr_log_platform_unverified"

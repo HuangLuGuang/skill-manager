@@ -38,7 +38,8 @@
       const entryLabel = t(`entry_${product.entry.replaceAll('-', '_')}`)
       title.textContent = qoderEntries.has(product.id) ? entryLabel : `${product.name} · ${entryLabel}`
       info.textContent = `${product.os.join(' / ') || t('unknown')} · ${t('catalog_samples')}: ${product.sample_versions.join(' / ') || t('unknown')} · ${product.logs || product.hooks ? t('adapter_implemented') : t('catalog_unavailable')}`
-      source.textContent = `${t('channel_logs')}: ${product.logs || t('catalog_unavailable')} ${product.log_os.join('/')} ${product.roots.map(root => `~/${root}`).join(' / ')} · Hook: ${product.hooks || t('catalog_unavailable')} ${product.hook_os.join('/')}`
+      const roots = [product.roots.map(root => `~/${root}`).join(' / '), ...Object.entries(product.roots_by_os || {}).map(([os, roots]) => `${os}: ${roots.map(root => `~/${root}`).join(' / ')}`)].filter(Boolean).join(' · ')
+      source.textContent = `${t('channel_logs')}: ${product.logs || t('catalog_unavailable')} ${product.log_os.join('/')} ${roots} · Hook: ${product.hooks || t('catalog_unavailable')} ${product.hook_os.join('/')}`
       row.append(title, info, source)
       if (qoderEntries.has(product.id)) {
         if (!qoderCatalog) {

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"skill-manager/scanner/internal/aidr/hooks"
@@ -174,15 +175,36 @@ func desktopFindHost(agent, home string) desktopHost {
 	result := desktopHost{Home: filepath.Join(home, "."+agent)}
 	candidates := []string{}
 	if agent == "claude" {
-		candidates = append(candidates, filepath.Join(home, ".local", "bin", "claude"))
+		name := "claude"
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		candidates = append(candidates, filepath.Join(home, ".local", "bin", name))
 	}
 	if agent == "codex" && runtime.GOOS == "darwin" {
 		candidates = append(candidates, "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex")
 	}
+	if agent == "codex" && runtime.GOOS == "windows" {
+		candidates = append(candidates, filepath.Join(home, ".codex", "packages", "standalone", "current", "bin", "codex.exe"))
+	}
 	if p, e := exec.LookPath(agent); e == nil {
+		if runtime.GOOS == "windows" && agent == "codex" {
+			// npm's .cmd shim cannot serve the native bidirectional app-server pipe.
+			triple, pkg := "x86_64-pc-windows-msvc", "codex-win32-x64"
+			if runtime.GOARCH == "arm64" {
+				triple, pkg = "aarch64-pc-windows-msvc", "codex-win32-arm64"
+			}
+			base := filepath.Join(filepath.Dir(p), "node_modules", "@openai", "codex")
+			for _, vendor := range []string{filepath.Join(base, "node_modules", "@openai", pkg, "vendor"), filepath.Join(base, "vendor")} {
+				candidates = append(candidates, filepath.Join(vendor, triple, "codex", "codex.exe"))
+			}
+		}
 		candidates = append(candidates, p)
 	}
 	for _, p := range candidates {
+		if runtime.GOOS == "windows" && !strings.EqualFold(filepath.Ext(p), ".exe") {
+			continue
+		}
 		if s, e := os.Stat(p); e == nil && s.Mode().IsRegular() {
 			result.Binary = p
 			break

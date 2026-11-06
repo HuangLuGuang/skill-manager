@@ -18,11 +18,33 @@ Hook 上传和审批范围保留 Windows SID，macOS/Linux 保留数字 UID；�
 
 Windows 后台治理服务运行用户级 Hook 自动接收器，使用仅当前用户 SID 可访问的 Named Pipe，并校验两端进程用户。`~/.agent-manager/aidr/hook.sock` 在 Windows 上是私有状态标记，实际通信不使用 TCP 或 Unix Socket；目录和队列使用 Windows ACL，不能用 POSIX 权限位替代。后台任务停止后管道由系统释放，重开后保留事件与上传队列，旧审批授权和等待中的尝试失效。
 
-Windows 当前开放 Qoder 共享 Hook 入口。存在 `.qoder-cn` 数据目录时使用其 `settings.json`，否则使用 `.qoder/settings.json`；同时安装两个入口时，此入口选择 CN 配置。原生命令采用 `command` 加 `args` 的 exec form，保留中文、空格路径和原始 stdin，不依赖 Bash。安装与撤回按命令及参数识别本客户端条目，保留其他配置。宿主是否加载和实际阻断必须通过新调用验证；接收器可用不代表其他产品、系统级防护或全机受管加载已适配 Windows。
+Windows 产品接入复用现有日志解析、持久队列、严格 ACK、规则、签名审批及重启恢复。产品目录的 `os`、`log_os`、`hook_os` 表示实现范围；`sample_versions` 与实机回执另行记录，不能将已实现当成目标版本已验收。
 
-**English:** The Windows user-session daemon hosts the automatic Hook receiver over a current-user SID restricted named pipe and verifies peer process users. `hook.sock` is a private state marker on Windows. State uses Windows ACLs. Restart preserves queued evidence and invalidates old grants and pending attempts. The Windows Qoder shared Hook entry uses `.qoder-cn/settings.json` when the CN data directory exists, otherwise `.qoder/settings.json`; CN takes precedence when both exist. Native exec-form commands preserve Unicode paths and stdin. Installation/removal matches both executable and arguments and preserves unrelated settings. Verify host loading, blocking and approval with fresh calls; receiver support does not imply Windows support for every product or system-level enforcement.
+| 产品 / Product | Windows 日志目录（相对用户目录） / Log roots relative to home | Hook 接入 / Hook setup |
+| --- | --- | --- |
+| Claude Code | `.claude/projects` | 原生插件，Windows PowerShell 命令 / Native plugin, PowerShell commands |
+| Codex | `.codex/sessions` | 原生插件，复用 App Server 检查与宿主信任 / Native plugin, App Server inspection and host trust |
+| WorkBuddy | `.workbuddy/projects` | `.workbuddy/settings.json` |
+| CodeBuddy IDE | `AppData/Local/CodeBuddyExtension/Data` | `.codebuddy/settings.json` |
+| TRAE / TRAE CN（含新版 Work 模式） | `AppData/Roaming/Trae/logs` / `AppData/Roaming/Trae CN/logs` | `.trae/hooks.json` / `.trae-cn/hooks.json`，宿主授权与启用仍需完成 / Host authorization and enablement remain required |
+| Qoder | `.qoder/projects`、`.qoder-cn/projects`（`qoder-cli` 日志格式入口） | `qoder-hooks` 共享 Hook；CN 目录存在时优先 `.qoder-cn/settings.json` / Shared Hooks, CN settings take precedence |
+| QwenWork CN | `.qwenworkcn/projects` | `.qwenworkcn/settings.json` |
+| ZCode | `.zcode/cli/db` | `.zcode/cli/config.json`，直接进程参数 / Direct process arguments |
 
-UI 手工验证 Todo：中英文运行治理状态；Qoder 启用/撤回和重复启用；包含中文及空格路径；允许、拒绝、批准、审批拒绝及超时；桌面退出重开、后台重启后队列和旧授权；窄窗口布局。原生 Windows 测试与真实 Qoder 会话验收分别记录。
+Qoder 和 ZCode 使用原生 `command` + `args`，WorkBuddy、QwenWork、TRAE 直接使用 PowerShell 脚本；CodeBuddy 与 Codex 的命令入口使用编码的 PowerShell 脚本。两种形式显式保留 UTF-8 JSON 输入输出并关闭进度输出。Claude Code/Codex 的连接插件在 Windows 构建时生成相同的 Windows 桥接调用；Claude 显式选择 PowerShell。不会将凭据放入命令或插件包。安装与撤回只处理本客户端拥有的 Hook，保留其他字段和用户 Hook。
+
+Claude Code 优先发现 `~/.local/bin/claude.exe`；Codex 支持 PATH 中原生 `.exe`，并解析标准 npm 安装目录中的平台二进制，避免使用 `.cmd` 承担双向 App Server 通信。自定义安装仍可使用已有宿主路径设置。连接插件版本为 `0.1.4`，现有原生插件需升级并按宿主要求重新确认信任。平台和客户端需配套升级产品目录；全机受管安装与系统级进程/文件拦截仍不属于此次 Windows 产品 Hook 适配。新版 TRAE 的 Work 模式沿用 TRAE 产品入口；旧独立 TraeWork 保持独立库存身份，不据此宣称已接入。
+
+**English:** Windows adapters reuse log parsers, durable queues, strict ACK, policy evaluation, signed approvals and restart recovery. The catalog describes implementation scope; sample versions and native acceptance remain separate. Qoder and ZCode launch the bridge directly with argv. WorkBuddy, QwenWork and TRAE use direct PowerShell scripts; CodeBuddy and Codex use encoded PowerShell launchers. Both explicitly set UTF-8 JSON streams and suppress progress output. Connected Claude/Codex plugins generate Windows bridge commands; Claude explicitly selects PowerShell. Packages contain stable paths, never credentials. Installation/removal preserves unrelated hooks and settings. Native Claude/Codex executables are discovered without using npm batch shims for bidirectional App Server communication. Connected plugins are version `0.1.4`; upgrade existing plugins and re-confirm host trust when required. Upgrade the platform catalog and client together. System-managed installation and OS-level enforcement require their own Windows implementation. The current TRAE Work mode shares the TRAE integration; this does not certify old standalone TraeWork.
+
+UI 手工验证 Todo / Manual UI acceptance:
+
+- [ ] 运行治理选择普通接入，分别开启日志与 Hook，配置需要测试的产品和工具规则，并确认实际拦截模式。 / Choose ordinary integration, enable logs and Hooks separately, select products/tool rules and confirm effective intercept mode.
+
+- [ ] 中英文产品能力、平台专属目录、安装状态、窄窗口长路径。 / Bilingual capabilities, OS-specific paths, installation state and narrow layouts.
+- [ ] 各产品启用、重复启用、撤回，保留原 Hook；授权/信任后新会话实际加载。 / Install, repeat and remove each integration while preserving user hooks; verify loading in a fresh authorized/trusted host session.
+- [ ] 真实日志增量采集、允许/拒绝、批准/审批拒绝/超时、相同命令独立审批。 / Real log updates, allow/deny, approval/rejection/timeout and independent repeated attempts.
+- [ ] 桌面退出重开、后台重启后队列恢复与旧授权失效。 / Desktop reopen, durable queue recovery and stale-grant invalidation after daemon restart.
 
 ## 客户端菜单显示 / Client menu visibility
 
