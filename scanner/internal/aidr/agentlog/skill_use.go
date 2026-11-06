@@ -3,10 +3,8 @@ package agentlog
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -96,11 +94,4 @@ func ProjectSkillUse(agent, tool, cwd string, input json.RawMessage, policy *Aud
 		return nil
 	}
 	return &SkillUse{Behavior: "file_access", Path: filepath.ToSlash(path), Basis: basis}
-}
-
-func sourceUserScope() string {
-	if uid := os.Getuid(); uid >= 0 {
-		return strconv.Itoa(uid)
-	}
-	return ""
 }

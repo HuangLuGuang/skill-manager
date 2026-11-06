@@ -12,9 +12,9 @@ Windows 本机数据库的只读访问使用包含盘符的文件 URI（如 `fil
 
 ## Windows Hook 接收器 / Windows Hook receiver
 
-Hook 上传和审批范围保留 Windows SID，macOS/Linux 保留数字 UID；平台须支持两种用户标识。
+日志、Hook 上传和审批范围保留 Windows SID，macOS/Linux 保留数字 UID；平台须支持两种用户标识。工具 Hook 未带轮次 ID 时，按同一设备、用户、会话、工具及原生调用 ID 与日志精确关联轮次；缺少用户标识的历史日志保持未归属，不按时间猜测补齐。升级此修复时须先更新平台，再更新客户端；客户端更新后以新操作验证。
 
-**English:** Hook uploads and approval scopes preserve Windows SIDs and numeric macOS/Linux UIDs; the platform must accept both identities.
+**English:** Log and Hook uploads and approval scopes preserve Windows SIDs and numeric macOS/Linux UIDs; the platform must accept both identities. Tool Hooks without native turn IDs link to logs using the exact device, user, session, tool and native call ID. Historical logs without user identity remain unassigned; timestamps do not establish identity. Deploy this platform fix before upgrading the client, then verify with new operations.
 
 Windows 后台治理服务运行用户级 Hook 自动接收器，使用仅当前用户 SID 可访问的 Named Pipe，并校验两端进程用户。`~/.agent-manager/aidr/hook.sock` 在 Windows 上是私有状态标记，实际通信不使用 TCP 或 Unix Socket；目录和队列使用 Windows ACL，不能用 POSIX 权限位替代。后台任务停止后管道由系统释放，重开后保留事件与上传队列，旧审批授权和等待中的尝试失效。
 
