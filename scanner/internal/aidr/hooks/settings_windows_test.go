@@ -137,7 +137,10 @@ func TestWindowsMissingPreToolBridgeDenies(t *testing.T) {
 }
 
 func TestWindowsConnectedMarketplaceUsesNativeBridge(t *testing.T) {
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	source, err := BundledSource(root)
 	if err != nil {
 		t.Fatal(err)
