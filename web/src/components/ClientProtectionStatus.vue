@@ -4,7 +4,7 @@
     <div class="status-content">
     <div class="status-modes">
     <div v-for="name in names" :key="name" class="mode-row">
-      <div class="mode-title"><strong>{{ t(`clientGovernance.runtime.mode_${name}`) }}</strong><a-tag :color="!failed && state?.channels?.[name]?.applied ? 'green' : 'orange'">{{ t(`clientGovernance.protection.${reason(name)}`) }}</a-tag></div>
+      <div class="mode-title"><strong>{{ t(`clientGovernance.runtime.mode_${name}`) }}</strong><a-tag :color="!failed && state?.channels?.[name]?.applied ? current(name)?.mode === 'intercept' ? 'green' : 'default' : 'orange'">{{ t(`clientGovernance.protection.${reason(name)}`) }}</a-tag></div>
       <div class="mode-value"><span>{{ t('clientGovernance.protection.configured') }}</span><strong>{{ !failed && state?.channels?.[name] ? mode(state.channels[name].target_mode, 'legacy') : mode(null, 'unknown') }}</strong></div>
       <div class="mode-value"><span>{{ t('clientGovernance.protection.effective') }}</span><strong>{{ mode(current(name)?.mode, 'unknown') }}</strong></div>
       <p v-if="current(name)?.state === 'failed'">{{ diagnostic(current(name).code) }}</p>

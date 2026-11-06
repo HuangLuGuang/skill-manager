@@ -1,6 +1,6 @@
 export const hookMessages = {
   'zh-CN': {
-    wait: { label: '人工审批等待时长（秒）', help: '默认 180 秒，可设置 30–300 秒。仅影响新申请；客户端覆盖随本页规则一起设置。超时拒绝执行。', invalid: '请输入 30–300 之间的整数。', remaining: '剩余 {seconds} 秒', ended: '等待已结束', upgrade: '请升级客户端并等待审批等待时长能力报告后发布。' },
+    wait: { label: '人工审批等待时长（秒）', help: '30–300 秒，超时拒绝。', detail: '默认 180 秒，仅影响新申请。客户端覆盖随本页规则一起设置。', invalid: '请输入 30–300 之间的整数。', remaining: '剩余 {seconds} 秒', ended: '等待已结束', upgrade: '请升级客户端并等待审批等待时长能力报告后发布。' },
     globalPublish: '发布全局规则',
     scope: { title: '全局工具规则', inherit: '继承全局工具规则', globalRevision: '全局版本', local: '客户端单独配置', issued: '已签发，实际应用以客户端报告为准', pending: '等待客户端同步；命令规则需接收器支持', unconfigured: '尚未发布全局规则', globalHelp: '统一管理工具与命令规则。客户端默认继承，已有单独规则保持原配置；Hook 运行模式仍在客户端策略中设置。', localHelp: '关闭继承后单独配置本客户端。恢复继承后跟随全局更新。', impact: '影响 {inherited} 个继承客户端；{overridden} 个单独配置客户端保持原规则。新客户端默认继承。' },
     commands: {
@@ -54,7 +54,7 @@ export const hookMessages = {
     allow: '允许', deny: '拒绝', ask: '需要审批', approve: '批准本次尝试', reject: '拒绝本次尝试', revoke: '撤销授权', confirm: '确认', cancel: '取消', confirmDecision: '将所选决定应用于详情中绑定的本次调用。批准仍需遵守宿主权限；拒绝或撤销不终止已经执行的操作。', timed_out: '审批已超时', pending: '待审批', approved: '平台已批准', denied: '平台已拒绝', revoked: '平台已撤销', expired: '授权期限已结束', unknown: '未知', state: '当前有效状态', recordedState: '平台记录状态', expires: '授权截止', created: '申请时间', session: '会话', call: '调用 ID', turn: '回合 ID', user: '系统用户', receiver: '接收器实例', inputDigest: '参数摘要', attempt: '尝试 ID', execution: '执行点', details: '详情', close: '关闭', first: '首页', next: '下一页', empty: '暂无审批请求', unavailable: '无操作权限、状态已结束或授权已过期', readonly: '当前账号仅可查看', detailTitle: '审批详情', noEvidence: '未找到对应 Hook 证据', command: '请求命令', cwd: '工作目录', targets: '请求目标', updated: '列表读取时间', stale: '这是读取时状态，客户端可能已超时；服务端会独立校验。',
   },
   'en-US': {
-    wait: { label: 'Approval wait (seconds)', help: 'Default: 180 seconds; range: 30–300. Applies to new requests. Device overrides follow the rules on this page. Timeout denies execution.', invalid: 'Enter an integer from 30 to 300.', remaining: '{seconds} seconds remaining', ended: 'Wait ended', upgrade: 'Upgrade the client and wait for approval timeout capability reporting before publishing.' },
+    wait: { label: 'Approval wait (seconds)', help: '30–300 seconds; deny on timeout.', detail: 'Default: 180 seconds. Applies to new requests. Device overrides follow the rules on this page.', invalid: 'Enter an integer from 30 to 300.', remaining: '{seconds} seconds remaining', ended: 'Wait ended', upgrade: 'Upgrade the client and wait for approval timeout capability reporting before publishing.' },
     globalPublish: 'Publish global rules',
     scope: { title: 'Global tool rules', inherit: 'Inherit global tool rules', globalRevision: 'Global revision', local: 'Client override', issued: 'Issued; application requires a client report', pending: 'Awaiting client sync; command rules require receiver support', unconfigured: 'No global rules published', globalHelp: 'Manage shared tool and command rules. Clients inherit by default; existing overrides are preserved. Hook mode is configured separately in client policy.', localHelp: 'Turn off inheritance to configure this client. Restore inheritance to follow global updates.', impact: 'Affects {inherited} inheriting clients; {overridden} overridden clients keep their rules. New clients inherit by default.' },
     commands: {

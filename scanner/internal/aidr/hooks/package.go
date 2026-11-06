@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -61,6 +62,28 @@ func BuildConnectedMarketplace(source, destination, binary, connection string) (
 			key := filepath.ToSlash(filepath.Join("plugins", name, relative))
 			if relative == "scripts/bridge.sh" && connection != "" {
 				data = []byte("#!/bin/sh\nset -eu\nif [ ! -x " + shellQuote(binary) + " ]; then\n  if [ \"${1:-}\" = PreToolUse ]; then\n    printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"aidr_hook_binary_unavailable\"}}'\n    exit 0\n  fi\n  printf '%s\\n' aidr_hook_binary_unavailable >&2\n  exit 1\nfi\nexec " + shellQuote(binary) + " aidr-hook --connection-file " + shellQuote(connection) + " --agent " + host + " --event \"$1\"\n")
+			}
+			if relative == "hooks/hooks.json" && connection != "" && runtime.GOOS == "windows" {
+				var doc struct {
+					Hooks map[string][]struct {
+						Hooks []map[string]any `json:"hooks"`
+					} `json:"hooks"`
+				}
+				if json.Unmarshal(data, &doc) != nil || len(doc.Hooks) == 0 {
+					return nil, code("aidr_plugin_package_invalid")
+				}
+				for event, groups := range doc.Hooks {
+					for _, group := range groups {
+						for _, handler := range group.Hooks {
+							handler["command"] = windowsHookCommand(binary, []string{"aidr-hook", "--connection-file", connection, "--agent", host, "--event", event})
+							if host == "claude" {
+								handler["shell"] = "powershell"
+								handler["command"] = windowsHookScript(binary, []string{"aidr-hook", "--connection-file", connection, "--agent", host, "--event", event})
+							}
+						}
+					}
+				}
+				data, _ = json.MarshalIndent(doc, "", "  ")
 			}
 			files[key] = data
 		}

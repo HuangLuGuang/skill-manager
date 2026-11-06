@@ -43,13 +43,14 @@ func TestControlDecisionPersistedWithEvent(t *testing.T) {
 		input["tool_input"] = map[string]string{"command": tc.command}
 		// Host-supplied control fields must never become receiver evidence.
 		input["control_decision"] = map[string]string{"decision": "allow"}
+		input["control_mode"] = "audit"
 		raw, _ := json.Marshal(input)
 		r, err := s.Receive(ctx, testID(i+1), "501", "codex", "PreToolUse", raw)
 		if err != nil {
 			t.Fatal(err)
 		}
 		d := r.Event.ControlDecision
-		if d == nil || d.Decision != tc.decision || d.Rule != tc.rule || d.Revision != "7" {
+		if d == nil || d.Decision != tc.decision || d.Rule != tc.rule || d.Revision != "7" || r.Event.ControlMode != "plugin_pre_tool" {
 			t.Fatalf("%+v", d)
 		}
 		var saved []byte
@@ -73,7 +74,12 @@ func TestControlDecisionPersistedWithEvent(t *testing.T) {
 	}
 	_ = s.SetControlMode("audit")
 	r, err := s.Receive(ctx, testID(3), "501", "codex", "PreToolUse", []byte(storeInput))
-	if err != nil || r.Event.ControlDecision != nil {
+	if err != nil || r.Event.ControlDecision != nil || r.Event.ControlMode != "audit" {
 		t.Fatal("audit must not report an interception", r, err)
+	}
+	_ = s.SetControlMode("intercept")
+	replay, err := s.Receive(ctx, r.EventID, "501", "codex", "PreToolUse", []byte(storeInput))
+	if err != nil || replay.Event.ControlMode != "audit" || replay.Event.ControlDecision != nil {
+		t.Fatal("replay must preserve historical audit mode", replay, err)
 	}
 }

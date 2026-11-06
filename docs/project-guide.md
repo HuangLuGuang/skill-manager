@@ -6,6 +6,10 @@
 
 ## 客户端界面配置 / Client interface configuration
 
+客户端策略的“启用运行采集与防护”关闭后，下方通道、产品、防护模式和高级配置置灰，保留原有勾选与取值；重新开启后恢复编辑，保存并等待客户端应用后按原配置执行。关闭策略生效后停止新增运行采集及 Hook 拦截、审批，待发记录按上报许可继续补传，历史记录和插件配置保留。独立接入的 Skill Verifier 或加载器验签由对应接入配置控制。
+
+When **Enable runtime collection and protection** is off, channel, product, protection-mode and advanced settings are disabled while retaining their selections and values. Switching on restores editing; save and wait for client application to resume execution with those settings. Once the off policy takes effect, new runtime collection, Hook interception and approvals stop. Queued records continue uploading when reporting is allowed; history and plugin configuration are retained. An independently integrated Skill Verifier or loader uses its own integration settings.
+
 默认客户端策略和单客户端策略提供“客户端界面 → 菜单显示”。概览固定保留，其余四个侧边栏菜单支持全局显示开关与单客户端逐项“跟随全局 / 显示 / 隐藏”。复用策略预览、版本校验、审计、任务下发和客户端缓存，隐藏入口不改变后台功能权限。仅菜单修改不触发额外扫描或运行治理重新应用；状态区分未支持、待同步和配置已同步。配置同步状态依据客户端缓存回执；桌面在读取配置后更新界面。操作及人工验收清单见 [客户端说明](agent-manager-client.md#客户端菜单显示--client-menu-visibility)。
 
 Default and individual client policies provide **Client interface → Menu visibility**. Overview remains visible; the other four menus support global defaults and independent per-client inheritance or overrides. Existing policy preview, version checks, audit, delivery, and caching are reused. Hiding an entry does not change background permissions. Menu-only changes do not request extra scanning or runtime-governance reapplication. Sync status reflects the client cache receipt, not desktop rendering; see the client guide for manual acceptance.
@@ -705,7 +709,24 @@ Agent 日志本地数据库默认配额为 1 GiB（1024 MiB）。平台持久化
 
 UI 验收 Todo（简体中文 / English）：在“采集状态”核对“已释放本地正文”的数量及说明；在“审计采集与脱敏”核对平台保留期限与本地 ACK 后释放的区别；确认已上传会话正文仍可从平台打开。
 
-安全规则配置位于“客户端 → 全局客户端配置 → 安全规则”，单客户端从详情的“客户端配置 → 安全规则”进入。规则列表提供一个“新增规则”入口，新增与编辑共用弹窗。每条规则由匹配对象（命令、工具调用或内置行为）、适用智能体/系统、引用路径集合、风险记录（不记录/中等/高）、执行前动作（不参与/允许/审批/拒绝）和启用状态组成。可按名称或条件即时搜索，筛选有动作或仅记录风险的规则；名称与严重度支持排序。
+安全规则页同时显示执行模式来源、配置模式和设备实际模式；设备独立模式覆盖全局模式。规则保存、单条草稿测试与完整规则测试分别显示规则匹配动作和当前执行条件；仅审计时明确提示拒绝和审批不执行，未确认或过期回报不展示为已生效。“调整执行模式”进入已有模式设置，返回规则页时刷新状态并保留规则草稿。保存规则不自动切换执行模式。
+
+English: The security rules page shows the execution mode source, configured mode and device-reported mode. Device settings override the global mode. Saving and both preview entry points separate rule matching from current execution conditions. Audit mode does not enforce deny or approval actions; unconfirmed or stale reports remain unconfirmed. Adjusting the execution mode opens the existing settings; returning refreshes status and preserves the rule draft. Saving rules does not change execution mode.
+
+安全规则配置位于“客户端 → 全局客户端配置 → 安全规则”，单客户端从详情的“客户端配置 → 安全规则”进入。规则列表提供一个“新增规则”入口，新增与编辑共用弹窗。基本配置包括名称、匹配对象（命令名称、命令包含关键词、工具调用或内置行为）、智能体、执行前动作和风险等级；参数、管道、路径集合、工具限制及适用系统放在高级条件中。命令规则默认匹配全部受支持命令工具；例如 `Bash` 是宿主工具名，`rm` 是命令名称。动作旁显示最近的客户端 Hook 模式；仅审计时需先切换为拦截并确认生效。可按名称或条件即时搜索，筛选有动作或仅记录风险的规则；名称与严重度支持排序。
+
+新增规则支持从10种示例填入草稿：删除前审批、强制递归删除、Git强推、Git硬重置、npm安装、curl记录、指定工具拒绝、敏感路径记录、命令关键词拒绝及 IP 网段归属拒绝。示例附带适用范围及命中/不命中命令；修改后更换示例需确认替换。表单展示规则摘要，并可使用当前单条草稿调用平台预览，不执行命令。字段错误就地显示，提交失败自动展开相关高级条件并定位首个错误；独立底栏始终显示错误数量和提交入口。“加入草稿”后仍需保存到平台；草稿修改有明确提示。
+
+关键词对命令原文及参数做纯文本包含匹配，支持任意/全部关键词和Unicode大小写折叠；最多16项，每项最多256 UTF-8字节。只判断受支持命令工具的命令输入，不判断聊天、文件正文或工具输出，不解释正则、变量展开或编码后的内容。关键词 `rm` 也会命中 `echo confirm`；只禁止执行程序 `rm` 时使用命令名称规则。关键词条件与程序/参数/路径条件分别配置。风险记录、只读预览和Go接收器共用相同语义。先升级平台，再升级客户端；接收器上报关键词能力后才允许发布执行前关键词动作。客户端仅审计时不执行拒绝或审批；既有记录不补写判定。
+
+**English:** The rule editor separates basic settings from advanced arguments, pipes, path sets, host tool restrictions and OS selection. Ten editable examples cover deletion, Git, npm, curl, native tools, sensitive paths, keyword denial and IP subnet membership denial. Changed drafts require confirmation before an example replaces them. Field errors remain beside inputs; the fixed footer shows an error count and focuses the first invalid field. Adding a rule to the draft does not publish it. A per-rule preview evaluates the draft without executing commands, and recent receiver reports show whether Hook interception is active.
+
+Keyword rules match literal command text and arguments, with any/all matching and Unicode case folding (16 terms, 256 UTF-8 bytes each). They apply to supported command-tool inputs and do not inspect chat, file bodies or tool output, expand variables, decode content or interpret regex. For example, `rm` also matches `echo confirm`; use an executable rule to target the rm program. Platform risk detection, previews and the Go receiver share these semantics. Upgrade the platform before the client; pre-execution keyword policies require receiver capability reporting and intercept mode. Historical records retain their original decisions.
+
+“命令中的 IP 属于网段”支持每行一个 IPv4/IPv6 CIDR，最多16项；任一命令 IP 属于任一网段即命中。网段中的主机位按前缀处理，IPv4 与 IPv6 分别判断（IPv4 映射地址按 IPv6 处理）。提取命令原文中的裸 IP、URL 中的 IP、IPv4 的 `IP:端口` 和带方括号的 IPv6；端口范围1–65535。不解析域名、变量、编码地址或带区域标识的 IPv6。它匹配命令文本中的 IP，不推断实际网络访问。示例预填 `10.10.71.0/24` 与 `2001:db8::/32`，预览显示命中 IP 及对应网段。平台风险记录、预览及 Go Hook 接收器复用相同语义；执行前动作需升级客户端并上报网段匹配能力。
+
+**English:** Command IP subnet matching accepts up to 16 IPv4/IPv6 CIDRs, one per line. Any literal IP in any listed subnet matches. Host bits are masked; address families remain separate, including IPv4-mapped IPv6. Bare IPs, URLs, IPv4 host:port (1–65535), and bracketed IPv6 are supported. No DNS, variable expansion, decoding or scoped IPv6 is performed. Matching command text does not infer actual network access. The example uses `10.10.71.0/24` and `2001:db8::/32`; previews show each matched IP and subnet. Platform risk detection, previews and Go Hook receivers share these semantics. Pre-execution actions require an upgraded client reporting subnet matching support.
+
 
 路径集合编辑弹窗提供全部内置路径分类浏览，展开后显示适用系统、实际模板和精确文件/目录匹配方式，并标记已选分类。空集合显示添加提示；浏览模板不会自动启用。规则的适用智能体支持选择一个或多个，全部与具体智能体互斥；选中任一智能体即可匹配，测试规则仍一次选择一个智能体。旧单值及全部配置保持兼容，多选执行前动作编译为各智能体的独立客户端规则，仍受发布策略最多 128 条规则的限制；测试结果回溯到统一规则。动作字段仅显示当前不支持条件的具体说明。路径集合独立保存名称、明确绝对路径和内置路径条目，允许多条规则引用；修改集合会同时更新所有引用规则，仍被引用的集合不可删除。明确路径保持“自身及子路径”匹配，内置条目保留系统范围和精确文件/目录语义。自定义命令引用明确路径集合；执行前动作需选择全部系统；当前 Hook 命令动作只支持单个 POSIX 路径前缀，保留允许规则要求所有子命令/目标匹配的语义。内置复杂行为和 Windows 特有命令条件用于风险记录；执行前动作的可选范围由客户端现有匹配能力决定。工具调用可以同时记录风险并配置执行前动作。审批仍受产品能力限制。
 
@@ -3087,6 +3108,9 @@ macOS 系统采集复用 ES 精确进程归属与 libproc 套接字快照，新�
 | 系统访问拒绝 | 系统授权 deny 记录 | 分别展示系统拒绝响应成功、失败或未知 |
 
 全局入口为 **客户端 → 全局客户端配置 → 安全规则**；客户端入口为 **客户端详情 → 客户端配置 → 安全规则**。全局设置提供风险记录开关、统一规则列表及独立路径集合。客户端分别选择“风险记录开关：继承全局／开启／关闭”和“规则来源：继承全局／单独配置”。明确的客户端启停优先于全局默认；单独规则独立于后续全局变更，切换独立配置时复制当前全局规则供编辑，保存后生效。统一规则来源随客户端继承选择生效，历史混合继承保留。
+
+安全规则顶部用紧凑状态栏展示执行状态与配置来源。配置已保存但设备尚未上报时显示“已设为拦截，等待设备确认”；设备报告仅审计时明确说明拒绝和审批不执行。可直接刷新状态或修改执行模式，窄屏时操作换行。 / A compact status bar shows execution status and configuration source. Saved intercept configuration awaiting a device report is labeled as awaiting device confirmation. Audit-only reports explicitly indicate that deny and approval actions are not enforced. Refresh and mode settings remain accessible on narrow screens.
+
 
 内置路径按 Linux、macOS、Windows 区分，覆盖常见 SSH 私钥、AWS 凭证、Kubernetes 配置、包管理器认证文件、系统密码数据库，以及 SSH 授权公钥、账号权限、sudo 与启动配置。内置精确文件只匹配文件自身；目录项包含下级路径；`{user}` 仅匹配单个路径段，Windows 常见用户目录当前为 C 盘。路径集合可展开核对实际路径；编辑集合可选择内置条目及附加路径，规则列表调整命令检测开关。非标准主目录、其他磁盘或企业目录使用自定义绝对路径补充。
 

@@ -1,0 +1,159 @@
+[
+  {
+    "keywords": {
+      "terms": [
+        "test.txt"
+      ],
+      "mode": "any",
+      "ignore_case": false
+    },
+    "command": "rm \"test.txt\"",
+    "want": "matched"
+  },
+  {
+    "keywords": {
+      "terms": [
+        "test.txt"
+      ],
+      "mode": "any",
+      "ignore_case": false
+    },
+    "command": "rm other.txt",
+    "want": "unmatched"
+  },
+  {
+    "keywords": {
+      "terms": [
+        "rm"
+      ],
+      "mode": "any",
+      "ignore_case": false
+    },
+    "command": "echo confirm",
+    "want": "matched"
+  },
+  {
+    "keywords": {
+      "terms": [
+        "RM"
+      ],
+      "mode": "any",
+      "ignore_case": false
+    },
+    "command": "rm test.txt",
+    "want": "unmatched"
+  },
+  {
+    "keywords": {
+      "terms": [
+        "RM"
+      ],
+      "mode": "any",
+      "ignore_case": true
+    },
+    "command": "rm test.txt",
+    "want": "matched"
+  },
+  {
+    "keywords": {
+      "terms": [
+        "test.txt",
+        "other.txt"
+      ],
+      "mode": "any",
+      "ignore_case": false
+    },
+    "command": "rm other.txt",
+    "want": "matched"
+  },
+  {
+    "keywords": {
+      "terms": [
+        "rm",
+        "test.txt"
+      ],
+      "mode": "all",
+      "ignore_case": false
+    },
+    "command": "rm test.txt",
+    "want": "matched"
+  },
+  {
+    "keywords": {
+      "terms": [
+        "rm",
+        "test.txt"
+      ],
+      "mode": "all",
+      "ignore_case": false
+    },
+    "command": "echo test.txt",
+    "want": "unmatched"
+  },
+  {
+    "keywords": {
+      "terms": [
+        "删除"
+      ],
+      "mode": "any",
+      "ignore_case": false
+    },
+    "command": "echo 删除文件",
+    "want": "matched"
+  },
+  {
+    "keywords": {
+      "terms": [
+        "STRASSE"
+      ],
+      "mode": "any",
+      "ignore_case": true
+    },
+    "command": "echo Straße",
+    "want": "matched"
+  },
+  {
+    "keywords": {
+      "terms": [
+        "rm"
+      ],
+      "mode": "any",
+      "ignore_case": false
+    },
+    "command": "bash -c \"$ACTION rm test.txt\"",
+    "want": "matched"
+  },
+  {
+    "keywords": {
+      "terms": [
+        "test.txt"
+      ],
+      "mode": "any",
+      "ignore_case": false
+    },
+    "command": "[REDACTED] test.txt",
+    "want": "matched"
+  },
+  {
+    "keywords": {
+      "terms": [
+        "test.txt"
+      ],
+      "mode": "any",
+      "ignore_case": false
+    },
+    "command": "",
+    "want": "unresolved"
+  },
+  {
+    "keywords": {
+      "terms": [
+        "a.b"
+      ],
+      "mode": "any",
+      "ignore_case": false
+    },
+    "command": "echo aXb",
+    "want": "unmatched"
+  }
+]

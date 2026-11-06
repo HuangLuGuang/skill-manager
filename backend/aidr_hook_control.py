@@ -228,6 +228,10 @@ def publish(db, client_id, body, username):
         reports = db.query(HookRuntimeRow).filter_by(client_id=client_id).filter(HookRuntimeRow.received_at >= now-90).all()
         if not reports or any(json.loads(r.payload).get('command_rules_schema') != 1 for r in reports):
             reject('hook_command_upgrade_required', '请先升级本地接收器并等待能力报告，再发布命令规则', 'Upgrade the local receiver and wait for its capability report before publishing command rules', 409)
+        if any(r.command and r.command.keywords for r in body.rules) and any(json.loads(r.payload).get('command_keywords_schema') != 1 for r in reports):
+            reject('hook_command_keywords_upgrade_required', '请先升级客户端并等待命令关键词能力报告', 'Upgrade the client and wait for command keyword capability reporting', 409)
+    if command_rules and any(r.command and r.command.networks for r in body.rules) and any(json.loads(r.payload).get('command_networks_schema') != 1 for r in reports):
+        reject('hook_command_networks_upgrade_required', '请先升级客户端并等待 IP 网段匹配能力报告', 'Upgrade the client and wait for IP subnet capability reporting', 409)
     from .aidr_hook_runtime import HookRuntimeRow
     reports = db.query(HookRuntimeRow).filter_by(client_id=client_id).filter(HookRuntimeRow.received_at >= now-90).all()
     if not reports or any(json.loads(r.payload).get('approval_wait_schema') != 1 for r in reports):
@@ -343,7 +347,7 @@ def snapshot(db, client_id, body):
         db.commit()
     except ApiError as error:
         db.rollback()
-        if error.code not in ('aidr.hook_command_upgrade_required', 'aidr.hook_approval_wait_upgrade_required'):
+        if error.code not in ('aidr.hook_command_upgrade_required', 'aidr.hook_approval_wait_upgrade_required', 'aidr.hook_command_keywords_upgrade_required', 'aidr.hook_command_networks_upgrade_required'):
             raise
         return {"policy": None, "grants": [], "more_grants": False, "next_after": body.after}
     policy = latest_policy(db, client_id)

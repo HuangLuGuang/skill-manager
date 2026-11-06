@@ -23,6 +23,8 @@ class HookRuntimeRow(Base):
 
 
 class RuntimeReport(Strict):
+    command_networks_schema: Literal[1] | None = None
+    command_keywords_schema: Literal[1] | None = None
     approval_wait_schema: Literal[1] | None = None
     command_rules_schema: Literal[1] | None = None
     schema_version: Literal[1]

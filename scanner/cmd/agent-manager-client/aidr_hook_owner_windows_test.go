@@ -38,17 +38,21 @@ func TestWindowsAutomaticHookRestart(t *testing.T) {
 		}()
 		deadline := time.Now().Add(10 * time.Second)
 		var reply hooks.IPCResponse
+		var supervision hookSupervision
+		ready := false
 		for time.Now().Before(deadline) {
 			reply, err = hooks.Exchange(ctx, paths.Socket, hooks.IPCRequest{Version: 1, Method: "GetHealth"})
-			if err == nil {
+			// Restart only after the supervisor has observed and persisted health.
+			if err == nil && readDesktopJSON(filepath.Join(paths.Root, "receiver-supervisor.json"), &supervision) == nil && supervision.Active && supervision.Code == "aidr_desktop_running" {
+				ready = true
 				break
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
-		if err != nil || reply.State == nil || reply.State.ReceiverInstance == "" || reply.State.ReceiverInstance == prior {
+		if !ready || reply.State == nil || reply.State.ReceiverInstance == "" || reply.State.ReceiverInstance == prior {
 			cancel()
 			<-done
-			t.Fatal("receiver failed to restart", reply, err)
+			t.Fatal("receiver failed to restart", i, reply, supervision, err)
 		}
 		if !automaticHookReady(ctx, home) {
 			cancel()

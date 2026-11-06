@@ -10,7 +10,7 @@
     <AidrRedactionSettings v-if="open && auditVisited && can('settings:view')" v-show="settingsSection === 'audit'" :key="clientId" ref="auditSettings" :client-id="clientId" embedded external-actions />
     <AidrRedactionSettings v-if="open && skillsVisited && can('settings:view')" v-show="settingsSection === 'skills' && skillSection === 'usage'" :key="clientId" ref="skillAuditSettings" :client-id="clientId" embedded external-actions section="skill" @saved="emit('saved')" />
     <ClientDiscoveryConfig v-if="open && discoveryVisited && can('clients:view')" v-show="settingsSection === 'discovery'" :key="clientId" ref="discoverySettings" :client-id="clientId" @saved="emit('saved')" />
-    <ClientSecurityRules v-if="open && riskVisited" v-show="settingsSection === 'risk'" :key="clientId" ref="riskSettings" :client-id="clientId" @saved="emit('saved')" @global="emit('global-risk')" />
+    <ClientSecurityRules v-if="open && riskVisited" v-show="settingsSection === 'risk'" :key="clientId" ref="riskSettings" :client-id="clientId" :active="settingsSection === 'risk'" @saved="emit('saved')" @global="emit('global-risk')" @configure="settingsSection = 'runtime'" />
     <a-spin v-if="can('clients:view')" v-show="activeTab === 'integration'" :spinning="loading">
       <a-alert v-if="policyError" type="error" show-icon :message="t('clientGovernance.policyLoadFailed')" :description="policyError"><template #action><a-button :disabled="loading" @click="load">{{ t('clientGovernance.retryLoad') }}</a-button></template></a-alert>
       <a-alert v-if="gatewayError" type="warning" show-icon :message="t('clientGovernance.gatewayLoadFailed')" :description="gatewayError"><template #action><a-button :disabled="loading" @click="load">{{ t('clientGovernance.retryLoad') }}</a-button></template></a-alert>
@@ -41,38 +41,39 @@
             <a-checkbox v-if="clientId && policy.runtime_channels_protocol === 3" v-model:checked="inheritRuntime" :disabled="!editable || busy">{{ t('clientGovernance.inherit') }}</a-checkbox>
             <p v-else-if="clientId">{{ t('clientGovernance.runtime.inherited') }}</p>
             <div class="group-rules">
-              <a-form-item :label="t('clientGovernance.runtime.enabled')" :tooltip="t('clientGovernance.runtime.pauseHint')"><a-switch v-model:checked="runtimeGovernance.enabled" :disabled="runtimeDisabled" /></a-form-item>
+              <a-form-item class="runtime-master" :label="t('clientGovernance.runtime.enabled')" :tooltip="t('clientGovernance.runtime.pauseHint')"><a-switch v-model:checked="runtimeGovernance.enabled" :disabled="runtimeDisabled" /></a-form-item>
+              <a-alert v-if="!runtimeGovernance.enabled" class="runtime-off-hint" type="warning" show-icon :message="t('clientGovernance.runtime.disabledHint')" />
               <a-form-item v-if="policy.runtime_channels_protocol === 3" :label="t('clientGovernance.runtime.channels')" :tooltip="t('clientGovernance.runtime.channelHint')">
-                <a-space wrap><a-checkbox v-for="name in ['logs', 'hooks', 'system']" :key="name" v-model:checked="runtimeGovernance.channels[name]" :disabled="runtimeDisabled">{{ t(`clientGovernance.runtime.channel_${name}`) }}</a-checkbox></a-space>
+                <a-space wrap><a-checkbox v-for="name in ['logs', 'hooks', 'system']" :key="name" v-model:checked="runtimeGovernance.channels[name]" :disabled="runtimeConfigDisabled">{{ t(`clientGovernance.runtime.channel_${name}`) }}</a-checkbox></a-space>
               </a-form-item>
               <a-form-item v-for="channel in ['hooks', 'system']" :key="channel" :label="t(`clientGovernance.runtime.mode_${channel}`)" :tooltip="t(`clientGovernance.runtime.mode_${channel}_hint`)">
-                <a-select :value="runtimeGovernance.modes?.[channel] || 'legacy'" :disabled="runtimeDisabled" @change="value => setMode(channel, value)">
+                <a-select :value="runtimeGovernance.modes?.[channel] || 'legacy'" :disabled="runtimeConfigDisabled" @change="value => setMode(channel, value)">
                   <a-select-option v-if="!runtimeGovernance.modes?.[channel]" value="legacy">{{ t('clientGovernance.runtime.mode_legacy') }}</a-select-option>
                   <a-select-option v-for="mode in ['audit','intercept']" :key="mode" :value="mode">{{ t(`clientGovernance.runtime.mode_${mode}`) }}</a-select-option>
                 </a-select>
               </a-form-item>
               <a-form-item :label="t('clientGovernance.runtime.logSources')" :tooltip="t('clientGovernance.runtime.productHint')">
-                <a-select :value="selectedProductGroups(runtimeGovernance.log_sources || ['claude', 'codex'])" mode="multiple" :disabled="runtimeDisabled" @change="setLogProducts"><a-select-option v-for="product in logSourceOptions" :key="product.id" :value="product.id">{{ product.name }}</a-select-option></a-select>
+                <a-select :value="selectedProductGroups(runtimeGovernance.log_sources || ['claude', 'codex'])" mode="multiple" :disabled="runtimeConfigDisabled" @change="setLogProducts"><a-select-option v-for="product in logSourceOptions" :key="product.id" :value="product.id">{{ product.name }}</a-select-option></a-select>
               </a-form-item>
               <a-form-item :label="t('clientGovernance.runtime.userEnrollment')" :tooltip="t('clientGovernance.runtime.userEnrollmentHint')">
-                <a-switch v-model:checked="runtimeGovernance.allow_user_enrollment" :disabled="runtimeDisabled" />
+                <a-switch v-model:checked="runtimeGovernance.allow_user_enrollment" :disabled="runtimeConfigDisabled" />
               </a-form-item>
               <a-form-item :label="t('clientGovernance.runtime.hosts')" :tooltip="t('clientGovernance.runtime.hostsHint')">
-                <a-select :value="selectedProductGroups(runtimeGovernance.hosts)" mode="multiple" :disabled="runtimeDisabled" @change="setHookProducts"><a-select-option v-for="product in hookProductOptions" :key="product.id" :value="product.id" :disabled="!product.entries.some(hookEntryEligible)">{{ product.name }}</a-select-option></a-select>
+                <a-select :value="selectedProductGroups(runtimeGovernance.hosts)" mode="multiple" :disabled="runtimeConfigDisabled" @change="setHookProducts"><a-select-option v-for="product in hookProductOptions" :key="product.id" :value="product.id" :disabled="!product.entries.some(hookEntryEligible)">{{ product.name }}</a-select-option></a-select>
                 <details v-if="selectedProductGroups(runtimeGovernance.hosts).includes('qoder')" class="effective">
                   <summary>{{ t('clientGovernance.runtime.qoderEntries') }}</summary>
-                  <a-checkbox-group :value="runtimeGovernance.hosts.filter(id => productGroupId(id) === 'qoder')" :disabled="runtimeDisabled" @change="setQoderHookEntries">
-                    <a-space wrap><a-checkbox v-for="entry in qoderHookEntries" :key="entry.id" :value="entry.id" :aria-label="hookProductLabel(entry.id)" :disabled="!hookEntryEligible(entry)">{{ hookProductLabel(entry.id) }}</a-checkbox></a-space>
+                  <a-checkbox-group :value="runtimeGovernance.hosts.filter(id => productGroupId(id) === 'qoder')" :disabled="runtimeConfigDisabled" @change="setQoderHookEntries">
+                    <a-space wrap><a-checkbox v-for="entry in qoderHookEntries" :key="entry.id" :value="entry.id" :aria-label="hookProductLabel(entry.id)" :disabled="runtimeConfigDisabled || !hookEntryEligible(entry)">{{ hookProductLabel(entry.id) }}</a-checkbox></a-space>
                   </a-checkbox-group>
                 </details>
               </a-form-item>
               <details class="runtime-advanced">
                 <summary>{{ t('clientPolicy.advanced') }}</summary>
                 <div class="group-rules">
-              <a-form-item v-for="field in ['installation', 'access_mode', 'updates']" :key="field" :label="t(`clientGovernance.runtime.${field}`)"><a-select v-model:value="runtimeGovernance[field]" :disabled="runtimeDisabled"><a-select-option v-for="option in runtimeOptions[field]" :key="option" :value="option">{{ t(`clientGovernance.runtime.${field}_${option}`) }}</a-select-option></a-select></a-form-item>
-              <a-form-item :label="t('clientGovernance.runtime.retry')"><a-select v-model:value="runtimeGovernance.retry.mode" :disabled="runtimeDisabled"><a-select-option v-for="mode in ['none','fixed','continuous']" :key="mode" :value="mode">{{ t(`clientGovernance.runtime.retry_${mode}`) }}</a-select-option></a-select></a-form-item>
-              <a-form-item v-if="runtimeGovernance.retry.mode === 'fixed'" :label="t('clientGovernance.runtime.retryCount')"><a-input-number v-model:value="runtimeGovernance.retry.retries" :min="0" :max="20" :precision="0" :disabled="runtimeDisabled" /></a-form-item>
-              <a-form-item v-if="runtimeGovernance.retry.mode !== 'none'" :label="t('clientGovernance.runtime.retryInterval')"><a-input-number v-model:value="runtimeGovernance.retry.max_interval_seconds" :min="10" :max="3600" :precision="0" :disabled="runtimeDisabled" /></a-form-item>
+              <a-form-item v-for="field in ['installation', 'access_mode', 'updates']" :key="field" :label="t(`clientGovernance.runtime.${field}`)"><a-select v-model:value="runtimeGovernance[field]" :disabled="runtimeConfigDisabled"><a-select-option v-for="option in runtimeOptions[field]" :key="option" :value="option">{{ t(`clientGovernance.runtime.${field}_${option}`) }}</a-select-option></a-select></a-form-item>
+              <a-form-item :label="t('clientGovernance.runtime.retry')"><a-select v-model:value="runtimeGovernance.retry.mode" :disabled="runtimeConfigDisabled"><a-select-option v-for="mode in ['none','fixed','continuous']" :key="mode" :value="mode">{{ t(`clientGovernance.runtime.retry_${mode}`) }}</a-select-option></a-select></a-form-item>
+              <a-form-item v-if="runtimeGovernance.retry.mode === 'fixed'" :label="t('clientGovernance.runtime.retryCount')"><a-input-number v-model:value="runtimeGovernance.retry.retries" :min="0" :max="20" :precision="0" :disabled="runtimeConfigDisabled" /></a-form-item>
+              <a-form-item v-if="runtimeGovernance.retry.mode !== 'none'" :label="t('clientGovernance.runtime.retryInterval')"><a-input-number v-model:value="runtimeGovernance.retry.max_interval_seconds" :min="10" :max="3600" :precision="0" :disabled="runtimeConfigDisabled" /></a-form-item>
                 </div>
               </details>
             </div>
@@ -322,6 +323,7 @@ watch(inheritRuntime, value => {
 })
 const runtimeOptions = {installation: ['automatic','manual'], access_mode: ['ordinary','managed'], updates: ['automatic','manual']}
 const runtimeDisabled = computed(() => !editable.value || busy.value || (!!props.clientId && (policy.value?.runtime_channels_protocol !== 3 || inheritRuntime.value)))
+const runtimeConfigDisabled = computed(() => runtimeDisabled.value || !runtimeGovernance.value.enabled)
 const availableGateways = computed(() => gateways.value.filter(item => item.enabled || item.id === modelRouting.value.external_gateway_id))
 const modelRoutingDisabled = computed(() => !editable.value || busy.value || inheritModelRouting.value)
 const compressionLabel = value => value ? (value.enabled ? `${t('clientGovernance.prompt.enabled')} · ${t(`clientGovernance.compression.${value.level}`)}` : t('clientGovernance.prompt.disabled')) : ''
@@ -582,6 +584,7 @@ async function save() {
 .runtime-advanced { grid-column: 1 / -1; border-top: 1px solid #e6eaf0; padding-top: 12px; }
 .runtime-advanced summary { cursor: pointer; color: #445971; font-weight: 500; }
 .runtime-advanced .group-rules { padding-top: 12px; }
+.runtime-master, .runtime-off-hint { grid-column: 1 / -1; }
 .runtime-status { margin-top: 16px; border-top: 1px solid #e6eaf0; padding-top: 16px; }
 .runtime-status summary { cursor: pointer; color: #526987; font-size: 13px; margin-bottom: 10px; }
 .policy-group { padding: 0; min-width: 0; }

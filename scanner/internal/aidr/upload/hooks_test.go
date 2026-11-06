@@ -27,7 +27,7 @@ func TestHookRuntimeUsesActualReceiverAndExactReceipt(t *testing.T) {
 		if json.NewDecoder(r.Body).Decode(&body) != nil {
 			t.Fatal("invalid report")
 		}
-		if len(body) != 13 || body["approval_wait_schema"] != float64(1) || body["command_rules_schema"] != float64(1) || body["control_mode"] != "audit" || body["control_code"] != "aidr_hook_audit_only" || body["control_revision"] != "" || body["queued_records"] != float64(0) || body["last_event_ack_at"] != "" {
+		if len(body) != 15 || body["command_networks_schema"] != float64(1) || body["command_keywords_schema"] != float64(1) || body["approval_wait_schema"] != float64(1) || body["command_rules_schema"] != float64(1) || body["control_mode"] != "audit" || body["control_code"] != "aidr_hook_audit_only" || body["control_revision"] != "" || body["queued_records"] != float64(0) || body["last_event_ack_at"] != "" {
 			t.Error("runtime report is not bounded actual state")
 		}
 		receiver := body["receiver_instance"]

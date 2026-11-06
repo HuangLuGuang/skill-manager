@@ -4,14 +4,29 @@ import re
 from typing import Literal
 from pydantic import Field, model_validator
 from .aidr_behavior import Strict
+from .aidr_command_networks import NetworkCondition, network_hits
 
 SHELL_TOOLS = {'bash', 'exec', 'exec_command', 'shell', 'runcommand', 'run_terminal_cmd', 'run_shell_command'}
 SHELL_TOOLS.add('mcp__qw-builtin__mcp_workspace_bash')
 INDIRECT_COMMANDS = {'sudo', 'env', 'sh', 'bash', 'zsh', 'eval', 'exec', 'command', 'xargs', 'find', 'cd', 'source', '.', 'time', 'nohup', 'timeout', 'nice', 'doas', 'busybox', 'builtin', 'setsid', 'if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'until', 'do', 'done', 'case', 'esac', 'function', 'select'}
 
 
+class KeywordCondition(Strict):
+    terms: list[str] = Field(min_length=1, max_length=16)
+    mode: Literal['any', 'all'] = 'any'
+    ignore_case: bool = False
+
+    @model_validator(mode='after')
+    def valid(self):
+        if any(not term.strip() or len(term.encode()) > 256 or any(ord(c) < 32 for c in term) for term in self.terms):
+            raise ValueError('hook_command_keyword_invalid')
+        return self
+
+
 class CommandCondition(Strict):
-    executable: str = Field(pattern=r'^[A-Za-z0-9_./+-]{1,128}$')
+    executable: str = Field(default='', pattern=r'^(?:[A-Za-z0-9_./+-]{1,128})?$')
+    keywords: KeywordCondition | None = None
+    networks: NetworkCondition | None = None
     args_all: list[str] = Field(default_factory=list, max_length=16)
     args_any: list[str] = Field(default_factory=list, max_length=16)
     path_prefix: str = Field(default='', max_length=512)
@@ -19,6 +34,13 @@ class CommandCondition(Strict):
 
     @model_validator(mode='after')
     def valid(self):
+        if self.keywords or self.networks:
+            if self.keywords and self.networks:
+                raise ValueError('hook_command_condition_combination_invalid')
+            if self.executable or self.args_all or self.args_any or self.path_prefix or self.pipe_to:
+                raise ValueError('hook_command_condition_combination_invalid')
+        elif not self.executable:
+            raise ValueError('hook_command_executable_required')
         for value in self.args_all + self.args_any:
             if not value or len(value.encode()) > 256 or any(ord(c) < 32 for c in value):
                 raise ValueError('hook_command_argument_invalid')
@@ -109,7 +131,22 @@ def parse(command):
     return commands
 
 
+def keyword_hits(keywords, command):
+    text = command.casefold() if keywords.get('ignore_case') else command
+    return [term for term in keywords['terms'] if (term.casefold() if keywords.get('ignore_case') else term) in text]
+
+
 def command_match(condition, command, cwd='', decision='deny'):
+    if condition.get('networks'):
+        if not command or len(command.encode()) > 32768:
+            return 'unresolved'
+        return 'matched' if network_hits(condition['networks'], command) else 'unmatched'
+    keywords = condition.get('keywords')
+    if keywords:
+        if not command or len(command.encode()) > 32768:
+            return 'unresolved'
+        hits = keyword_hits(keywords, command)
+        return 'matched' if (len(hits) == len(keywords['terms']) if keywords.get('mode', 'any') == 'all' else bool(hits)) else 'unmatched'
     parts = parse(command)
     if parts is None:
         return 'unresolved'

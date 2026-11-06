@@ -13,23 +13,24 @@ import (
 var files embed.FS
 
 type Product struct {
-	EnrollmentLogSource string            `json:"enrollment_log_source"`
-	LogOS               []string          `json:"log_os"`
-	HookOS              []string          `json:"hook_os"`
-	SampleVersions      []string          `json:"sample_versions"`
-	ID                  string            `json:"id"`
-	Name                string            `json:"name"`
-	Entry               string            `json:"entry"`
-	OS                  []string          `json:"os"`
-	Logs                string            `json:"logs"`
-	Roots               []string          `json:"roots"`
-	Hooks               string            `json:"hooks"`
-	Block               bool              `json:"block"`
-	Approval            bool              `json:"approval"`
-	Managed             bool              `json:"managed"`
-	HookEvents          map[string]string `json:"hook_events"`
-	Evidence            string            `json:"evidence"`
-	Docs                []string          `json:"docs"`
+	EnrollmentLogSource string              `json:"enrollment_log_source"`
+	LogOS               []string            `json:"log_os"`
+	HookOS              []string            `json:"hook_os"`
+	SampleVersions      []string            `json:"sample_versions"`
+	ID                  string              `json:"id"`
+	Name                string              `json:"name"`
+	Entry               string              `json:"entry"`
+	OS                  []string            `json:"os"`
+	Logs                string              `json:"logs"`
+	Roots               []string            `json:"roots"`
+	RootsByOS           map[string][]string `json:"roots_by_os"`
+	Hooks               string              `json:"hooks"`
+	Block               bool                `json:"block"`
+	Approval            bool                `json:"approval"`
+	Managed             bool                `json:"managed"`
+	HookEvents          map[string]string   `json:"hook_events"`
+	Evidence            string              `json:"evidence"`
+	Docs                []string            `json:"docs"`
 }
 
 var productCatalog = func() []Product {
@@ -81,8 +82,15 @@ func LogRoots(id, home string) []string {
 		return nil
 	}
 	var roots []string
-	for _, r := range p.Roots {
+	for _, r := range RelativeLogRoots(p) {
 		roots = append(roots, filepath.Join(home, r))
 	}
 	return roots
+}
+
+func RelativeLogRoots(p Product) []string {
+	if roots, ok := p.RootsByOS[runtime.GOOS]; ok {
+		return roots
+	}
+	return p.Roots
 }

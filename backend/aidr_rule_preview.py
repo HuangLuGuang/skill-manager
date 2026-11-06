@@ -6,7 +6,8 @@ from pydantic import Field, field_validator
 
 from .aidr_enforcement import Strict, PolicyInput, absolute_path
 from .aidr_hook_control import ToolPolicyInput, evaluate
-from .aidr_command_rules import observe
+from .aidr_command_rules import observe, keyword_hits
+from .aidr_command_networks import network_hits
 
 
 class HookRulePreview(Strict):
@@ -39,7 +40,11 @@ def preview_hook(body: HookRulePreview):
         rows.append(dict(id=rule['id'], matched=agent and tool,
                          reason='matched' if agent and tool else 'agent_and_tool' if not agent and not tool else 'agent' if not agent else 'tool',
                          decision=rule['decision']))
-    return dict(**result, rules=rows, basis='hook', used_default=result['rule_id'] == 'default')
+    keywords = [{'rule_id': rule['id'], 'terms': keyword_hits(rule['command']['keywords'], body.command)}
+                for rule in policy['rules'] if rule['id'] in observation['matched'] and (rule.get('command') or {}).get('keywords')]
+    networks = [{'rule_id': rule['id'], 'addresses': network_hits(rule['command']['networks'], body.command)}
+                for rule in policy['rules'] if rule['id'] in observation['matched'] and (rule.get('command') or {}).get('networks')]
+    return dict(**result, network_matches=networks, rules=rows, basis='hook', used_default=result['rule_id'] == 'default', keyword_matches=keywords)
 
 
 def preview_system(body: SystemRulePreview):

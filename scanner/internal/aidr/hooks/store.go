@@ -370,6 +370,12 @@ func (s *Store) receiveWithBridge(ctx context.Context, id, user, agent, hook str
 	if s.controlPolicy != nil {
 		e.CommandMatch = s.controlPolicy.observeCommand(e, raw)
 	}
+	if e.Kind == "tool.pre" {
+		e.ControlMode = "audit"
+		if s.controlMode == "intercept" {
+			e.ControlMode = "plugin_pre_tool"
+		}
+	}
 	// Pin the control decision to the same policy and immutable event before
 	// uploads can observe it. IPC returns this decision to the host.
 	if e.Kind == "tool.pre" && s.controlMode == "intercept" {

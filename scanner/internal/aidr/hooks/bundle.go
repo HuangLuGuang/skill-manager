@@ -14,7 +14,7 @@ import (
 //go:embed bundle.json
 var bundledPlugins []byte
 
-const BundledPluginVersion = "0.1.3"
+const BundledPluginVersion = "0.1.4"
 
 // BundledSource uses the same declared resources as the desktop package. It
 // also lets the existing background client install without a running window.

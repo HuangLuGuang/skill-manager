@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -87,7 +88,7 @@ func TestTwentyConcurrentScopesCannotExchangeGrants(t *testing.T) {
 }
 
 func TestGrantExactScopeAtomicUseAndReceiverRestart(t *testing.T) {
-	for _, agent := range []string{"codex", "codebuddy"} {
+	for _, agent := range []string{"claude", "codex", "codebuddy", "workbuddy", "trae", "trae-cn", "qoder-hooks", "qwenwork", "zcode"} {
 		t.Run(agent, func(t *testing.T) { testGrantExactScope(t, agent) })
 	}
 }
@@ -103,7 +104,11 @@ func testGrantExactScope(t *testing.T, agent string) {
 	if agent == "codebuddy" {
 		raw = []byte(`{"hook_event_name":"PreToolUse","session_id":"session","generation_id":"turn","tool_name":"Bash","tool_input":{"command":"printf approved"}}`)
 	}
-	record, err := s.Receive(ctx, testID(1), "501", agent, "PreToolUse", raw)
+	user := "501"
+	if runtime.GOOS == "windows" {
+		user = "S-1-5-21-111-222-333-1001"
+	}
+	record, err := s.Receive(ctx, testID(1), user, agent, "PreToolUse", raw)
 	if err != nil {
 		t.Fatal(err)
 	}

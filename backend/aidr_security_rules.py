@@ -193,11 +193,22 @@ def assess_command(command, cwd, config, platform):
     for rule in config['security']['rules']:
         if not eligible(rule, platform) or rule['kind'] == 'tool':
             continue
-        result = risk.command_assessment(command, cwd, rule_configuration(rule, config['security'], platform), platform)
+        if ((rule.get('condition') or {}).get('keywords') or (rule.get('condition') or {}).get('networks')):
+            result = text_command_assessment(rule, command)
+        else:
+            result = risk.command_assessment(command, cwd, rule_configuration(rule, config['security'], platform), platform)
         matches.extend(annotate(result['matches'], rule))
         if result['status'] == 'unresolved' or result['unresolved_rules']:
             unresolved.append(rule['id'])
     return {'status': 'matched' if matches else 'unresolved' if unresolved else 'unmatched', 'matches': matches, 'unresolved_rules': unresolved}
+
+
+def text_command_assessment(rule, command):
+    from .aidr_command_rules import command_match
+    from .aidr_risk import match_record
+    state = command_match(rule['condition'], command)
+    return {'status': state, 'unresolved_rules': [rule['id']] if state == 'unresolved' else [],
+            'matches': [match_record('custom_command', rule['severity'], rule_id=rule['id'], name=rule['name'], condition=rule['condition'])] if state == 'matched' else []}
 
 
 def detect(event, config, *, windows=False, system=False):
@@ -212,6 +223,12 @@ def detect(event, config, *, windows=False, system=False):
         if rule['kind'] == 'tool':
             if not system and event.get('kind') in ('tool.pre', 'tool_call'):
                 matches.append({**risk.match_record('custom_tool', rule['severity'], rule_id=rule['id'], name=rule['name'], condition={'agent': rule['agent'], 'tool': rule['tool']}), 'security_rule_id': rule['id']})
+        elif ((rule.get('condition') or {}).get('keywords') or (rule.get('condition') or {}).get('networks')):
+            from .aidr_command_rules import SHELL_TOOLS
+            if event.get('tool', '').lower().split('.')[-1] in SHELL_TOOLS:
+                for action in (event.get('behavior') or {}).get('actions', []):
+                    if action.get('category') == 'command' and action.get('command'):
+                        matches.extend(annotate(text_command_assessment(rule, action['command'])['matches'], rule))
         else:
             matches.extend(annotate(risk.detect_matches(event, rule_configuration(rule, config['security'], platform), windows=windows, system=system), rule))
     return matches

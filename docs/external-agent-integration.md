@@ -1302,7 +1302,7 @@ Local verification on 2026-10-08: real Codex tool Hook record #13229 retained th
 | --- | --- | --- | --- | --- |
 | Claude Code CLI | [官方 Hooks](https://code.claude.com/docs/en/hooks)及现有实现 | 原 JSONL、游标和数据兼容 | 原生插件、阻断与审批，保留受管安装 | 原有功能回归；本次不替代此前实机验收 |
 | Codex CLI / App Server | [官方文档](https://developers.openai.com/codex/)及现有实现 | 原 rollout JSONL；仅覆盖实际落盘的来源 | 原生插件、阻断与审批，保留受管安装 | 原有功能回归；未落盘的侧边会话仍不能凭 Hook 推定存在日志 |
-| WorkBuddy macOS 桌面 5.6.2 | [插件文档](https://www.codebuddy.cn/docs/workbuddy/Plugins)、本机随包 CLI 源码与真实日志 | `~/.workbuddy/projects` JSONL；输入、回复、调用、结果 | `~/.workbuddy/settings.json`；7 类事件；工具拒绝适配；未接入审批 | 已使用真实新问答验证日志与 Hook 入库；宿主工具返回 `completed` 表示调用完成，命令结果需核对退出信息；回复阶段未知时保持未知 |
+| WorkBuddy macOS 桌面 5.6.2 | [插件文档](https://www.codebuddy.cn/docs/workbuddy/Plugins)、本机随包 CLI 源码与真实日志 | `~/.workbuddy/projects` JSONL；输入、回复、调用、结果 | `~/.workbuddy/settings.json`；7 类事件；工具拒绝及平台审批适配；目标版本分别验收 | 已使用真实新问答验证日志与 Hook 入库；宿主工具返回 `completed` 表示调用完成，命令结果需核对退出信息；回复阶段未知时保持未知 |
 | Qoder | [桌面 Hooks](https://docs.qoder.com/qoder/hooks)、[CLI Hooks](https://docs.qoder.com/cli/hooks)、[共享设置](https://docs.qoder.com/extensions/hooks)、[Work Hooks](https://docs.qoder.com/qoderwork/hooks) | CLI 格式 1.1.57 / 1.1.61 JSONL 已适配；桌面 0.4.1 本次生成 1.1.61 格式真实日志 | qoder-hooks 共享设置已实现；qoder-work 独立设置保留；共享事件不自行确定宿主入口 | 2026-10-08 桌面 0.4.1 新调用：Hook 7 条、日志 6 条完成平台入库及 ACK。独立 CLI、IDE、Work 新调用及阻断/审批未复验 |
 | Cursor IDE / 本地 Agents | [官方 Hooks](https://cursor.com/docs/hooks) | 未接入，不读取内部会话数据库 | `~/.cursor/hooks.json` version 1；7 类通用事件；`permission: allow/deny`；不提供审批 | 本机 3.12.30 本地 Agents 的真实提交、工具成功、工具失败及轮次结束已入库并在平台查看；SessionEnd 尚未实测。CLI、Cloud、Windows 未完成实机验收 |
 | OpenCode CLI（仅兼容旧接入） | 本机 1.1.51 存储样本、[插件接口](https://opencode.ai/docs/plugins/) | `~/.local/share/opencode/storage/part` 完整 JSON 快照，以原生 message/session ID 读取元数据 | 官方有插件接口，当前尚未接入 | 真实历史快照解析通过；不宣称支持新版 SQLite 存储或流式插件。等待 assistant message 完成后采集文本 |
@@ -1314,6 +1314,12 @@ OpenCode 当前不作为新增采集入口展示。官方插件支持工具前�
 
 **English:** OpenCode is hidden from new collection setup. Official plugins expose tool, message and session events, but no Agent Manager Hook adapter is implemented. The retained log adapter is based on 1.1.51 JSON snapshots. The catalog visibility flag only affects collection presentation; existing policies, source health, queues and history remain compatible.
 
+### Windows 产品接入 / Windows product integrations
+
+Windows 实现范围、按平台选择的日志目录、命令协议与人工验收清单见 [客户端说明](agent-manager-client.md#windows-hook-接收器--windows-hook-receiver)。Claude Code、WorkBuddy、CodeBuddy IDE、TRAE/TRAE CN（含新版 Work 模式）、Qoder、QwenWork CN、ZCode、Codex 复用既有产品解析与规则/审批链路。Windows 配置与通信测试不能替代各目标产品版本的真实日志、执行阻断及审批恢复证据。旧独立 TraeWork 不在新版 TRAE Work 模式的接入结论内。
+
+**English:** See the client guide for Windows implementation scope, platform-specific log roots, command protocols and manual acceptance. Existing product parsers and policy/approval paths are reused. Native configuration/transport tests do not certify each product version's actual logging, tool blocking or approval recovery. Current TRAE Work mode uses TRAE; old standalone TraeWork remains a distinct entry.
+
 ### 来源、安装及决策语义
 
 - 新产品日志由全局或单机运行治理策略的 `log_sources` 选择。省略此字段保留 Claude / Codex 范围；新版客户端协议为 5。旧客户端不会收到无法应用的多产品协调任务；策略接口返回明确的升级要求，防止旧客户端忽略新采集范围而误用默认目录。平台保留待升级状态，客户端继续保留先前已接受的策略，升级后应用新版本。
@@ -1321,7 +1327,7 @@ OpenCode 当前不作为新增采集入口展示。官方插件支持工具前�
 - JSONL 使用原游标、代际与逻辑去重；OpenCode 快照检查完整内容，等待完整对象和可读原生元数据，重启续采不重新计数。身份不足时保留未关联，不按时间相近猜测。
 - 日志与 Hook 继续分开显示，工具调用与结果按同来源的可靠标识组织；跨来源关系只引用，不把两条证据相加当作两次工具执行。Qoder 共享 Hook 的入口未知，不能据同名产品强制关联 CLI。
 - 设置型 Hook 增量合并现有 JSON，保存无关字段、matcher 和用户 Hook；按本系统生成的精确命令识别自有条目，重复安装幂等，移除仅处理自有条目。无宿主配置目录时不创建产品安装环境。配置存在只表示已配置，启用和宿主信任仍未知，实际事件另行确认。
-- 仅审计模式在接收器失败时返回宿主允许格式并保留覆盖缺口。Cursor 的权限 Hook 必须返回合法 `permission`；空对象不能代替许可。拦截模式使用各宿主决策格式；Cursor / WorkBuddy / QoderWork 不展示审批能力。通配审批规则命中这些宿主时拒绝本次工具，提示不支持审批，不伪造审批申请。
+- 仅审计模式在接收器失败时返回宿主允许格式并保留覆盖缺口。Cursor 的权限 Hook 必须返回合法 `permission`；空对象不能代替许可。拦截模式使用各宿主决策格式；Cursor / QoderWork 不展示审批能力。通配审批规则命中这些宿主时拒绝本次工具，提示不支持审批，不伪造审批申请。
 - Hook 进程若被宿主超时终止，或宿主自身跳过 Hook，桥接程序无法保证阻断。新接入产品使用用户级配置；系统级受管保护需使用对应的受管接入，生产拦截按目标版本验收。
 - 日志解析提供宿主保存的记录。WorkBuddy 的推理内容不采集；无法确认过程/最终回复阶段时保留 `unspecified`。原始正文继续按现有 capture、脱敏、截断和保留策略处理。
 - WorkBuddy 会话日志使用每条记录的 `providerData.conversationRequestId` 关联用户消息、模型回复、工具调用和结果的轮次；缺少有效原生请求 ID 的记录保留为未归属事件。更新后的客户端从现有采集游标继续读取，新采集记录应用此映射。
@@ -1333,7 +1339,7 @@ OpenCode 当前不作为新增采集入口展示。官方插件支持工具前�
 - WorkBuddy 5.6.2 结果适配：日志从 `providerData.toolResult.rawResponse`、Hook 从 `tool_response` 读取结构化结果。Bash/PowerShell 支持 `exitCode`；显式错误、取消、沙箱拒绝标记分别转换为宿主报告状态。正文中的“Exit Code”或模型自述不作为状态依据。成功 Hook 未提供输出时，从会话日志查看，缺少字段继续保持未知。更新作用于新采集事件，不删除游标或改写历史记录。
 - WorkBuddy 5.6.2 results: logs and Hooks read native `rawResponse` metadata from their respective envelopes. Shell exit codes and explicit error/interruption/sandbox-denial flags establish host-reported status. Text output does not establish exit status; absent fields remain unknown. Output stays subject to capture/redaction limits. Existing records and cursors are preserved.
 
-**English:** Product IDs separate entry points, not just brand names. The checked-in catalog distinguishes implemented adapters from runtime health and records sample versions without pinning exact versions. New logs opt in through `log_sources`; absent settings preserve Claude/Codex scope. Sources keep independent checkpoints and recoverable errors while reusing the durable queue and strict ACK. WorkBuddy JSONL, Qoder CLI JSONL and OpenCode 1.1.51 JSON snapshots have native-sample coverage. Settings adapters incrementally merge owned hooks for WorkBuddy, shared Qoder, QoderWork and Cursor. Configuration is not loading evidence. Qoder shared hooks cannot establish CLI/IDE identity. Cursor/WorkBuddy/QoderWork have no approval adapter; native host failures and timeouts remain product-specific. OpenClaw and TraeWork are not advertised as integrated. Raw logs are not the complete upstream model API request.
+**English:** Product IDs separate entry points, not just brand names. The checked-in catalog distinguishes implemented adapters from runtime health and records sample versions without pinning exact versions. New logs opt in through `log_sources`; absent settings preserve Claude/Codex scope. Sources keep independent checkpoints and recoverable errors while reusing the durable queue and strict ACK. WorkBuddy JSONL, Qoder CLI JSONL and OpenCode 1.1.51 JSON snapshots have native-sample coverage. Settings adapters incrementally merge owned hooks for WorkBuddy, shared Qoder, QoderWork and Cursor. Configuration is not loading evidence. Qoder shared hooks cannot establish CLI/IDE identity. Cursor/QoderWork have no approval adapter; native host failures and timeouts remain product-specific. OpenClaw and TraeWork are not advertised as integrated. Raw logs are not the complete upstream model API request.
 
 WorkBuddy 的 Agent Manager 接入使用用户 `settings.json` 中的 Hook 命令，不是插件市场安装。2026-10-08 核对本机 WorkBuddy 5.7.6 随包 `HookManager.getHooks`：直接读取 settings 中的 hooks，再另行合并插件 hooks；当前配置接入不需要独立的原生插件信任或启用步骤。能力目录的 `hook_setup.host_authorization=false`、`host_enablement=false` 表示这些步骤不适用，不会把未知的报告字段改成“已授权”。平台展示 Hook 配置安装及最近事件，客户端展示配置安装、平台策略和事件到达；其他入口保持各自的授权检查。安装成功仅代表配置已写入，平台策略、接收器和真实事件仍需分别确认。5.7.6 的新调用端到端验收尚待执行。
 
@@ -1361,9 +1367,16 @@ WorkBuddy 的 Agent Manager 接入使用用户 `settings.json` 中的 Hook 命�
 
 对外原生插件名为 **Agent Manager**，设置型接入为 **Agent Manager Hook**，共享服务为 **Agent Manager 本地接收器 / Agent Manager Local Receiver**。内部 `aidr-claude`、`aidr-codex`、`qoder-cli`、`qoder-hooks`、`qoder-work`、队列标识、协议字段及旧事件不迁移。Qoder 对外为一个产品，各入口在详情中分别说明。Claude manifest 没有确认过的独立显示名字段，原生插件列表仍可能显示兼容 ID；管理界面和描述统一名称。安装器继续增量合并且只卸载自有配置。
 
-接收器通过用户 home 下的 `~/.agent-manager/aidr/hook.sock` 和 `bridge.json` 共享；macOS/Linux 使用 Unix Socket，Windows 使用限制到当前用户 SID 的 Named Pipe，`hook.sock` 是私有状态标记。同一用户下各已接入产品共用接收器，上传队列按平台与设备绑定。Windows Qoder 接入配置选择、重启和验收边界见[Windows Hook 接收器](agent-manager-client.md#windows-hook-接收器--windows-hook-receiver)。它不是全机所有用户共享服务。在线、已安装、已授权、宿主加载、首个事件、上传 ACK 是不同证据，保持分开呈现。
+接收器通过用户 home 下的 `~/.agent-manager/aidr/hook.sock` 和 `bridge.json` 共享；macOS/Linux 使用 Unix Socket，Windows 使用限制到当前用户 SID 的 Named Pipe，`hook.sock` 是私有状态标记。同一用户下各已接入产品共用接收器，上传队列按平台与设备绑定。日志和 Hook 均使用 Windows SID 标识用户，平台日志契约也须支持 SID；缺少用户标识的历史日志不能用于精确关联 Hook 轮次。Windows Qoder 接入配置选择、重启和验收边界见[Windows Hook 接收器](agent-manager-client.md#windows-hook-接收器--windows-hook-receiver)。它不是全机所有用户共享服务。在线、已安装、已授权、宿主加载、首个事件、上传 ACK 是不同证据，保持分开呈现。
 
 **English:** macOS/Linux use a Unix socket; Windows uses a named pipe restricted to the current user SID, with `hook.sock` serving as a private marker. Product support, host loading and actual event/approval delivery require separate acceptance; see the Windows receiver instructions linked above.
+
+命令关键词动作使用受支持命令工具的原始输入，按任意/全部文本包含匹配，可忽略大小写；不执行或展开命令。接收器新增 `command_keywords_schema=1` 能力报告，平台发布关键词动作前验证近期报告。应先更新平台，再更新客户端；原有命令规则保留原字段，审计模式与拦截模式的边界保持。平台风险与草稿预览使用相同匹配语义。
+
+命令 IP 网段规则支持 IPv4/IPv6 CIDR；按命令原文中的 IP 判断归属，不进行域名解析或变量展开。客户端上报 `command_networks_schema=1` 后可应用相应执行前动作；先升级平台，再升级客户端。 / Command IP subnet rules support IPv4/IPv6 CIDR and evaluate literal IPs without DNS or variable expansion. Pre-execution actions require client reporting of `command_networks_schema=1`. Upgrade the platform before the client.
+
+
+**English:** Keyword actions evaluate any/all literal terms in supported command-tool inputs, optionally ignoring case, without executing or expanding commands. Receivers report `command_keywords_schema=1`; the platform checks recent reports before publishing keyword actions. Upgrade the platform before clients. Existing command wire fields and audit/intercept boundaries remain intact; platform risk evaluation and draft previews use the same matching semantics.
 
 #### 数据与核对边界
 

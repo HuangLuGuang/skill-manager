@@ -31,6 +31,8 @@ const errorMessages = {
     'en-US': 'Upstream MCP response exceeds the limit: {max_response_kb} KB',
   },
   'credential.invalid_allowed_ips': { 'zh-CN': '请检查允许来源 IP / CIDR 的格式', 'en-US': 'Check the allowed source IP / CIDR format' },
+  'aidr.hook_command_networks_upgrade_required': { 'zh-CN': '请先升级客户端，等待 IP 网段匹配能力上报后重新保存。', 'en-US': 'Upgrade the client and wait for IP subnet capability reporting, then save again.' },
+  'aidr.hook_command_keywords_upgrade_required': { 'zh-CN': '请先升级客户端，等待命令关键词匹配能力上报后重新保存。', 'en-US': 'Upgrade the client and wait for command keyword capability reporting, then save again.' },
   'gateway.stats.invalid_range': { 'zh-CN': '请选择最近365天内的完整日期范围。', 'en-US': 'Select a complete date range within the last 365 days.' },
   'gateway.stats.invalid_date': { 'zh-CN': '所选日期不在统计周期内。', 'en-US': 'The selected date is outside the reporting period.' },
   'gateway.stats.request_not_found': { 'zh-CN': '请求记录不存在或已超出统计保留范围。', 'en-US': 'Request not found or outside the reporting window.' },
