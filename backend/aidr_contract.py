@@ -29,6 +29,17 @@ Short = Annotated[str, StringConstraints(max_length=256)]
 Reason = Annotated[str, StringConstraints(pattern=r"^aidr_[a-z0-9_]{1,75}$")]
 
 
+def validate_user_scope(value):
+    if value.startswith('S-'):
+        parts = value.split('-')
+        if int(parts[2]) >= 2**48 or any(int(part) >= 2**32 for part in parts[3:]):
+            raise ValueError('hook_user_scope_invalid')
+    return value
+
+
+UserScope = Annotated[str, StringConstraints(pattern=r"^(?:0|[1-9][0-9]{0,9}|S-1-(?:0|[1-9][0-9]{0,14})(?:-(?:0|[1-9][0-9]{0,9})){1,15})$"), AfterValidator(validate_user_scope)]
+
+
 class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -78,7 +89,7 @@ class ToolCompletion(Contract):
 class Event(Contract):
     completion: ToolCompletion | None = None
     model_context: ModelContext | None = None
-    user_scope: str | None = Field(default=None, pattern=r'^(0|[1-9][0-9]{0,9})$')
+    user_scope: UserScope | None = None
     skill_use: SkillUse | None = None
     schema_version: Literal[1, 2, 3]
     message: Message | None = None

@@ -1,5 +1,6 @@
 """Session aggregation, source-local pairing, pagination and content isolation."""
 import json
+import pytest
 from datetime import datetime
 
 from tests.test_aidr_api import service
@@ -13,19 +14,20 @@ from backend import auth, models, iam_models
 BASE = '/api/v1/clients/one/aidr'
 
 
-def test_qoder_shared_session_native_call_turn_and_models(service):
+@pytest.mark.parametrize('scope', ['501', 'S-1-5-21-1234567890-2345678901-3456789012-1001'])
+def test_qoder_shared_session_native_call_turn_and_models(service, scope):
     client, factory = service
     session = 'qoder-native-session'
-    submit_id = insert(factory, 1, event={'agent':'qoder-hooks', 'session_id':session,
+    submit_id = insert(factory, 1, user=scope, event={'agent':'qoder-hooks', 'session_id':session,
         'kind':'turn.submit', 'turn_id':'r1', 'context':{'model':'Auto'}})
-    insert(factory, 2, event={'agent':'qoder-hooks','session_id':session,'turn_id':'',
+    insert(factory, 2, user=scope, event={'agent':'qoder-hooks','session_id':session,'turn_id':'',
         'native_call_id':'qoder-call','tool':'Bash','kind':'tool.pre','context':{'model':'Auto'}})
-    insert(factory, 3, event={'agent':'qoder-hooks','session_id':session,'turn_id':'',
+    insert(factory, 3, user=scope, event={'agent':'qoder-hooks','session_id':session,'turn_id':'',
         'native_call_id':'qoder-call','tool':'Bash','kind':'tool.post'})
-    insert(factory, 4, event={'agent':'qoder-hooks','session_id':session,'turn_id':'',
+    insert(factory, 4, user=scope, event={'agent':'qoder-hooks','session_id':session,'turn_id':'',
         'native_call_id':'not-recorded','tool':'Bash','kind':'tool.pre'})
-    call = event('tool_call', agent='qoder-cli', session=session, turn='r1', call='qoder-call', tool='Bash', user_scope='501')
-    result = event('tool_result', agent='qoder-cli', session=session, turn='r1', call='qoder-call', user_scope='501')
+    call = event('tool_call', agent='qoder-cli', session=session, turn='r1', call='qoder-call', tool='Bash', user_scope=scope)
+    result = event('tool_result', agent='qoder-cli', session=session, turn='r1', call='qoder-call', user_scope=scope)
     assert upload(client,call,result).status_code == 200
     params = dict(agent='qoder-hooks', session_id=session)
     rows = get(client, '/sessions', agent='qoder')['items']
@@ -41,7 +43,7 @@ def test_qoder_shared_session_native_call_turn_and_models(service):
     logs=get(client,'/session-timeline',source='logs',turn_key='turn:r1',**params)['items']
     assert len(logs)==1 and logs[0]['operation']['call']['agent']=='qoder-cli'
     # Same native call under another turn is ambiguous, not a time-based match.
-    assert upload(client,event('tool_call',agent='qoder-cli',session=session,turn='r2',call='qoder-call',tool='Bash',user_scope='501')).status_code==200
+    assert upload(client,event('tool_call',agent='qoder-cli',session=session,turn='r2',call='qoder-call',tool='Bash',user_scope=scope)).status_code==200
     turns={r['key']:r for r in get(client,'/session-turns',**params)['items']}
     assert turns['unassigned']['hook_count']==3
 
@@ -58,11 +60,13 @@ def test_qoder_call_link_is_snapshot_and_device_scoped(service):
     assert {r['key'] for r in first['items']+second['items']}=={'unassigned','turn:other'}
 
 
-def test_qoder_native_call_link_requires_same_user_session_and_tool(service):
+@pytest.mark.parametrize('scope, other_scope', [('501', '502'),
+    ('S-1-5-21-123-456-789-1001', 'S-1-5-21-123-456-789-1002')])
+def test_qoder_native_call_link_requires_same_user_session_and_tool(service, scope, other_scope):
     client, factory = service
-    insert(factory,1,event={'agent':'qoder-hooks','session_id':'s','native_call_id':'c','tool':'Bash','turn_id':''})
-    for index, overrides in enumerate(({'user_scope':'502'}, {'session_id':'different'}, {'tool':'Read'})):
-        call = event('tool_call',agent='qoder-cli',session='s',turn=f'r{index}',call='c',tool='Bash',user_scope='501')
+    insert(factory,1,user=scope,event={'agent':'qoder-hooks','session_id':'s','native_call_id':'c','tool':'Bash','turn_id':''})
+    for index, overrides in enumerate(({'user_scope':other_scope}, {'session_id':'different'}, {'tool':'Read'}, {'user_scope':None})):
+        call = event('tool_call',agent='qoder-cli',session='s',turn=f'r{index}',call='c',tool='Bash',user_scope=scope)
         call.update(overrides)
         call['logical_event_id'] = str(index+1)*64
         assert upload(client,call).status_code==200
