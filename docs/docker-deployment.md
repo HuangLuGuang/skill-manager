@@ -512,7 +512,7 @@ Backend 镜像中的 SkillSpector 固定为 **2.2.3**，源码提交为
 `/app/web` 编译平台，并将两端共用的事件展示模块 `client/desktop/src/event-records.js`
 复制到 `/app/client/desktop/src/`，保留源码相对目录关系。最终 Nginx 镜像只接收
 `/app/web/dist` 静态产物。修改跨目录共享模块时，应验证此 Docker 构建路径。
-前端已升级至 Vite `7.3.7` 和 `follow-redirects@1.16.1`，修复已知依赖漏洞。
+前端使用 Vite `7.3.7`、`vue-i18n@11.4.18` 和 `follow-redirects@1.16.2`；本地构建使用 Node 22。
 更新依赖时同步锁文件，并在 Node 22 下通过 `npm audit --audit-level=low`（包含开发依赖）、语言检查和镜像构建。
 
 **English:** Build the frontend image from the repository root with `docker build -f web/Dockerfile .`.
@@ -520,9 +520,13 @@ The build stage compiles the web app in `/app/web` and copies the shared event p
 `/app/client/desktop/src/event-records.js`, preserving its source-relative location. The final Nginx
 image receives only the static assets from `/app/web/dist`. Validate this Docker build when changing
 modules shared across directories.
-The frontend uses Vite `7.3.7` and `follow-redirects@1.16.1` to fix known dependency vulnerabilities.
+The frontend uses Vite `7.3.7`, `vue-i18n@11.4.18` and `follow-redirects@1.16.2`; use Node 22 for local builds.
 When updating dependencies, update the lockfile and pass `npm audit --audit-level=low` (including
 development dependencies), language checks, and the image build with Node 22.
+
+若前端镜像在 `npm audit --audit-level=low` 失败，先在 Node 22 下于 `web/` 执行同一只读审计，核对公告及修复版本；更新对应依赖和锁文件后重新执行审计、`npm run test:i18n` 和 `npm run build`，再提交重建。审计库更新可能使之前成功的锁文件被阻断；不要跳过审计或降低级别。
+
+**English:** If the frontend image fails at `npm audit --audit-level=low`, reproduce this read-only check in `web/` under Node 22 and review the advisories and fixed versions. Update the affected dependencies and lockfile, rerun the audit, `npm run test:i18n` and `npm run build`, then commit and rebuild. New advisories can block a previously passing lockfile; keep the audit gate enabled.
 
 安全 Worker 和 AI-Infra-Guard 内部服务已加入 `--all` 和 `--save`，因此 x86/ARM 离线包会包含这两个镜像。联网 CI 在镜像中
 写入锁定的 AI-Infra-Guard Agent Scan/MCP Scan 源码、约束依赖、LICENSE、NOTICE 和 SPDX SBOM；客户
