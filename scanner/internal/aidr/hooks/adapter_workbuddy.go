@@ -9,8 +9,8 @@ import (
 
 func workbuddyHookAdapter() hookAdapter {
 	return hookAdapter{Decode: standardCommandHook, WriteDecision: func(out io.Writer, hook, decision, reason string) error {
-		// Windows WorkBuddy can close Stop's output handle after the turn ends.
-		if runtime.GOOS == "windows" && hook == "Stop" && decision == "allow" {
+		// WorkBuddy accepts exit status alone on success; its output handle may already be closed.
+		if runtime.GOOS == "windows" && decision == "allow" {
 			return nil
 		}
 		return writeCommandDecision(out, hook, decision, reason)

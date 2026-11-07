@@ -35,9 +35,6 @@ func settingsEntries(agent, binary, connection string) map[string]map[string]any
 		if runtime.GOOS == "windows" {
 			args := []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection}
 			out[event]["command"] = windowsHookCommand(binary, args)
-			if agent == "workbuddy" && event != "Stop" {
-				out[event]["command"] = windowsEncodedCommand(windowsCapturedHookScript(binary, args))
-			}
 			if agent == "trae" || agent == "trae-cn" {
 				out[event]["command"] = windowsCapturedHookScript(binary, args)
 			}
@@ -148,11 +145,7 @@ func MergeSettingsHooks(agent, home, binary, connection string, remove bool) (Pl
 		previousEncoded := entry
 		if runtime.GOOS == "windows" && agent == "workbuddy" {
 			args := []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection}
-			command := windowsHookCommand(binary, args)
-			if event == "Stop" {
-				command = windowsEncodedCommand(windowsCapturedHookScript(binary, args))
-			}
-			previousEncoded = map[string]any{"command": command}
+			previousEncoded = map[string]any{"command": windowsEncodedCommand(windowsCapturedHookScript(binary, args))}
 		}
 		if runtime.GOOS == "windows" && (agent == "workbuddy" || agent == "qwenwork" || agent == "trae" || agent == "trae-cn") {
 			previous = map[string]any{"command": windowsHookScript(binary, []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection})}
