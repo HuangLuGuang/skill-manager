@@ -9,23 +9,31 @@ import (
 )
 
 func TestWindowsSettingsUpgradePreservesUserHooks(t *testing.T) {
-	for _, agent := range []string{"workbuddy", "qwenwork", "trae", "trae-cn"} {
+	for _, agent := range []string{"workbuddy", "qwenwork", "codebuddy", "trae", "trae-cn"} {
 		t.Run(agent, func(t *testing.T) {
 			home := t.TempDir()
 			binary, connection := filepath.Join(home, "bridge.exe"), filepath.Join(home, "bridge.json")
 			groups := map[string]any{}
 			for event := range settingsEntries(agent, binary, connection) {
+				current := settingsEntries(agent, binary, connection)[event]
+				oldCommand := windowsCommandBeforeWait(current["command"].(string))
 				legacy := map[string]any{"type": "command", "command": windowsHookScript(binary, []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection}), "timeout": 60}
+				legacy["command"] = windowsCommandBeforeWait(legacy["command"].(string))
+				if agent == "codebuddy" {
+					legacy["command"] = oldCommand
+				}
 				if agent == "workbuddy" || agent == "qwenwork" {
 					legacy["shell"] = "powershell"
 				}
 				groups[event] = []any{map[string]any{"hooks": []any{legacy, map[string]any{"type": "command", "command": "echo user-owned"}}}}
+				groups[event] = append(groups[event].([]any), map[string]any{"hooks": []any{map[string]any{"type": "command", "command": oldCommand, "timeout": 60}}})
 				if agent == "workbuddy" || ((agent == "trae" || agent == "trae-cn") && IsPreTool(agent, event)) {
 					args := []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection}
 					command := windowsCapturedHookScript(binary, args)
 					if agent == "workbuddy" {
 						command = windowsEncodedCommand(command)
 					}
+					command = windowsCommandBeforeWait(command)
 					groups[event] = append(groups[event].([]any), map[string]any{"hooks": []any{map[string]any{"type": "command", "command": command, "timeout": 60}}})
 				}
 			}

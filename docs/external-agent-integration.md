@@ -1318,6 +1318,10 @@ OpenCode 当前不作为新增采集入口展示。官方插件支持工具前�
 
 Windows 实现范围、按平台选择的日志目录、命令协议与人工验收清单见 [客户端说明](agent-manager-client.md#windows-hook-接收器--windows-hook-receiver)。Claude Code、WorkBuddy、CodeBuddy IDE、TRAE/TRAE CN（含新版 Work 模式）、Qoder、QwenWork CN、ZCode、Codex 复用既有产品解析与规则/审批链路。Windows 配置与通信测试不能替代各目标产品版本的真实日志、执行阻断及审批恢复证据。旧独立 TraeWork 不在新版 TRAE Work 模式的接入结论内。
 
+Windows PowerShell Hook 通过下游管道命令等待 GUI 类型桥接进程退出后再返回退出码；这也覆盖人工审批等待期间。升级仅替换本客户端生成的旧入口，保留用户 Hook。回归测试使用与正式构建一致的 `-H=windowsgui` 辅助程序验证延迟响应、无正文放行及退出码 2 拒绝；目标产品是否真正等待并执行拒绝，仍需更新后的原生会话验收。
+
+**English:** Windows PowerShell hooks use a downstream pipeline command to wait for the GUI-subsystem bridge before returning its exit code, including while approval is pending. Upgrades replace only this client's generated entries and preserve user hooks. Regression tests use a `-H=windowsgui` helper matching the production subsystem for delayed responses, empty successful responses, and exit-code-2 denials. Each updated native host still requires acceptance testing of waiting and enforcement.
+
 **English:** See the client guide for Windows implementation scope, platform-specific log roots, command protocols and manual acceptance. Existing product parsers and policy/approval paths are reused. Native configuration/transport tests do not certify each product version's actual logging, tool blocking or approval recovery. Current TRAE Work mode uses TRAE; old standalone TraeWork remains a distinct entry.
 
 Windows 更新替换本客户端拥有的旧 Hook 入口，保留用户 Hook。WorkBuddy/QwenWork 显式启动系统 `powershell.exe`；TRAE 缓冲桥接响应并保留退出码；Windows WorkBuddy 的成功回调仅返回退出码，执行前拒绝仍返回结构化原因。CodeBuddy 日志稳定读取不依赖 Windows 缺失的变更戳；共享目录监听持续消费通知，状态读取允许原子替换。升级后仍须在目标宿主新操作中核对日志到达与实际阻断，具体步骤见客户端说明。
