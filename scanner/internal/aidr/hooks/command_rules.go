@@ -281,7 +281,7 @@ func commandMatch(c *CommandCondition, command, cwd, decision string) string {
 func shellTool(tool string) bool {
 	parts := strings.Split(strings.ToLower(tool), ".")
 	switch parts[len(parts)-1] {
-	case "bash", "exec", "exec_command", "shell", "runcommand", "run_terminal_cmd", "run_shell_command", "mcp__qw-builtin__mcp_workspace_bash":
+	case "bash", "exec", "exec_command", "shell", "powershell", "runcommand", "run_terminal_cmd", "run_shell_command", "mcp__qw-builtin__mcp_workspace_bash":
 		return true
 	}
 	return false

@@ -32,13 +32,14 @@ from tests.test_aidr_hooks import hook_batch, send
 def test_literal_commands(condition, command, cwd, action, expected):
     assert command_match(CommandCondition(**condition).model_dump(), command, cwd, action) == expected
 
-def test_observation_revision_and_native_rules():
+@pytest.mark.parametrize('agent,tool', [('codex', 'Bash'), ('workbuddy', 'PowerShell')])
+def test_observation_revision_and_native_rules(agent, tool):
     p = dict(revision='8', default_action='allow', rules=[dict(id='rm',agent='*',tool='*',decision='ask',command={'executable':'rm'})])
-    o = observe(p, 'codex', 'Bash', 'rm /tmp/demo')
-    assert evaluate(p,'codex','Bash',o)['decision'] == 'ask'
-    assert evaluate(p,'codex','Read',None)['decision'] == 'allow'
-    assert evaluate(p,'codex','Bash',{**o,'policy_revision':'7'})['unresolved']
-    assert evaluate(p,'codex','Bash',observe(p,'codex','Bash','echo rm'))['decision'] == 'allow'
+    o = observe(p, agent, tool, 'rm /tmp/demo')
+    assert evaluate(p, agent, tool, o)['decision'] == 'ask'
+    assert evaluate(p, agent, 'Read', None)['decision'] == 'allow'
+    assert evaluate(p, agent, tool, {**o, 'policy_revision': '7'})['unresolved']
+    assert evaluate(p, agent, tool, observe(p, agent, tool, 'echo rm'))['decision'] == 'allow'
 
 @pytest.mark.parametrize('default', ['allow', 'deny', 'ask'])
 def test_preview_unresolved_uses_default(default):

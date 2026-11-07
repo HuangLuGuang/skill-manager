@@ -83,3 +83,28 @@ func TestControlDecisionPersistedWithEvent(t *testing.T) {
 		t.Fatal("replay must preserve historical audit mode", replay, err)
 	}
 }
+
+func TestWindowsWorkBuddyPowerShellCommandRules(t *testing.T) {
+	policy := ToolPolicy{Revision: "5", Default: "allow", Rules: []ToolRule{
+		{ID: "delete", Agent: "*", Tool: "*", Decision: "deny", Command: &CommandCondition{Executable: "rm"}},
+		{ID: "review", Agent: "workbuddy", Tool: "*", Decision: "ask", Command: &CommandCondition{Executable: "Write-Output"}},
+	}}
+	for _, tc := range []struct{ command, decision, rule string }{
+		{"rm -WhatIf -LiteralPath am-acceptance.txt", "deny", "delete"},
+		{"Write-Output AM_WB_APPROVAL", "ask", "review"},
+		{"Get-Date", "allow", "default"},
+	} {
+		event := Event{Agent: "workbuddy", Hook: "PreToolUse", Kind: "tool.pre", Tool: "PowerShell"}
+		raw, err := json.Marshal(map[string]any{
+			"hook_event_name": event.Hook, "session_id": "session", "tool_name": event.Tool,
+			"tool_input": map[string]string{"command": tc.command},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		event.CommandMatch = policy.observeCommand(event, raw)
+		if result := policy.Evaluate(event, time.Now()); result.Decision != tc.decision || result.Rule != tc.rule {
+			t.Fatalf("%s: %+v", tc.command, result)
+		}
+	}
+}
