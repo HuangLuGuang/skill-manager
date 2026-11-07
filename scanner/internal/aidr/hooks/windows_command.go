@@ -9,7 +9,10 @@ import (
 
 // cmd hosts need an encoded script; PowerShell hosts run windowsHookScript directly.
 func windowsHookCommand(executable string, args []string) string {
-	command := windowsHookScript(executable, args)
+	return windowsEncodedCommand(windowsHookScript(executable, args))
+}
+
+func windowsEncodedCommand(command string) string {
 	encoded := utf16.Encode([]rune(command))
 	data := make([]byte, len(encoded)*2)
 	for i, value := range encoded {

@@ -29,11 +29,40 @@ func TestWindowsShellHookHelper(t *testing.T) {
 	if err != nil {
 		os.Exit(1)
 	}
-	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"input": string(data), "args": os.Args[3:]})
+	if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"input": string(data), "args": os.Args[3:]}); err == nil {
+		if receipt := os.Getenv("AGENT_MANAGER_WINDOWS_OUTPUT_RECEIPT"); receipt != "" {
+			_ = os.WriteFile(receipt, []byte("written"), 0600)
+		}
+	}
 	if os.Getenv("AGENT_MANAGER_WINDOWS_SHELL_DENY") == "1" {
 		os.Exit(2)
 	}
 	os.Exit(0)
+}
+
+func TestWindowsCapturedBridgeOwnsOutputPipe(t *testing.T) {
+	self, _ := os.Executable()
+	for _, captured := range []bool{false, true} {
+		receipt := filepath.Join(t.TempDir(), "output-receipt")
+		script := windowsHookScript(self, []string{"-test.run=^TestWindowsShellHookHelper$", "--"})
+		if captured {
+			script = windowsCapturedHookScript(self, []string{"-test.run=^TestWindowsShellHookHelper$", "--"})
+		}
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader.Close()
+		cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
+		cmd.Env = append(os.Environ(), "AGENT_MANAGER_WINDOWS_SHELL_TEST=1", "AGENT_MANAGER_WINDOWS_OUTPUT_RECEIPT="+receipt)
+		cmd.Stdin, cmd.Stdout = strings.NewReader(`{}`), writer
+		_ = cmd.Run()
+		writer.Close()
+		_, err = os.Stat(receipt)
+		if (err == nil) != captured {
+			t.Fatalf("captured=%v: bridge output receipt: %v", captured, err)
+		}
+	}
 }
 
 func TestWindowsShellHooksPreserveJSONAndExitStatus(t *testing.T) {
