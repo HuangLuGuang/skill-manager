@@ -142,7 +142,7 @@
       if (action === 'disconnect' && paired) button.textContent = t(product.id === 'teleagent' ? 'paired_disconnect' : 'product_disconnect')
       if (action === 'disconnect') button.hidden = hosts[button.dataset.aidrAgent]?.plugin?.installed !== true || managed
       const plugin = hosts[button.dataset.aidrAgent]?.plugin
-      if (action === 'retry') { button.title = t('retry_scope'); button.hidden = !snapshot.retry_suspended }
+      if (action === 'retry') { button.title = t('retry_scope'); button.hidden = !snapshot.retry_suspended && snapshot.next_retry_seconds == null }
       if (action === 'upgrade') button.hidden = plugin?.installed !== true
       if (action === 'enable') button.hidden = snapshot.enabled === true
       if (action === 'disable') button.hidden = snapshot.enabled !== true
@@ -205,11 +205,9 @@
     } else add(prerequisiteList, t('channel_reason'), t('system_not_checked'))
     const diagnostic = snapshot.receiver_diagnostic
     const telemetry = snapshot.telemetry || {}
-    const retryPolicy = snapshot.policy?.target?.retry
-    const exhausted = snapshot.retry_suspended && snapshot.retry_mode === 'fixed' && Number.isInteger(retryPolicy?.retries) && snapshot.attempts > retryPolicy.retries
-    const receiverText = snapshot.retry_suspended
-      ? `${exhausted ? t('retry_exhausted').replace('{count}', String(retryPolicy.retries)) : t('retry_required')} · ${codeText(snapshot.code || 'aidr_desktop_not_configured')}`
-      : codeText(snapshot.code || 'aidr_desktop_not_configured')
+    const receiverCode = codeText(snapshot.code || 'aidr_desktop_not_configured')
+    const retryState = snapshot.retry_suspended ? t('retry_required') : snapshot.next_retry_seconds != null ? t('retry_scheduled') : ''
+    const receiverText = [retryState, receiverCode].filter(Boolean).join(' · ')
     const summary = $('aidr-runtime-summary'); summary.replaceChildren()
     summary.parentElement.dataset.health = statusError || snapshot.retry_suspended ? 'attention' : ['aidr_desktop_running', 'aidr_desktop_shared_receiver'].includes(snapshot.code) ? 'running' : 'unknown'
     add(summary, t('receiver'), statusError ? t('unknown') : receiverText)
