@@ -3,6 +3,7 @@ package hooks
 import (
 	"encoding/json"
 	"io"
+	"runtime"
 )
 
 func traeHookAdapter(root string) hookAdapter {
@@ -24,6 +25,9 @@ func traeHookAdapter(root string) hookAdapter {
 }
 
 func writeTraeDecision(out io.Writer, hook, decision, reason string) error {
+	if runtime.GOOS == "windows" && hook == "PreToolUse" && decision == "deny" {
+		return &HostDenied{Reason: reason}
+	}
 	if decision == "ask" {
 		return json.NewEncoder(out).Encode(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": hook, "permissionDecision": decision, "permissionDecisionReason": reason}})
 	}

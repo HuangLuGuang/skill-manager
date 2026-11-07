@@ -9,8 +9,11 @@ import (
 
 func workbuddyHookAdapter() hookAdapter {
 	return hookAdapter{Decode: standardCommandHook, WriteDecision: func(out io.Writer, hook, decision, reason string) error {
-		// WorkBuddy accepts exit status alone on success; its output handle may already be closed.
-		if runtime.GOOS == "windows" && decision == "allow" {
+		// The Windows host can close stdout before the bridge writes its decision.
+		if runtime.GOOS == "windows" {
+			if hook == "PreToolUse" && decision == "deny" {
+				return &HostDenied{Reason: reason}
+			}
 			return nil
 		}
 		return writeCommandDecision(out, hook, decision, reason)

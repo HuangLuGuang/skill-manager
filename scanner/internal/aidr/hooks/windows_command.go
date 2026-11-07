@@ -41,5 +41,7 @@ func windowsHookScript(executable string, args []string) string {
 func windowsCapturedHookScript(executable string, args []string) string {
 	script := windowsHookScript(executable, args)
 	script = strings.Replace(script, "try { [Console]::In.ReadToEnd()", "try { $response = [Console]::In.ReadToEnd()", 1)
-	return strings.Replace(script, "; exit $LASTEXITCODE", "; $bridgeExit = $LASTEXITCODE; [Console]::Out.WriteLine(($response -join [Environment]::NewLine)); exit $bridgeExit", 1)
+	return strings.Replace(script, "; exit $LASTEXITCODE", "; $bridgeExit = $LASTEXITCODE; "+windowsWriteCapturedResponse+"; exit $bridgeExit", 1)
 }
+
+const windowsWriteCapturedResponse = "[Console]::Out.WriteLine(($response -join [Environment]::NewLine))"
