@@ -36,7 +36,11 @@ func settingsEntries(agent, binary, connection string) map[string]map[string]any
 			args := []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection}
 			out[event]["command"] = windowsHookCommand(binary, args)
 			if agent == "trae" || agent == "trae-cn" {
-				out[event]["command"] = windowsCapturedHookScript(binary, args)
+				script := windowsCapturedHookScript(binary, args)
+				if IsPreTool(agent, event) {
+					script = strings.Replace(script, windowsWriteCapturedResponse, "if ($response) { "+windowsWriteCapturedResponse+" }", 1)
+				}
+				out[event]["command"] = script
 			}
 			if agent == "qoder-hooks" || agent == "zcode" {
 				out[event]["command"] = binary
@@ -146,6 +150,10 @@ func MergeSettingsHooks(agent, home, binary, connection string, remove bool) (Pl
 		if runtime.GOOS == "windows" && agent == "workbuddy" {
 			args := []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection}
 			previousEncoded = map[string]any{"command": windowsEncodedCommand(windowsCapturedHookScript(binary, args))}
+		}
+		if runtime.GOOS == "windows" && (agent == "trae" || agent == "trae-cn") && IsPreTool(agent, event) {
+			args := []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection}
+			previousEncoded = map[string]any{"command": windowsCapturedHookScript(binary, args)}
 		}
 		if runtime.GOOS == "windows" && (agent == "workbuddy" || agent == "qwenwork" || agent == "trae" || agent == "trae-cn") {
 			previous = map[string]any{"command": windowsHookScript(binary, []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection})}

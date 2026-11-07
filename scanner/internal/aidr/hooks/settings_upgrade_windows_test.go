@@ -20,9 +20,12 @@ func TestWindowsSettingsUpgradePreservesUserHooks(t *testing.T) {
 					legacy["shell"] = "powershell"
 				}
 				groups[event] = []any{map[string]any{"hooks": []any{legacy, map[string]any{"type": "command", "command": "echo user-owned"}}}}
-				if agent == "workbuddy" {
+				if agent == "workbuddy" || ((agent == "trae" || agent == "trae-cn") && IsPreTool(agent, event)) {
 					args := []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection}
-					command := windowsEncodedCommand(windowsCapturedHookScript(binary, args))
+					command := windowsCapturedHookScript(binary, args)
+					if agent == "workbuddy" {
+						command = windowsEncodedCommand(command)
+					}
 					groups[event] = append(groups[event].([]any), map[string]any{"hooks": []any{map[string]any{"type": "command", "command": command, "timeout": 60}}})
 				}
 			}

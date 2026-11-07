@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"runtime"
 	"testing"
 )
 
@@ -19,16 +20,18 @@ func TestTraeNativeCommandAndRejectedPost(t *testing.T) {
 			t.Fatalf("rejected result became success: %+v", e.Behavior)
 		}
 		var out bytes.Buffer
-		if err := WriteHostDecision(&out, agent, "PreToolUse", "deny", "test policy"); err != nil {
-			t.Fatal(err)
-		}
 		var decision struct {
 			Output struct {
 				Decision string `json:"permissionDecision"`
 			} `json:"hookSpecificOutput"`
 		}
-		if json.Unmarshal(out.Bytes(), &decision) != nil || decision.Output.Decision != "deny" {
-			t.Fatal(out.String())
+		if runtime.GOOS != "windows" {
+			if err := WriteHostDecision(&out, agent, "PreToolUse", "deny", "test policy"); err != nil {
+				t.Fatal(err)
+			}
+			if json.Unmarshal(out.Bytes(), &decision) != nil || decision.Output.Decision != "deny" {
+				t.Fatal(out.String())
+			}
 		}
 		out.Reset()
 		if err := WriteHostDecision(&out, agent, "PreToolUse", "ask", "approval required"); err != nil {

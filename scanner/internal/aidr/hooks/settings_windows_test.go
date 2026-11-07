@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -22,16 +23,19 @@ func TestWindowsHookCommandHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-func TestWindowsWorkBuddySuccessDoesNotWriteHostOutput(t *testing.T) {
+func TestWindowsHookDecisionsWithClosedStdout(t *testing.T) {
 	product, _ := products.Get("workbuddy")
 	for hook := range product.HookEvents {
 		if err := WriteHostDecision(nil, "workbuddy", hook, "allow", ""); err != nil {
 			t.Fatalf("%s: %v", hook, err)
 		}
 	}
-	var out bytes.Buffer
-	if err := WriteHostDecision(&out, "workbuddy", "PreToolUse", "deny", "test denial"); err != nil || !bytes.Contains(out.Bytes(), []byte(`"permissionDecision":"deny"`)) {
-		t.Fatalf("lost tool denial: %s %v", &out, err)
+	for _, agent := range []string{"workbuddy", "trae", "trae-cn"} {
+		var denied *HostDenied
+		err := WriteHostDecision(nil, agent, "PreToolUse", "deny", "test denial")
+		if !errors.As(err, &denied) || denied.ExitCode() != 2 || denied.Reason != "test denial" {
+			t.Fatalf("%s lost tool denial: %v", agent, err)
+		}
 	}
 }
 
