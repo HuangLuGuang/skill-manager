@@ -179,5 +179,11 @@ func (cache *ReadCache) Read(ctx context.Context, s Source, old Cursor, b Budget
 }
 
 func sameLogFileVersion(a, b os.FileInfo) bool {
-	return a != nil && b != nil && os.SameFile(a, b) && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime()) && skillChangeTime(a) != 0 && skillChangeTime(a) == skillChangeTime(b)
+	return sameLogReadVersion(a, b) && skillChangeTime(a) != 0
+}
+
+// A stable read needs identity and write-time checks; cache reuse additionally
+// requires a change stamp, which Windows FileInfo does not expose.
+func sameLogReadVersion(a, b os.FileInfo) bool {
+	return a != nil && b != nil && os.SameFile(a, b) && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime()) && skillChangeTime(a) == skillChangeTime(b)
 }

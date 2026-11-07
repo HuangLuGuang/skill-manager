@@ -242,6 +242,20 @@ def policy_views(db: Session, client_ids):
             for cid in client_ids}
 
 
+def runtime_with_enrollment(target, user_hosts):
+    from .runtime_governance import hook_target
+    runtime = dict(target)
+    if runtime["allow_user_enrollment"] and runtime["access_mode"] == "ordinary" and hook_target(runtime):
+        runtime["hosts"] = list(dict.fromkeys([*runtime["hosts"], *user_hosts]))
+        if (runtime.get("channels") or {}).get("logs"):
+            from .aidr_products import BY_ID
+            paired = [BY_ID[host]["enrollment_log_source"] for host in user_hosts
+                      if host in BY_ID and BY_ID[host].get("enrollment_log_source")]
+            if paired:
+                runtime["log_sources"] = list(dict.fromkeys([*(runtime.get("log_sources") or ["claude", "codex"]), *paired]))
+    return runtime
+
+
 def _policy_view(default, custom, enrollment, client_id):
     menu_default = {**DEFAULT_MENUS, **(json.loads(default.desktop_menu_visibility_json) if default else {})}
     menu_override = json.loads(custom.desktop_menu_visibility_json) if custom else {}
@@ -260,19 +274,9 @@ def _policy_view(default, custom, enrollment, client_id):
     runtime_default = {"allow_user_enrollment": True, **runtime_default}
     if runtime_override is not None:
         runtime_override = {"allow_user_enrollment": True, **runtime_override}
-    runtime = dict(runtime_override if runtime_override is not None else runtime_default)
-    from .runtime_governance import hook_target
     user_hosts = json.loads(enrollment.hosts_json) if enrollment else []
-    if runtime["allow_user_enrollment"] and runtime["access_mode"] == "ordinary" and hook_target(runtime):
-        runtime["hosts"] = list(dict.fromkeys([*runtime["hosts"], *user_hosts]))
-        # Products may enroll a paired log source. Channel permission remains
-        # platform-owned; preserve explicitly selected sources and legacy defaults.
-        if (runtime.get("channels") or {}).get("logs"):
-            from .aidr_products import BY_ID
-            paired = [BY_ID[host]["enrollment_log_source"] for host in user_hosts
-                      if host in BY_ID and BY_ID[host].get("enrollment_log_source")]
-            if paired:
-                runtime["log_sources"] = list(dict.fromkeys([*(runtime.get("log_sources") or ["claude", "codex"]), *paired]))
+    runtime = runtime_with_enrollment(runtime_override if runtime_override is not None else runtime_default,
+                                      user_hosts)
 
     revision = custom.revision if custom else 0
     runtime_default_revision = default.runtime_revision if default and default.runtime_revision is not None else default_revision
@@ -481,6 +485,7 @@ def preview(db: Session, scope: str, change: PolicyChange):
     runtime_proposed = current["runtime_governance"]
     if "runtime_governance" in change.model_fields_set:
         runtime_proposed = change.runtime_governance.model_dump() if change.runtime_governance else current["runtime_governance_default"] or RuntimeGovernanceConfig().model_dump()
+        runtime_proposed = runtime_with_enrollment(runtime_proposed, current["runtime_user_hosts"])
     digest = hashlib.sha256(json.dumps({"scope": scope, "version": current["version"], "rules": change.rules,
                                         "desktop_menu_visibility": change.desktop_menu_visibility,
                                         "desktop_menu_set": "desktop_menu_visibility" in change.model_fields_set,

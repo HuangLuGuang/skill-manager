@@ -58,7 +58,7 @@ func codeBuddyReadFile(path string, limit int64) ([]byte, os.FileInfo, error) {
 		return nil, nil, errors.New("aidr_log_io_error")
 	}
 	current, err := checkedPathInfo(path)
-	if err != nil || len(raw) > int(limit) || !sameLogFileVersion(info, current) {
+	if err != nil || len(raw) > int(limit) || !sameLogReadVersion(info, current) {
 		return nil, nil, errors.New("aidr_log_source_changed")
 	}
 	return raw, info, nil
@@ -210,7 +210,7 @@ func readCodeBuddy(ctx context.Context, s Source, old Cursor, b Budget, since ti
 		}
 	}
 	current, err := checkedPathInfo(s.Path)
-	if err != nil || !sameLogFileVersion(info, current) {
+	if err != nil || !sameLogReadVersion(info, current) {
 		out.Events = nil
 		out.Coverage.mark("unavailable", "aidr_log_source_changed")
 		return out, nil

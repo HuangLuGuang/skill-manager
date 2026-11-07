@@ -98,6 +98,9 @@ func TestLogChannelProjectionPreservesObservationAndBinding(t *testing.T) {
 	if logs["reported_at"] != stamp || logs["last_ack_at"] != stamp || logs["queued_records"] != 3 {
 		t.Fatal("timestamp or counts changed", logs)
 	}
+	if logs["state"] != "unknown" {
+		t.Fatal("stale running observation claimed healthy", logs)
+	}
 	raw, _ := json.Marshal(report)
 	if strings.Contains(string(raw), "synthetic-projection-secret") {
 		t.Fatal("secret entered heartbeat projection")
@@ -110,6 +113,15 @@ func TestLogChannelProjectionPreservesObservationAndBinding(t *testing.T) {
 	logs = report["channels"].(map[string]any)["logs"].(map[string]any)
 	if logs["state"] != "stopped" || logs["reported_at"] != supervisor.UpdatedAt {
 		t.Fatal("stopped owner hidden by old running file", logs)
+	}
+	supervisor.Code = "aidr_log_starting"
+	supervisor.PolicyVersion = "1:3"
+	if err := writeDesktopJSON(filepath.Join(statePath, "log-supervisor.json"), supervisor); err != nil {
+		t.Fatal(err)
+	}
+	logs = aidrRuntimeSnapshot(home)["channels"].(map[string]any)["logs"].(map[string]any)
+	if logs["state"] != "starting" || logs["policy_version"] != "1:3" {
+		t.Fatal("new worker hidden by previous worker status", logs)
 	}
 	status["client_id"] = "other-device"
 	if err := writeDesktopJSON(path, status); err != nil {

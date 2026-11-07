@@ -33,3 +33,10 @@ func windowsHookScript(executable string, args []string) string {
 	command += "[Console]::Error.WriteLine('aidr_hook_binary_unavailable'); exit 1 }"
 	return command
 }
+
+// Let PowerShell own the response pipe until the native bridge exits.
+func windowsCapturedHookScript(executable string, args []string) string {
+	script := windowsHookScript(executable, args)
+	script = strings.Replace(script, "try { [Console]::In.ReadToEnd()", "try { $response = [Console]::In.ReadToEnd()", 1)
+	return strings.Replace(script, "; exit $LASTEXITCODE", "; $bridgeExit = $LASTEXITCODE; [Console]::Out.WriteLine(($response -join [Environment]::NewLine)); exit $bridgeExit", 1)
+}

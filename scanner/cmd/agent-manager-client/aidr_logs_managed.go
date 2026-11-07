@@ -158,6 +158,7 @@ func manageAutomaticLogs(ctx context.Context, home string, policy func() managed
 		}
 		state.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		if err := writeDesktopJSON(filepath.Join(current.state, "log-supervisor.json"), state); err != nil {
+			managedclient.RecordBackgroundSyncDiagnostic(home, "aidr_log_status", err, map[string]any{"stage": "supervisor"})
 			stop()
 			state.Code = "aidr_log_status_unwritable"
 			state.Suspended = true
@@ -335,6 +336,7 @@ func runManagedLogWorker(ctx context.Context, home string, plan logRunPlan, enab
 				code = "aidr_log_intake_degraded"
 			}
 			if err := writeDesktopJSON(filepath.Join(plan.state, "log-status.json"), map[string]any{"version": 1, "client_id": plan.device, "policy_version": status.RuntimePolicyVersion, "enabled": status.RuntimeCollectionEnabled, "code": code, "reported_at": time.Now().UTC().Format(time.RFC3339Nano), "state": status}); err != nil {
+				managedclient.RecordBackgroundSyncDiagnostic(home, "aidr_log_status", err, map[string]any{"stage": "worker"})
 				return errors.New("aidr_log_status_unwritable")
 			}
 			return nil
