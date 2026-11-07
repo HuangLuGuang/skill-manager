@@ -1320,9 +1320,9 @@ Windows 实现范围、按平台选择的日志目录、命令协议与人工验
 
 **English:** See the client guide for Windows implementation scope, platform-specific log roots, command protocols and manual acceptance. Existing product parsers and policy/approval paths are reused. Native configuration/transport tests do not certify each product version's actual logging, tool blocking or approval recovery. Current TRAE Work mode uses TRAE; old standalone TraeWork remains a distinct entry.
 
-Windows 更新替换本客户端拥有的旧 Hook 入口，保留用户 Hook。WorkBuddy/QwenWork 显式启动系统 `powershell.exe`；WorkBuddy 与 TRAE 缓冲桥接响应并保留退出码；WorkBuddy 的 `Stop` 完成采集后仅返回退出码。CodeBuddy 日志稳定读取不依赖 Windows 缺失的变更戳；共享目录监听持续消费通知，状态读取允许原子替换。升级后仍须在目标宿主新操作中核对日志到达与实际阻断，具体步骤见客户端说明。
+Windows 更新替换本客户端拥有的旧 Hook 入口，保留用户 Hook。WorkBuddy/QwenWork 显式启动系统 `powershell.exe`；TRAE 缓冲桥接响应并保留退出码；Windows WorkBuddy 的成功回调仅返回退出码，执行前拒绝仍返回结构化原因。CodeBuddy 日志稳定读取不依赖 Windows 缺失的变更戳；共享目录监听持续消费通知，状态读取允许原子替换。升级后仍须在目标宿主新操作中核对日志到达与实际阻断，具体步骤见客户端说明。
 
-**English:** Windows upgrades replace this client's previous Hook entries while preserving user hooks. WorkBuddy/QwenWork launch system `powershell.exe` explicitly; WorkBuddy and TRAE buffer bridge output and preserve its exit code; WorkBuddy Stop reports completion through the exit code after collection. CodeBuddy stable reads no longer require an unavailable Windows change stamp. Shared directory watchers consume notifications continuously, and status readers allow atomic replacement. Verify log delivery and actual blocking with new actions in each target host after upgrading, using the client guide checklist.
+**English:** Windows upgrades replace this client's previous Hook entries while preserving user hooks. WorkBuddy/QwenWork launch system `powershell.exe` explicitly; TRAE buffers bridge output and preserves its exit code; WorkBuddy on Windows returns only an exit code for successful callbacks and keeps structured pre-tool denials. CodeBuddy stable reads no longer require an unavailable Windows change stamp. Shared directory watchers consume notifications continuously, and status readers allow atomic replacement. Verify log delivery and actual blocking with new actions in each target host after upgrading, using the client guide checklist.
 
 ### 来源、安装及决策语义
 

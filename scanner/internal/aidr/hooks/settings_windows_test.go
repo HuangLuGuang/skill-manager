@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	products "skill-manager/scanner/internal/aidr/catalog"
 	"strings"
 	"testing"
 )
@@ -21,9 +22,12 @@ func TestWindowsHookCommandHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-func TestWindowsWorkBuddyStopDoesNotWriteHostOutput(t *testing.T) {
-	if err := WriteHostDecision(nil, "workbuddy", "Stop", "allow", ""); err != nil {
-		t.Fatal(err)
+func TestWindowsWorkBuddySuccessDoesNotWriteHostOutput(t *testing.T) {
+	product, _ := products.Get("workbuddy")
+	for hook := range product.HookEvents {
+		if err := WriteHostDecision(nil, "workbuddy", hook, "allow", ""); err != nil {
+			t.Fatalf("%s: %v", hook, err)
+		}
 	}
 	var out bytes.Buffer
 	if err := WriteHostDecision(&out, "workbuddy", "PreToolUse", "deny", "test denial"); err != nil || !bytes.Contains(out.Bytes(), []byte(`"permissionDecision":"deny"`)) {

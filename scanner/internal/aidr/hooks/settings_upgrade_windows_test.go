@@ -22,10 +22,7 @@ func TestWindowsSettingsUpgradePreservesUserHooks(t *testing.T) {
 				groups[event] = []any{map[string]any{"hooks": []any{legacy, map[string]any{"type": "command", "command": "echo user-owned"}}}}
 				if agent == "workbuddy" {
 					args := []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection}
-					command := windowsHookCommand(binary, args)
-					if event == "Stop" {
-						command = windowsEncodedCommand(windowsCapturedHookScript(binary, args))
-					}
+					command := windowsEncodedCommand(windowsCapturedHookScript(binary, args))
 					groups[event] = append(groups[event].([]any), map[string]any{"hooks": []any{map[string]any{"type": "command", "command": command, "timeout": 60}}})
 				}
 			}
