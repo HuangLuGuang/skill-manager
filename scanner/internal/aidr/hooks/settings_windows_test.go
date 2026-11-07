@@ -21,6 +21,16 @@ func TestWindowsHookCommandHelper(t *testing.T) {
 	os.Exit(0)
 }
 
+func TestWindowsWorkBuddyStopDoesNotWriteHostOutput(t *testing.T) {
+	if err := WriteHostDecision(nil, "workbuddy", "Stop", "allow", ""); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := WriteHostDecision(&out, "workbuddy", "PreToolUse", "deny", "test denial"); err != nil || !bytes.Contains(out.Bytes(), []byte(`"permissionDecision":"deny"`)) {
+		t.Fatalf("lost tool denial: %s %v", &out, err)
+	}
+}
+
 func TestWindowsShellHookHelper(t *testing.T) {
 	if os.Getenv("AGENT_MANAGER_WINDOWS_SHELL_TEST") != "1" {
 		return
