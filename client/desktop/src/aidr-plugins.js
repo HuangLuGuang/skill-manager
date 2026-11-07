@@ -139,7 +139,7 @@
       const product = products.find(item => item.id === button.dataset.aidrAgent)
       const paired = !!product?.enrollment_log_source
       if (action === 'connect') button.textContent = t(enrollment === 'enabled' ? paired ? 'paired_connected' : 'product_connected' : enrollment === 'pending' ? 'product_pending' : paired ? 'paired_connect' : 'product_connect')
-      if (action === 'disconnect' && paired) button.textContent = t('paired_disconnect')
+      if (action === 'disconnect' && paired) button.textContent = t(product.id === 'teleagent' ? 'paired_disconnect' : 'product_disconnect')
       if (action === 'disconnect') button.hidden = hosts[button.dataset.aidrAgent]?.plugin?.installed !== true || managed
       const plugin = hosts[button.dataset.aidrAgent]?.plugin
       if (action === 'retry') { button.title = t('retry_scope'); button.hidden = !snapshot.retry_suspended }
@@ -150,8 +150,8 @@
       const logsBlocked = action === 'connect' && paired && (target?.channels?.logs !== true || (!selfEnrollment && !target?.log_sources?.includes(product.enrollment_log_source)))
       const policyBlocked = logsBlocked || enrollmentBlocked || platformManaged && (['enable', 'disable'].includes(action) || (!localInstallation && ['connect', 'upgrade', 'disconnect'].includes(action)))
       button.disabled = busy || !!enrollment || !configured || (action === 'retry-logs' && (collectionError !== '' || collection.channels?.logs?.state !== 'failed')) || policyBlocked || (['connect','upgrade'].includes(action) && !['interface_compatible', 'adapter_available'].includes(plugin?.version_status))
-      if (['connect', 'upgrade', 'disconnect'].includes(action)) button.title = !configured ? codeText('aidr_desktop_not_configured') : logsBlocked ? codeText('aidr_enrollment_logs_blocked') : policyBlocked ? t('managed_note') : action === 'disconnect' ? t(paired ? 'paired_remove_scope' : 'remove_scope') : !['interface_compatible', 'adapter_available'].includes(plugin?.version_status) ? t(plugin?.version_status ? 'unsupported' : 'unchecked') : ''
-      if (enrollment && !policyBlocked) button.title = t(enrollment === 'enabled' ? paired ? 'paired_waiting_event' : 'enrollment_waiting_event' : 'enrollment_pending')
+      if (['connect', 'upgrade', 'disconnect'].includes(action)) button.title = !configured ? codeText('aidr_desktop_not_configured') : logsBlocked ? codeText('aidr_enrollment_logs_blocked') : policyBlocked ? t('managed_note') : action === 'disconnect' ? t(product?.id === 'teleagent' ? 'paired_remove_scope' : 'remove_scope') : !['interface_compatible', 'adapter_available'].includes(plugin?.version_status) ? t(plugin?.version_status ? 'unsupported' : 'unchecked') : ''
+      if (enrollment && !policyBlocked) button.title = t(enrollment === 'enabled' ? product?.id === 'teleagent' ? 'paired_waiting_event' : 'enrollment_waiting_event' : 'enrollment_pending')
     })
     const channelList = $('aidr-collection-channels'); channelList.replaceChildren()
     for (const kind of ['logs', 'hooks', 'system']) {

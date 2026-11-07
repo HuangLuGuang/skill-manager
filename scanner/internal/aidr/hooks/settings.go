@@ -35,11 +35,8 @@ func settingsEntries(agent, binary, connection string) map[string]map[string]any
 		if runtime.GOOS == "windows" {
 			args := []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection}
 			out[event]["command"] = windowsHookCommand(binary, args)
-			if agent == "workbuddy" || agent == "qwenwork" || agent == "trae" || agent == "trae-cn" {
-				out[event]["command"] = windowsHookScript(binary, args)
-				if agent == "workbuddy" || agent == "qwenwork" {
-					out[event]["shell"] = "powershell"
-				}
+			if agent == "trae" || agent == "trae-cn" {
+				out[event]["command"] = windowsCapturedHookScript(binary, args)
 			}
 			if agent == "qoder-hooks" || agent == "zcode" {
 				out[event]["command"] = binary
@@ -144,6 +141,10 @@ func MergeSettingsHooks(agent, home, binary, connection string, remove bool) (Pl
 	}
 	changed := false
 	for event, entry := range settingsEntries(agent, binary, connection) {
+		previous := entry
+		if runtime.GOOS == "windows" && (agent == "workbuddy" || agent == "qwenwork" || agent == "trae" || agent == "trae-cn") {
+			previous = map[string]any{"command": windowsHookScript(binary, []string{"aidr-hook", "--agent", agent, "--event", event, "--connection-file", connection})}
+		}
 		kept := []map[string]any{}
 		for _, existing := range groups[event] {
 			if hookAdapters[agent].Settings.Nested {
@@ -158,7 +159,7 @@ func MergeSettingsHooks(agent, home, binary, connection string, remove bool) (Pl
 					if !ok {
 						return PluginStatus{}, code("aidr_plugin_config_invalid")
 					}
-					if !ownedSettingsEntry(h, entry) {
+					if !ownedSettingsEntry(h, entry) && !ownedSettingsEntry(h, previous) {
 						remaining = append(remaining, child)
 					} else {
 						changed = true

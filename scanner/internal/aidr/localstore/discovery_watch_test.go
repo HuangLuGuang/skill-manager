@@ -9,6 +9,35 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+func TestWindowsDiscoveryWatchDrainsWhileCollectorIdle(t *testing.T) {
+	s := openStore(t, tempDir(t), DefaultLimits())
+	defer s.Close()
+	root := tempDir(t)
+	c, err := s.NewCrawler("claude", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = c.WatchChanges(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	path := filepath.Join(root, "session.jsonl")
+	if err := os.WriteFile(path, []byte("{}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		c.watch.mu.Lock()
+		pending := c.watch.paths[path] != 0
+		c.watch.mu.Unlock()
+		if pending && c.watchChanges()[path] != 0 {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("notification waits for collector; Windows Add can deadlock")
+}
+
 func TestDiscoveryWatchOverflowAndBlockedClose(t *testing.T) {
 	s := openStore(t, tempDir(t), DefaultLimits())
 	root := tempDir(t)

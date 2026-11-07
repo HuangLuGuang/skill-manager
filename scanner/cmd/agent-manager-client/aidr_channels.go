@@ -135,10 +135,13 @@ func runtimeChannelSnapshot(paths desktopPaths, prefs desktopPreferences, hook m
 	if readDesktopJSON(filepath.Join(statePath, "log-status.json"), &logs) == nil && logs.Version == 1 && logs.Device == paths.Device && validRuntimeCode(logs.Code) && validRuntimePolicyVersion(logs.PolicyVersion) {
 		stamp, err := time.Parse(time.RFC3339Nano, logs.ReportedAt)
 		lastSupervisor, _ := time.Parse(time.RFC3339Nano, supervisor.UpdatedAt)
-		if err == nil && (!supervisor.Suspended && supervisor.Code != "aidr_log_stopped" || stamp.After(lastSupervisor)) {
+		if err == nil && !stamp.Before(lastSupervisor) {
 			status := "running"
 			if logs.Enabled != nil && !*logs.Enabled {
 				status = "draining"
+			}
+			if time.Since(stamp) > 90*time.Second {
+				status = "unknown"
 			}
 			value := map[string]any{"state": status, "code": logs.Code, "enabled": logs.Enabled, "policy_version": logs.PolicyVersion, "reported_at": logs.ReportedAt, "queued_records": logs.State.Queued}
 			if _, err := time.Parse(time.RFC3339Nano, logs.State.LastAcknowledgedAt); err == nil {

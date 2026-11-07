@@ -38,6 +38,27 @@ def apply(db, scope, rules):
     return result
 
 
+@pytest.mark.parametrize("enrollment_enabled", [True, False])
+def test_runtime_preview_matches_saved_enrollment_scope(db, enrollment_enabled):
+    from backend.runtime_governance import HookEnrollment
+    add_client(db, protocol=2)
+    db.add(HookEnrollment(client_id="client-1", hosts_json=json.dumps(["codebuddy", "trae-cn"])))
+    db.commit()
+    current = governance.policy_view(db, "client-1")
+    base = governance.RuntimeGovernanceConfig().model_dump()
+    base.update(enabled=True, hosts=["codex"], log_sources=["codex"],
+                allow_user_enrollment=enrollment_enabled)
+    base["channels"] = {"logs": True, "hooks": True, "system": False}
+    change = governance.PolicyChange(rules={}, expected_version=current["version"], runtime_governance=base)
+    result = governance.preview(db, "client-1", change)
+    change.preview_id = result["preview_id"]
+    saved = governance.save_policy(db, "client-1", change, SimpleNamespace(username="admin"))
+    assert result["runtime_proposed"] == saved["runtime_governance"]
+    assert ("codebuddy" in result["runtime_proposed"]["hosts"]) == enrollment_enabled
+    assert ("codebuddy" in result["runtime_proposed"]["log_sources"]) == enrollment_enabled
+    assert db.get(HookEnrollment, "client-1").hosts_json == json.dumps(["codebuddy", "trae-cn"])
+
+
 def test_new_clients_default_to_record_and_inherit_per_rule(db):
     add_client(db, protocol=2)
     assert governance.policy_view(db, "client-1")["rules"] == governance.DEFAULT_RULES

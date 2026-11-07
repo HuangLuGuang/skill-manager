@@ -53,13 +53,18 @@ func TestWindowsShellHooksPreserveJSONAndExitStatus(t *testing.T) {
 	argument := filepath.Join(root, "connection.json")
 	command := windowsHookCommand(binary, []string{"-test.run=^TestWindowsShellHookHelper$", "--", argument})
 	for _, deny := range []string{"0", "1"} {
-		for _, shell := range []string{"cmd.exe", "powershell.exe"} {
+		for _, shell := range []string{"cmd.exe", "powershell.exe", "captured"} {
 			t.Run(shell+deny, func(t *testing.T) {
 				args := []string{"/d", "/s", "/c", command}
 				if shell == "powershell.exe" {
 					args = []string{"-NoProfile", "-NonInteractive", "-Command", windowsHookScript(binary, []string{"-test.run=^TestWindowsShellHookHelper$", "--", argument})}
 				}
-				cmd := exec.Command(shell, args...)
+				executable := shell
+				if shell == "captured" {
+					executable = "powershell.exe"
+					args = []string{"-NoProfile", "-NonInteractive", "-Command", windowsCapturedHookScript(binary, []string{"-test.run=^TestWindowsShellHookHelper$", "--", argument})}
+				}
+				cmd := exec.Command(executable, args...)
 				cmd.Env = append(os.Environ(), "AGENT_MANAGER_WINDOWS_SHELL_TEST=1", "AGENT_MANAGER_WINDOWS_SHELL_DENY="+deny)
 				want := `{"tool_input":{"command":"echo 中文 & $value"}}`
 				cmd.Stdin = strings.NewReader(want)

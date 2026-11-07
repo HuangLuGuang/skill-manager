@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -14,10 +15,14 @@ type discoveryWatch struct {
 	watcher *fsnotify.Watcher
 	dirty   atomic.Bool
 	failed  atomic.Bool
+	mu      sync.Mutex
+	paths   map[string]fsnotify.Op
+	done    chan struct{}
 }
 
 func (w *discoveryWatch) close() {
 	w.watcher.Close()
+	<-w.done
 }
 
 // WatchChanges lets the long-running collector avoid unchanged metadata probes.
@@ -33,9 +38,12 @@ func (c *Crawler) WatchChanges() error {
 	if err != nil {
 		return err
 	}
-	watch := &discoveryWatch{watcher: w}
+	watch := &discoveryWatch{watcher: w, paths: map[string]fsnotify.Op{}, done: make(chan struct{})}
 	watch.dirty.Store(true)
 	c.watch = watch
+	// Windows Add waits on the same backend that delivers notifications.
+	// Drain continuously so adding a directory cannot wait on this collector.
+	go watch.consume(c.root)
 	rows, err := c.store.db.Query(`SELECT path FROM discovery_dirs WHERE root_key=?`, c.key)
 	if err == nil {
 		for rows.Next() {
@@ -99,49 +107,45 @@ func (c *Crawler) prepareProbes() map[string]fsnotify.Op {
 	return paths
 }
 
-// Consume notifications at the collector's cadence so the OS can coalesce writes.
+func (w *discoveryWatch) consume(root string) {
+	defer close(w.done)
+	for {
+		select {
+		case event, ok := <-w.watcher.Events:
+			if !ok {
+				w.failed.Store(true)
+				return
+			}
+			path := filepath.Clean(event.Name)
+			if path != root && !strings.HasPrefix(path, root+string(os.PathSeparator)) && !strings.HasPrefix(root, path+string(os.PathSeparator)) {
+				continue
+			}
+			w.mu.Lock()
+			if len(w.paths) < 256 || w.paths[path] != 0 {
+				w.paths[path] |= event.Op
+			} else {
+				w.failed.Store(true)
+			}
+			w.mu.Unlock()
+			if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 && (path == root || strings.HasPrefix(root, path+string(os.PathSeparator))) {
+				w.failed.Store(true)
+			}
+		case _, ok := <-w.watcher.Errors:
+			w.failed.Store(true)
+			if !ok {
+				return
+			}
+		}
+	}
+}
+
 func (c *Crawler) watchChanges() map[string]fsnotify.Op {
 	if c.watch == nil || c.watch.failed.Load() {
 		return nil
 	}
-	paths := map[string]fsnotify.Op{}
-	add := func(event fsnotify.Event, ok bool) {
-		if !ok {
-			c.watch.failed.Store(true)
-			return
-		}
-		path := filepath.Clean(event.Name)
-		if path == c.root || strings.HasPrefix(path, c.root+string(os.PathSeparator)) || strings.HasPrefix(c.root, path+string(os.PathSeparator)) {
-			paths[path] |= event.Op
-			if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 && (path == c.root || strings.HasPrefix(c.root, path+string(os.PathSeparator))) {
-				c.watch.failed.Store(true)
-			}
-		}
-	}
-	select {
-	case event, ok := <-c.watch.watcher.Events:
-		add(event, ok)
-	case <-c.watch.watcher.Errors:
-		c.watch.failed.Store(true)
-		return nil
-	default:
-		return nil
-	}
-	// Allow the unbuffered fsnotify producer to deliver its queued batch, bounded
-	// in both time and size so a continuously written root cannot starve intake.
-	deadline := time.NewTimer(5 * time.Millisecond)
-	defer deadline.Stop()
-	for n := 1; n < 256 && !c.watch.failed.Load(); n++ {
-		select {
-		case event, ok := <-c.watch.watcher.Events:
-			add(event, ok)
-		case <-c.watch.watcher.Errors:
-			c.watch.failed.Store(true)
-			return paths
-		case <-deadline.C:
-			return paths
-		}
-	}
-	c.watch.dirty.Store(true)
+	c.watch.mu.Lock()
+	defer c.watch.mu.Unlock()
+	paths := c.watch.paths
+	c.watch.paths = map[string]fsnotify.Op{}
 	return paths
 }

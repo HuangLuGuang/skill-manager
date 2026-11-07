@@ -96,7 +96,7 @@ func writeDesktopJSON(path string, value any) error {
 	if err = f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(f.Name(), path)
+	return replaceDesktopConfig(f.Name(), path)
 }
 func loadDesktopPreferences(home string) (desktopPreferences, error) {
 	p := desktopPreferences{Hosts: map[string]desktopHost{}, HookMode: "audit"}

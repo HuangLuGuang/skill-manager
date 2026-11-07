@@ -36,7 +36,7 @@ func readDesktopConfigBytes(path string) ([]byte, error) {
 		return saved.body, nil
 	}
 	delete(desktopConfigCache.files, path)
-	f, err := os.Open(path)
+	f, err := openDesktopConfig(path)
 	if err != nil {
 		return nil, errors.New("aidr_desktop_config_unreadable")
 	}
