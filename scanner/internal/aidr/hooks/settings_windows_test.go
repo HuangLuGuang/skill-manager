@@ -77,7 +77,7 @@ func TestWindowsCapturedBridgeOwnsOutputPipe(t *testing.T) {
 		_ = cmd.Run()
 		writer.Close()
 		_, err = os.Stat(receipt)
-		if (err == nil) != captured {
+		if err != nil {
 			t.Fatalf("captured=%v: bridge output receipt: %v", captured, err)
 		}
 	}

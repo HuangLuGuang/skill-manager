@@ -81,14 +81,16 @@ type hookSupervision struct {
 	PID           int    `json:"pid,omitempty"`
 }
 
+const maxHookAttempts = 21
+
 func (s hookSupervision) valid() bool {
 	_, err := hex.DecodeString(s.Configuration)
-	return err == nil && (len(s.Configuration) == 16 || len(s.Configuration) == 64) && s.Version == 1 && s.Attempts >= 0 && s.Attempts <= 21 && validRuntimeCode(s.Code) && (s.LastFailure == "" || validRuntimeCode(s.LastFailure))
+	return err == nil && (len(s.Configuration) == 16 || len(s.Configuration) == 64) && s.Version == 1 && s.Attempts >= 0 && s.Attempts <= maxHookAttempts && validRuntimeCode(s.Code) && (s.LastFailure == "" || validRuntimeCode(s.LastFailure))
 }
 
 func hookCorrectionRequired(code string) bool {
 	switch code {
-	case "aidr_upload_access_rejected", "aidr_upload_auth_rejected", "aidr_desktop_managed_binding_changed", "aidr_store_binding_mismatch", "aidr_hook_socket_exists", "aidr_store_busy", "aidr_plugin_version_unverified", "aidr_desktop_managed_authorization_required", "aidr_desktop_receiver_conflict", "aidr_desktop_retry_state_invalid", "aidr_desktop_retry_state_unwritable":
+	case "aidr_upload_access_rejected", "aidr_upload_auth_rejected", "aidr_desktop_managed_binding_changed", "aidr_store_binding_mismatch", "aidr_plugin_version_unverified", "aidr_desktop_managed_authorization_required", "aidr_desktop_retry_state_invalid":
 		return true
 	}
 	return false
@@ -96,9 +98,23 @@ func hookCorrectionRequired(code string) bool {
 
 func (s *hookSupervision) failure(code string, retry managedclient.ReceiverRetryPolicy, now time.Time) {
 	s.Active, s.Code, s.LastFailure, s.LastFailureAt = false, code, code, now.UnixMilli()
-	s.Suspended = hookCorrectionRequired(code) || s.Attempts >= logRetryLimit(retry)
-	delay := min(time.Duration(1<<min(s.Attempts, 12))*time.Second, time.Duration(retry.MaxIntervalSeconds)*time.Second)
+	s.Suspended = hookCorrectionRequired(code) || retry.Mode == "none"
+	if s.Suspended {
+		s.NextRetryAt = 0
+		return
+	}
+	maxInterval := time.Duration(retry.MaxIntervalSeconds) * time.Second
+	delay := min(time.Duration(1<<min(s.Attempts, 12))*time.Second, maxInterval)
+	if retry.Mode == "fixed" && s.Attempts > retry.Retries {
+		delay = maxInterval
+	}
 	s.NextRetryAt = now.Add(delay).UnixMilli()
+}
+
+func (s *hookSupervision) resumeLegacyRetry(retry managedclient.ReceiverRetryPolicy) {
+	if retry.Mode != "none" && s.Suspended && !hookCorrectionRequired(s.Code) && !hookCorrectionRequired(s.LastFailure) {
+		s.Suspended = false
+	}
 }
 
 type managedHookContextKey struct{}
@@ -175,7 +191,9 @@ func manageAutomaticHooks(ctx context.Context, home string, interval time.Durati
 				return false
 			}
 			stop()
-			state.Code, state.Suspended = "aidr_desktop_retry_state_unwritable", true
+			if !state.Suspended {
+				state.failure("aidr_desktop_retry_state_unwritable", current.retry, time.Now())
+			}
 			return false
 		}
 		savedState = encoded
@@ -220,8 +238,13 @@ func manageAutomaticHooks(ctx context.Context, home string, interval time.Durati
 					state = hookSupervision{Version: 1, Configuration: plan.identity(), Queue: plan.paths.State, Device: plan.paths.Device, Code: "aidr_desktop_stopped", PID: os.Getpid()}
 					var saved hookSupervision
 					path := filepath.Join(plan.paths.Root, "receiver-supervisor.json")
-					if _, e := os.Lstat(path); e == nil {
-						if readDesktopJSON(path, &saved) != nil || !saved.valid() {
+					_, readErr := os.Lstat(path)
+					if readErr == nil {
+						readErr = readDesktopJSON(path, &saved)
+					}
+					switch {
+					case readErr == nil || stableAIDRCode(readErr) == "aidr_desktop_config_invalid":
+						if readErr != nil || !saved.valid() {
 							state.Code, state.Suspended = "aidr_desktop_retry_state_invalid", true
 						} else if saved.Queue == state.Queue && saved.Device == state.Device && (saved.Configuration == state.Configuration || len(saved.Configuration) == 16) {
 							identity := state.Configuration
@@ -230,7 +253,17 @@ func manageAutomaticHooks(ctx context.Context, home string, interval time.Durati
 							if state.Active {
 								state.failure("aidr_desktop_receiver_interrupted", plan.retry, now)
 							}
+							state.resumeLegacyRetry(plan.retry)
 							state.NextRetryAt = min(state.NextRetryAt, now.Add(time.Duration(plan.retry.MaxIntervalSeconds)*time.Second).UnixMilli())
+						}
+					case !os.IsNotExist(readErr):
+						// A temporarily unreadable file may hold a durable pause.
+						state = hookSupervision{}
+						select {
+						case <-ctx.Done():
+							return
+						case <-ticker.C:
+							continue
 						}
 					}
 				}
@@ -263,14 +296,15 @@ func manageAutomaticHooks(ctx context.Context, home string, interval time.Durati
 						state.Attempts, state.Suspended, state.NextRetryAt = 0, false, 0
 					}
 					stop()
+					state.NextRetryAt = 0
 					if !state.Suspended {
 						state.Code = "aidr_desktop_disabled"
 					}
 					if policy := plan.prefs.RuntimePolicy; policy != nil {
 						_ = writeDesktopJSON(filepath.Join(plan.paths.Root, "hook-collection-status.json"), map[string]any{"version": 1, "client_id": plan.paths.Device, "queue": plan.paths.State, "policy_version": policy.Version, "observed_at_ms": strconv.FormatInt(now.UnixMilli(), 10), "enabled": false, "code": state.Code})
 					}
-				} else if done == nil && !state.Suspended && state.Attempts < logRetryLimit(plan.retry) && now.UnixMilli() >= state.NextRetryAt {
-					state.Attempts++
+				} else if done == nil && !state.Suspended && now.UnixMilli() >= state.NextRetryAt {
+					state.Attempts = min(state.Attempts+1, maxHookAttempts)
 					state.Active, state.Code, state.NextRetryAt = true, "aidr_desktop_starting", 0
 					if persist() {
 						childCtx, childCancel := context.WithCancel(ctx)
@@ -349,13 +383,14 @@ func hookReceiverSnapshot(ctx context.Context, home string) map[string]any {
 	}
 	var state hookSupervision
 	if readDesktopJSON(filepath.Join(plan.paths.Root, "receiver-supervisor.json"), &state) == nil && state.valid() && state.Queue == plan.paths.State && state.Device == plan.paths.Device {
+		state.resumeLegacyRetry(plan.retry)
 		result["code"], result["attempts"], result["retry_count"] = state.Code, state.Attempts, max(0, state.Attempts-1)
-		result["retry_suspended"] = state.Suspended || (!state.Active && state.Attempts >= logRetryLimit(plan.retry))
+		result["retry_suspended"] = state.Suspended
 		if state.LastFailure != "" {
 			result["last_failure"], result["last_failure_at_ms"] = state.LastFailure, state.LastFailureAt
 		}
-		if state.NextRetryAt > time.Now().UnixMilli() && !state.Suspended {
-			result["next_retry_seconds"] = (state.NextRetryAt - time.Now().UnixMilli() + 999) / 1000
+		if plan.required && !state.Suspended && !state.Active && state.NextRetryAt > 0 {
+			result["next_retry_seconds"] = max(0, (state.NextRetryAt-time.Now().UnixMilli()+999)/1000)
 		}
 		if state.Active {
 			result["code"] = "aidr_desktop_health_stale"

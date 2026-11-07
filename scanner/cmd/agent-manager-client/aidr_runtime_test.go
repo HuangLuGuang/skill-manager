@@ -206,19 +206,20 @@ func TestAIDRSupervisionReportIsBoundedAndNotReceiverHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(paths.Root, "receiver-supervisor.json")
-	state := map[string]any{"version": 1, "queue": paths.State, "device": paths.Device, "configuration": "private-fingerprint",
-		"attempts": 3, "suspended": false, "active": false, "code": "aidr_desktop_receiver_failed",
+	fingerprint := "aabbccdd00112233"
+	state := map[string]any{"version": 1, "queue": paths.State, "device": paths.Device, "configuration": fingerprint,
+		"attempts": 3, "suspended": true, "active": false, "code": "aidr_desktop_receiver_failed",
 		"next_retry_at_ms": time.Now().Add(time.Minute).UnixMilli(), "last_failure": "aidr_store_busy", "last_failure_at_ms": time.Now().UnixMilli()}
 	if err = writeDesktopJSON(path, state); err != nil {
 		t.Fatal(err)
 	}
 	result := aidrRuntimeSnapshot(home)
 	observed, ok := result["receiver_supervision"].(map[string]any)
-	if !ok || observed["retry_count"] != uint32(2) || observed["suspended"] != true || result["receiver_code"] != "aidr_desktop_stopped" {
+	if !ok || observed["retry_count"] != uint32(2) || observed["suspended"] != false || observed["next_retry_at"] == nil || result["receiver_code"] != "aidr_desktop_stopped" {
 		t.Fatal(result)
 	}
 	bytes, _ := json.Marshal(result)
-	if strings.Contains(string(bytes), "private-fingerprint") || strings.Contains(string(bytes), "fictional-supervisor-token") {
+	if strings.Contains(string(bytes), fingerprint) || strings.Contains(string(bytes), "fictional-supervisor-token") {
 		t.Fatal("private data entered status")
 	}
 	state["device"] = "wrong-device"
@@ -228,7 +229,7 @@ func TestAIDRSupervisionReportIsBoundedAndNotReceiverHealth(t *testing.T) {
 	if aidrRuntimeSnapshot(home)["receiver_supervision"] != nil {
 		t.Fatal("wrong binding accepted")
 	}
-	state["device"], state["active"] = paths.Device, true
+	state["device"], state["active"], state["suspended"] = paths.Device, true, false
 	state["code"] = "aidr_desktop_running"
 	if err = writeDesktopJSON(path, state); err != nil {
 		t.Fatal(err)

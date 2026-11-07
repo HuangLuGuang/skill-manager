@@ -46,7 +46,10 @@ func readDesktopConfigBytes(path string) ([]byte, error) {
 		return nil, errors.New("aidr_desktop_config_unreadable")
 	}
 	body, err := io.ReadAll(io.LimitReader(f, 65537))
-	if err != nil || len(body) > 65536 || !json.Valid(body) {
+	if err != nil {
+		return nil, errors.New("aidr_desktop_config_unreadable")
+	}
+	if len(body) > 65536 || !json.Valid(body) {
 		return nil, errors.New("aidr_desktop_config_invalid")
 	}
 	after, err := os.Lstat(path)

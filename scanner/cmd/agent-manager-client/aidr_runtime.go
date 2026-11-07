@@ -196,20 +196,9 @@ func aidrRuntimeSnapshot(home string) map[string]any {
 		return result
 	}
 	result["user_hook_hosts"] = desktopEnrollmentHosts(prefs, cfg, paths)
-	var supervision struct {
-		Version       int     `json:"version"`
-		Queue         string  `json:"queue"`
-		Device        string  `json:"device"`
-		Attempts      uint32  `json:"attempts"`
-		Active        bool    `json:"active"`
-		Suspended     bool    `json:"suspended"`
-		Code          string  `json:"code"`
-		NextRetryAt   uint64  `json:"next_retry_at_ms"`
-		LastFailure   *string `json:"last_failure"`
-		LastFailureAt *uint64 `json:"last_failure_at_ms"`
-	}
+	var supervision hookSupervision
 	supervisionPath := filepath.Join(paths.Root, "receiver-supervisor.json")
-	if readDesktopJSON(supervisionPath, &supervision) == nil && supervision.Version == 1 && supervision.Queue == paths.State && supervision.Device == paths.Device && validRuntimeCode(supervision.Code) {
+	if readDesktopJSON(supervisionPath, &supervision) == nil && supervision.valid() && supervision.Queue == paths.State && supervision.Device == paths.Device {
 		// Report the last supervisor observation separately from the live
 		// receiver health file. An old running record is not a healthy process.
 		if meta, e := os.Stat(supervisionPath); e == nil {
@@ -217,20 +206,17 @@ func aidrRuntimeSnapshot(home string) map[string]any {
 			if prefs.RuntimePolicy != nil {
 				retry = prefs.RuntimePolicy.Target.Retry
 			}
-			exhausted := !supervision.Active && supervision.Attempts > 0 && (retry.Mode == "none" || (retry.Mode == "fixed" && supervision.Attempts > uint32(retry.Retries)))
-			value := map[string]any{"attempts": supervision.Attempts, "retry_count": uint32(0), "mode": retry.Mode,
-				"suspended": supervision.Suspended || exhausted, "code": supervision.Code, "observed_at": meta.ModTime().UTC().Format(time.RFC3339Nano)}
-			if supervision.Attempts > 0 {
-				value["retry_count"] = supervision.Attempts - 1
+			supervision.resumeLegacyRetry(retry)
+			value := map[string]any{"attempts": uint32(supervision.Attempts), "retry_count": uint32(max(0, supervision.Attempts-1)), "mode": retry.Mode,
+				"suspended": supervision.Suspended, "code": supervision.Code, "observed_at": meta.ModTime().UTC().Format(time.RFC3339Nano)}
+			if !supervision.Suspended && !supervision.Active && supervision.NextRetryAt > 0 && supervision.NextRetryAt <= 253402300799999 {
+				value["next_retry_at"] = time.UnixMilli(supervision.NextRetryAt).UTC().Format(time.RFC3339Nano)
 			}
-			if supervision.NextRetryAt > 0 && supervision.NextRetryAt <= 253402300799999 {
-				value["next_retry_at"] = time.UnixMilli(int64(supervision.NextRetryAt)).UTC().Format(time.RFC3339Nano)
+			if supervision.LastFailure != "" {
+				value["last_failure"] = supervision.LastFailure
 			}
-			if supervision.LastFailure != nil && validRuntimeCode(*supervision.LastFailure) {
-				value["last_failure"] = *supervision.LastFailure
-			}
-			if supervision.LastFailureAt != nil && *supervision.LastFailureAt <= 253402300799999 {
-				value["last_failure_at"] = time.UnixMilli(int64(*supervision.LastFailureAt)).UTC().Format(time.RFC3339Nano)
+			if supervision.LastFailureAt > 0 && supervision.LastFailureAt <= 253402300799999 {
+				value["last_failure_at"] = time.UnixMilli(supervision.LastFailureAt).UTC().Format(time.RFC3339Nano)
 			}
 			result["receiver_supervision"] = value
 			age := time.Since(meta.ModTime())
