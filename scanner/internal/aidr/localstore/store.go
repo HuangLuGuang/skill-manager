@@ -139,7 +139,7 @@ func Open(dir string, limits Limits) (*Store, error) {
 		return nil, err
 	}
 	f.Close()
-	db, err := sql.Open("sqlite", SQLiteURI(path, ""))
+	db, err := sql.Open("sqlite", privatefs.SQLiteURI(path, ""))
 	if err != nil {
 		lock.Close()
 		return nil, err

@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"skill-manager/scanner/internal/aidr/localstore"
 	"skill-manager/scanner/internal/aidr/privatefs"
 	"strconv"
 	"strings"
@@ -60,7 +59,7 @@ func PendingUploads(ctx context.Context, directory string) (int, error) {
 		return 0, code("aidr_hook_store_invalid")
 	}
 	q := url.Values{"mode": {"ro"}, "_pragma": {"busy_timeout(1000)"}}
-	db, err := sql.Open("sqlite", localstore.SQLiteURI(path, q.Encode()))
+	db, err := sql.Open("sqlite", privatefs.SQLiteURI(path, q.Encode()))
 	if err != nil {
 		return 0, code("aidr_hook_storage_failed")
 	}

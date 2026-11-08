@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+func TestWindowsZcodeReadsLiveWAL(t *testing.T) {
+	testMutableSQLiteParts(t, "zcode", "db.sqlite")
+}
+
 func TestWindowsCodeBuddyStableReadWithoutCacheStamp(t *testing.T) {
 	source := codeBuddyFixture(t)
 	raw, info, err := codeBuddyReadFile(source.Path, 1<<20)

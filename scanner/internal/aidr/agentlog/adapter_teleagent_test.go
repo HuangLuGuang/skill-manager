@@ -25,6 +25,8 @@ func testMutableSQLiteParts(t *testing.T, agent, filename string) {
 	}
 	defer db.Close()
 	for _, q := range []string{
+		`PRAGMA journal_mode=WAL`,
+		`PRAGMA wal_autocheckpoint=0`,
 		`CREATE TABLE session(id TEXT PRIMARY KEY,version TEXT,directory TEXT)`,
 		`CREATE TABLE message(id TEXT PRIMARY KEY,session_id TEXT,data TEXT)`,
 		`CREATE TABLE part(id TEXT PRIMARY KEY,message_id TEXT,session_id TEXT,time_created INTEGER,data TEXT)`,
@@ -54,6 +56,10 @@ func testMutableSQLiteParts(t *testing.T, agent, filename string) {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(path)
+	walBefore, err := os.ReadFile(path + "-wal")
+	if err != nil || len(walBefore) == 0 {
+		t.Fatalf("fixture must have a live WAL: %v", err)
+	}
 	second, err := ReadWithPolicy(context.Background(), src, first.Cursor, DefaultBudget(), time.Unix(0, 0), &p)
 	if err != nil || len(second.Events) != 2 {
 		t.Fatalf("updated row: %+v %v", second, err)
@@ -74,6 +80,10 @@ func testMutableSQLiteParts(t *testing.T, agent, filename string) {
 	after, _ := os.ReadFile(path)
 	if string(before) != string(after) {
 		t.Fatal("source database was modified")
+	}
+	walAfter, err := os.ReadFile(path + "-wal")
+	if err != nil || string(walBefore) != string(walAfter) {
+		t.Fatalf("source WAL was modified: %v", err)
 	}
 	if ValidateCursor(third.Cursor, src) != nil {
 		t.Fatal("invalid durable checkpoint")
