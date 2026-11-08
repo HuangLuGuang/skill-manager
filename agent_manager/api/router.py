@@ -1667,6 +1667,15 @@ def get_skill(skill_id_or_name: str, mgr: AgentManager = Depends(get_manager)):
     return payload
 
 
+@router.get("/skills/{skill_id_or_name}/client-submissions")
+def get_client_submissions(skill_id_or_name: str, page: int = Query(1, ge=1),
+                           page_size: int = Query(10, ge=1, le=100), mgr: AgentManager = Depends(get_manager)):
+    entry = mgr.get_skill(skill_id_or_name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return mgr.registry.client_submissions(entry.skill_id, page, page_size)
+
+
 @router.get("/skills/{skill_id_or_name}/scan-report")
 def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manager)):
     entry = mgr.get_skill(skill_id_or_name)

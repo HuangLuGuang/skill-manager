@@ -295,6 +295,14 @@ Agent Manager 用一套“提交、扫描、审批、签名、运行时校验、
 
 ### 2.1 当前产品能力地图
 
+创建客户端凭据时，“使用人 / Device user”默认选中当前登录用户，可搜索选择其他启用用户；可填写“备注 / Notes”（最多1000个字符）记录部门及设备用途。首次注册时继承到客户端；在客户端详情通过“修改使用人”办理补登记或人员交接，需有客户端修改权限，变更记录进入操作审计。更换凭据或重复注册保留客户端当前归属。凭据创建人继续用于既有权限判断；历史设备未登记时显示“未登记 / Not recorded”。桌面客户端在“概览 → 客户端信息”显示平台登记的使用人。
+
+客户端详情的“修改使用人”支持从启用的平台用户中搜索选择，或自行填写姓名、工号（最多128个 Unicode 字符）。用户列表加载失败时可重试，已输入的内容保留。The Client assignment editor supports selecting an active platform user or entering a name or employee ID, up to 128 Unicode characters.
+
+客户端上传 Skill 时，平台按已绑定凭据记录本次客户端 ID、使用人、主机名、凭据标识及提交时间。Skill 列表的“提交人 / 来源”列默认隐藏，可在“显示列”中开启并保存偏好；管理台提交显示记录的提交人，客户端提交显示最近一次提交时的使用人及主机名，有客户端查看权限时可点击主机名进入设备详情。Skill 名称下方不再重复来源。详情保留首次来源并提供当前版本的分页客户端提交记录；复用已有扫描结果也保留本次来源，人员交接不会改写历史快照。旧提交保留原有来源，新增归属记录不追溯补写。此处使用人表示提交设备当时登记的归属。
+
+Client credentials default to the signed-in user and allow selecting another active platform user, with notes up to 1000 Unicode characters. Registration copies these fields once; authorized administrators can update the Client assignment, with an audit record. Reconnecting or rotating credentials preserves the current assignment. Each Client submission retains its assignment at submission time, including when scan results are reused. The optional Submitter / Source column is hidden by default and retains the user's column preference. It shows the recorded submitter or latest Client submission, with a link to Client details when permitted. Skill details retain the first source and paginated submissions for the selected version. Historical assignments are not inferred.
+
 | 能力域 | 管理台入口 | 当前已启用能力 | 明确边界 |
 |---|---|---|---|
 | Skill 治理 | 能力治理 → Skill 治理 | 提交、扫描、版本、审核、签名、部署、运行验签、PDF 报告 | Sandbox 和 LLM 是辅助信号，不能单独证明安全 |

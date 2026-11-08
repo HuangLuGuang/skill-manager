@@ -2,6 +2,7 @@ import { formatMcpFieldError } from './mcpServerForm.js'
 import { scanScheduleMessages } from './scanSchedule.js'
 import { skillAuditReview } from './skill-audit-review.js'
 const errorMessages = {
+  'client.assignment_too_long': { 'zh-CN': '使用人最多128字符，备注最多1000字符', 'en-US': 'Device user allows up to 128 characters; notes allow up to 1000' },
   'aidr.hook_command_networks_upgrade_required': { 'zh-CN': '请先升级客户端，等待 IP 网段匹配能力上报后重新保存。', 'en-US': 'Upgrade the client and wait for IP subnet capability reporting, then save again.' },
   'aidr.hook_command_keywords_upgrade_required': { 'zh-CN': '请先升级客户端，等待命令关键词匹配能力上报后重新保存。', 'en-US': 'Upgrade the client and wait for command keyword capability reporting, then save again.' },
   'gateway.stats.invalid_range': { 'zh-CN': '请选择最近365天内的完整日期范围。', 'en-US': 'Select a complete date range within the last 365 days.' },

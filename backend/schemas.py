@@ -529,7 +529,21 @@ class AgentAssetListResponse(BaseModel):
     stats: dict[str, int]
 
 
-class AccessTokenCreate(BaseModel):
+class ClientAssignmentFields(BaseModel):
+    device_user: Optional[str] = Field(default=None, strict=True)
+    assignment_note: Optional[str] = Field(default=None, strict=True)
+
+    @field_validator("device_user", "assignment_note")
+    @classmethod
+    def validate_assignment(cls, value, info):
+        from backend.api_errors import ApiError
+        limit = 128 if info.field_name == "device_user" else 1000
+        if value is not None and len(value) > limit:
+            raise ApiError(422, "client.assignment_too_long", "使用人最多128字符，备注最多1000字符", "Device user allows up to 128 characters; notes allow up to 1000")
+        return value.strip() if value else None
+
+
+class AccessTokenCreate(ClientAssignmentFields):
     prompt_guard_business_scope: str = Field(default="", max_length=2000)
     privacy_policy_id: Optional[int] = Field(default=None, gt=0)
     platform_id: Optional[str] = Field(default=None, max_length=64)
@@ -557,7 +571,7 @@ class AccessTokenCreate(BaseModel):
     prompt_guard_llm_review: bool = False
 
 
-class AccessTokenUpdate(BaseModel):
+class AccessTokenUpdate(ClientAssignmentFields):
     prompt_guard_business_scope: str = Field(default="", max_length=2000)
     privacy_policy_id: Optional[int] = Field(default=None, gt=0)
     allowed_department_ids: Optional[list[str]] = None
@@ -585,6 +599,8 @@ class AccessTokenUpdate(BaseModel):
 
 
 class AccessTokenResponse(BaseModel):
+    device_user: Optional[str] = None
+    assignment_note: Optional[str] = None
     prompt_guard_business_scope: str = ""
     privacy_policy_id: Optional[int] = None
     platform_id: Optional[str] = None

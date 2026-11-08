@@ -86,6 +86,7 @@
           <template v-if="column.key === 'credential'">
             <div class="credential-name">{{ record.name }}</div>
             <code class="credential-prefix">{{ record.token_prefix }}</code>
+            <div v-if="record.token_type === 'client'" style="overflow-wrap: anywhere">{{ $t('deviceAssignment.user') }}: {{ record.device_user || $t('deviceAssignment.unassigned') }}</div>
           </template>
           <template v-else-if="column.key === 'caller'">
             <a-tag :color="typeTagColor(record.token_type)">{{ tokenTypeLabel(record.token_type) }}</a-tag>
@@ -102,7 +103,7 @@
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space wrap>
-              <a-button v-if="hasAccess('credentials:update') && record.status !== 'revoked' && (record.token_type !== 'openapi' || pageAllowed('/external-access'))" type="link" :disabled="actionId !== null || creating" @click="openEdit(record)">{{ $t('credentials.editPermissions') }}</a-button>
+              <a-button v-if="hasAccess('credentials:update') && record.status !== 'revoked' && (record.token_type !== 'openapi' || pageAllowed('/external-access'))" type="link" :disabled="actionId !== null || creating" @click="openEdit(record)">{{ $t(record.token_type === 'client' ? 'deviceAssignment.editCredential' : 'credentials.editPermissions') }}</a-button>
               <a-popconfirm v-if="record.token_type === 'client' && record.status === 'active' && hasAccess('credentials:update')" :title="$t('credentials.manualExportConfirm')" @confirm="toggleManualExport(record)">
                 <a-button type="link" :loading="actionId === record.id" :disabled="actionId !== null">{{ $t(record.allow_manual_credential_export ? 'credentials.disableManualExport' : 'credentials.enableManualExport') }}</a-button>
               </a-popconfirm>
@@ -135,6 +136,8 @@
             <div class="detail-block">
               <span class="detail-label">{{ $t('credentials.createdAndUsed') }}</span>
               <span>{{ $t('credentials.createdAt') }} {{ formatTime(record.created_at) }}</span>
+              <span>{{ $t('deviceAssignment.createdBy') }}: {{ record.created_by || '-' }}</span>
+              <span v-if="record.assignment_note" style="white-space: pre-wrap; overflow-wrap: anywhere">{{ record.assignment_note }}</span>
               <span>{{ $t('credentials.lastUsedAt') }} {{ formatTime(record.last_used_at) }}</span>
             </div>
           </div>
@@ -146,7 +149,7 @@
 
     <a-modal
       v-model:open="createVisible"
-      :title="$t(editingRecord ? 'credentials.editPermissions' : 'credentials.createTitle')"
+      :title="$t(editingRecord ? editingRecord.token_type === 'client' ? 'deviceAssignment.editCredential' : 'credentials.editPermissions' : 'credentials.createTitle')"
       width="900px"
       :style="{ top: '24px' }"
       :body-style="{ maxHeight: 'calc(100dvh - 140px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
@@ -198,6 +201,11 @@
         </div>
 
         <a-form ref="credentialForm" layout="vertical" :model="form" :disabled="creating" class="credential-form">
+          <template v-if="form.token_type === 'client'">
+            <ClientAssignmentFields :model="form" :user-options="deviceUserOptions" :users-loading="optionsLoading" />
+            <p v-if="deviceUsersFailed" class="field-hint">{{ t('deviceAssignment.usersFailed') }} <a-button type="link" :loading="optionsLoading" @click="fetchOptions(true)">{{ t('deviceAssignment.retry') }}</a-button></p>
+            <p v-if="editingRecord?.bound_client_id" class="field-hint">{{ $t('deviceAssignment.boundHint') }}</p>
+          </template>
           <a-alert v-if="editingRecord" type="info" show-icon :message="$t('credentials.editPermissionsHint')" />
           <p v-if="editingRecord?.token_type === 'client'" class="field-hint">{{ $t('credentials.editClientPermissionsHint') }}</p>
           <section class="form-section">
@@ -414,6 +422,7 @@
 </template>
 
 <script setup>
+import ClientAssignmentFields from '../components/ClientAssignmentFields.vue'
 import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess, pageAllowed } from '../access'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
@@ -434,6 +443,7 @@ import {
   listMcpGateways,
   listModelEndpoints,
   listCredentialPrivacyPolicies,
+  getCredentialDeviceUsers,
   revokeAccessToken,
 } from '../api'
 
@@ -444,6 +454,8 @@ const loading = ref(false)
 const creating = ref(false)
 const credentialForm = ref(null)
 const editingRecord = ref(null)
+const deviceUsers = ref([]), currentDeviceUser = ref(''), deviceUsersFailed = ref(false)
+const deviceUserOptions = computed(() => deviceUsers.value.map(username => ({ value: username, label: username })))
 const privacyPolicies = ref([])
 const privacyPolicyOptions = computed(() => [
   { value: 0, label: t('credentials.automaticPrivacy') },
@@ -513,6 +525,8 @@ const modelOptions = computed(() => {
 const mcpGateways = ref([])
 const filters = reactive({ token_type: undefined })
 const form = reactive({
+  device_user: '',
+  assignment_note: '',
   privacy_policy_id: 0,
   name: '',
   token_type: 'agent_runtime',
@@ -743,6 +757,8 @@ const toggleManualExport = async record => {
 const resetForm = (tokenType, defaults = {}) => {
   credentialForm.value?.clearValidate()
   Object.assign(form, {
+    device_user: defaults.device_user || (tokenType === 'client' ? currentDeviceUser.value || undefined : ''),
+    assignment_note: defaults.assignment_note || '',
     privacy_policy_id: defaults.privacy_policy_id || 0,
     name: defaults.name || '',
     token_type: tokenType,
@@ -791,7 +807,7 @@ const selectScenario = (scenarioId, defaults = {}) => {
   createStage.value = 'config'
 }
 
-const permissionFields = ['scopes', 'allowed_models', 'allowed_mcp_gateways', 'allow_agent_credential_issuance', 'allow_manual_credential_export', 'privacy_policy_id', 'prompt_guard_business_scope']
+const permissionFields = ['device_user', 'assignment_note', 'scopes', 'allowed_models', 'allowed_mcp_gateways', 'allow_agent_credential_issuance', 'allow_manual_credential_export', 'privacy_policy_id', 'prompt_guard_business_scope']
 const openEdit = record => {
   if (creating.value || record.status === 'revoked') return
   if (record.token_type === 'openapi') {
@@ -853,6 +869,15 @@ const loadedOptions = new Set()
 const pendingOptions = new Map()
 const fetchOptions = async (force = false, forList = false) => {
   const resources = [
+    ['deviceUsers', deviceUsers, async () => {
+      deviceUsersFailed.value = false
+      try {
+        const data = await getCredentialDeviceUsers()
+        currentDeviceUser.value = data.current_user
+        if (!editingRecord.value && createVisible.value && form.token_type === 'client' && !form.device_user) form.device_user = data.current_user
+        return data.users
+      } catch (error) { deviceUsersFailed.value = true; throw error }
+    }, form.token_type === 'client'],
     ['agents', agents, listAgents, forList || form.token_type === 'agent_runtime'],
     ['models', models, listModelEndpoints, forList || supportsModels.value],
     ['privacyPolicies', privacyPolicies, listCredentialPrivacyPolicies, !forList && supportsModels.value],

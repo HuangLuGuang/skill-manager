@@ -18,6 +18,23 @@ INDEXES = (
 )
 
 
+def test_startup_adds_assignment_without_guessing_historical_users(tmp_path):
+    db_path = tmp_path / 'assignment-upgrade.db'
+    engine = create_engine(f'sqlite:///{db_path}')
+    models.Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(models.ManagedClient.__table__.insert().values(
+            client_id='old', name='PC', hostname='PC', os='linux', arch='amd64',
+            client_version='old', registered_by='admin'))
+        for table in ('access_tokens', 'managed_clients'):
+            for column in ('device_user', 'assignment_note'):
+                conn.exec_driver_sql(f'ALTER TABLE {table} DROP COLUMN {column}')
+    startup_twice(tmp_path, db_path)
+    with engine.connect() as conn:
+        assert conn.exec_driver_sql('SELECT registered_by, device_user, assignment_note FROM managed_clients').one() == ('admin', None, None)
+    engine.dispose()
+
+
 def test_startup_adds_mcp_audit_name_without_rewriting_history(tmp_path):
     db_path = tmp_path / "mcp-upgrade.db"
     engine = create_engine(f"sqlite:///{db_path}")

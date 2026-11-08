@@ -96,6 +96,7 @@ const outcomeColor = value => ({ success: 'green', failed: 'red', failure: 'red'
 const moduleLabel = value => te(`iam.modules.${value}`) ? t(`iam.modules.${value}`) : value || '—'
 const reasonLabel = value => te(`iam.loginReasons.${value}`) ? t(`iam.loginReasons.${value}`) : value
 const eventLabel = record => {
+  if (record.action === 'client.assignment_updated') return t('deviceAssignment.auditUpdated')
   if (record.action === 'aidr.risk.dispose') return t('aidrRisk.disposeAuditEvent')
   if (record.action === 'aidr.risk.configure') return t('aidrRisk.settings.clientAudit')
   if (record.action === 'aidr.risk.configure_global') return t('aidrRisk.settings.globalAudit')

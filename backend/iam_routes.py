@@ -12,8 +12,8 @@ def route_permission(request):
         return "agents:view" if method == "GET" else "agents:update"
     if path.startswith("/api/v1/dify-runtime/") and path.endswith("/review"):
         return "runtime:execute"
-    if path == "/api/v1/access/tokens/privacy-policies" and method == "GET":
-        return None  # The options endpoint accepts credential readers and editors.
+    if path in {"/api/v1/access/tokens/privacy-policies", "/api/v1/access/tokens/device-users"} and method == "GET":
+        return None  # Each options endpoint checks its permitted credential operations.
     if path.startswith("/api/v1/prompt-guard/rules"):
         return "privacy:test" if method == "GET" else "privacy:update"
     if path == "/api/v1/prompt-guard/config":

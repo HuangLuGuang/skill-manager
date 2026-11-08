@@ -906,6 +906,8 @@ def _client_response(db: Session, row: models.ManagedClient, *, related=None) ->
         "status": "online" if online else "offline",
         "last_seen_at": row.last_seen_at,
         "registered_by": row.registered_by,
+        "device_user": row.device_user,
+        "assignment_note": row.assignment_note,
         "created_at": row.created_at,
         "issue_count": issue_count,
         "recovery": [_load(item.details_json, {}) for item in data['recovery']],
@@ -1184,7 +1186,8 @@ def register_client(
         entitlement = require_license()
         if db.query(models.ManagedClient).count() >= entitlement["limits"]["clients"]:
             raise LicenseError("client_limit")
-        row = models.ManagedClient(client_id=body.client_id, registered_by=token.created_by)
+        row = models.ManagedClient(client_id=body.client_id, registered_by=token.created_by,
+                                   device_user=token.device_user, assignment_note=token.assignment_note)
         db.add(row)
     row.name = body.name.strip() or body.hostname
     row.hostname = body.hostname
@@ -2567,6 +2570,24 @@ def list_clients(
     rows = query.order_by(models.ManagedClient.id.desc()).all()
     related = _client_related(db, rows)
     return [_client_response(db, row, related=related[row.client_id]) for row in rows]
+
+
+@router.put("/{client_id}/assignment")
+def update_client_assignment(
+    client_id: str,
+    body: schemas.ClientAssignmentFields,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    row = _client_or_404(db, client_id)
+    _ensure_visible(row, current_user)
+    before = {key: getattr(row, key) for key in body.model_fields_set}
+    for key, value in body.model_dump(exclude_unset=True).items():
+        setattr(row, key, value)
+    _operation(db, current_user, "client.assignment_updated", client_id,
+               _dump({"before": before, "after": body.model_dump(exclude_unset=True)}))
+    db.commit()
+    return _client_response(db, row)
 
 
 @router.get("/downloads/available")

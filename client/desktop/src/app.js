@@ -788,6 +788,7 @@ const renderConnected = data => {
   $('#detail-queued-events').textContent = local.queued_events || 0
   $('#detail-local-scan').textContent = formatTime(local.last_inventory_at)
   $('#detail-name').textContent = platform.name || data.name || data.inventory?.hostname || '-'
+  $('#detail-device-user').textContent = data.platform ? platform.device_user || t('ui.assignment.unassigned') : '—'
   $('#detail-client-id').textContent = platform.client_id || data.inventory?.client_id || '-'
   $('#detail-system').textContent = `${platform.os || data.inventory?.os || '-'} · ${platform.arch || data.inventory?.arch || '-'}`
   $('#detail-version').textContent = platform.client_version || data.inventory?.client_version || '-'

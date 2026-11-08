@@ -1,0 +1,28 @@
+export const deviceAssignmentMessages = {
+  'zh-CN': {
+    user: '使用人', note: '备注', unassigned: '未登记', edit: '修改使用人', save: '保存', cancel: '取消',
+    userHelp: '姓名或姓名＋工号，最多128个字符。', noteHelp: '部门、设备用途等，最多1000个字符。',
+    selectUserHelp: '默认当前登录用户，可选择其他用户。', selectUser: '搜索并选择用户', userRequired: '请选择使用人', usersFailed: '用户列表加载失败',
+    chooseOrEnter: '选择用户或填写姓名、工号', chooseOrEnterHelp: '可选择平台用户，也可自行填写姓名或工号，最多128个字符。',
+    tooLong: '最多 {limit} 个字符，当前 {count} 个。', saved: '使用人信息已保存', failed: '保存失败，请重试',
+    createdBy: '凭据创建人', boundHint: '已注册客户端的使用人在客户端详情中修改。',
+    source: '提交来源', clientSource: '{name}的客户端', history: '客户端提交记录', time: '提交时间',
+    device: '客户端', credential: '凭据', loadFailed: '提交记录加载失败', retry: '重试',
+    initialSource: '首次提交来源',
+    submitterSource: '提交人 / 来源',
+    editCredential: '编辑凭据', auditUpdated: '修改客户端使用人',
+  },
+  'en-US': {
+    user: 'Device user', note: 'Notes', unassigned: 'Not recorded', edit: 'Edit device user', save: 'Save', cancel: 'Cancel',
+    userHelp: 'Name or name and employee ID, up to 128 characters.', noteHelp: 'Department or device purpose, up to 1000 characters.',
+    selectUserHelp: 'Defaults to the signed-in user. You can select another user.', selectUser: 'Search and select a user', userRequired: 'Select a device user', usersFailed: 'Could not load users',
+    chooseOrEnter: 'Select a user or enter a name or employee ID', chooseOrEnterHelp: 'Select a platform user or enter a name or employee ID, up to 128 characters.',
+    tooLong: 'Maximum {limit} characters; currently {count}.', saved: 'Device user saved', failed: 'Save failed. Please retry.',
+    createdBy: 'Credential creator', boundHint: 'Edit the user of a registered Client in its details.',
+    source: 'Submission source', clientSource: 'Client assigned to {name}', history: 'Client submissions', time: 'Submitted at',
+    device: 'Client', credential: 'Credential', loadFailed: 'Could not load submissions', retry: 'Retry',
+    initialSource: 'First submission source',
+    submitterSource: 'Submitter / Source',
+    editCredential: 'Edit credential', auditUpdated: 'Client device user updated',
+  },
+}

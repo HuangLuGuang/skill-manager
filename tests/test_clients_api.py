@@ -24,6 +24,35 @@ from backend.routers import access_tokens, clients
 from backend.sqlite_db import Base, get_db
 
 
+def test_device_user_inherits_once_and_transfer_preserves_visibility(tmp_path):
+    client = _client(tmp_path)
+    issued = client.post('/api/v1/access/tokens', json={
+        'name': 'assignment', 'token_type': 'client', 'device_user': '张三', 'assignment_note': '研发电脑',
+    })
+    assert issued.status_code == 200, issued.text
+    token = issued.json()
+    assert token['record']['device_user'] == '张三'
+    headers = {'Authorization': f"Bearer {token['token']}"}
+    body = {'client_id': 'assigned-host', 'name': 'PC', 'hostname': 'PC', 'os': 'linux',
+            'arch': 'amd64', 'client_version': 'test', 'agents': []}
+    registered = client.post('/api/v1/clients/register', headers=headers, json=body)
+    assert registered.status_code == 200, registered.text
+    assert registered.json()['device_user'] == '张三'
+    assert registered.json()['registered_by'] == 'admin'
+    changed = client.put('/api/v1/clients/assigned-host/assignment', json={'device_user': '李四'})
+    assert changed.status_code == 200, changed.text
+    assert changed.json()['assignment_note'] == '研发电脑'
+    assert changed.json()['registered_by'] == 'admin'
+    again = client.post('/api/v1/clients/register', headers=headers, json=body)
+    assert again.json()['device_user'] == '李四'
+    too_long = client.put('/api/v1/clients/assigned-host/assignment', json={'device_user': '😀' * 129})
+    assert too_long.status_code == 422
+    assert too_long.json()['error_code'] == 'client.assignment_too_long'
+    assert client.put('/api/v1/clients/assigned-host/assignment', json={'device_user': '😀' * 128}).status_code == 200
+    client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(username='other', role='admin')
+    assert client.put('/api/v1/clients/assigned-host/assignment', json={'device_user': 'other'}).status_code == 404
+
+
 class _Registry:
     def __init__(self):
         self.events = []

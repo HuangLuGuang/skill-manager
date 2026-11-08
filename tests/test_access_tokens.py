@@ -113,6 +113,35 @@ def _client(tmp_path):
     return TestClient(app)
 
 
+def test_client_credential_defaults_to_signed_in_user_and_lists_assignable_users(tmp_path, monkeypatch):
+    from backend import iam
+    client = _client(tmp_path)
+    client.app.dependency_overrides[auth.get_current_active_user] = client.app.dependency_overrides[auth.get_current_admin_user]
+    sessions = client.app.dependency_overrides[get_db]()
+    db = next(sessions)
+    try:
+        db.add_all([models.User(username='admin', hashed_password='x', is_active=True),
+                    models.User(username='alice', hashed_password='x', is_active=True),
+                    models.User(username='disabled', hashed_password='x', is_active=False)])
+        db.commit()
+    finally:
+        sessions.close()
+    monkeypatch.setattr(iam, 'permission_codes', lambda *_: {'credentials:create'})
+    options = client.get('/api/v1/access/tokens/device-users')
+    assert options.status_code == 200
+    assert options.json() == {'current_user': 'admin', 'users': ['admin', 'alice']}
+    monkeypatch.setattr(iam, 'permission_codes', lambda *_: {'clients:update'})
+    assert client.get('/api/v1/access/tokens/device-users').json() == options.json()
+    for body, expected in [({}, 'admin'), ({'device_user': 'alice'}, 'alice')]:
+        created = client.post('/api/v1/access/tokens', json={'name': 'device', 'token_type': 'client', **body})
+        assert created.status_code == 200, created.text
+        assert created.json()['record']['device_user'] == expected
+        assert created.json()['record']['created_by'] == 'admin'
+        assert created.json()['record']['user_id'] is None
+    monkeypatch.setattr(iam, 'permission_codes', lambda *_: set())
+    assert client.get('/api/v1/access/tokens/device-users').status_code == 403
+
+
 def test_create_access_token_returns_plaintext_once_and_lists_masked_record(tmp_path):
     client = _client(tmp_path)
 
