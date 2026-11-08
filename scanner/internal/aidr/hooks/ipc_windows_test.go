@@ -25,6 +25,42 @@ func upgradeSocket(t *testing.T) string {
 	return filepath.Join(dir, "hook.sock")
 }
 
+func TestWindowsHookPipeAllowsDelayedReply(t *testing.T) {
+	path := upgradeSocket(t)
+	s := openTestStore(t, filepath.Join(filepath.Dir(path), "state"), 10)
+	r, err := Listen(path, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		c, err := r.listener.Accept()
+		if err != nil {
+			done <- err
+			return
+		}
+		defer c.Close()
+		c.SetDeadline(time.Now().Add(4 * time.Second))
+		var req IPCRequest
+		if err := readFrame(c, &req); err != nil {
+			done <- err
+			return
+		}
+		time.Sleep(2250 * time.Millisecond)
+		done <- writeFrame(c, IPCResponse{Version: 1, Code: "aidr_hook_healthy"})
+	}()
+	reply, err := Exchange(ctx, path, IPCRequest{Version: 1, Method: "GetHealth"})
+	if err != nil || reply.Code != "aidr_hook_healthy" {
+		t.Fatalf("reply within the Windows connection budget was lost: %+v %v", reply, err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWindowsReceiverIdentityDecisionsAndRecovery(t *testing.T) {
 	path := upgradeSocket(t)
 	s := openTestStore(t, filepath.Join(filepath.Dir(path), "state"), 10)

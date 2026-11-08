@@ -30,12 +30,44 @@ func TestWindowsHookDecisionsWithClosedStdout(t *testing.T) {
 			t.Fatalf("%s: %v", hook, err)
 		}
 	}
-	for _, agent := range []string{"workbuddy", "trae", "trae-cn"} {
+	for _, agent := range []string{"workbuddy", "trae", "trae-cn", "zcode"} {
 		var denied *HostDenied
 		err := WriteHostDecision(nil, agent, "PreToolUse", "deny", "test denial")
 		if !errors.As(err, &denied) || denied.ExitCode() != 2 || denied.Reason != "test denial" {
 			t.Fatalf("%s lost tool denial: %v", agent, err)
 		}
+	}
+}
+
+func TestWindowsZcodeUpgradesNativeHookTimeout(t *testing.T) {
+	home := t.TempDir()
+	binary := filepath.Join(home, "client.exe")
+	connection := filepath.Join(home, "bridge.json")
+	path := filepath.Join(home, ".zcode", "cli", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MergeSettingsHooks("zcode", home, binary, connection, false); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !bytes.Contains(data, []byte(`"timeoutMs": 315000`)) {
+		t.Fatalf("native approval timeout missing: %v", err)
+	}
+	old := bytes.Replace(data, []byte(`"timeoutMs": 315000,`), nil, 1)
+	if bytes.Equal(data, old) {
+		t.Fatal("failed to create legacy config")
+	}
+	if err := os.WriteFile(path, old, 0600); err != nil {
+		t.Fatal(err)
+	}
+	status, err := InspectSettingsHooks("zcode", home, binary, connection)
+	if err != nil || status.Installed == nil || !*status.Installed || status.PluginVersion == BundledPluginVersion {
+		t.Fatalf("legacy config must be detected as an installed older version: %+v %v", status, err)
+	}
+	status, err = MergeSettingsHooks("zcode", home, binary, connection, false)
+	if err != nil || status.PluginVersion != BundledPluginVersion {
+		t.Fatalf("native timeout not upgraded: %+v %v", status, err)
 	}
 }
 

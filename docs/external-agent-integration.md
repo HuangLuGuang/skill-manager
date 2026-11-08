@@ -1316,7 +1316,7 @@ OpenCode 当前不作为新增采集入口展示。官方插件支持工具前�
 
 ### Windows 产品接入 / Windows product integrations
 
-Windows 实现范围、按平台选择的日志目录、命令协议与人工验收清单见 [客户端说明](agent-manager-client.md#windows-hook-接收器--windows-hook-receiver)。Claude Code、WorkBuddy、CodeBuddy IDE、TRAE/TRAE CN（含新版 Work 模式）、Qoder、QwenWork CN、ZCode、Codex 复用既有产品解析与规则/审批链路。Windows 配置与通信测试不能替代各目标产品版本的真实日志、执行阻断及审批恢复证据。旧独立 TraeWork 不在新版 TRAE Work 模式的接入结论内。
+Windows 实现范围、按平台选择的日志目录、命令协议与人工验收清单见 [客户端说明](agent-manager-client.md#windows-hook-接收器--windows-hook-receiver)。Claude Code、WorkBuddy、CodeBuddy IDE、TRAE/TRAE CN（含新版 Work 模式）、Qoder、QwenWork CN、ZCode、Codex 复用既有产品解析与规则/审批链路。Windows 配置与通信测试不能替代各目标产品版本的真实日志、执行阻断及审批恢复证据。 Windows 命名管道的连接读写上限为 4 秒，签名策略配置的审批等待时长独立生效。旧独立 TraeWork 不在新版 TRAE Work 模式的接入结论内。
 
 Windows PowerShell Hook 通过下游管道命令等待 GUI 类型桥接进程退出后再返回退出码；这也覆盖人工审批等待期间。升级仅替换本客户端生成的旧入口，保留用户 Hook。回归测试使用与正式构建一致的 `-H=windowsgui` 辅助程序验证延迟响应、无正文放行及退出码 2 拒绝；目标产品是否真正等待并执行拒绝，仍需更新后的原生会话验收。
 
@@ -1588,9 +1588,9 @@ UI acceptance: Real platform components were checked in Chinese/English at 390px
 
 已验收范围：macOS arm64 的 ZCode 3.16.3.8992（/Applications/ZCode.app），内置 Agent 运行程序 glm/zcode.cjs 0.17.0。产品 ID 统一为小写 zcode。独立 CLI 发行版、IDE 扩展、其他 Agent 引擎和 Windows/Linux 未验收。桌面真实会话已观察到 Bash 完成；全链路控制验收使用同一安装包运行程序、独立测试目录、本地模型桩和隔离后端。
 
-用户配置为 ~/.zcode/cli/config.json；默认会话库为 ~/.zcode/cli/db/db.sqlite。SQLite message/part 可原地更新，采集复用有界快照、持久化队列、ACK 和服务端幂等去重，并观察 WAL。会话、轮次、调用关联只使用原生 session_id/sessionId、turnId/anchor.turnId、tool_use_id/callID；缺失字段保留缺失。用户消息模型取 modelSelection，助手消息取 modelId/providerId，不从时间窗口补关联。
+用户配置为 ~/.zcode/cli/config.json；默认会话库为 ~/.zcode/cli/db/db.sqlite。SQLite message/part 可原地更新，采集复用有界快照、持久化队列、ACK 和服务端幂等去重，并观察 WAL。Windows 使用带盘符的只读文件 URI 读取同一会话库。会话、轮次、调用关联只使用原生 session_id/sessionId、turnId/anchor.turnId、tool_use_id/callID；缺失字段保留缺失。用户消息模型取 modelSelection，助手消息取 modelId/providerId，不从时间窗口补关联。
 
-Hook 安装到用户 hooks.events，保留已有事件和其他配置，移除只删除本客户端命令并恢复安装前 enabled 值（若期间未被修改）。安装后新建会话。接入 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、PostToolUseFailure、Stop；PermissionRequest 虽有官方声明，本适配以 PreToolUse 控制，不注册该事件。原生输入混用 snake_case 与 camelCase；决策复用现有 Hook JSON 协议及签名授权、调用范围、一次性消费和审批回执。命令 Hook timeout 为秒、process timeoutMs 为毫秒；适配安装为前置调用预留 315 秒。平台等待超时明确返回拒绝，宿主进程退出 1、无效 JSON stdout 或宿主 Hook 超时却可能继续执行；测试中退出 2 会阻断。因此必须分别检查接收器健康、Hook 到达和工具执行结果。
+Hook 安装到用户 hooks.events，保留已有事件和其他配置，移除只删除本客户端命令并恢复安装前 enabled 值（若期间未被修改）。安装后新建会话。接入 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、PostToolUseFailure、Stop；PermissionRequest 虽有官方声明，本适配以 PreToolUse 控制，不注册该事件。原生输入混用 snake_case 与 camelCase；决策复用现有 Hook JSON 协议及签名授权、调用范围、一次性消费和审批回执。命令 Hook timeout 为秒、process timeoutMs 为毫秒；适配安装为前置调用预留 315 秒，Windows process Hook 显式写入 `timeoutMs: 315000`，拒绝通过退出码 2 交付。平台等待超时明确返回拒绝，宿主进程退出 1、无效 JSON stdout 或宿主 Hook 超时却可能继续执行；测试中退出 2 会阻断。因此必须分别检查接收器健康、Hook 到达和工具执行结果。
 
 资产发现读取 mcp.servers、plugins.dirs、plugins.enabled/ enabledPlugins、plugins/installed_plugins.json 的当前数组格式，以及 .zcode-plugin/plugin.json（兼容 .claude-plugin）。明确目录为 configured，注册表包为 installed，启用状态无法确认时为 unknown；配置或安装不代表调用。Skill 扫描用户和已知会话项目的 .zcode/skills、.agents/skills；项目列表来自只读会话库。Skill 工具参数 skill 与 mcp__<server>__<tool> 原生事件提供调用证据，不据名称猜测签名或唯一来源。自定义 storage/skills.roots、旧插件注册表及内置插件包的完整自动发现尚未覆盖；应使用已有显式来源设置并单独核验。
 

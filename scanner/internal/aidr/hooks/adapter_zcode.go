@@ -2,6 +2,9 @@ package hooks
 
 import (
 	"encoding/json"
+	"io"
+	"runtime"
+
 	"skill-manager/scanner/internal/aidr/agentlog"
 )
 
@@ -17,5 +20,10 @@ func zcodeHookAdapter() hookAdapter {
 		}
 		in.Turn = native.TurnID
 		return validateCommandHook(in)
-	}, WriteDecision: writeCommandDecision, ProjectResult: agentlog.ProjectZcodeToolEvidence, Settings: &settingsFormat{Path: ".zcode/cli/config.json", Nested: true, EventsEnvelope: true, Timeout: 60}}
+	}, WriteDecision: func(out io.Writer, hook, decision, reason string) error {
+		if runtime.GOOS == "windows" && hook == "PreToolUse" && decision == "deny" {
+			return &HostDenied{Reason: reason}
+		}
+		return writeCommandDecision(out, hook, decision, reason)
+	}, ProjectResult: agentlog.ProjectZcodeToolEvidence, Settings: &settingsFormat{Path: ".zcode/cli/config.json", Nested: true, EventsEnvelope: true, Timeout: 60}}
 }
