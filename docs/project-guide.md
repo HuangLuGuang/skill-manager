@@ -6,6 +6,14 @@
 
 ## 客户端界面配置 / Client interface configuration
 
+管理台客户端详情通过“接入与采集”统一查看各 Agent 入口的日志状态、Hook 状态、最近 Hook 事件和待处理事项。详情中的“接入配置”保留安装、检查、升级、宿主授权指引和任务反馈；日志、Hook 与系统采集详情保留诊断依据。行为审计只展示活动与系统事件，采集摘要及空状态中的诊断入口携带当前产品和通道。收到历史事件与当前状态报告分别展示；生效模式复用安全规则的客户端执行状态。
+
+In the management console, **Connections & collection** lists log status, Hook status, the latest Hook event and required actions for each Agent entry. **Connection setup** retains installation, inspection, upgrades, host authorization instructions and task feedback. Log, Hook and system collection details retain diagnostic evidence. Behavior audit focuses on activity and system events; its status summary and empty-state links retain the selected product and channel. Historical event arrival and current status are shown separately. The effective mode uses the security rules' client execution status.
+
+列表默认展示本机发现或策略要求的产品，通过范围筛选“全部支持的 Agent”可查看完整列表。产品详情在同页列出接入配置、会话日志、操作采集和防护模式，共用一个刷新入口。未启用项直接打开配置；检查与诊断保留原有操作、任务反馈和返回状态入口。客户端离线时集中提示一次，运行状态显示待确认，平台已知的未启用设置和历史记录时间保留。
+
+The list defaults to products discovered on this device or required by policy; the **All supported Agents** scope filter shows the complete list. Product details show connection setup, session logs, action collection and protection mode with one refresh action. Disabled entries open configuration directly. Inspection and diagnostics retain existing actions, task feedback and a return to status. Offline clients show one notice and unconfirmed runtime states, while known disabled settings and historical record timestamps remain visible.
+
 客户端策略的“启用运行采集与防护”关闭后，下方通道、产品、防护模式和高级配置置灰，保留原有勾选与取值；重新开启后恢复编辑，保存并等待客户端应用后按原配置执行。关闭策略生效后停止新增运行采集及 Hook 拦截、审批，待发记录按上报许可继续补传，历史记录和插件配置保留。独立接入的 Skill Verifier 或加载器验签由对应接入配置控制。
 
 When **Enable runtime collection and protection** is off, channel, product, protection-mode and advanced settings are disabled while retaining their selections and values. Switching on restores editing; save and wait for client application to resume execution with those settings. Once the off policy takes effect, new runtime collection, Hook interception and approvals stop. Queued records continue uploading when reporting is allowed; history and plugin configuration are retained. An independently integrated Skill Verifier or loader uses its own integration settings.
