@@ -203,6 +203,11 @@ func manageAutomaticLogs(ctx context.Context, home string, policy func() managed
 						state.Suspended = true
 					} else if saved.Configuration == state.Configuration && saved.PolicyVersion == state.PolicyVersion {
 						state = saved
+						// A service restart can interrupt a worker before it records any failure.
+						if saved.Code == "aidr_log_starting" && saved.NextRetryAt == "" {
+							state.Attempts = max(0, saved.Attempts-1)
+							state.Suspended = false
+						}
 						if saved.NextRetryAt != "" {
 							var parseErr error
 							next, parseErr = time.Parse(time.RFC3339Nano, saved.NextRetryAt)

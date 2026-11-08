@@ -196,6 +196,38 @@ func TestAutomaticLogRetryBudgetPersistsAcrossRestart(t *testing.T) {
 	}
 }
 
+func TestAutomaticLogRestartsInterruptedWorkerAtRetryLimit(t *testing.T) {
+	home := shortDesktopTestHome(t)
+	if err := managedclient.SaveConfig(home, managedclient.Config{Server: "http://127.0.0.1:9", Token: "synthetic-log-token"}); err != nil {
+		t.Fatal(err)
+	}
+	p := logTestPolicy()
+	plan, err := automaticLogPlan(home, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(plan.state, "log-supervisor.json")
+	if err := writeDesktopJSON(path, logSupervision{
+		Version: 1, Configuration: plan.identity(), PolicyVersion: plan.version,
+		Attempts: logRetryLimit(plan.retry), Code: "aidr_log_starting", Suspended: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	started := false
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	manageAutomaticLogs(ctx, home, func() managedclient.Policy { return p }, 5*time.Millisecond,
+		func(context.Context, string, logRunPlan, *atomic.Bool) error {
+			started = true
+			cancel()
+			return context.Canceled
+		})
+	var saved logSupervision
+	if err := readDesktopJSON(path, &saved); err != nil || !started || saved.Suspended || saved.Attempts != logRetryLimit(plan.retry)-1 {
+		t.Fatalf("interrupted attempt was not recovered: started=%v state=%+v err=%v", started, saved, err)
+	}
+}
+
 func TestAutomaticLogExplicitRetryIsBoundAndConsumedOnce(t *testing.T) {
 	home := shortDesktopTestHome(t)
 	if err := managedclient.SaveConfig(home, managedclient.Config{Server: "http://127.0.0.1:9", Token: "synthetic-log-token"}); err != nil {
