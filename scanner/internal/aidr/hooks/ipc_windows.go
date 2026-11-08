@@ -16,6 +16,9 @@ import (
 	"skill-manager/scanner/internal/aidr/privatefs"
 )
 
+// Windows pipe I/O shares the command bridge's four-second submission budget.
+const hookConnectionTimeout = 4 * time.Second
+
 type hookPipeConn struct {
 	net.Conn
 	server bool

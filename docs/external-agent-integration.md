@@ -1316,7 +1316,7 @@ OpenCode 当前不作为新增采集入口展示。官方插件支持工具前�
 
 ### Windows 产品接入 / Windows product integrations
 
-Windows 实现范围、按平台选择的日志目录、命令协议与人工验收清单见 [客户端说明](agent-manager-client.md#windows-hook-接收器--windows-hook-receiver)。Claude Code、WorkBuddy、CodeBuddy IDE、TRAE/TRAE CN（含新版 Work 模式）、Qoder、QwenWork CN、ZCode、Codex 复用既有产品解析与规则/审批链路。Windows 配置与通信测试不能替代各目标产品版本的真实日志、执行阻断及审批恢复证据。旧独立 TraeWork 不在新版 TRAE Work 模式的接入结论内。
+Windows 实现范围、按平台选择的日志目录、命令协议与人工验收清单见 [客户端说明](agent-manager-client.md#windows-hook-接收器--windows-hook-receiver)。Claude Code、WorkBuddy、CodeBuddy IDE、TRAE/TRAE CN（含新版 Work 模式）、Qoder、QwenWork CN、ZCode、Codex 复用既有产品解析与规则/审批链路。Windows 配置与通信测试不能替代各目标产品版本的真实日志、执行阻断及审批恢复证据。 Windows 命名管道的连接读写上限为 4 秒，签名策略配置的审批等待时长独立生效。旧独立 TraeWork 不在新版 TRAE Work 模式的接入结论内。
 
 Windows PowerShell Hook 通过下游管道命令等待 GUI 类型桥接进程退出后再返回退出码；这也覆盖人工审批等待期间。升级仅替换本客户端生成的旧入口，保留用户 Hook。回归测试使用与正式构建一致的 `-H=windowsgui` 辅助程序验证延迟响应、无正文放行及退出码 2 拒绝；目标产品是否真正等待并执行拒绝，仍需更新后的原生会话验收。
 

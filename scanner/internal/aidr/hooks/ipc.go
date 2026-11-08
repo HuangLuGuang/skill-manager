@@ -90,8 +90,8 @@ func (r *Receiver) Close() {
 }
 
 // Serve limits both active requests and raw in-memory data. Closing the context
-// stops accepting and drains already accepted requests under their two-second
-// connection deadline before returning, preserving decisions during upgrades.
+// stops accepting and drains already accepted requests under their connection
+// deadline before returning, preserving decisions during upgrades.
 func (r *Receiver) Serve(ctx context.Context) error {
 	var workers sync.WaitGroup
 	slots := make(chan struct{}, 16)
@@ -132,7 +132,7 @@ func (r *Receiver) Serve(ctx context.Context) error {
 		go func() {
 			defer workers.Done()
 			defer func() { c.Close(); <-slots }()
-			c.SetDeadline(time.Now().Add(2 * time.Second))
+			c.SetDeadline(time.Now().Add(hookConnectionTimeout))
 			response := r.handle(context.WithoutCancel(ctx), c)
 			if response.Code != "aidr_hook_recorded" && response.Code != "aidr_hook_audit_paused" && response.Code != "aidr_hook_healthy" && response.Code != "aidr_hook_decision" {
 				r.rejected.Add(1)
@@ -296,7 +296,7 @@ func Exchange(ctx context.Context, path string, req IPCRequest) (IPCResponse, er
 	if _, err := authenticatedPeer(c); err != nil {
 		return response, code("aidr_hook_peer_rejected")
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(hookConnectionTimeout)
 	if earlier, ok := ctx.Deadline(); ok && earlier.Before(deadline) {
 		deadline = earlier
 	}
