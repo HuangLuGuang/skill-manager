@@ -680,6 +680,11 @@ func TestDaemonAutomaticallyInstallsApprovedPendingWithClassification(t *testing
 		t.Fatalf("rediscovered Skill was not enriched as managed: %#v", codex.Skills[0])
 	}
 	notifications, err := store.Notifications(10)
+	// Removing the pending row precedes recording the final notification.
+	for err == nil && len(notifications) == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+		notifications, err = store.Notifications(10)
+	}
 	if err != nil || len(notifications) == 0 || notifications[0].EventType != "skill_auto_installed" {
 		t.Fatalf("automatic install notification was not recorded: %#v %v", notifications, err)
 	}

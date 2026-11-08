@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -277,7 +278,9 @@ func (watcher *SkillWatcher) run() {
 			if event.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) == 0 {
 				continue
 			}
-			if !watcher.relevant(event.Name) {
+			// Windows reports ancestor metadata writes for runtime files; kqueue also uses writes for directory recovery.
+			structural := runtime.GOOS != "windows" || event.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0
+			if !watcher.relevant(event.Name, structural) {
 				continue
 			}
 			pending[filepath.Clean(event.Name)] = true
@@ -311,7 +314,7 @@ func (watcher *SkillWatcher) run() {
 				return
 			}
 			var pathError *os.PathError
-			if errors.Is(err, os.ErrNotExist) && errors.As(err, &pathError) && watcher.relevant(pathError.Path) {
+			if errors.Is(err, os.ErrNotExist) && errors.As(err, &pathError) && watcher.relevant(pathError.Path, true) {
 				queueRepair(pathError.Path)
 				arm()
 				continue
@@ -340,22 +343,20 @@ func (watcher *SkillWatcher) run() {
 			sort.Strings(paths)
 			pending = map[string]bool{}
 			if len(paths) > 0 {
-				select {
-				case watcher.changes <- paths:
-				default:
-				}
+				queueSkillChanges(watcher.changes, paths)
 			}
 			timerC = nil
 		}
 	}
 }
 
-func (watcher *SkillWatcher) relevant(path string) bool {
+func (watcher *SkillWatcher) relevant(path string, structural bool) bool {
 	path = filepath.Clean(path)
 	watcher.mu.Lock()
 	defer watcher.mu.Unlock()
 	for root := range watcher.roots {
-		if path == root || strings.HasPrefix(path, root+string(filepath.Separator)) || strings.HasPrefix(root, path+string(filepath.Separator)) {
+		// Ancestor writes include our own runtime files; only structural changes require repair.
+		if path == root || strings.HasPrefix(path, root+string(filepath.Separator)) || (structural && strings.HasPrefix(root, path+string(filepath.Separator))) {
 			return true
 		}
 	}

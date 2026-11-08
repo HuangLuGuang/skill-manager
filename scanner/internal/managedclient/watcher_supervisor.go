@@ -3,9 +3,37 @@ package managedclient
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"time"
 )
+
+// Single-producer queues retain paths under backpressure; nil means coverage was lost.
+func queueSkillChanges(queue chan []string, paths []string) {
+	select {
+	case previous := <-queue:
+		if len(previous) == 0 || len(paths) == 0 {
+			paths = nil
+		} else {
+			paths = append(append([]string(nil), previous...), paths...)
+		}
+	default:
+	}
+	if len(paths) > 0 {
+		unique := make(map[string]struct{}, len(paths))
+		for _, path := range paths {
+			unique[path] = struct{}{}
+		}
+		paths = nil
+		if len(unique) <= 4096 {
+			for path := range unique {
+				paths = append(paths, path)
+			}
+			sort.Strings(paths)
+		}
+	}
+	queue <- paths
+}
 
 type SkillMonitor interface {
 	Changes() <-chan []string
@@ -84,19 +112,7 @@ func startSkillMonitor(parent context.Context, home string, store *Store, retry 
 		}
 		defer closeSource()
 		changed := func(paths []string) {
-			select {
-			case m.changes <- paths:
-			default:
-				// A full queue may lose path detail; request a compensating scan.
-				select {
-				case <-m.changes:
-				default:
-				}
-				select {
-				case m.changes <- nil:
-				default:
-				}
-			}
+			queueSkillChanges(m.changes, paths)
 		}
 		refresh := func() {
 			if ctx.Err() != nil {
