@@ -95,7 +95,7 @@ func OpenStore(directory, platform, device string, capacity int) (*Store, error)
 		return fail(err)
 	}
 	f.Close()
-	db, err := sql.Open("sqlite", localstore.SQLiteURI(file, ""))
+	db, err := sql.Open("sqlite", privatefs.SQLiteURI(file, ""))
 	if err != nil {
 		return fail(err)
 	}

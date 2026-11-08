@@ -55,6 +55,7 @@ func settingsEntries(agent, binary, connection string) map[string]map[string]any
 		}
 		if runtime.GOOS == "windows" && agent == "zcode" {
 			out[event]["type"] = "process"
+			out[event]["timeoutMs"] = out[event]["timeout"].(int) * 1000
 		}
 	}
 	return out
@@ -328,7 +329,8 @@ func InspectSettingsHooks(agent, home, binary, connection string) (PluginStatus,
 					h, _ := child.(map[string]any)
 					if ownedSettingsEntry(h, entry) {
 						count++
-						if h["timeout"] != float64(entry["timeout"].(int)) {
+						if h["timeout"] != float64(entry["timeout"].(int)) ||
+							entry["timeoutMs"] != nil && h["timeoutMs"] != float64(entry["timeoutMs"].(int)) {
 							currentBudget = false
 						}
 					}

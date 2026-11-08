@@ -5,13 +5,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"skill-manager/scanner/internal/aidr/privatefs"
 )
 
 func teleAgentLogAdapter() logAdapter {
@@ -104,7 +105,7 @@ func readSQLiteParts(ctx context.Context, s Source, old Cursor, b Budget, since 
 	deadline := time.Now().Add(b.Duration)
 	work, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	dsn := (&url.URL{Scheme: "file", Path: s.Path, RawQuery: "mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(100)"}).String()
+	dsn := privatefs.SQLiteURI(s.Path, "mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(100)")
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return out, errors.New("aidr_log_io_error")
