@@ -72,7 +72,7 @@
       <p v-if="receiverTask">{{ t('receiverTask') }} #{{ receiverTask.id }} · {{ t(receiverTask.payload.action) }} · {{ t(receiverTask.status) }}<span v-if="receiverTask.error_code"> · {{ code(receiverTask.error_code) }}</span></p>
     </template>
     </template>
-    <ClientPluginWorkbench v-else ref="pluginView" :key="fixedAgent" :fixed-agent="fixedAgent" :client-id="clientId" :state="state" :loading="loading" :busy="busy" :can-execute="can('clients:execute')" :is-action-blocked="actionBlocked" @action="send" @refresh="load" @policy="$emit('policy')" @collection="$emit('collection')" @events="$emit('events', $event)">
+    <ClientPluginWorkbench v-else ref="pluginView" :key="fixedAgent" :fixed-agent="fixedAgent" :compact="compact" :client-id="clientId" :state="state" :loading="loading" :busy="busy" :can-execute="can('clients:execute')" :is-action-blocked="actionBlocked" @action="send" @refresh="load" @policy="$emit('policy')" @collection="$emit('collection')" @events="$emit('events', $event)">
       <template #alerts>
         <a-alert v-if="error" type="error" show-icon :message="error" />
         <a-alert v-if="state?.channels?.logs?.health?.state === 'product_upgrade_required'" type="warning" show-icon :message="code('aidr.runtime_product_upgrade_required')" />
@@ -115,7 +115,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { can } from '../access'
 import { getClientRuntimeGovernance, createClientTask, cancelClientTask, retryClientTask } from '../api'
-const props = defineProps({clientId: {type: String, required: true}, view: {type: String, default: 'plugins'}, fixedAgent: {type: String, default: ''}})
+const props = defineProps({clientId: {type: String, required: true}, view: {type: String, default: 'plugins'}, fixedAgent: {type: String, default: ''}, compact: Boolean})
 defineEmits(['collection', 'policy', 'events'])
 const historyAgent = ref(''), pluginView = ref(null)
 let generation = 0

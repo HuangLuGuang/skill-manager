@@ -230,9 +230,9 @@
 
           <ClientEventRecords v-if="inventoryView === 'history'" ref="eventRecordsPanel" :client-id="detail.client_id" :client-name="detail.name || detail.hostname" :agent-label="agentLabel" @collection="navigateDetail('collection')" />
             </a-tab-pane>
-            <a-tab-pane key="plugins" :tab="$t('agentRuntimeGovernance.tabs.plugins')"><ClientRuntimeGovernance :client-id="detail.client_id" @collection="navigateDetail('collection')" @policy="navigateDetail('control')" @events="openHookEvents" /></a-tab-pane>
+            <a-tab-pane key="plugins" :tab="$t('clientConnections.title')"><ClientConnections :client-id="detail.client_id" :request="connectionRequest" :offline="!isOnline(detail)" :discovered-agents="detail.agents || []" @refresh="refreshDeviceStatus" @policy="openClassification(detail.client_id)" @activity="openConnectionActivity" /></a-tab-pane>
             <a-tab-pane key="risks" :tab="$t('aidrRisk.title')"><ClientAidrRisks :client-id="detail.client_id" :initial-agent="riskAgent" /></a-tab-pane>
-            <a-tab-pane key="audit" :tab="$t('agentRuntimeGovernance.tabs.audit')"><ClientBehaviorAudit v-model:view="auditView" :client-id="detail.client_id" :activity-request="activityRequest" @policy="openClassification(detail.client_id)" @plugins="runtimeTab = 'plugins'" /></a-tab-pane>
+            <a-tab-pane key="audit" :tab="$t('agentRuntimeGovernance.tabs.audit')"><ClientBehaviorAudit v-model:view="auditView" :client-id="detail.client_id" :activity-request="activityRequest" @collection="openConnections" /></a-tab-pane>
             <a-tab-pane key="control" :tab="$t('agentRuntimeGovernance.detail.control')">
               <ClientPolicyWorkbench :key="detail.client_id" v-model="controlView" :client-id="detail.client_id" @configure="openClassification(detail.client_id, 'risk')" />
             </a-tab-pane>
@@ -357,7 +357,7 @@ import ClientBehaviorAudit from '../components/ClientBehaviorAudit.vue'
 import ClientAidrRisks from '../components/ClientAidrRisks.vue'
 import ClientEventRecords from '../components/ClientEventRecords.vue'
 import ClientDeviceOverview from '../components/ClientDeviceOverview.vue'
-import ClientRuntimeGovernance from '../components/ClientRuntimeGovernance.vue'
+import ClientConnections from '../components/ClientConnections.vue'
 import ClientSkillScan from '../components/ClientSkillScan.vue'
 import AgentLocalAssets from '../components/AgentLocalAssets.vue'
 import { withAssetNameSearch } from '../utils/assetNameSearch'
@@ -412,20 +412,23 @@ const inventoryView = ref('inventory'), inventoryType = ref('agents')
 const auditView = ref('tools'), controlView = ref('tools')
 const riskAgent = ref('')
 const activityRequest = ref(null)
+const connectionRequest = ref(null)
+const openConnections = request => { connectionRequest.value = request || {}; runtimeTab.value = 'plugins' }
+const openConnectionActivity = request => {
+  activityRequest.value = { clientId: detail.value.client_id, ...request }
+  auditView.value = request.source; runtimeTab.value = 'audit'
+}
 const openAuditActivity = request => {
   activityRequest.value = { clientId: detail.value.client_id, ...request }
   auditView.value = request.source === 'logs' ? 'tools' : 'hooks'; runtimeTab.value = 'audit'
 }
-const openHookEvents = agent => {
-  activityRequest.value = { clientId: detail.value.client_id, agent }
-  auditView.value = 'hooks'; runtimeTab.value = 'audit'
-}
 const fixedDetailActive = computed(() => ['audit', 'plugins'].includes(runtimeTab.value))
 const navigateDetail = target => {
-  auditView.value = target === 'collection' ? 'collection' : target === 'systemEvents' ? 'system' : 'tools'
+  if (target === 'collection' || target === 'plugins') { openConnections(); return }
+  auditView.value = target === 'systemEvents' ? 'system' : 'tools'
   if (target === 'skillTasks') inventoryView.value = 'tasks'
   if (target === 'systemControl') controlView.value = 'system'
-  runtimeTab.value = ['collection', 'systemEvents'].includes(target) ? 'audit' : target === 'systemControl' ? 'control' : target === 'skillTasks' ? 'skills' : target
+  runtimeTab.value = target === 'systemEvents' ? 'audit' : target === 'systemControl' ? 'control' : target === 'skillTasks' ? 'skills' : target
 }
 const skillTasks = computed(() => (detail.value?.tasks || []).filter(task => task.task_type !== 'aidr_plugin_action'))
 const installVisible = ref(false)
@@ -600,7 +603,7 @@ const loadClients = async () => {
 const openDetail = async (record) => {
   riskAgent.value = ''
   inventoryView.value = 'inventory'; inventoryType.value = 'agents'
-  runtimeTab.value = 'overview'; auditView.value = 'tools'; controlView.value = 'tools'
+  runtimeTab.value = 'overview'; auditView.value = 'tools'; controlView.value = 'tools'; connectionRequest.value = null
   const sequence = ++detailSequence
   detailVisible.value = true
   detailLoading.value = true
@@ -923,7 +926,7 @@ watch(() => [route.query.client, route.query.section, route.query.view, route.qu
     await openDetail({ client_id: clientId })
     if (route.query.client === clientId && route.query.section === section && route.query.view === view && route.query.risk_agent === agent && detail.value?.client_id === clientId) {
       riskAgent.value = typeof agent === 'string' && agent.length <= 32 ? agent : ''
-      runtimeTab.value = section === 'audit' && view === 'risks' ? 'risks' : section
+      runtimeTab.value = section === 'audit' && view === 'risks' ? 'risks' : section === 'audit' && view === 'collection' ? 'plugins' : section
     }
   } catch { message.error(i18n.global.t('agentWorkspace.readFailed')) }
 }, { immediate: true })

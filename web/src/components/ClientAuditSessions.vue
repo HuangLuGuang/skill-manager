@@ -24,6 +24,7 @@
       <a-button v-if="sessions.has_more" class="more-sessions" :loading="sessionsLoading" :disabled="sessionsLoading" @click="loadSessions(true)">{{ t('aidr.sessions.moreSessions') }}</a-button>
     </aside>
     <main class="session-timeline" :aria-busy="timelineLoading">
+      <ClientCollectionStatus view="summary" :client-id="clientId" :fixed-agent="selected?.agent || agent || fixedAgent" :initial-channel="source === 'hooks' ? 'hooks' : 'logs'" @open="openCollection" />
       <template v-if="selected">
         <div class="timeline-header">
           <header class="selected-session">
@@ -44,7 +45,7 @@
             <a-input v-if="!showSkills" v-model:value="search" class="timeline-search" :aria-label="t('aidr.sessions.search')" :placeholder="t('aidr.sessions.searchCompact')" :maxlength="256" allow-clear />
           </div>
         </div>
-        <AidrSkillUses v-if="showSkills" ref="skillsPane" @count="selected.skill_count = $event" :client-id="clientId" :agent="selected.agent" :session-id="selected.session_id" @collection="$emit('collection')" />
+        <AidrSkillUses v-if="showSkills" ref="skillsPane" @count="selected.skill_count = $event" :client-id="clientId" :agent="selected.agent" :session-id="selected.session_id" @collection="openCollection" />
         <div v-else class="turn-reading">
           <AidrTurnNavigator :items="sourceTurns" :all-items="turns.items" :active="turnKey" :can-read="canRead" :loading="turnsLoading" :error="turnsError" :has-more="turns.has_more" @select="turnKey = $event" @more="loadTurns(turnsFailedAppend || !turnsError)" />
           <div ref="timelinePane" class="timeline-records" tabindex="0" role="region" :aria-label="t('aidr.sessions.timeline')">
@@ -80,20 +81,21 @@
           <h3>{{ t(query ? 'aidr.sessions.noMatches' : turnKey ? 'aidr.sessions.emptyTurn' : source === 'tools' ? 'aidr.sessions.emptyLogs' : 'aidr.sessions.emptyHooks') }}</h3>
           <template v-if="query"><a-button type="link" @click="search = ''">{{ t('aidr.sessions.clearSearch') }}</a-button></template>
           <template v-else-if="turnKey && sourceCount(selected, source)"><p class="muted">{{ t('aidr.sessions.otherTurnsAvailable', { count: sourceCount(selected, source) }) }}</p><a-button type="link" @click="turnKey = ''">{{ t('aidr.sessions.allTurns') }}</a-button></template>
-          <template v-else><p class="muted">{{ t(selected?.evidence_class && selected.evidence_class !== 'logs_present' ? 'aidr.sessions.evidenceHelp.' + selected.evidence_class : 'aidr.sessions.emptyHelp') }}</p><a-button type="link" @click="source = source === 'tools' ? 'hooks' : 'tools'">{{ t(source === 'tools' ? 'aidr.sessions.switchHooks' : 'aidr.sessions.switchLogs') }}</a-button><a-button type="link" @click="$emit('collection')">{{ t('aidr.sessions.collection') }}</a-button></template>
+          <template v-else><p class="muted">{{ t(selected?.evidence_class && selected.evidence_class !== 'logs_present' ? 'aidr.sessions.evidenceHelp.' + selected.evidence_class : 'aidr.sessions.emptyHelp') }}</p><a-button type="link" @click="source = source === 'tools' ? 'hooks' : 'tools'">{{ t(source === 'tools' ? 'aidr.sessions.switchHooks' : 'aidr.sessions.switchLogs') }}</a-button><a-button type="link" @click="openCollection">{{ t('aidr.sessions.collection') }}</a-button></template>
         </div>
         <div v-if="timeline.has_more" class="timeline-footer"><a-button :loading="timelineLoading" :disabled="timelineLoading || !!timelineError" @click="loadTimeline(true)">{{ t('aidr.sessions.moreRecords') }}</a-button></div>
         <p v-else-if="timeline.items.length && !timelineError" class="timeline-footer muted">{{ t('aidr.sessions.end') }}</p>
           </div>
         </div>
       </template>
-      <div v-else-if="!sessionsLoading" class="timeline-empty"><h3>{{ t('aidr.sessions.emptySessions') }}</h3><p class="muted">{{ t('aidr.sessions.emptySessionHelp') }}</p><a-button type="link" @click="$emit('collection')">{{ t('aidr.sessions.collection') }}</a-button></div>
+      <div v-else-if="!sessionsLoading" class="timeline-empty"><h3>{{ t('aidr.sessions.emptySessions') }}</h3><p class="muted">{{ t('aidr.sessions.emptySessionHelp') }}</p><a-button type="link" @click="openCollection">{{ t('aidr.sessions.collection') }}</a-button></div>
     </main>
   </section>
 </template>
 
 <script setup>
 import AidrSkillUses from './AidrSkillUses.vue'
+import ClientCollectionStatus from './ClientCollectionStatus.vue'
 import products from '../aidr-products.json'
 import { groupProductEntries } from '../aidr-product-groups'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
@@ -124,7 +126,8 @@ function hookFields(turn) {
   })
 }
 const props = defineProps({ clientId: { type: String, required: true }, activityRequest: Object, fixedAgent: { type: String, default: '' } })
-defineEmits(['collection'])
+const emit = defineEmits(['collection'])
+function openCollection() { emit('collection', { agent: selected.value?.agent || agent.value || props.fixedAgent, channel: source.value === 'hooks' ? 'hooks' : 'logs' }) }
 const source = defineModel('source', { type: String, default: 'tools' })
 const contentMode = ref('rendered')
 const { t, locale } = useI18n()

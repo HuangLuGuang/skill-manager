@@ -17,6 +17,7 @@ import { mcpServerFormMessages } from './mcpServerForm.js'
 import { systemSelectionMessages } from './system-selection.js'
 import { runtimeGovernanceMessages } from './runtime-governance.js'
 import { collectionStatusMessages } from './collection-status.js'
+import { clientConnectionsMessages } from './client-connections.js'
 import { pluginWorkbenchMessages } from './plugin-workbench.js'
 import { clientDetailMessages } from './client-detail.js'
 import { clientPolicyMessages } from './client-policy.js'
@@ -93,6 +94,7 @@ export const i18n = createI18n({
       },
       systemSelection: systemSelectionMessages['zh-CN'],
       collectionStatus: collectionStatusMessages['zh-CN'],
+      clientConnections: clientConnectionsMessages['zh-CN'],
       pluginWorkbench: pluginWorkbenchMessages['zh-CN'],
       clientDetail: clientDetailMessages['zh-CN'],
       clientPolicy: clientPolicyMessages['zh-CN'],
@@ -1327,6 +1329,7 @@ export const i18n = createI18n({
       },
       systemSelection: systemSelectionMessages['en-US'],
       collectionStatus: collectionStatusMessages['en-US'],
+      clientConnections: clientConnectionsMessages['en-US'],
       pluginWorkbench: pluginWorkbenchMessages['en-US'],
       clientDetail: clientDetailMessages['en-US'],
       clientPolicy: clientPolicyMessages['en-US'],

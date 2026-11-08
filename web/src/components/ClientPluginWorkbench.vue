@@ -1,7 +1,7 @@
 <template>
   <section class="plugin-workbench" :class="{ scoped: fixedAgent }" :aria-busy="loading">
     <header class="workbench-toolbar">
-      <a-space wrap><a-button @click="emit('policy')"><SettingOutlined />{{ tr('policy') }}</a-button><a-button :loading="loading" :disabled="loading || !!busy" @click="emit('refresh')"><ReloadOutlined />{{ tr('refresh') }}</a-button></a-space>
+      <a-space wrap><a-button v-if="!compact && primaryAction !== 'policy'" @click="emit('policy')"><SettingOutlined />{{ tr('policy') }}</a-button><a-button :loading="loading" :disabled="loading || !!busy" @click="emit('refresh')"><ReloadOutlined />{{ tr('refresh') }}</a-button></a-space>
     </header>
     <div class="workbench-alerts"><slot name="alerts" /></div>
     <div v-if="loading && !state" class="workbench-loading" role="status"><a-spin /><p>{{ tr('loading') }}</p></div>
@@ -13,11 +13,11 @@
         </button>
       </nav>
       <main ref="detailPane" class="product-detail" tabindex="0" :aria-label="selectedGroup.name">
-        <div class="receiver-strip" :class="{ running: receiver === 'running' }"><a-tooltip :title="tr('receiverNote')"><InfoCircleOutlined tabindex="0" :aria-label="tr('receiverNote')" /></a-tooltip><span>{{ tr('receiver') }} · {{ runtimeLabel('channelStates', receiver) }}</span><a-button type="link" @click="emit('collection')">{{ tr('collection') }}<RightOutlined /></a-button></div>
-        <header class="product-heading"><span class="product-logo"><AgentProductLogo :product-id="selectedGroup.id" /></span><div><h2>{{ selectedGroup.name }}<a-tag :color="tagColor(status)">{{ statusLabel(status) }}</a-tag></h2><p>{{ tr(selected.hooks === 'native-plugin' ? 'nativeName' : 'hookName') }}</p></div></header>
+        <div v-if="!compact" class="receiver-strip" :class="{ running: receiver === 'running' }"><a-tooltip :title="tr('receiverNote')"><InfoCircleOutlined tabindex="0" :aria-label="tr('receiverNote')" /></a-tooltip><span>{{ tr('receiver') }} · {{ runtimeLabel('channelStates', receiver) }}</span><a-button type="link" @click="emit('collection')">{{ tr('collection') }}<RightOutlined /></a-button></div>
+        <header v-if="!compact" class="product-heading"><span class="product-logo"><AgentProductLogo :product-id="selectedGroup.id" /></span><div><h2>{{ selectedGroup.name }}<a-tag :color="tagColor(status)">{{ statusLabel(status) }}</a-tag></h2><p>{{ tr(selected.hooks === 'native-plugin' ? 'nativeName' : 'hookName') }}</p></div></header>
         <div v-if="selectedGroup.entries.length > 1" class="entry-choice"><label>{{ tr('entry') }}</label><a-select :value="selected.id" :options="entryOptions" @update:value="selectedEntry = $event" :aria-label="tr('entry')" /></div>
         <p v-if="delayed(selected.id)" class="historical-note">{{ tr('historical', { at: stamp(observedHost?.reported_at) }) }}</p>
-        <ol class="connection-steps" :style="{ '--step-count': steps.length }" :aria-label="tr('steps')"><li v-for="step in steps" :key="step.key" :class="step.state"><CheckCircleFilled v-if="step.state === 'confirmed'" /><ExclamationCircleOutlined v-else-if="step.state === 'attention'" /><ClockCircleOutlined v-else /><strong>{{ tr('step.' + (step.key === 'installation' && selected.hooks !== 'native-plugin' ? 'configuration' : step.key)) }}</strong><small>{{ step.label }}</small></li></ol>
+        <ol v-if="!compact" class="connection-steps" :style="{ '--step-count': steps.length }" :aria-label="tr('steps')"><li v-for="step in steps" :key="step.key" :class="step.state"><CheckCircleFilled v-if="step.state === 'confirmed'" /><ExclamationCircleOutlined v-else-if="step.state === 'attention'" /><ClockCircleOutlined v-else /><strong>{{ tr('step.' + (step.key === 'installation' && selected.hooks !== 'native-plugin' ? 'configuration' : step.key)) }}</strong><small>{{ step.label }}</small></li></ol>
         <section v-if="nextKind" class="next-step" :class="{ attention: tone(status) === 'attention' }">
           <h3>{{ tr('next.' + nextKind + '.title') }}</h3><p>{{ tr(configurationOnly && ['inspect', 'install'].includes(nextKind) ? 'configurationGuide' : 'next.' + nextKind + '.body') }}</p>
           <ol v-if="nextKind === 'authorize' && needsCodexReview" class="authorization-steps"><li v-for="key in ['review','trust','session']" :key="key">{{ tr('codex.' + key) }}</li></ol>
@@ -28,8 +28,8 @@
             <a-button v-else type="primary" @click="guideOpen = true">{{ tr('guide') }}</a-button>
           </a-space>
         </section>
-        <div class="event-summary"><span>{{ tr('latestEvent') }}<strong>{{ arrival(selected.id) ? stamp(arrival(selected.id)) : tr('noEvent') }}</strong></span><a-button @click="emit('events', selectedGroup.id)">{{ tr('viewEvents') }}<RightOutlined /></a-button></div>
-        <section class="current-status"><dl><div><dt>{{ tr('hostVersion') }}</dt><dd>{{ observedHost?.host_version || tr('unknown') }}</dd></div><div><dt>{{ tr('pluginVersion') }}</dt><dd>{{ observedHost?.plugin_version || tr('unknown') }}</dd></div><div><dt>{{ tr('reportedAt') }}</dt><dd>{{ stamp(observedHost?.reported_at) }}</dd></div></dl></section>
+        <div v-if="!compact" class="event-summary"><span>{{ tr('latestEvent') }}<strong>{{ arrival(selected.id) ? stamp(arrival(selected.id)) : tr('noEvent') }}</strong></span><a-button @click="emit('events', selectedGroup.id)">{{ tr('viewEvents') }}<RightOutlined /></a-button></div>
+        <section v-if="!compact && observedHost" class="current-status"><dl><div><dt>{{ tr('hostVersion') }}</dt><dd>{{ observedHost?.host_version || tr('unknown') }}</dd></div><div><dt>{{ tr('pluginVersion') }}</dt><dd>{{ observedHost?.plugin_version || tr('unknown') }}</dd></div><div><dt>{{ tr('reportedAt') }}</dt><dd>{{ stamp(observedHost?.reported_at) }}</dd></div></dl></section>
         <slot name="tasks" :agent="selected.id" />
         <details :key="selected.id" class="workbench-disclosure"><summary>{{ tr('diagnostics') }}</summary>
           <p>{{ entryLabel(selected) }} · {{ selected.hook_os.join(' / ') }}</p><p>{{ runtimeLabel('', observedHost?.version_status) }}</p>
@@ -49,7 +49,7 @@ import { CheckCircleFilled, ClockCircleOutlined, ExclamationCircleOutlined, Info
 import products from '../aidr-products.json'
 import { groupProductEntries } from '../aidr-product-groups'
 import AgentProductLogo from './AgentProductLogo.vue'
-const props = defineProps({ state: Object, loading: Boolean, busy: String, canExecute: Boolean, isActionBlocked: { type: Function, required: true }, clientId: String, fixedAgent: { type: String, default: '' } })
+const props = defineProps({ compact: Boolean, state: Object, loading: Boolean, busy: String, canExecute: Boolean, isActionBlocked: { type: Function, required: true }, clientId: String, fixedAgent: { type: String, default: '' } })
 const emit = defineEmits(['refresh','policy','collection','action','events'])
 const { t, te, locale } = useI18n()
 const tr = (key, values) => t('pluginWorkbench.' + key, values || {})
