@@ -429,23 +429,29 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#overview-info-panel>section:nth-of-type(1)>dl:nth-of-type(1)>div:nth-of-type(2)>dt:nth-of-type(1)",
     "nodeIndex": 0,
+    "key": "ui.assignment.user",
+    "source": "使用人"
+  },
+  {
+    "selector": "#overview-info-panel>section:nth-of-type(1)>dl:nth-of-type(1)>div:nth-of-type(3)>dt:nth-of-type(1)",
+    "nodeIndex": 0,
     "key": "ui.m718yc",
     "source": "客户端 ID"
   },
   {
-    "selector": "#overview-info-panel>section:nth-of-type(1)>dl:nth-of-type(1)>div:nth-of-type(3)>dt:nth-of-type(1)",
+    "selector": "#overview-info-panel>section:nth-of-type(1)>dl:nth-of-type(1)>div:nth-of-type(4)>dt:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.p0ysv3",
     "source": "系统"
   },
   {
-    "selector": "#overview-info-panel>section:nth-of-type(1)>dl:nth-of-type(1)>div:nth-of-type(4)>dt:nth-of-type(1)",
+    "selector": "#overview-info-panel>section:nth-of-type(1)>dl:nth-of-type(1)>div:nth-of-type(5)>dt:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.1c2ikov",
     "source": "客户端版本"
   },
   {
-    "selector": "#overview-info-panel>section:nth-of-type(1)>dl:nth-of-type(1)>div:nth-of-type(5)>dt:nth-of-type(1)",
+    "selector": "#overview-info-panel>section:nth-of-type(1)>dl:nth-of-type(1)>div:nth-of-type(6)>dt:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.lxnpme",
     "source": "平台地址"

@@ -1453,6 +1453,8 @@
     'ui.overview.skills': { 'zh-CN': "受管 Skill", 'en-US': "Managed Skills" },
     'ui.connection.verifying': { 'zh-CN': '正在验证服务器连接…', 'en-US': 'Checking server connection…' },
     'ui.connection.reading': { 'zh-CN': '正在读取接入状态…', 'en-US': 'Reading connection status…' },
+    'ui.assignment.user': { 'zh-CN': '使用人', 'en-US': 'Device user' },
+    'ui.assignment.unassigned': { 'zh-CN': '未登记', 'en-US': 'Not recorded' },
     'ui.connection.readFailed': { 'zh-CN': '读取接入状态失败', 'en-US': 'Could not read connection status' },
     'ui.connection.retry': { 'zh-CN': '重新读取', 'en-US': 'Retry' },
     'ui.overview.clear': { 'zh-CN': "暂无待处理事项", 'en-US': "Nothing needs attention" },

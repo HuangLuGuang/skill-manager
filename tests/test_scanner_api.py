@@ -388,6 +388,8 @@ def test_scanner_import_accepts_bound_client_token(tmp_path):
     rotated_token = "amat_client_submit_rotated"
     other_client_token = "amat_other_client"
     db = session_factory()
+    db.add(models.ManagedClient(client_id='host-001', name='PC', hostname='PC-001', os='linux',
+                                arch='amd64', client_version='test', device_user='张三'))
     for raw_token, name, client_id in (
         (token, "desktop-client", "host-001"),
         (rotated_token, "desktop-client-rotated", "host-001"),
@@ -445,6 +447,32 @@ def test_scanner_import_accepts_bound_client_token(tmp_path):
         entry = manager.get_skill(response.json()["skill_id"])
         assert entry.skill_id == legacy_entry.skill_id
         assert entry.source.author == "old-client-token"
+        submissions = manager.registry.client_submissions(entry.skill_id, 1, 10)
+        assert submissions['total'] == 1
+        assert submissions['items'][0]['details']['device_user'] == '张三'
+        assert submissions['items'][0]['details']['hostname'] == 'PC-001'
+        with session_factory() as db:
+            db.query(models.ManagedClient).filter_by(client_id='host-001').update({'device_user': '李四'})
+            db.commit()
+        repeated = client.post('/api/v1/scanner/imports', headers={'Authorization': f'Bearer {rotated_token}'},
+                               files={'file': ('skill.zip', _skill_zip(), 'application/zip')}, data={'host_id': 'host-001'})
+        assert repeated.status_code == 200, repeated.text
+        submissions = manager.registry.client_submissions(entry.skill_id, 1, 1)
+        assert submissions['total'] == 2
+        assert submissions['items'][0]['details']['device_user'] == '李四'
+        assert manager.registry.client_submissions(entry.skill_id, 2, 1)['items'][0]['details']['device_user'] == '张三'
+        summary = manager.list_skill_summaries(page=1, page_size=10)['items'][0]
+        assert summary['latest_client_submission']['device_user'] == '李四'
+        assert entry.source.author == 'old-client-token'
+        app.include_router(api_router.router, prefix='/api/v1')
+        history = client.get(f'/api/v1/skills/{entry.skill_id}/client-submissions', params={'page': 2, 'page_size': 1})
+        assert history.status_code == 200
+        assert history.json()['total'] == 2
+        assert history.json()['items'][0]['details']['device_user'] == '张三'
+        spoofed = client.post('/api/v1/scanner/imports', headers={'Authorization': f'Bearer {token}'},
+                              files={'file': ('skill.zip', _skill_zip(), 'application/zip')}, data={'host_id': 'host-002'})
+        assert spoofed.status_code == 403
+        assert manager.registry.client_submissions(entry.skill_id, 1, 10)['total'] == 2
         assert "client:host-001" in entry.submission_principals
         result = client.get(
             f"/api/v1/scanner/imports/{entry.skill_id}",

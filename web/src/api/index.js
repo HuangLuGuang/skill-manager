@@ -9,6 +9,10 @@ const api = axios.create({
   timeout: 120000,
 })
 
+export const updateClientAssignment = (id, body) => api.put(`/v1/clients/${encodeURIComponent(id)}/assignment`, body)
+export const getCredentialDeviceUsers = () => api.get('/v1/access/tokens/device-users')
+export const getClientSubmissions = (id, params) => api.get(`/v1/skills/${encodeURIComponent(id)}/client-submissions`, { params })
+
 export const login = (username, password, captchaId, captchaCode) => {
   const formData = new URLSearchParams()
   formData.append('username', username)

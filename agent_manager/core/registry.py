@@ -205,6 +205,8 @@ class Registry:
                 );
                 CREATE INDEX IF NOT EXISTS idx_skill_audit_timestamp ON skill_audit_events(timestamp);
                 CREATE INDEX IF NOT EXISTS idx_skill_audit_skill_id ON skill_audit_events(skill_id);
+                CREATE INDEX IF NOT EXISTS idx_skill_client_submissions ON skill_audit_events(skill_id, timestamp DESC, event_id DESC)
+                    WHERE event_type = 'client_skill_submitted';
 
                 CREATE TABLE IF NOT EXISTS prompt_registry (
                     prompt_id TEXT PRIMARY KEY,
@@ -1543,6 +1545,10 @@ class Registry:
                     coalesce(fs.count, 0) AS rule_findings,
                     json_extract(s.payload, '$.approved_by') AS approved_by,
                     json_extract(s.payload, '$.source.author') AS submitted_by,
+                    json_extract(s.payload, '$.source') AS source,
+                    (SELECT json_extract(a.payload, '$.details') FROM skill_audit_events a
+                     WHERE a.skill_id = s.skill_id AND a.event_type = 'client_skill_submitted'
+                     ORDER BY a.timestamp DESC, a.event_id DESC LIMIT 1) AS latest_client_submission,
                     json_extract(s.payload, '$.rejection_reason') AS rejection_reason,
                     json_extract(s.payload, '$.approved_at') AS approved_at,
                     json_extract(s.payload, '$.deployed_at') AS deployed_at
@@ -1610,6 +1616,8 @@ class Registry:
                 "analysis_results": analysis_results,
                 "approved_by": row["approved_by"],
                 "submitted_by": row["submitted_by"],
+                "source": json.loads(row["source"] or "{}"),
+                "latest_client_submission": json.loads(row["latest_client_submission"]) if row["latest_client_submission"] else None,
                 "rejection_reason": row["rejection_reason"],
                 "submitted_at": row["submitted_at"],
                 "updated_at": row["updated_at"],
@@ -1812,6 +1820,16 @@ class Registry:
     def log_event(self, event: AuditEvent) -> None:
         with self._lock, self._connect() as conn:
             self._insert_audit(conn, event, ignore_existing=True)
+
+    def client_submissions(self, skill_id: str, page: int, page_size: int) -> dict:
+        with self._read_connection() as conn:
+            where = "skill_id = ? AND event_type = 'client_skill_submitted'"
+            total = conn.execute(f"SELECT count(*) FROM skill_audit_events WHERE {where}", (skill_id,)).fetchone()[0]
+            rows = conn.execute(
+                f"SELECT payload FROM skill_audit_events WHERE {where} ORDER BY timestamp DESC, event_id DESC LIMIT ? OFFSET ?",
+                (skill_id, page_size, (page - 1) * page_size),
+            ).fetchall()
+        return {"items": [json.loads(row["payload"]) for row in rows], "total": total}
 
     _governance_audit_predicates = ("event_id NOT LIKE 'client-event-%'", "COALESCE(json_extract(payload, '$.details.source'), '') != 'managed_client'")
 

@@ -152,6 +152,8 @@ class LlmApiKey(Base):
 
 
 class AccessToken(Base):
+    device_user = Column(String(128), nullable=True)
+    assignment_note = Column(String(1000), nullable=True)
     prompt_guard_business_scope = Column(Text, default="", server_default="", nullable=False)
     __tablename__ = "access_tokens"
     __table_args__ = {"sqlite_autoincrement": True}
@@ -497,6 +499,8 @@ class McpToolApproval(Base):
 
 
 class ManagedClient(Base):
+    device_user = Column(String(128), nullable=True)
+    assignment_note = Column(String(1000), nullable=True)
     __tablename__ = "managed_clients"
 
     id = Column(Integer, primary_key=True, index=True)

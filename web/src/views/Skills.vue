@@ -79,6 +79,9 @@
           <template v-if="column.key === 'name'">
             <a @click="$router.push(`/skills/${record.skill_id}`)">{{ record.name }}</a>
           </template>
+          <template v-else-if="column.key === 'submitterSource'">
+            <ClientSubmissionSource :source="record.latest_client_submission || record.source" />
+          </template>
           <template v-else-if="column.key === 'skill_id'">
             <a-tooltip :title="record.skill_id">
               <span class="short-id">{{ shortId(record.skill_id) }}</span>
@@ -155,6 +158,7 @@
 </template>
 
 <script setup>
+import ClientSubmissionSource from '../components/ClientSubmissionSource.vue'
 import { can as hasAccess } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 
@@ -241,6 +245,7 @@ const allColumns = computed(() => [
   { title: t('skillColumns.llm'), key: 'llm', width: 180 },
   ...optionalAnalysisColumns.map(key => ({ title: t(`skillColumns.${key}`), key, width: 160 })),
   { title: text('审批人', 'Approver'), dataIndex: 'approved_by', key: 'approved_by', width: 160, sorter: true },
+  { title: t('deviceAssignment.submitterSource'), key: 'submitterSource', width: 260 },
   { title: t('skillColumns.updatedAt'), dataIndex: 'updated_at', key: 'updated_at', width: 190, sorter: true, customRender: ({ text: value }) => formatDateTime(value) },
   { title: text('操作', 'Actions'), key: 'actions', width: 120, fixed: 'right' },
 ])

@@ -1,5 +1,15 @@
 <template>
   <div>
+    <a-modal v-model:open="assignmentVisible" :title="$t('deviceAssignment.edit')" :footer="null" :closable="!assignmentSaving" :mask-closable="false">
+      <a-form ref="assignmentFormRef" :model="assignmentForm" layout="vertical" :disabled="assignmentSaving" @finish="saveAssignment">
+        <ClientAssignmentFields :model="assignmentForm" :user-options="assignmentUsers" allow-custom-user />
+        <p v-if="assignmentUsersFailed">{{ $t('deviceAssignment.usersFailed') }} <a-button type="link" :loading="assignmentUsersLoading" @click="loadAssignmentUsers">{{ $t('deviceAssignment.retry') }}</a-button></p>
+        <a-space wrap>
+          <a-button type="primary" html-type="submit" :loading="assignmentSaving" :disabled="assignmentSaving">{{ $t('deviceAssignment.save') }}</a-button>
+          <a-button :disabled="assignmentSaving" @click="assignmentVisible = false">{{ $t('deviceAssignment.cancel') }}</a-button>
+        </a-space>
+      </a-form>
+    </a-modal>
     <a-card class="page-card">
       <template #title>
         <a-page-header :title="$t('legacy.hx2vnc')" :sub-title="$t('legacy.ud53vr')">
@@ -60,7 +70,7 @@
               <div v-if="sharedSkillsCount(record)" class="inventory-count-secondary"><dt>{{ $t('clientGovernance.inventoryColumns.sharedSources') }}</dt><dd>{{ sharedSkillsCount(record) }}</dd></div>
             </dl>
           </template>
-          <template v-else-if="column.key === 'credentialOwner'">{{ record.registered_by || '-' }}</template>
+          <template v-else-if="column.key === 'credentialOwner'">{{ record.device_user || $t('deviceAssignment.unassigned') }}</template>
           <template v-else-if="column.key === 'status'">
             <a-tag :color="isOnline(record) ? 'green' : 'default'">{{ isOnline(record) ? $t('legacy.hf6go') : $t('legacy.1hsp9j3') }}</a-tag>
           </template>
@@ -89,12 +99,18 @@
                       <code>{{ detail.client_id }}</code>
                       <a-button type="link" size="small" @click="copyClientId">{{ $t('clientDetail.copyId') }}</a-button>
                       <div>{{ $t('clientDetail.registeredBy') }}: {{ detail.registered_by || '-' }}</div>
+                      <div v-for="token in accessTokens.filter(item => item.token_type === 'client' && item.bound_client_id === detail.client_id)" :key="token.id">
+                        {{ $t('deviceAssignment.credential') }}:
+                        <router-link :to="{ path: '/credentials', query: { token_id: token.id } }">{{ token.name }}</router-link>
+                      </div>
                     </div>
                   </template>
                   <a-button type="text" size="small" :aria-label="$t('agentRuntimeGovernance.presentation.deviceInfo')"><InfoCircleOutlined /></a-button>
                 </a-popover>
               </div>
               <div class="device-status-line">
+                <span>{{ $t('deviceAssignment.user') }}: {{ detail.device_user || $t('deviceAssignment.unassigned') }}</span>
+                <a-button v-if="hasAccess('clients:update')" type="link" size="small" @click="openAssignment">{{ $t('deviceAssignment.edit') }}</a-button>
                 <span><span v-if="detail.hostname !== detail.name">{{ detail.hostname }} · </span>{{ detail.os }}/{{ detail.arch }}</span>
                 <span>{{ $t('agentRuntimeGovernance.detail.lastHeartbeat') }}: {{ formatTime(detail.last_seen_at) }}</span>
                 <a-tooltip :title="$t('clientDetail.deviceRefreshHelp')">
@@ -107,6 +123,7 @@
             </div>
           </div>
 
+          <p v-if="detail.assignment_note" style="white-space: pre-wrap; overflow-wrap: anywhere">{{ detail.assignment_note }}</p>
           <a-tabs v-model:active-key="runtimeTab" :destroy-inactive-tab-pane="true" class="device-runtime-tabs">
             <a-tab-pane key="overview" :tab="$t('agentRuntimeGovernance.detail.overview')"><ClientDeviceOverview ref="overviewPanel" :client="detail" @navigate="navigateDetail" @activity="openAuditActivity" /></a-tab-pane>
             <a-tab-pane key="skills" :tab="$t('agentRuntimeGovernance.detail.skills')">
@@ -349,6 +366,8 @@
 </template>
 
 <script setup>
+import ClientAssignmentFields from '../components/ClientAssignmentFields.vue'
+import { getCredentialDeviceUsers, updateClientAssignment } from '../api'
 import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
 import ClientGovernancePolicy from '../components/ClientGovernancePolicy.vue'
@@ -396,6 +415,41 @@ const classificationOpen = ref(false)
 const classificationClientId = ref('')
 const classificationTab = ref('integration')
 const route = useRoute(), router = useRouter()
+const assignmentVisible = ref(false), assignmentSaving = ref(false), assignmentFormRef = ref(null)
+const assignmentForm = reactive({ device_user: '', assignment_note: '' })
+const assignmentUsers = ref([]), assignmentUsersLoading = ref(false), assignmentUsersFailed = ref(false)
+const loadAssignmentUsers = async () => {
+  if (assignmentUsersLoading.value) return
+  assignmentUsersLoading.value = true
+  assignmentUsersFailed.value = false
+  try {
+    const data = await getCredentialDeviceUsers()
+    assignmentUsers.value = data.users.map(username => ({ value: username, label: username }))
+  } catch { assignmentUsersFailed.value = true }
+  finally { assignmentUsersLoading.value = false }
+}
+let assignmentClientId = ''
+const openAssignment = () => {
+  assignmentClientId = detail.value.client_id
+  assignmentForm.device_user = detail.value.device_user || ''
+  assignmentForm.assignment_note = detail.value.assignment_note || ''
+  assignmentFormRef.value?.clearValidate()
+  assignmentVisible.value = true
+  void loadAssignmentUsers()
+}
+const saveAssignment = async () => {
+  if (assignmentSaving.value) return
+  assignmentSaving.value = true
+  try {
+    const updated = await updateClientAssignment(assignmentClientId, { ...assignmentForm })
+    if (detail.value?.client_id === updated.client_id) Object.assign(detail.value, updated)
+    const row = clients.value.find(item => item.client_id === updated.client_id)
+    if (row) Object.assign(row, updated)
+    assignmentVisible.value = false
+    message.success(i18n.global.t('deviceAssignment.saved'))
+  } catch { message.error(i18n.global.t('deviceAssignment.failed')) }
+  finally { assignmentSaving.value = false }
+}
 const openClassification = (clientId, tab = 'integration') => { classificationClientId.value = clientId; classificationTab.value = tab; classificationOpen.value = true }
 watch(() => [route.query.policy, route.query.client], ([value, clientId]) => {
   if (value !== 'audit' || !hasAccess('settings:view')) return
@@ -504,16 +558,18 @@ const heartbeatTime = value => {
   const text = String(value)
   return Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : `${text}Z`) || 0
 }
-const columns = [
+const columns = computed(() => [
   { title: phrase('legacy.tus94r'), key: 'client', sorter: (a, b) => compareClientText(a.name, b.name) },
   { title: phrase('legacy.p0ysv3'), key: 'platform', width: 170, sorter: (a, b) => compareClientText(a.os, b.os) || compareClientText(a.arch, b.arch) },
   { title: 'Agent', key: 'agents', width: 180, sorter: (a, b) => actualAgentCount(a) - actualAgentCount(b) },
   { title: 'Skill', key: 'skills', width: 180, sorter: (a, b) => skillCount(a) - skillCount(b) },
-  { title: phrase('legacy.1mk8o97'), key: 'credentialOwner', width: 140, sorter: (a, b) => compareClientText(a.registered_by, b.registered_by) },
+  { ...withAssetNameSearch({ title: i18n.global.t('deviceAssignment.user'), key: 'credentialOwner', width: 160 }),
+    onFilter: (value, record) => String(record.device_user || '').toLocaleLowerCase().includes(String(value).trim().toLocaleLowerCase()),
+    sorter: (a, b) => compareClientText(a.device_user, b.device_user) },
   { title: phrase('legacy.1ccx4t4'), key: 'status', width: 100, sorter: (a, b) => Number(isOnline(a)) - Number(isOnline(b)) },
   { title: phrase('legacy.12y43gp'), key: 'lastSeen', width: 200, sorter: (a, b) => heartbeatTime(a.last_seen_at) - heartbeatTime(b.last_seen_at) },
   { title: phrase('legacy.501w24'), key: 'action', width: 100 },
-]
+])
 const agentColumns = [
   { title: 'Agent', key: 'type', width: 180 },
   { title: i18n.global.t('clientModelConfig.model'), key: 'model', width: 230 },

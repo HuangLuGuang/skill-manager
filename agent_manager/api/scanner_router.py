@@ -37,7 +37,7 @@ from agent_manager.core.models import AuditEvent, RegistryEntry, SkillOrigin, Sk
 from agent_manager.core.scan_cache import compute_content_fingerprint
 from agent_manager.core.scanner_tokens import DEFAULT_SCOPES, ScannerToken, ScannerTokenStore
 from agent_manager.core.vetting import _load_manifest
-from backend.models import AccessToken
+from backend.models import AccessToken, ManagedClient
 from backend.api_errors import ApiError
 from backend.routers.access_tokens import (
     ensure_agent_prompt_allowed,
@@ -687,10 +687,13 @@ def submit_scanner_import(
     scanner_auth: ScannerAuthContext = Depends(require_scanner_submit_token),
     mgr: AgentManager = Depends(get_manager),
     store: ScannerTokenStore = Depends(get_token_store),
+    db: Session = Depends(get_db),
 ):
+    submission_client = None
     if scanner_auth.access_token and scanner_auth.access_token.token_type == "client":
         if not host_id or scanner_auth.access_token.bound_client_id != host_id:
             raise HTTPException(status_code=403, detail="当前凭证未绑定此客户端，请先连接并注册")
+        submission_client = db.query(ManagedClient).filter_by(client_id=host_id).first()
     max_bytes = scanner_auth.max_upload_mb * 1024 * 1024
     if file.size and file.size > max_bytes:
         raise HTTPException(status_code=413, detail=f"File too large (max {scanner_auth.max_upload_mb} MB)")
@@ -751,6 +754,9 @@ def submit_scanner_import(
             author=scanner_auth.author or scanner_auth.name,
             channel="agent_manager_client" if scanner_auth.access_token and scanner_auth.access_token.token_type == "client" else "scanner",
             token_name=scanner_auth.token_name,
+            client_id=scanner_auth.access_token.bound_client_id if scanner_auth.access_token and scanner_auth.access_token.token_type == "client" else None,
+            device_user=submission_client.device_user if submission_client else None,
+            hostname=submission_client.hostname if submission_client else None,
         )
         deep_scan_enabled = use_deep_scan or use_skillspector
         response = _submit_directory_for_processing(
@@ -796,6 +802,15 @@ def submit_scanner_import(
             response.risk_level = None
             response.findings_count = 0
             response.message = "已重新检测现有版本。" if started else "相同内容版本正在检测，已复用现有任务。"
+        if source.client_id:
+            mgr.registry.log_event(AuditEvent(
+                event_id=str(uuid.uuid4()), event_type="client_skill_submitted",
+                skill_id=response.version_id, skill_name=response.name,
+                actor=scanner_auth.author,
+                details={"device_user": source.device_user, "hostname": source.hostname,
+                         "client_id": source.client_id, "token_name": source.token_name,
+                         "token_id": scanner_auth.access_token.id, "channel": source.channel},
+            ))
         store.log_event(
             "scanner_import_submitted",
             scanner_auth.legacy_token,

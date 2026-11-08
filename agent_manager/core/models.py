@@ -91,6 +91,9 @@ class SourceInfo(BaseModel):
     version: Optional[str] = None
     commit_sha: Optional[str] = None
     token_name: Optional[str] = None
+    client_id: Optional[str] = None
+    device_user: Optional[str] = None
+    hostname: Optional[str] = None
 
 
 class VettingResult(BaseModel):

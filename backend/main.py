@@ -385,6 +385,9 @@ def ensure_sqlite_schema() -> None:
         if "runtime_governance_json" not in governance_columns:
             conn.exec_driver_sql("ALTER TABLE client_governance_policies ADD COLUMN runtime_governance_json TEXT NOT NULL DEFAULT 'null'")
         access_token_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(access_tokens)").fetchall()}
+        for column, size in (("device_user", 128), ("assignment_note", 1000)):
+            if column not in access_token_columns:
+                conn.exec_driver_sql(f"ALTER TABLE access_tokens ADD COLUMN {column} VARCHAR({size})")
         if "bound_client_id" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN bound_client_id VARCHAR(128)")
         conn.exec_driver_sql(
@@ -675,6 +678,9 @@ def ensure_sqlite_schema() -> None:
                 "ON mcp_call_audits (approval_request_id)"
             )
         managed_client_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(managed_clients)").fetchall()}
+        for column, size in (("device_user", 128), ("assignment_note", 1000)):
+            if column not in managed_client_columns:
+                conn.exec_driver_sql(f"ALTER TABLE managed_clients ADD COLUMN {column} VARCHAR({size})")
         if managed_client_columns and "discovery_overrides_json" not in managed_client_columns:
             conn.exec_driver_sql("ALTER TABLE managed_clients ADD COLUMN discovery_overrides_json TEXT NOT NULL DEFAULT '[]'")
         if managed_client_columns and "policy_mode" not in managed_client_columns:

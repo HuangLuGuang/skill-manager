@@ -285,6 +285,8 @@ def _validate_subject_bindings(
 
 def _access_token_response(row: models.AccessToken, token: str | None = None) -> schemas.AccessTokenResponse:
     return schemas.AccessTokenResponse(
+        device_user=row.device_user,
+        assignment_note=row.assignment_note,
         privacy_policy_id=row.privacy_policy_id,
         platform_id=row.platform_id,
         allowed_department_ids=_json_loads(row.allowed_department_ids_json, []),
@@ -564,6 +566,18 @@ def _validate_privacy_policy(db, policy_id, token_type, scopes, agent_issuance):
         raise ApiError(404, "privacy.policy_not_found", "隐私策略不存在", "Privacy policy not found")
 
 
+@router.get("/device-users")
+async def credential_device_users(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    from .. import iam
+    if not iam.permission_codes(db, current_user) & {"credentials:create", "credentials:update", "clients:update"}:
+        iam.check(db, current_user, "credentials:create")
+    return {"current_user": current_user.username,
+            "users": [row.username for row in db.query(models.User).filter(models.User.is_active.is_(True)).order_by(models.User.username).all()]}
+
+
 @router.get("/privacy-policies")
 async def credential_privacy_policies(
     db: Session = Depends(get_db),
@@ -608,6 +622,8 @@ async def create_access_token(
         raise ApiError(404, "group.not_found", "用户组不存在", "User group not found")
     plain = _new_token()
     row = models.AccessToken(
+        device_user=(body.device_user or current_user.username) if body.token_type == "client" else body.device_user,
+        assignment_note=body.assignment_note,
         privacy_policy_id=body.privacy_policy_id,
         platform_id=body.platform_id,
         allowed_department_ids_json=_json_dumps(list(dict.fromkeys(body.allowed_department_ids))),

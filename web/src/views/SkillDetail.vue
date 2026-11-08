@@ -87,9 +87,9 @@
             </dd>
           </div>
           <div class="basic-field">
-            <dt>{{ $t('skillDetail.submitter') }}</dt>
+            <dt>{{ $t(detail?.source?.channel === 'agent_manager_client' ? 'deviceAssignment.initialSource' : 'skillDetail.submitter') }}</dt>
             <dd>
-              {{ detail?.source?.author || '-' }}
+              <ClientSubmissionSource :source="detail?.source" />
             </dd>
           </div>
           <div class="basic-field metadata-wide skill-identifier">
@@ -167,6 +167,7 @@
       </a-skeleton>
     </a-card>
 
+    <ClientSubmissions :version-id="currentVersionId" />
     <a-card class="lifecycle-card" style="margin-top: 12px">
       <div class="lifecycle-row">
         <div class="lifecycle-heading">
@@ -1113,6 +1114,8 @@
 </template>
 
 <script setup>
+import ClientSubmissionSource from '../components/ClientSubmissionSource.vue'
+import ClientSubmissions from '../components/ClientSubmissions.vue'
 import { REVIEW_TEXT_LIMIT, reviewTextLength } from '../utils/reviewText'
 
 import { can as hasAccess } from '../access'
@@ -2674,6 +2677,7 @@ const auditEventLabel = (value) => translateDomain('auditEvent', value, value ||
 const formatAuditValue = (key, value) => {
   if (value === null || value === undefined || value === '') return '-'
   if (typeof value === 'boolean') return translateDomain('auditValue', String(value))
+  if (key === 'channel') return translateDomain('auditValue', String(value), String(value))
   if (key === 'status') return translateDomain('skillStatus', value, String(value))
   if (key === 'risk_level' || key === 'pre_llm_risk_level') {
     return translateDomain('risk', String(value).toLowerCase(), String(value))
