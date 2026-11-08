@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const hookConnectionTimeout = 2 * time.Second
+
 // Listen requires an existing private, caller-owned directory. Existing sockets
 // are never removed: an active or stale listener is a visible startup failure.
 func Listen(path string, store *Store) (*Receiver, error) {
