@@ -54,7 +54,7 @@ func TestWindowsZcodeUpgradesNativeHookTimeout(t *testing.T) {
 	if err != nil || !bytes.Contains(data, []byte(`"timeoutMs": 315000`)) {
 		t.Fatalf("native approval timeout missing: %v", err)
 	}
-	old := bytes.ReplaceAll(data, []byte(`,\n              "timeoutMs": 315000`), nil)
+	old := bytes.Replace(data, []byte(`"timeoutMs": 315000,`), nil, 1)
 	if bytes.Equal(data, old) {
 		t.Fatal("failed to create legacy config")
 	}
