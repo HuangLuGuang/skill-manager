@@ -4,10 +4,59 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
 )
+
+func TestSkillWatcherRuntimeWritesDoNotTriggerDiscovery(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows ancestor metadata notifications")
+	}
+	home := t.TempDir()
+	root := filepath.Join(RuntimeRoot(home), "skills")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	w, err := NewSkillWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	w.mu.Lock()
+	w.roots[root] = true
+	w.mu.Unlock()
+	if err := w.addRoot(root); err != nil {
+		t.Fatal(err)
+	}
+	// Other missing Agent roots cause the shared home directory to be watched.
+	if err := w.add(home); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 10; i++ {
+		if err := atomicWriteFile(filepath.Join(RuntimeRoot(home), "daemon-health.json"), []byte(`{}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	select {
+	case paths := <-w.Changes():
+		t.Fatalf("runtime writes triggered discovery: %v", paths)
+	case <-time.After(3 * skillWatchDebounce):
+	}
+	path := filepath.Join(root, "SKILL.md")
+	if err := os.WriteFile(path, []byte("changed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case paths := <-w.Changes():
+		if !slices.Contains(paths, path) {
+			t.Fatalf("real skill change lost: %v", paths)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("real skill change not delivered")
+	}
+}
 
 func TestInstallationStagingIsOutsideWatchRoots(t *testing.T) {
 	home := t.TempDir()

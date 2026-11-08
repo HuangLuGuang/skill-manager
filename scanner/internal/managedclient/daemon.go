@@ -24,6 +24,17 @@ func cachedPolicy(store *Store) Policy {
 	return Policy{Mode: "audit", Classification: DefaultClassificationPolicy()}
 }
 
+func compensationDue(now, lastScan, due time.Time, interval time.Duration) time.Time {
+	next := lastScan.Add(min(5*time.Second, interval))
+	if next.Before(now) {
+		next = now
+	}
+	if next.Before(due) {
+		return next
+	}
+	return due
+}
+
 func inventoryRevision(inventory Inventory) string {
 	values := []string{}
 	for _, agent := range inventory.Agents {
@@ -438,6 +449,7 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		due := time.Now()
+		var lastScan time.Time
 		var changes <-chan []string
 		if watcher != nil {
 			changes = watcher.Changes()
@@ -458,7 +470,8 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 				if !localSignaled {
 					signal()
 				}
-				due = time.Now().Add(interval)
+				lastScan = time.Now()
+				due = lastScan.Add(interval)
 			}
 			select {
 			case <-ctx.Done():
@@ -471,11 +484,12 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 				}
 				store.LogDiagnostic("info", "watcher", "change_detected", map[string]any{
 					"debounce_ms": skillWatchDebounce.Milliseconds(), "path_count": len(paths),
+					"path_sample": paths[:min(3, len(paths))],
 				})
 				if len(paths) > 0 {
 					enqueueFastChanges(paths)
 				} else {
-					due = time.Now()
+					due = compensationDue(time.Now(), lastScan, due, interval)
 				}
 			case <-refreshInventory:
 				due = time.Now()

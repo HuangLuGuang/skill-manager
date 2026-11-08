@@ -40,11 +40,11 @@ func (c *assetCollector) componentPath(root, relative string) string {
 	if filepath.IsAbs(relative) {
 		path = relative
 	}
-	resolvedRoot, rootErr := filepath.EvalSymlinks(root)
 	resolved, err := filepath.EvalSymlinks(path)
 	if os.IsNotExist(err) {
 		return ""
 	}
+	resolvedRoot, rootErr := filepath.EvalSymlinks(root)
 	if err != nil || rootErr != nil {
 		c.issue("read_failed", path)
 		return ""
