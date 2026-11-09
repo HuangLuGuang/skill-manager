@@ -16,6 +16,7 @@ from backend.client_event_delivery import save_delivery
 from backend import client_discovery, client_governance, client_skill_actions, runtime_governance, client_event_records
 from backend.agent_workspace import installation_owns_path
 from backend.client_assets import asset_inventory, inventory_capabilities
+from backend.client_assignment import device_user
 from backend.model_switch import AGENTS as MODEL_ADAPTERS, validate_options as validate_model_options, validate_parameter_version, contract_for_version, validate_effective_parameters, reported_model_parameters
 from backend.client_task_notifications import task_hub
 from backend.external_ai_gateway import binding_models, ensure_binding
@@ -857,6 +858,15 @@ def _client_related(db: Session, rows) -> dict:
         policies = client_governance.policy_views(db, part)
         group = {cid: dict(agents=[], skills=[], recovery=[], classification=policies[cid], issues=0, alerts=0)
                  for cid in part}
+        clients = {row.client_id: row for row in rows if row.client_id in group}
+        credentials = {}
+        for token in db.query(models.AccessToken).filter(
+                models.AccessToken.token_type == "client",
+                models.AccessToken.bound_client_id.in_([cid for cid, row in clients.items() if not row.device_user])
+        ).order_by(models.AccessToken.id.desc()):
+            credentials.setdefault(token.bound_client_id, token)
+        for cid, row in clients.items():
+            group[cid]['device_user'] = device_user(row, credentials.get(cid))
         for model, key in ((models.ClientAgent, 'agents'), (models.ClientSkillInstall, 'skills'),
                            (models.ClientRecoveryRecord, 'recovery')):
             for item in db.query(model).filter(model.client_id.in_(part)):
@@ -906,7 +916,7 @@ def _client_response(db: Session, row: models.ManagedClient, *, related=None) ->
         "status": "online" if online else "offline",
         "last_seen_at": row.last_seen_at,
         "registered_by": row.registered_by,
-        "device_user": row.device_user,
+        "device_user": data['device_user'],
         "assignment_note": row.assignment_note,
         "created_at": row.created_at,
         "issue_count": issue_count,
@@ -1187,7 +1197,7 @@ def register_client(
         if db.query(models.ManagedClient).count() >= entitlement["limits"]["clients"]:
             raise LicenseError("client_limit")
         row = models.ManagedClient(client_id=body.client_id, registered_by=token.created_by,
-                                   device_user=token.device_user, assignment_note=token.assignment_note)
+                                   device_user=token.device_user or token.created_by, assignment_note=token.assignment_note)
         db.add(row)
     row.name = body.name.strip() or body.hostname
     row.hostname = body.hostname

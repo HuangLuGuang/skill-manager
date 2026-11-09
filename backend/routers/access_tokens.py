@@ -741,6 +741,20 @@ async def update_access_token(
         row.allowed_mcp_gateways_json = _json_dumps(normalized_mcp_gateways)
     if "allowed_ips" in data and data["allowed_ips"] is not None:
         row.allowed_ips_json = _json_dumps(data.pop("allowed_ips"))
+    if row.token_type == "client" and "device_user" in data and data["device_user"] != row.device_user:
+        if row.bound_client_id:
+            bound_client = db.query(models.ManagedClient).filter(
+                models.ManagedClient.client_id == row.bound_client_id
+            ).first()
+            if bound_client:
+                before = bound_client.device_user
+                bound_client.device_user = data["device_user"] or row.created_by
+                db.add(models.OperationLog(
+                    username=current_user.username, action="client.assignment_updated",
+                    target=bound_client.client_id,
+                    details=_json_dumps({"before": {"device_user": before},
+                                         "after": {"device_user": bound_client.device_user}}),
+                ))
     for field, value in data.items():
         setattr(row, field, value)
     db.commit()

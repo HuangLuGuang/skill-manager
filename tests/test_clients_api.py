@@ -53,6 +53,42 @@ def test_device_user_inherits_once_and_transfer_preserves_visibility(tmp_path):
     assert client.put('/api/v1/clients/assigned-host/assignment', json={'device_user': 'other'}).status_code == 404
 
 
+def test_credential_assignment_updates_bound_client_and_defaults_to_creator(tmp_path):
+    client = _client(tmp_path)
+    issued = client.post('/api/v1/access/tokens', json={
+        'name': 'assignment', 'token_type': 'client', 'device_user': '张三',
+    }).json()
+    headers = {'Authorization': f"Bearer {issued['token']}"}
+    body = {'client_id': 'assigned-host', 'name': 'PC', 'hostname': 'PC', 'os': 'linux',
+            'arch': 'amd64', 'client_version': 'test', 'agents': []}
+    assert client.post('/api/v1/clients/register', headers=headers, json=body).status_code == 200
+    url = f"/api/v1/access/tokens/{issued['record']['id']}"
+    assert client.put(url, json={'device_user': '李四'}).status_code == 200
+    assert client.get('/api/v1/clients/assigned-host').json()['device_user'] == '李四'
+    assert client.put(url, json={'device_user': None}).status_code == 200
+    assert client.get('/api/v1/clients/assigned-host').json()['device_user'] == 'admin'
+    assert client.put('/api/v1/clients/assigned-host/assignment', json={'device_user': '王五'}).status_code == 200
+    assert client.put(url, json={'name': 'renamed', 'device_user': None}).status_code == 200
+    assert client.get('/api/v1/clients/assigned-host').json()['device_user'] == '王五'
+
+    # Historical clients have no copied assignment, even when their credential was edited.
+    sessions = client.app.dependency_overrides[get_db]()
+    session = next(sessions)
+    try:
+        row = session.query(models.ManagedClient).filter_by(client_id='assigned-host').one()
+        row.device_user = None
+        token = session.query(models.AccessToken).filter_by(id=issued['record']['id']).one()
+        token.device_user = '赵六'
+        session.commit()
+        assert client.get('/api/v1/clients/assigned-host').json()['device_user'] == '赵六'
+        assert client.get('/api/v1/clients').json()[0]['device_user'] == '赵六'
+        token.device_user = None
+        session.commit()
+        assert client.get('/api/v1/clients/assigned-host').json()['device_user'] == 'admin'
+    finally:
+        sessions.close()
+
+
 class _Registry:
     def __init__(self):
         self.events = []

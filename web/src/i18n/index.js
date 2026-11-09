@@ -1,5 +1,6 @@
 import { overviewTabsMessages } from './overview-tabs.js'
 import { deviceAssignmentMessages } from './deviceAssignment.js'
+import { clientSummaryMessages } from './clientSummary.js'
 import { promptGuardMessages } from './prompt-guard.js'
 import { securityRulesMessages } from './security-rules.js'
 import { aidrRiskMessages } from './aidr-risk.js'
@@ -71,6 +72,7 @@ export const i18n = createI18n({
   messages: {
     'zh-CN': {
       deviceAssignment: deviceAssignmentMessages['zh-CN'],
+      clientSummary: clientSummaryMessages['zh-CN'],
       gatewayStats: gatewayStatsMessages['zh-CN'],
       securityRules: securityRulesMessages['zh-CN'],
       promptGuard: promptGuardMessages['zh-CN'],
@@ -1262,6 +1264,7 @@ export const i18n = createI18n({
     },
     'en-US': {
       deviceAssignment: deviceAssignmentMessages['en-US'],
+      clientSummary: clientSummaryMessages['en-US'],
       gatewayStats: gatewayStatsMessages['en-US'],
       securityRules: securityRulesMessages['en-US'],
       promptGuard: promptGuardMessages['en-US'],

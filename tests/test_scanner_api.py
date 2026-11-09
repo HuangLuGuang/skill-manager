@@ -380,7 +380,8 @@ def test_legacy_runtime_governance_routes_are_removed(tmp_path):
     assert "/api/v1/access/runtime/" in response.json()["detail"]
 
 
-def test_scanner_import_accepts_bound_client_token(tmp_path):
+@pytest.mark.parametrize('assigned_user', ['张三', None])
+def test_scanner_import_accepts_bound_client_token(tmp_path, assigned_user):
     engine = create_engine(f"sqlite:///{tmp_path / 'client-access.db'}", connect_args={"check_same_thread": False})
     session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -389,7 +390,7 @@ def test_scanner_import_accepts_bound_client_token(tmp_path):
     other_client_token = "amat_other_client"
     db = session_factory()
     db.add(models.ManagedClient(client_id='host-001', name='PC', hostname='PC-001', os='linux',
-                                arch='amd64', client_version='test', device_user='张三'))
+                                arch='amd64', client_version='test', device_user=assigned_user))
     for raw_token, name, client_id in (
         (token, "desktop-client", "host-001"),
         (rotated_token, "desktop-client-rotated", "host-001"),
@@ -398,6 +399,7 @@ def test_scanner_import_accepts_bound_client_token(tmp_path):
         db.add(models.AccessToken(
             name=name,
             token_type="client",
+            device_user='张三',
             token_hash=_hash_token(raw_token),
             token_prefix=raw_token[:8],
             bound_client_id=client_id,

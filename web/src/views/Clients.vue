@@ -22,14 +22,30 @@
       </template>
 
     <a-row :gutter="[16, 16]" class="summary-row">
-      <a-col :xs="12" :lg="6"><a-card><a-statistic :title="$t('legacy.1kv2rkb')" :value="clients.length" /></a-card></a-col>
-      <a-col :xs="12" :lg="6"><a-card><a-statistic :title="$t('legacy.hf6go')" :value="onlineCount" /></a-card></a-col>
-      <a-col :xs="12" :lg="6"><a-card><a-statistic :title="$t('legacy.1k2vlh1')" :value="agentCount" /></a-card></a-col>
-      <a-col :xs="12" :lg="6"><a-card><a-statistic :title="$t('legacy.1iz81li')" :value="issueCount" /></a-card></a-col>
+      <a-col v-for="kind in ['all', 'online', 'agents', 'issues']" :key="kind" :xs="12" :lg="6">
+        <a-card class="summary-card" :class="{ 'summary-selected': summaryFilter === kind || (kind === 'online' && summaryFilter === 'offline') }">
+          <button type="button" class="summary-trigger" :aria-pressed="summaryFilter === kind" @click="selectSummary(kind)">
+            <a-statistic :title="$t(`clientSummary.${kind}`)" :value="summary[kind]" />
+          </button>
+          <div class="summary-secondary">
+            <a-tooltip v-if="kind === 'online'" :title="$t('clientSummary.onlineHelp')">
+              <a-button size="small" type="link" :class="{ 'offline-selected': summaryFilter === 'offline' }" :aria-pressed="summaryFilter === 'offline'" @click="selectSummary('offline')">{{ $t('clientSummary.offlineCount', { count: summary.offline }) }} <InfoCircleOutlined /></a-button>
+            </a-tooltip>
+            <span v-else-if="kind === 'agents'">{{ $t('clientSummary.governable', { count: summary.governable }) }}</span>
+            <a-tooltip v-else-if="kind === 'issues'" :title="$t('clientSummary.issuesHelp')"><span tabindex="0">{{ $t('clientSummary.byClient') }} <InfoCircleOutlined /></span></a-tooltip>
+            <span v-else>{{ $t('clientSummary.visibleClients') }}</span>
+          </div>
+        </a-card>
+      </a-col>
     </a-row>
 
     <section class="table-card">
-      <a-table class="client-inventory-table" table-layout="fixed" :scroll="{ x: 1320 }" :columns="columns" :show-sorter-tooltip="false" :data-source="clients" row-key="client_id" :loading="loading" :pagination="{ pageSize: 10 }">
+      <div class="client-list-status">
+        <span role="status">{{ $t('clientSummary.results', { count: filteredClients.length }) }}<template v-if="summaryFilter !== 'all'"> · {{ $t(`clientSummary.${summaryFilter}`) }}</template></span>
+        <a-button v-if="summaryFilter !== 'all' || ownerFilter.length" type="link" size="small" @click="selectSummary('all')">{{ $t('clientSummary.clearFilters') }}</a-button>
+        <span v-if="lastRefreshed" class="muted last-refreshed">{{ $t('clientSummary.refreshed', { time: formatTime(lastRefreshed) }) }}</span>
+      </div>
+      <a-table class="client-inventory-table" table-layout="fixed" :scroll="{ x: 1320 }" :columns="columns" :show-sorter-tooltip="false" :data-source="filteredClients" row-key="client_id" :loading="loading" :pagination="clientPagination" @change="changeClientTable">
         <template #headerCell="{ column }">
           <span v-if="column.key === 'agents' || column.key === 'skills'" class="inventory-column-heading">
             {{ column.title }}
@@ -73,6 +89,7 @@
           <template v-else-if="column.key === 'credentialOwner'">{{ record.device_user || $t('deviceAssignment.unassigned') }}</template>
           <template v-else-if="column.key === 'status'">
             <a-tag :color="isOnline(record) ? 'green' : 'default'">{{ isOnline(record) ? $t('legacy.hf6go') : $t('legacy.1hsp9j3') }}</a-tag>
+            <a-button v-if="record.issue_count > 0" type="link" size="small" class="client-issue-link" @click="openIssues(record)">{{ $t('clientSummary.issueCount', { count: record.issue_count }) }}</a-button>
           </template>
           <template v-else-if="column.key === 'lastSeen'">{{ formatTime(record.last_seen_at) }}</template>
           <template v-else-if="column.key === 'action'">
@@ -564,12 +581,12 @@ const columns = computed(() => [
   { title: 'Agent', key: 'agents', width: 180, sorter: (a, b) => actualAgentCount(a) - actualAgentCount(b) },
   { title: 'Skill', key: 'skills', width: 180, sorter: (a, b) => skillCount(a) - skillCount(b) },
   { ...withAssetNameSearch({ title: i18n.global.t('deviceAssignment.user'), key: 'credentialOwner', width: 160 }),
-    onFilter: (value, record) => String(record.device_user || '').toLocaleLowerCase().includes(String(value).trim().toLocaleLowerCase()),
+    filteredValue: ownerFilter.value, onFilter: undefined,
     sorter: (a, b) => compareClientText(a.device_user, b.device_user) },
-  { title: phrase('legacy.1ccx4t4'), key: 'status', width: 100, sorter: (a, b) => Number(isOnline(a)) - Number(isOnline(b)) },
+  { title: phrase('legacy.1ccx4t4'), key: 'status', width: 145, sorter: (a, b) => Number(isOnline(a)) - Number(isOnline(b)) },
   { title: phrase('legacy.12y43gp'), key: 'lastSeen', width: 200, sorter: (a, b) => heartbeatTime(a.last_seen_at) - heartbeatTime(b.last_seen_at) },
   { title: phrase('legacy.501w24'), key: 'action', width: 100 },
-])
+].map(column => ({ ...column, sortOrder: clientSort.value.columnKey === column.key ? clientSort.value.order : null })))
 const agentColumns = [
   { title: 'Agent', key: 'type', width: 180 },
   { title: i18n.global.t('clientModelConfig.model'), key: 'model', width: 230 },
@@ -593,12 +610,51 @@ const taskColumns = [
   { title: phrase('legacy.501w24'), key: 'action', width: 90 },
 ]
 
-const onlineCount = computed(() => clients.value.filter(isOnline).length)
 const isSharedSkillsRecord = record => record?.agent_type === 'global-skills'
 const actualAgentCount = record => record.agents?.filter(agent => !isSharedSkillsRecord(agent)).length || 0
 const sharedSkillsCount = record => record.agents?.filter(isSharedSkillsRecord).length || 0
-const agentCount = computed(() => clients.value.reduce((sum, item) => sum + actualAgentCount(item), 0))
-const issueCount = computed(() => clients.value.reduce((sum, item) => sum + (item.issue_count || 0), 0))
+const summaryFilter = ref('all'), ownerFilter = ref([]), clientSort = ref({})
+const lastRefreshed = ref(null)
+const clientPagination = reactive({ current: 1, pageSize: 10, showSizeChanger: true })
+const summary = computed(() => {
+  const result = { all: clients.value.length, online: 0, offline: 0, agents: 0, governable: 0, issues: 0, agentClients: new Set() }
+  for (const client of clients.value) {
+    result[isOnline(client) ? 'online' : 'offline']++
+    if (client.issue_count > 0) result.issues++
+    for (const agent of client.agents || []) {
+      if (isSharedSkillsRecord(agent)) continue
+      result.agents++
+      result.agentClients.add(client.client_id)
+      if (agent.skill_management_supported) result.governable++
+    }
+  }
+  return result
+})
+const filteredClients = computed(() => {
+  const owner = String(ownerFilter.value[0] || '').trim().toLocaleLowerCase()
+  return clients.value.filter(client => {
+    if (owner && !String(client.device_user || '').toLocaleLowerCase().includes(owner)) return false
+    if (summaryFilter.value === 'online') return isOnline(client)
+    if (summaryFilter.value === 'offline') return !isOnline(client)
+    if (summaryFilter.value === 'agents') return summary.value.agentClients.has(client.client_id)
+    if (summaryFilter.value === 'issues') return client.issue_count > 0
+    return true
+  })
+})
+const selectSummary = kind => {
+  summaryFilter.value = kind === summaryFilter.value ? 'all' : kind
+  if (kind === 'all') ownerFilter.value = []
+  clientPagination.current = 1
+}
+const changeClientTable = (pagination, filters, sorter, extra) => {
+  ownerFilter.value = filters.credentialOwner || []
+  clientSort.value = sorter
+  clientPagination.pageSize = pagination.pageSize
+  clientPagination.current = extra.action === 'paginate' ? pagination.current : 1
+}
+watch(() => filteredClients.value.length, count => {
+  clientPagination.current = Math.min(clientPagination.current, Math.max(1, Math.ceil(count / clientPagination.pageSize)))
+})
 const localAssetCounts = record => ({ mcp: (record.asset_inventory?.mcp_servers?.length || 0) + (record.asset_inventory?.plugins || []).reduce((count, plugin) => count + plugin.mcp_servers.length, 0), plugins: record.asset_inventory?.plugins?.length || 0 })
 const agentTableExpandable = { rowExpandable: record => !isSharedSkillsRecord(record) || Boolean(record.skills?.length) }
 const selectedManagedAgent = computed(() => agents.value.find(agent => agent.agent_id === installForm.managed_agent_id))
@@ -646,15 +702,25 @@ const installableSkills = computed(() => {
   return available.filter(skill => allowed.has(skill.skill_id) || allowed.has(skill.name))
 })
 
+let clientsSequence = 0
 const loadClients = async () => {
+  const sequence = ++clientsSequence
   loading.value = true
   try {
-    clients.value = await listClients()
+    const rows = await listClients()
+    if (sequence !== clientsSequence) return
+    clients.value = rows
+    lastRefreshed.value = new Date().toISOString()
   } catch (error) {
-    message.error(error.response?.data?.detail || phrase('legacy.167k0p'))
+    if (sequence === clientsSequence) message.error(error.response?.data?.detail || phrase('legacy.167k0p'))
   } finally {
-    loading.value = false
+    if (sequence === clientsSequence) loading.value = false
   }
+}
+const openIssues = record => {
+  openDetail(record)
+  runtimeTab.value = 'skills'
+  inventoryView.value = 'history'
 }
 const openDetail = async (record) => {
   riskAgent.value = ''
@@ -1005,6 +1071,18 @@ onMounted(async () => {
 <style scoped>
 .detail-config-actions { flex-shrink: 0; margin-left: auto; }
 .summary-row { margin-top: 8px; }
+.summary-card { height: 100%; }
+.summary-card :deep(.ant-card-body) { padding: 16px; }
+.summary-selected { border-color: #245eea; background: #f5f8ff; }
+.summary-trigger { display: block; width: 100%; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.summary-trigger:focus-visible { outline: 2px solid #245eea; outline-offset: 4px; }
+.summary-trigger :deep(.ant-statistic-title) { overflow-wrap: anywhere; }
+.summary-secondary { margin-top: 8px; color: #626b78; font-size: 12px; overflow-wrap: anywhere; }
+.summary-secondary :deep(.ant-btn) { height: auto; padding: 0; white-space: normal; text-align: left; }
+.offline-selected { font-weight: 600; text-decoration: underline; }
+.client-list-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.last-refreshed { margin-left: auto; }
+.client-issue-link { display: block; padding: 0; height: auto; white-space: normal; text-align: left; color: #b45309; }
 .table-card {
   margin-top: 16px;
 }

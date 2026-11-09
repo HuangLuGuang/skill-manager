@@ -295,13 +295,17 @@ Agent Manager 用一套“提交、扫描、审批、签名、运行时校验、
 
 ### 2.1 当前产品能力地图
 
-创建客户端凭据时，“使用人 / Device user”默认选中当前登录用户，可搜索选择其他启用用户；可填写“备注 / Notes”（最多1000个字符）记录部门及设备用途。首次注册时继承到客户端；在客户端详情通过“修改使用人”办理补登记或人员交接，需有客户端修改权限，变更记录进入操作审计。更换凭据或重复注册保留客户端当前归属。凭据创建人继续用于既有权限判断；历史设备未登记时显示“未登记 / Not recorded”。桌面客户端在“概览 → 客户端信息”显示平台登记的使用人。
+客户端管理顶部卡片统计当前账号可见的全部设备：客户端总数、在线客户端（附离线数）、已发现 Agent 实例（附支持 Skill 管理的数量）及存在异常的客户端数。点击在线、离线、Agent 或异常卡片立即筛选下方列表，再次点击取消该条件；可与使用人表头搜索组合，点击总数或清空筛选恢复全部设备。筛选回到第一页并保留每页数量和排序；刷新保留筛选。异常按设备去重，不等于待处理工单数；状态列中的异常数量可进入该客户端的 Skill 事件记录。在线按最近10分钟心跳判断，以最近刷新结果为准。卡片筛选复用本次列表数据，不额外请求接口。
+
+Client summary cards show all devices visible to the current account. Select online, offline, discovered Agents or Clients with issues to filter the table; select again to clear that condition. Device-user search combines with the card filter. Total Clients and Clear filters reset all filters. Filtering resets the page while preserving page size and sorting; refresh preserves filters. Issues count distinct devices, not pending tickets; issue links open the Client's Skill event records. Online status uses a heartbeat within 10 minutes of the latest refresh. Card filtering reuses loaded data without additional requests.
+
+创建客户端凭据时，“使用人 / Device user”默认选中当前登录用户，可搜索选择其他启用用户；可填写“备注 / Notes”（最多1000个字符）记录部门及设备用途。首次注册时继承到客户端；在客户端详情通过“修改使用人”办理补登记或人员交接，需有客户端修改权限，变更记录进入操作审计。凭据使用人实际变更后同步更新其绑定客户端，并记录操作审计；未指定时默认使用凭据创建人。只修改凭据其他字段、更换凭据或重复注册保留客户端已有归属。历史设备未登记时，读取最新绑定客户端凭据的使用人或创建人，无绑定凭据时使用登记人；均缺失才显示“未登记 / Not recorded”。凭据创建人继续用于既有权限判断。桌面客户端在“概览 → 客户端信息”显示平台返回的使用人。
 
 客户端详情的“修改使用人”支持从启用的平台用户中搜索选择，或自行填写姓名、工号（最多128个 Unicode 字符）。用户列表加载失败时可重试，已输入的内容保留。The Client assignment editor supports selecting an active platform user or entering a name or employee ID, up to 128 Unicode characters.
 
 客户端上传 Skill 时，平台按已绑定凭据记录本次客户端 ID、使用人、主机名、凭据标识及提交时间。Skill 列表的“提交人 / 来源”列默认隐藏，可在“显示列”中开启并保存偏好；管理台提交显示记录的提交人，客户端提交显示最近一次提交时的使用人及主机名，有客户端查看权限时可点击主机名进入设备详情。Skill 名称下方不再重复来源。详情保留首次来源并提供当前版本的分页客户端提交记录；复用已有扫描结果也保留本次来源，人员交接不会改写历史快照。旧提交保留原有来源，新增归属记录不追溯补写。此处使用人表示提交设备当时登记的归属。
 
-Client credentials default to the signed-in user and allow selecting another active platform user, with notes up to 1000 Unicode characters. Registration copies these fields once; authorized administrators can update the Client assignment, with an audit record. Reconnecting or rotating credentials preserves the current assignment. Each Client submission retains its assignment at submission time, including when scan results are reused. The optional Submitter / Source column is hidden by default and retains the user's column preference. It shows the recorded submitter or latest Client submission, with a link to Client details when permitted. Skill details retain the first source and paginated submissions for the selected version. Historical assignments are not inferred.
+Client credentials default to the signed-in user and allow selecting another active platform user, with notes up to 1000 Unicode characters. Registration copies these fields; authorized administrators can update the Client assignment, with an audit record. Changing the credential's device user updates its bound Client and records an audit entry; an empty selection defaults to the credential creator. Other credential edits, reconnecting and rotating credentials preserve an existing assignment. Unassigned Clients display the latest bound Client credential's device user or creator, then the registrant if no credential is bound. Each new Client submission records this effective user at submission time, including when scan results are reused; existing submission snapshots remain unchanged. The optional Submitter / Source column is hidden by default and retains the user's column preference. It shows the recorded submitter or latest Client submission, with a link to Client details when permitted. Skill details retain the first source and paginated submissions for the selected version.
 
 | 能力域 | 管理台入口 | 当前已启用能力 | 明确边界 |
 |---|---|---|---|
