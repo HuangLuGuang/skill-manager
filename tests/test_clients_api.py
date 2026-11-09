@@ -874,7 +874,7 @@ def test_client_register_inventory_and_task_round_trip(tmp_path):
     assert audit_event.actor == "host-001"
     assert audit_event.details["agent_id"] == "codex"
     assert audit_event.details["source"] == "managed_client"
-    assert client.get("/api/v1/clients").json()[0]["issue_count"] == 1
+    assert client.get("/api/v1/clients").json()[0]["issue_count"] == 0
     class LockedRegistry:
         def log_event(self, _event):
             raise sqlite3.OperationalError("database is locked")

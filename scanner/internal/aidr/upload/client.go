@@ -4,6 +4,8 @@ package upload
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,11 +27,26 @@ type Options struct {
 	ObserveHTTP             func(HTTPDiagnostic)
 }
 
-// HTTPDiagnostic contains protocol metadata only, never event bodies or credentials.
+// HTTPDiagnostic contains transport errors and protocol metadata, not event bodies.
 type HTTPDiagnostic struct {
-	Method, Resource, Code, ServerCode string
-	StatusCode                         int
-	Retryable                          bool
+	Method, Resource, Code, ServerCode              string
+	StatusCode                                      int
+	Retryable                                       bool
+	RequestID, ServerRequestID, Error, ContextError string
+	DurationMS, TimeoutMS, DeadlineRemainingMS      int64
+	HasDeadline                                     bool
+	started                                         time.Time
+}
+
+func (c *Client) newHTTPDiagnostic(ctx context.Context, method, resource string) HTTPDiagnostic {
+	var id [12]byte
+	_, _ = rand.Read(id[:])
+	d := HTTPDiagnostic{Method: method, Resource: resource, RequestID: hex.EncodeToString(id[:]), started: time.Now(), TimeoutMS: c.http.Timeout.Milliseconds()}
+	if deadline, ok := ctx.Deadline(); ok {
+		d.HasDeadline = true
+		d.DeadlineRemainingMS = time.Until(deadline).Milliseconds()
+	}
+	return d
 }
 
 type Client struct {
@@ -102,12 +119,13 @@ func (c *Client) Bind(ctx context.Context, s *localstore.Store) error {
 	return s.BindDestinationWithLegacy(ctx, identity, identity+"\n"+*proof.Suffix)
 }
 func (c *Client) post(ctx context.Context, path string, raw []byte, headers map[string]string) (body []byte, result Result) {
-	diagnostic := HTTPDiagnostic{Method: http.MethodPost, Resource: path}
+	diagnostic := c.newHTTPDiagnostic(ctx, http.MethodPost, path)
 	defer func() { c.reportHTTP(ctx, diagnostic, result) }()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/clients/"+url.PathEscape(c.clientID)+"/aidr/"+path, bytes.NewReader(raw))
 	if err != nil {
 		return nil, Result{Code: "aidr_upload_request_invalid"}
 	}
+	req.Header.Set("X-Request-ID", diagnostic.RequestID)
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept-Encoding", "identity")
@@ -116,12 +134,17 @@ func (c *Client) post(ctx context.Context, path string, raw []byte, headers map[
 	}
 	response, err := c.http.Do(req)
 	if err != nil {
+		diagnostic.Error = err.Error()
 		return nil, Result{Code: "aidr_upload_transport", Retryable: true}
 	}
 	defer response.Body.Close()
 	diagnostic.StatusCode = response.StatusCode
+	diagnostic.ServerRequestID = response.Header.Get("X-Request-ID")
 	data, err := io.ReadAll(io.LimitReader(response.Body, 65537))
 	if err != nil || len(data) > 65536 {
+		if err != nil {
+			diagnostic.Error = err.Error()
+		}
 		return nil, Result{Code: "aidr_upload_response_invalid", Retryable: true}
 	}
 	diagnostic.ServerCode = responseErrorCode(data)
@@ -179,7 +202,11 @@ func responseErrorCode(data []byte) string {
 }
 
 func (c *Client) reportHTTP(ctx context.Context, diagnostic HTTPDiagnostic, result Result) {
-	if c.observeHTTP != nil && ctx.Err() == nil {
+	if c.observeHTTP != nil && !errors.Is(ctx.Err(), context.Canceled) {
+		diagnostic.DurationMS = time.Since(diagnostic.started).Milliseconds()
+		if err := ctx.Err(); err != nil {
+			diagnostic.ContextError = err.Error()
+		}
 		diagnostic.Code, diagnostic.Retryable = result.Code, result.Retryable
 		c.observeHTTP(diagnostic)
 	}

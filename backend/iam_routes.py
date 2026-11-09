@@ -8,6 +8,8 @@ to management JWT authentication after FastAPI has selected an endpoint.
 def route_permission(request):
     path = getattr(request.scope.get("route"), "path", request.url.path)
     method = request.method
+    if path == "/api/v1/clients/{client_id}/diagnostics/logs":
+        return "clients:diagnostics"
     if path == "/api/v1/dify-runtime/bindings":
         return "agents:view" if method == "GET" else "agents:update"
     if path.startswith("/api/v1/dify-runtime/") and path.endswith("/review"):

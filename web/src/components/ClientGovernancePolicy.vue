@@ -1,7 +1,7 @@
 <template>
   <a-modal :open="open" :title="t(impact ? 'clientGovernance.preview' : clientId ? 'clientPolicy.settings' : 'clientPolicy.globalSettings')" width="820px" class="client-governance-modal" :style="{ top: '24px', paddingBottom: 0, margin: '0 auto' }" :closable="!modalBusy" :mask-closable="!modalBusy" :keyboard="!modalBusy" :z-index="1010" @cancel="close">
     <nav v-if="!impact" class="settings-navigation" :aria-label="t('clientPolicy.navigation')">
-      <button v-for="section in settingsSections" :key="section" type="button" :disabled="modalBusy || !!impact" :aria-pressed="settingsSection === section" @click="settingsSection = section">{{ section === 'risk' ? t('securityRules.title') : t(`clientPolicy.${section === 'audit' ? 'content' : section}`) }}</button>
+      <button v-for="section in settingsSections" :key="section" type="button" :disabled="modalBusy || !!impact" :aria-pressed="settingsSection === section" @click="settingsSection = section">{{ section === 'diagnostics' ? t('clientDiagnostics.title') : section === 'risk' ? t('securityRules.title') : t(`clientPolicy.${section === 'audit' ? 'content' : section}`) }}</button>
     </nav>
     <a-tabs v-show="!impact && settingsSection === 'skills'" v-model:active-key="skillSection" size="small" :aria-label="t('clientPolicy.skills')">
       <a-tab-pane v-if="can('settings:view')" key="usage" :tab="t('clientPolicy.usageAudit')" :disabled="modalBusy || !!impact" />
@@ -10,6 +10,7 @@
     <AidrRedactionSettings v-if="open && auditVisited && can('settings:view')" v-show="settingsSection === 'audit'" :key="clientId" ref="auditSettings" :client-id="clientId" embedded external-actions />
     <AidrRedactionSettings v-if="open && skillsVisited && can('settings:view')" v-show="settingsSection === 'skills' && skillSection === 'usage'" :key="clientId" ref="skillAuditSettings" :client-id="clientId" embedded external-actions section="skill" @saved="emit('saved')" />
     <ClientDiscoveryConfig v-if="open && discoveryVisited && can('clients:view')" v-show="settingsSection === 'discovery'" :key="clientId" ref="discoverySettings" :client-id="clientId" @saved="emit('saved')" />
+    <ClientDiagnosticSettings v-if="open && diagnosticsVisited && can('clients:view')" v-show="settingsSection === 'diagnostics'" :key="clientId" ref="diagnosticSettings" :client-id="clientId || ''" @saved="emit('saved')" />
     <ClientSecurityRules v-if="open && riskVisited" v-show="settingsSection === 'risk'" :key="clientId" ref="riskSettings" :client-id="clientId" :active="settingsSection === 'risk'" @saved="emit('saved')" @global="emit('global-risk')" @configure="settingsSection = 'runtime'" />
     <a-spin v-if="can('clients:view')" v-show="activeTab === 'integration'" :spinning="loading">
       <a-alert v-if="policyError" type="error" show-icon :message="t('clientGovernance.policyLoadFailed')" :description="policyError"><template #action><a-button :disabled="loading" @click="load">{{ t('clientGovernance.retryLoad') }}</a-button></template></a-alert>
@@ -229,6 +230,7 @@
       <div class="actions">
         <a-button v-if="activeTab === 'integration' && impact" :disabled="modalBusy" @click="impact = null">{{ t('clientGovernance.back') }}</a-button>
         <a-button v-if="!impact" :disabled="modalBusy" @click="close">{{ t('clientGovernance.cancel') }}</a-button>
+        <a-button v-if="activeTab === 'diagnostics' && can('clients:update')" type="primary" :loading="diagnosticSettings?.busy" :disabled="!diagnosticSettings?.canSave" @click="diagnosticSettings.save()">{{ t('clientDiagnostics.save') }}</a-button>
         <a-button v-if="activeTab === 'integration' && policy" type="primary" :loading="busy" :disabled="!editable || busy || (impact && !canConfirm)" @click="impact ? save() : preview()">{{ t(impact ? 'clientGovernance.confirm' : settingsSection === 'skills' ? 'clientPolicy.saveClassification' : 'clientGovernance.preview') }}</a-button>
         <a-button v-if="activeTab === 'audit' && auditSettings?.editable" type="primary" :loading="auditSettings.busy" :disabled="!auditSettings.canReview" @click="auditSettings.review()">{{ t('clientGovernance.preview') }}</a-button>
         <a-button v-if="activeTab === 'skillAudit' && skillAuditSettings?.editable" type="primary" :loading="skillAuditSettings.busy" :disabled="!skillAuditSettings.canReview" @click="skillAuditSettings.review()">{{ t('clientPolicy.saveUsage') }}</a-button>
@@ -247,6 +249,7 @@ import { computed, ref, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AidrRedactionSettings from './AidrRedactionSettings.vue'
 import ClientDiscoveryConfig from './ClientDiscoveryConfig.vue'
+import ClientDiagnosticSettings from './ClientDiagnosticSettings.vue'
 import ClientProtectionStatus from './ClientProtectionStatus.vue'
 import { message } from 'ant-design-vue'
 import { can } from '../access'
@@ -256,11 +259,11 @@ const emit = defineEmits(['update:open', 'saved', 'global-risk'])
 const { t } = useI18n()
 const settingsSection = ref('runtime')
 const skillSection = ref('usage')
-const activeTab = computed(() => settingsSection.value === 'skills' && skillSection.value === 'usage' ? 'skillAudit' : ['audit', 'discovery', 'risk'].includes(settingsSection.value) ? settingsSection.value : 'integration')
+const activeTab = computed(() => settingsSection.value === 'skills' && skillSection.value === 'usage' ? 'skillAudit' : ['audit', 'discovery', 'risk', 'diagnostics'].includes(settingsSection.value) ? settingsSection.value : 'integration')
 const settingsSections = computed(() => {
   const clients = can('clients:view'), settings = can('settings:view')
   return [...(clients ? ['runtime'] : []), ...(settings ? ['audit'] : []),
-    ...(clients ? ['models', 'discovery', 'skills', 'desktop'] : settings ? ['skills'] : []),
+    ...(clients ? ['models', 'discovery', 'skills', 'desktop', 'diagnostics'] : settings ? ['skills'] : []),
     ...(clients || settings ? ['risk'] : [])]
 })
 const riskVisited = ref(false)
@@ -270,6 +273,8 @@ const skillsVisited = ref(false)
 const skillAuditSettings = ref(null)
 const discoveryVisited = ref(false)
 const discoverySettings = ref(null)
+const diagnosticSettings = ref(null)
+const diagnosticsVisited = ref(false)
 const menuKeys = ['discover', 'models', 'records', 'runtime-governance']
 const desktopMenus = ref({})
 let loadedPolicyPayload = ''
@@ -284,7 +289,7 @@ function setDesktopMenu(menu, value) {
 }
 const policy = ref(null), rules = ref({}), impact = ref(null), loading = ref(false), busy = ref(false)
 const auditSettings = ref(null)
-const modalBusy = computed(() => loading.value || busy.value || riskSettings.value?.busy || auditSettings.value?.busy || auditSettings.value?.reviewOpen || discoverySettings.value?.busy || skillAuditSettings.value?.busy || skillAuditSettings.value?.reviewOpen)
+const modalBusy = computed(() => loading.value || busy.value || diagnosticSettings.value?.busy || riskSettings.value?.busy || auditSettings.value?.busy || auditSettings.value?.reviewOpen || discoverySettings.value?.busy || skillAuditSettings.value?.busy || skillAuditSettings.value?.reviewOpen)
 function close() { if (!modalBusy.value) emit('update:open', false) }
 const promptGuard = ref({ mode: 'log', llm_review: false }), inheritPrompt = ref(false)
 const compression = ref({ enabled: false, level: 'auto' }), inheritCompression = ref(false)
@@ -496,6 +501,7 @@ watch(() => [props.open, props.clientId, props.initialTab], () => {
   riskVisited.value = settingsSection.value === 'risk'
   auditVisited.value = settingsSection.value === 'audit'
   discoveryVisited.value = settingsSection.value === 'discovery'
+  diagnosticsVisited.value = false
   skillsVisited.value = settingsSection.value === 'skills'
   skillSection.value = can('settings:view') ? 'usage' : 'classification'
   load()
@@ -504,6 +510,7 @@ watch(settingsSection, section => {
   if (section === 'risk') riskVisited.value = true
   if (section === 'audit') auditVisited.value = true
   if (section === 'discovery') discoveryVisited.value = true
+  if (section === 'diagnostics') diagnosticsVisited.value = true
   if (section === 'skills') skillsVisited.value = true
 })
 watch(activeTab, tab => { if (props.open && tab === 'integration' && !policy.value && !loading.value) load() })

@@ -39,6 +39,7 @@ from .routers import (
     asset_lifecycle,
     auth,
     clients,
+    client_diagnostics,
     dashboard,
     external_ai_gateways,
     iam,
@@ -111,6 +112,8 @@ async def application_lifespan(_: FastAPI):
     warmup_skill_scanner()
     retention_task = asyncio.create_task(runtime_trace_retention_loop())
     pipeline_retention_task = asyncio.create_task(retention_loop(cleanup_pipeline_traces_once, "pipeline trace"))
+    from .client_diagnostics import cleanup_once as cleanup_diagnostics
+    diagnostics_retention_task = asyncio.create_task(retention_loop(cleanup_diagnostics, "client diagnostics"))
     from .request_leases import cleanup_expired_leases
     lease_retention_task = asyncio.create_task(retention_loop(cleanup_expired_leases, "request leases"))
     from .aidr_retention import retention_loop as aidr_retention_loop
@@ -131,6 +134,7 @@ async def application_lifespan(_: FastAPI):
         yield
     finally:
         retention_task.cancel()
+        diagnostics_retention_task.cancel()
         pipeline_retention_task.cancel()
         lease_retention_task.cancel()
         aidr_retention_task.cancel()
@@ -150,6 +154,8 @@ async def application_lifespan(_: FastAPI):
             await asset_task
         with suppress(asyncio.CancelledError):
             await retention_task
+        with suppress(asyncio.CancelledError):
+            await diagnostics_retention_task
         with suppress(asyncio.CancelledError):
             await pipeline_retention_task
         with suppress(asyncio.CancelledError):
@@ -224,6 +230,7 @@ app.include_router(dify_runtime.router, prefix=settings.API_PREFIX)
 app.include_router(mcp_gateway.admin_router, prefix=f"{settings.API_PREFIX}/v1", dependencies=[Depends(get_current_admin_user)])
 app.include_router(mcp_gateway.runtime_router)
 app.include_router(clients.router, prefix=settings.API_PREFIX)
+app.include_router(client_diagnostics.router, prefix=settings.API_PREFIX)
 app.include_router(dashboard.router, prefix=settings.API_PREFIX)
 app.include_router(aidr.router, prefix=settings.API_PREFIX)
 app.include_router(aidr.global_tool_router, prefix=settings.API_PREFIX)
@@ -289,6 +296,14 @@ def ensure_sqlite_schema() -> None:
     from .external_access_models import upgrade_external_access_schema
     upgrade_external_access_schema(engine)
     Base.metadata.create_all(bind=engine)
+    for index in models.ClientTask.__table__.indexes:
+        index.create(engine, checkfirst=True)
+    from .client_diagnostics import ensure_indexes, initialize_usage
+    ensure_indexes(engine)
+    with SessionLocal() as db:
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        initialize_usage(db)
+        db.commit()
     from .aidr_migrations import upgrade_aidr_schema
     upgrade_aidr_schema(engine)
     from .aidr_risk import RiskFinding

@@ -269,6 +269,8 @@ func writeDiagnostic(root string, record DiagnosticRecord) error {
 	record.Time = now.Format("2006-01-02T15:04:05.000Z07:00")
 	record.Version = Version
 	record.PID = os.Getpid()
+	// Preserve the original record in the independent platform upload queue.
+	queueErr := enqueueDiagnostic(root, record)
 	if record.Fields != nil {
 		fields, e := diagnosticSanitizer(root)(record.Fields)
 		if e != nil {
@@ -312,7 +314,7 @@ func writeDiagnostic(root string, record DiagnosticRecord) error {
 	if err != nil {
 		return err
 	}
-	return closeErr
+	return errors.Join(closeErr, queueErr)
 }
 
 // LogDiagnostic never replaces a business error with a logging failure.
@@ -323,6 +325,8 @@ func (store *Store) LogDiagnostic(level, module, event string, fields map[string
 }
 
 type syncDiagnosticFailure struct {
+	incidentID  string
+	requestID   any
 	message     string
 	first, last time.Time
 	count       int
@@ -345,6 +349,10 @@ func RecordBackgroundSyncDiagnostic(home, kind string, err error, fields map[str
 }
 
 func recordSyncTransition(root string, record func(string, string, string, map[string]any), kind string, err error, contextFields ...map[string]any) {
+	var reported reportedDiagnosticError
+	if errors.As(err, &reported) {
+		return
+	}
 	syncDiagnosticMu.Lock()
 	defer syncDiagnosticMu.Unlock()
 	key := root + ":" + kind
@@ -352,32 +360,59 @@ func recordSyncTransition(root string, record func(string, string, string, map[s
 	now := time.Now()
 	if err == nil {
 		if exists {
-			record("info", kind, "sync_recovered", map[string]any{"first_failed_at": previous.first.Format(time.RFC3339Nano), "failure_count": previous.count, "duration_ms": now.Sub(previous.first).Milliseconds()})
+			fields := map[string]any{}
+			if len(contextFields) > 0 {
+				for k, v := range contextFields[0] {
+					fields[k] = v
+				}
+			}
+			fields["incident_id"] = previous.incidentID
+			fields["first_request_id"] = previous.requestID
+			fields["last_error"] = previous.message
+			fields["first_failed_at"] = previous.first.Format(time.RFC3339Nano)
+			fields["failure_count"] = previous.count
+			fields["outage_duration_ms"] = now.Sub(previous.first).Milliseconds()
+			record("info", kind, "sync_recovered", fields)
 			delete(syncDiagnosticFailures, key)
 		}
 		return
 	}
-	message := redactDiagnostic(err.Error())
+	message := err.Error()
 	if !exists || previous.message != message {
-		if exists {
-			record("warning", kind, "sync_error_summary", map[string]any{"error": previous.message, "count": previous.count, "first_failed_at": previous.first.Format(time.RFC3339Nano)})
+		if !exists {
+			id, idErr := diagnosticID()
+			if idErr != nil {
+				return
+			}
+			previous = syncDiagnosticFailure{incidentID: id, first: now, last: now}
 		}
-		previous = syncDiagnosticFailure{message: message, first: now, last: now, count: 1}
-		fields := map[string]any{"error": message}
+		previous.message = message
+		previous.count++
+		fields := map[string]any{"error": message, "incident_id": previous.incidentID}
 		if len(contextFields) > 0 {
 			for key, value := range contextFields[0] {
 				fields[key] = value
 			}
 		}
+		if previous.requestID == nil {
+			previous.requestID = fields["request_id"]
+		}
 		record("error", kind, "sync_failed", fields)
 	} else {
 		previous.count++
+		// Local log suppression must not hide repeated failures from the upload aggregation.
+		_ = enqueueDiagnostic(root, DiagnosticRecord{Time: now.Format(time.RFC3339Nano), Level: "ERROR", Module: kind, Event: "sync_failed", Version: Version, PID: os.Getpid(), Fields: map[string]any{"error": message, "incident_id": previous.incidentID}})
 		if now.Sub(previous.last) >= time.Minute {
 			record("warning", kind, "sync_error_summary", map[string]any{"error": message, "count": previous.count, "first_failed_at": previous.first.Format(time.RFC3339Nano), "duration_ms": now.Sub(previous.first).Milliseconds()})
 			previous.last = now
 		}
 	}
 	syncDiagnosticFailures[key] = previous
+}
+
+func diagnosticRecovery(record DiagnosticRecord) bool {
+	id, ok := record.Fields["incident_id"].(string)
+	return strings.EqualFold(record.Level, "info") && record.Event == "sync_recovered" && ok && len(id) == 32
 }
 
 func RecordCommandDiagnostic(home, command string, started time.Time, err error) {

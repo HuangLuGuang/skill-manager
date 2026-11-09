@@ -1,4 +1,5 @@
 import { overviewTabsMessages } from './overview-tabs.js'
+import { clientDiagnosticsMessages } from './clientDiagnostics.js'
 import { deviceAssignmentMessages } from './deviceAssignment.js'
 import { clientSummaryMessages } from './clientSummary.js'
 import { promptGuardMessages } from './prompt-guard.js'
@@ -174,6 +175,7 @@ export const i18n = createI18n({
       clientGovernance: clientGovernanceMessages['zh-CN'],
       aidr: aidrMessages['zh-CN'],
       clientDiscovery: clientDiscoveryMessages['zh-CN'],
+      clientDiagnostics: clientDiagnosticsMessages['zh-CN'],
       skillColumns: skillColumnMessages['zh-CN'],
       skillFilters: {
         all: 'ALL（全部状态）', scanning: 'SCANNING（检测中）', awaitingReview: 'VETTED（待审核）',
@@ -1366,6 +1368,7 @@ export const i18n = createI18n({
       clientGovernance: clientGovernanceMessages['en-US'],
       aidr: aidrMessages['en-US'],
       clientDiscovery: clientDiscoveryMessages['en-US'],
+      clientDiagnostics: clientDiagnosticsMessages['en-US'],
       skillColumns: skillColumnMessages['en-US'],
       skillFilters: {
         all: 'ALL（全部状态）', scanning: 'SCANNING（检测中）', awaitingReview: 'VETTED（待审核）',

@@ -323,7 +323,7 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 				request, cancel := context.WithTimeout(ctx, 30*time.Second)
 				err := callback(request)
 				cancel()
-				if kind != "events" {
+				if kind != "events" && kind != "diagnostics" {
 					syncError(store, kind, err)
 				}
 				select {
@@ -339,6 +339,15 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		heartbeatInterval = 10 * time.Second
 	}
 	periodic(heartbeatInterval, "heartbeat", func(request context.Context) error { return heartbeatOnce(request, home, api, store) })
+	periodic(30*time.Second, "diagnostics", func(request context.Context) error {
+		err := uploadDiagnostics(request, api, store.root, clientIDForHome(home))
+		status := ""
+		if err != nil {
+			status = redactDiagnostic(err.Error())
+		}
+		_ = store.SetState("diagnostics:upload_error", status)
+		return err
+	})
 	if AIDRRuntimeInspect != nil {
 		periodic(5*time.Minute, "aidr_runtime_inspect", func(request context.Context) error {
 			return AIDRRuntimeInspect(request, home, cachedPolicy(store))

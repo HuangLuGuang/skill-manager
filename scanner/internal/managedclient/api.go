@@ -206,14 +206,14 @@ func (api API) WaitTasksWithUpdatesAndScans(ctx context.Context, clientID string
 	if err != nil {
 		return nil, ClientUpdateVersions{}, nil, err
 	}
-	response, err := api.http.Do(request)
+	response, err := api.do(request)
 	if err != nil {
 		return nil, ClientUpdateVersions{}, nil, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		detail, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return nil, ClientUpdateVersions{}, nil, fmt.Errorf("Agent Manager 返回 %s: %s", response.Status, strings.TrimSpace(string(detail)))
+		return nil, ClientUpdateVersions{}, nil, api.responseError(response, strings.TrimSpace(string(detail)))
 	}
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
@@ -410,14 +410,14 @@ func (api API) DownloadPackageVersion(ctx context.Context, clientID, skillID, ve
 	if err != nil {
 		return nil, err
 	}
-	response, err := api.http.Do(request)
+	response, err := api.do(request)
 	if err != nil {
 		return nil, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		detail, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return nil, fmt.Errorf("Agent Manager 返回 %s: %s", response.Status, strings.TrimSpace(string(detail)))
+		return nil, api.responseError(response, strings.TrimSpace(string(detail)))
 	}
 	return io.ReadAll(io.LimitReader(response.Body, 100*1024*1024))
 }
@@ -496,14 +496,14 @@ func (api API) postJSON(ctx context.Context, path string, payload any, result an
 		return err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	response, err := api.http.Do(request)
+	response, err := api.do(request)
 	if err != nil {
 		return err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		detail, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return fmt.Errorf("Agent Manager 返回 %s: %s", response.Status, strings.TrimSpace(string(detail)))
+		return api.responseError(response, strings.TrimSpace(string(detail)))
 	}
 	if result != nil {
 		if err := json.NewDecoder(response.Body).Decode(result); err != nil {
@@ -518,14 +518,14 @@ func (api API) getJSON(ctx context.Context, path string, result any) error {
 	if err != nil {
 		return err
 	}
-	response, err := api.http.Do(request)
+	response, err := api.do(request)
 	if err != nil {
 		return err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		detail, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return fmt.Errorf("Agent Manager 返回 %s: %s", response.Status, strings.TrimSpace(string(detail)))
+		return api.responseError(response, strings.TrimSpace(string(detail)))
 	}
 	return json.NewDecoder(response.Body).Decode(result)
 }

@@ -512,3 +512,8 @@ export const getPromptGuardCategories = () => api.get('/v1/prompt-guard/categori
 export const getRsGuardCategories = () => api.get('/v1/prompt-guard/rsguard-categories')
 
 export const testPromptGuardCheck = data => api.post('/v1/prompt-guard/check-test', data, { timeout: 195000 })
+
+export const getClientDiagnosticSettings = clientId => api.get('/v1/clients/diagnostics/settings', { params: { client_id: clientId || undefined } })
+export const saveClientDiagnosticSettings = (clientId, data) => api.put('/v1/clients/diagnostics/settings', data, { params: { client_id: clientId || undefined } })
+export const getClientDiagnosticLogs = (clientId, params) => api.get(`/v1/clients/${encodeURIComponent(clientId)}/diagnostics/logs`, { params })
+export const downloadClientDiagnosticLogs = (clientId, params) => api.get(`/v1/clients/${encodeURIComponent(clientId)}/diagnostics/logs`, { params: { ...params, download: true }, responseType: 'blob' })

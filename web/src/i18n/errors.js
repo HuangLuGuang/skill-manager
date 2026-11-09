@@ -2,6 +2,8 @@ import { formatMcpFieldError } from './mcpServerForm.js'
 import { scanScheduleMessages } from './scanSchedule.js'
 import { skillAuditReview } from './skill-audit-review.js'
 const errorMessages = {
+  'client.diagnostics.invalid': { 'zh-CN': '运行日志参数无效或超过限制', 'en-US': 'Invalid or oversized runtime log parameters' },
+  'client.diagnostics.binding': { 'zh-CN': '凭据未绑定此客户端', 'en-US': 'Credential is not bound to this client' },
   'client.assignment_too_long': { 'zh-CN': '使用人最多128字符，备注最多1000字符', 'en-US': 'Device user allows up to 128 characters; notes allow up to 1000' },
   'aidr.hook_command_networks_upgrade_required': { 'zh-CN': '请先升级客户端，等待 IP 网段匹配能力上报后重新保存。', 'en-US': 'Upgrade the client and wait for IP subnet capability reporting, then save again.' },
   'aidr.hook_command_keywords_upgrade_required': { 'zh-CN': '请先升级客户端，等待命令关键词匹配能力上报后重新保存。', 'en-US': 'Upgrade the client and wait for command keyword capability reporting, then save again.' },

@@ -856,7 +856,7 @@ def _client_related(db: Session, rows) -> dict:
     for offset in range(0, len(ids), 200):
         part = ids[offset:offset + 200]
         policies = client_governance.policy_views(db, part)
-        group = {cid: dict(agents=[], skills=[], recovery=[], classification=policies[cid], issues=0, alerts=0)
+        group = {cid: dict(agents=[], skills=[], recovery=[], classification=policies[cid], alerts=0)
                  for cid in part}
         clients = {row.client_id: row for row in rows if row.client_id in group}
         credentials = {}
@@ -872,18 +872,12 @@ def _client_related(db: Session, rows) -> dict:
             for item in db.query(model).filter(model.client_id.in_(part)):
                 group[item.client_id][key].append(item)
         event = models.ClientEvent
-        latest = db.query(func.max(event.id).label('event_id')).filter(
-            event.client_id.in_(part), event.skill_name.is_not(None)).group_by(
-                event.client_id, event.agent_type, event.skill_name).subquery()
-        for cid, count in db.query(event.client_id, func.count(event.id)).join(
-                latest, event.id == latest.c.event_id).filter(event.event_type.in_(
-                    ('unmanaged_skill_found', 'skill_modified', 'skill_blocked', 'skill_quarantined'))
-                ).group_by(event.client_id):
-            group[cid]['issues'] = count
         for cid, count in db.query(event.client_id, func.count(event.id)).filter(
                 event.client_id.in_(part), event.event_type == 'aidr_skill_alert',
                 func.json_extract(event.details_json, '$.active') == 1).group_by(event.client_id):
             group[cid]['alerts'] = count
+        from ..client_issues import batch_issues
+        batch_issues(db, clients, group)
         result.update(group)
     return result
 
@@ -891,17 +885,8 @@ def _client_related(db: Session, rows) -> dict:
 def _client_response(db: Session, row: models.ManagedClient, *, related=None) -> dict:
     data = related if related is not None else _client_related(db, [row])[row.client_id]
     agents, skills, classification = data['agents'], data['skills'], data['classification']
-    issue_count = data['issues']
-    if classification["enabled"] and classification["supported"]:
-        affected_paths = set()
-        for skill in skills:
-            observation = _load(skill.governance_json, {})
-            if not observation or observation.get("signature") != skill.signature:
-                continue
-            if (observation.get("trigger") in client_governance.ACTIONS and observation.get("action") != "record_only") or observation.get("action_status") == "failed":
-                affected_paths.add(skill.skill_path)
-        issue_count = len(affected_paths)
-    issue_count += data['alerts']
+    issues = data['current_issues']
+    issue_count = sum(item['count'] for item in issues)
     online = bool(row.last_seen_at and datetime.utcnow() - row.last_seen_at <= _CLIENT_ONLINE_WINDOW)
     return {
         "client_id": row.client_id,
@@ -920,6 +905,9 @@ def _client_response(db: Session, row: models.ManagedClient, *, related=None) ->
         "assignment_note": row.assignment_note,
         "created_at": row.created_at,
         "issue_count": issue_count,
+        "issues": issues,
+        "issue_task_ids": data['issue_task_ids'],
+        "issue_skill_paths": data['issue_skill_paths'],
         "recovery": [_load(item.details_json, {}) for item in data['recovery']],
         "model_routing": classification["model_routing"],
         "agents": [
@@ -2745,6 +2733,11 @@ def get_client(
     _ensure_visible(row, current_user)
     result = _client_response(db, row)
     result["tasks"] = _task_history(db, client_id)
+    existing = {task['id'] for task in result['tasks']}
+    missing = set(result['issue_task_ids']) - existing
+    if missing:
+        result['tasks'].extend(_task_history(db, client_id, rows=db.query(models.ClientTask).filter(
+            models.ClientTask.client_id == client_id, models.ClientTask.id.in_(missing)).all()))
     events = db.query(models.ClientEvent).filter(
         models.ClientEvent.client_id == client_id,
         models.ClientEvent.event_type.notin_(("client_registered", "takeover_completed")),
