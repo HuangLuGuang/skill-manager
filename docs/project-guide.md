@@ -295,6 +295,10 @@ Agent Manager 用一套“提交、扫描、审批、签名、运行时校验、
 
 ### 2.1 当前产品能力地图
 
+桌面客户端“Agent 运行治理 → 接入与采集”按产品展示日志与 Hook 两行状态，默认列出已检查发现的产品和平台指定产品，可展开支持目录。平台自动安装的目标显示“平台自动管理”，不提供本机启用、更新和移除；允许本机接入的产品保留接入操作。系统级受管安装需要授权时保留本机授权及影响说明，宿主信任或启用步骤按实际状态提示。诊断与历史问题默认收起，已有采集缺口和错误原文保留。日志“已纳入策略”、Hook“已配置”和平台报告确认分别表示各自状态，未取得逐产品上传证据时不展示推测的采集成功时间。
+
+The desktop Connection and collection page shows two status rows per product: logs and Hooks. It lists discovered and policy-selected products, with access to the supported catalog. Automatic installation targets show a platform-managed badge without local enable, update or removal actions. Local setup actions remain where allowed; managed installation retains required local authorization and its impact notice. Host trust and enablement instructions appear when needed. Diagnostics and collection history are collapsed by default. Policy inclusion, installed configuration and acknowledged platform reports remain separate states; per-product upload timestamps are only shown when supported by evidence.
+
 客户端管理顶部卡片统计当前账号可见的全部设备：客户端总数、在线客户端（附离线数）、已发现 Agent 实例（附支持 Skill 管理的数量）及存在异常的客户端数。点击在线、离线、Agent 或异常卡片立即筛选下方列表，再次点击取消该条件；可与使用人表头搜索组合，点击总数或清空筛选恢复全部设备。筛选回到第一页并保留每页数量和排序；刷新保留筛选。异常按设备去重，不等于待处理工单数；状态列中的异常数量可进入该客户端的 Skill 事件记录。在线按最近10分钟心跳判断，以最近刷新结果为准。卡片筛选复用本次列表数据，不额外请求接口。
 
 Client summary cards show all devices visible to the current account. Select online, offline, discovered Agents or Clients with issues to filter the table; select again to clear that condition. Device-user search combines with the card filter. Total Clients and Clear filters reset all filters. Filtering resets the page while preserving page size and sorting; refresh preserves filters. Issues count distinct devices, not pending tickets; issue links open the Client's Skill event records. Online status uses a heartbeat within 10 minutes of the latest refresh. Card filtering reuses loaded data without additional requests.
