@@ -6,6 +6,34 @@
 
 ## 客户端界面配置 / Client interface configuration
 
+### 客户端运行日志上传 / Client runtime log upload
+
+同步错误使用 `incident_id` 关联首次失败、重复计数和一次恢复记录；恢复保留 INFO 级别，ERROR 上传策略也包含对应恢复，关闭上传时均停止。恢复记录包含首次请求 ID、恢复请求 ID、最后错误、失败次数和持续时间；正常连续成功不产生日志。HTTP 诊断记录底层网络错误、客户端/服务端请求 ID、耗时及超时上下文，同一次请求不再重复上报业务层错误。恢复复用有容量上限的离线队列及发送限流，不增加定时请求。当前故障状态保存在进程内，跨进程重启无法自动接续旧故障；已入队的错误和恢复记录仍可补传。
+
+Sync failures share an `incident_id` across failure records and a single recovery. Recovery remains INFO but is included under ERROR upload policies; OFF stops both. Records include request IDs, the last error, failure count and outage duration. HTTP diagnostics retain underlying errors, client/server request IDs and timeout context without duplicate business-layer failure logs. Recovery uses the existing bounded queue and send rate limit. Active incidents are process-local; queued records survive restarts, but recovery cannot automatically close an incident from an earlier process.
+
+“全局客户端配置 → 运行日志”设置上传最低级别，未配置时默认 ERROR；单个客户端的配置可跟随全局或覆盖为关闭、DEBUG、INFO、WARN、ERROR。已有明确保存的设置保持不变，包括 OFF 和旧 DEBUG/INFO。之后保存 DEBUG/INFO 时启用一小时排障期限，到期恢复 ERROR；继承全局时沿用全局期限，客户端离线时也按缓存期限恢复 ERROR。选择 WARN 时包含 ERROR。客户端需要升级到包含此功能的版本，在线后台每 30 秒读取策略；只缓存策略启用后新产生的客户端结构化运行日志，包含后台同步、网络失败、命令和桌面错误等已接入诊断记录的来源。
+
+上传队列保存原始日志内容，不做脱敏，与 Agent 会话和工具事件采集分开。断网时持久化缓存，客户端重启后仍保留；恢复后分批补传，平台确认后删除，重复请求以客户端和记录 ID 去重。关闭上传会停止新增缓存及发送，已有缓存保留；重新启用后只发送符合当前级别的缓存。切换平台或客户端身份时，旧目的地的缓存不会发送到新目的地。
+
+同一客户端、模块、事件、版本、故障标识及错误内容的 ERROR 首次立即入队；重复错误只累计次数，每五分钟生成一条汇总，包含额外重复次数、首次与末次时间，原始内容保持不变。同步恢复时以恢复记录中的累计失败次数收尾，停止该故障后续汇总；没有恢复信号的错误仍发送最后一条汇总。聚合状态持久化，重启保留，最多保存 1,000 种错误；超限淘汰最旧聚合并统计未上报的重复次数。新 ERROR 入队限制为每分钟 100 条；ERROR 与恢复记录共享每分钟 100 条发送额度。入队超限记录丢弃数量，发送超限留在队列等待，失败重试也占用发送额度。
+
+本地队列最多 2,000 条、每条 64 KiB（队列正文最多 125 MiB，另有至多 1,000 条聚合样本）；达到上限先淘汰最低级别中最旧的记录，超大记录同样计入丢弃数量。恢复上传时发送累计丢弃数量。每 30 秒最多发送 100 条、约 512 KiB。平台按接收时间保留 7 天，每客户端最多 10,000 条，全平台日志正文最多 1 GiB；接收时和后台按索引分批清理最旧记录，单次容量清理最多 500 条。首次升级对已有正文做一次容量统计，后续由数据库触发器维护计数，日常接收不扫描历史正文。SQLite 回收的页由后续写入复用，不自动执行阻塞式 VACUUM；正文容量不包含数据库索引及其他业务数据。
+
+客户端详情默认进入“概览”，运行日志从右上角“更多 → 运行日志”打开独立抽屉，关闭后保留原页签。日志仅在打开抽屉时加载，支持时间、级别、模块、版本及内容搜索、分页、查看原文和下载当前页 JSONL。查看需要 `clients:diagnostics`，下载还需 `clients:diagnostics-export`；两项权限均独立授权，并继续限制客户端可见范围。查看、下载和配置修改记入管理审计。此功能包含 Go 客户端、平台 API 和管理界面改动，需要平台与客户端同时升级。
+
+Client details open on Overview. Use **More → Runtime logs** at the top right to open the log drawer. Logs load only when opened; closing the drawer preserves the underlying tab.
+
+**Global client configuration → Runtime logs** defaults to ERROR when unconfigured. Individual clients inherit it or override it with OFF, DEBUG, INFO, WARN or ERROR. Existing saved settings, including OFF and older DEBUG/INFO settings, remain unchanged. Saving DEBUG/INFO starts a one-hour troubleshooting period that returns to ERROR on expiry; inherited settings share the global deadline, and clients honor cached deadlines offline. WARN includes ERROR. Updated clients fetch the policy every 30 seconds and queue new structured client diagnostics emitted after upload is enabled, including instrumented background synchronization, network failures, commands and desktop errors.
+
+The upload queue preserves original content without redaction, independently of Agent session and tool collection. It persists across disconnections and restarts, retries automatically, and removes records only after acknowledgement. The platform deduplicates by client and record ID. Disabling upload stops new queue entries and transmission but retains pending records; re-enabling sends entries meeting the current level. Records for a previous platform or client identity are not sent to a new destination.
+
+The first ERROR for a client, module, event, version, incident ID and error content is queued immediately. Repetitions update a durable counter and produce a summary every five minutes with the additional occurrence count and first/last timestamps, preserving original content. Sync recovery carries the final failure count and stops further summaries for that incident. Errors without a recovery signal still send their final summary. Aggregation survives restarts and holds up to 1,000 error groups; evicting the oldest group counts its unreported repetitions as losses. ERROR capture allows 100 records per minute; ERROR and recovery share a transmission limit of 100 records per minute. Capture overflow is counted as lost, while transmission overflow stays queued. Failed attempts also consume transmission capacity.
+
+The queue holds up to 2,000 records of at most 64 KiB each (125 MiB of queued content, plus up to 1,000 aggregation samples). It evicts the oldest records at the lowest severity first and reports cumulative losses, including oversized records. Each 30-second cycle sends up to 100 records or approximately 512 KiB. Platform limits are 7 days from receipt, 10,000 records per client and 1 GiB of total log content. Ingestion and background cleanup delete the oldest records using indexed batches of up to 500 per capacity pass. Upgrade performs a one-time accounting of existing content; database triggers then maintain counters without rescanning historical content on ingestion. SQLite reuses freed pages without an automatic blocking VACUUM. The content cap excludes indexes and other application data.
+
+**Client details → Runtime logs** supports time, level, module, version and content filters, pagination, original content and current-page JSONL download. Viewing requires `clients:diagnostics`; downloads additionally require `clients:diagnostics-export`. Both retain client visibility restrictions. Reads, downloads and configuration changes are audited. Deploy the platform update and an updated Go client to enable this feature.
+
 管理台客户端详情通过“接入与采集”统一查看各 Agent 入口的日志状态、Hook 状态、最近 Hook 事件和待处理事项。详情中的“接入配置”保留安装、检查、升级、宿主授权指引和任务反馈；日志、Hook 与系统采集详情保留诊断依据。行为审计只展示活动与系统事件，采集摘要及空状态中的诊断入口携带当前产品和通道。收到历史事件与当前状态报告分别展示；生效模式复用安全规则的客户端执行状态。
 
 In the management console, **Connections & collection** lists log status, Hook status, the latest Hook event and required actions for each Agent entry. **Connection setup** retains installation, inspection, upgrades, host authorization instructions and task feedback. Log, Hook and system collection details retain diagnostic evidence. Behavior audit focuses on activity and system events; its status summary and empty-state links retain the selected product and channel. Historical event arrival and current status are shown separately. The effective mode uses the security rules' client execution status.
@@ -303,13 +331,21 @@ Agent Manager 用一套“提交、扫描、审批、签名、运行时校验、
 
 ### 2.1 当前产品能力地图
 
-创建客户端凭据时，“使用人 / Device user”默认选中当前登录用户，可搜索选择其他启用用户；可填写“备注 / Notes”（最多1000个字符）记录部门及设备用途。首次注册时继承到客户端；在客户端详情通过“修改使用人”办理补登记或人员交接，需有客户端修改权限，变更记录进入操作审计。更换凭据或重复注册保留客户端当前归属。凭据创建人继续用于既有权限判断；历史设备未登记时显示“未登记 / Not recorded”。桌面客户端在“概览 → 客户端信息”显示平台登记的使用人。
+桌面客户端“Agent 运行治理 → 接入与采集”按产品展示日志与 Hook 两行状态，默认列出已检查发现的产品和平台指定产品，可展开支持目录。平台自动安装的目标显示“平台自动管理”，不提供本机启用、更新和移除；允许本机接入的产品保留接入操作。系统级受管安装需要授权时保留本机授权及影响说明，宿主信任或启用步骤按实际状态提示。诊断与历史问题默认收起，已有采集缺口和错误原文保留。日志“已纳入策略”、Hook“已配置”和平台报告确认分别表示各自状态，未取得逐产品上传证据时不展示推测的采集成功时间。
+
+The desktop Connection and collection page shows two status rows per product: logs and Hooks. It lists discovered and policy-selected products, with access to the supported catalog. Automatic installation targets show a platform-managed badge without local enable, update or removal actions. Local setup actions remain where allowed; managed installation retains required local authorization and its impact notice. Host trust and enablement instructions appear when needed. Diagnostics and collection history are collapsed by default. Policy inclusion, installed configuration and acknowledged platform reports remain separate states; per-product upload timestamps are only shown when supported by evidence.
+
+客户端管理顶部卡片统计当前账号可见的全部设备：客户端总数、在线客户端（附离线数）、已发现 Agent 实例（附支持 Skill 管理的数量）及存在异常的客户端数。点击在线、离线、Agent 或异常卡片立即筛选下方列表，再次点击取消该条件；可与使用人表头搜索组合，点击总数或清空筛选恢复全部设备。筛选回到第一页并保留每页数量和排序；刷新保留筛选。异常覆盖采集、任务、治理和运行问题，按客户端去重。采集依据当前通道与上传状态，任务依据近7天同目标任务的最新结果，治理依据当前 Skill、策略回执与活跃告警，运行依据保留期内故障及恢复记录的关联标识；已恢复问题移出统计。状态列展示具体原因，点击进入对应采集通道、未恢复任务、异常 Skill、活跃告警或未恢复运行日志。离线设备通过离线卡片筛选。服务端批量汇总，任务与运行日志使用索引查询；无关联标识的历史错误保留在运行日志中。在线按最近10分钟心跳判断，以最近刷新结果为准。卡片筛选复用本次列表数据，不额外请求接口。
+
+Client summary cards show all devices visible to the current account. Select online, offline, discovered Agents or Clients with issues to filter the table; select again to clear that condition. Device-user search combines with the card filter. Total Clients and Clear filters reset all filters. Filtering resets the page while preserving page size and sorting; refresh preserves filters. Issues cover collection, tasks, governance and runtime failures, counting each Client once. Collection uses current channel and upload state; tasks use the latest result for each target within seven days; governance uses current Skills, policy receipts and active alerts; runtime failures match incident IDs with recovery records within log retention. Recovered issues leave the count. Reason links open the relevant collection channel, unresolved tasks, affected Skills, active alerts or unresolved runtime logs. Offline devices have a separate filter. The server aggregates in batches with indexed task and log queries. Historical errors without incident IDs remain available in runtime logs. Online status uses a heartbeat within 10 minutes of the latest refresh. Card filtering reuses loaded data without additional requests.
+
+创建客户端凭据时，“使用人 / Device user”默认选中当前登录用户，可搜索选择其他启用用户；可填写“备注 / Notes”（最多1000个字符）记录部门及设备用途。首次注册时继承到客户端；在客户端详情通过“修改使用人”办理补登记或人员交接，需有客户端修改权限，变更记录进入操作审计。凭据使用人实际变更后同步更新其绑定客户端，并记录操作审计；未指定时默认使用凭据创建人。只修改凭据其他字段、更换凭据或重复注册保留客户端已有归属。历史设备未登记时，读取最新绑定客户端凭据的使用人或创建人，无绑定凭据时使用登记人；均缺失才显示“未登记 / Not recorded”。凭据创建人继续用于既有权限判断。桌面客户端在“概览 → 客户端信息”显示平台返回的使用人。
 
 客户端详情的“修改使用人”支持从启用的平台用户中搜索选择，或自行填写姓名、工号（最多128个 Unicode 字符）。用户列表加载失败时可重试，已输入的内容保留。The Client assignment editor supports selecting an active platform user or entering a name or employee ID, up to 128 Unicode characters.
 
 客户端上传 Skill 时，平台按已绑定凭据记录本次客户端 ID、使用人、主机名、凭据标识及提交时间。Skill 列表的“提交人 / 来源”列默认隐藏，可在“显示列”中开启并保存偏好；管理台提交显示记录的提交人，客户端提交显示最近一次提交时的使用人及主机名，有客户端查看权限时可点击主机名进入设备详情。Skill 名称下方不再重复来源。详情保留首次来源并提供当前版本的分页客户端提交记录；复用已有扫描结果也保留本次来源，人员交接不会改写历史快照。旧提交保留原有来源，新增归属记录不追溯补写。此处使用人表示提交设备当时登记的归属。
 
-Client credentials default to the signed-in user and allow selecting another active platform user, with notes up to 1000 Unicode characters. Registration copies these fields once; authorized administrators can update the Client assignment, with an audit record. Reconnecting or rotating credentials preserves the current assignment. Each Client submission retains its assignment at submission time, including when scan results are reused. The optional Submitter / Source column is hidden by default and retains the user's column preference. It shows the recorded submitter or latest Client submission, with a link to Client details when permitted. Skill details retain the first source and paginated submissions for the selected version. Historical assignments are not inferred.
+Client credentials default to the signed-in user and allow selecting another active platform user, with notes up to 1000 Unicode characters. Registration copies these fields; authorized administrators can update the Client assignment, with an audit record. Changing the credential's device user updates its bound Client and records an audit entry; an empty selection defaults to the credential creator. Other credential edits, reconnecting and rotating credentials preserve an existing assignment. Unassigned Clients display the latest bound Client credential's device user or creator, then the registrant if no credential is bound. Each new Client submission records this effective user at submission time, including when scan results are reused; existing submission snapshots remain unchanged. The optional Submitter / Source column is hidden by default and retains the user's column preference. It shows the recorded submitter or latest Client submission, with a link to Client details when permitted. Skill details retain the first source and paginated submissions for the selected version.
 
 | 能力域 | 管理台入口 | 当前已启用能力 | 明确边界 |
 |---|---|---|---|
@@ -3069,7 +3105,9 @@ Installation choices show the client name, local instance ID and path. Each inst
 
 Agent 工作区通过采集报告、原始证据和任务回执展示执行结果与策略应用状态。插件操作、Skill 治理及受支持的模型切换复用现有权限和任务校验。日志重试在桌面客户端“Agent 运行治理 → 接入与采集”执行。English: Agents → Client discovery → Details opens the installation workspace. Skills, model configuration and tasks follow the selected installation; sessions, plugins and tool approvals follow the client and agent type. Shared services and cross-agent policy remain in client details. Runtime reports and execution receipts establish actual outcomes.
 
-详情页优先展示状态与操作：设备 ID 和凭据创建人可展开“设备信息”查看；概览每项功能保留一个摘要入口，页头刷新同时更新当前概览。插件页直接展示宿主安装、信任与操作，协议能力和逐项验收集中在“接入诊断与验收”。行为审计保留当前采集异常与历史覆盖缺口数量，采集边界和查询说明按需展开。审批列表仅显示一个同步时间，存在更多记录或已翻页时显示底部分页；Agent 与资产页仅在有恢复副本时展示该列表。
+详情页优先展示状态与操作：设备 ID 和凭据创建人可展开“设备信息”查看；关联凭据按最后使用时间倒序，默认显示最近使用的一条，其他凭据折叠，展开显示状态、最后使用时间和凭据链接。没有使用记录时标记“尚未使用”。概览每项功能保留一个摘要入口，页头刷新同时更新当前概览。插件页直接展示宿主安装、信任与操作，协议能力和逐项验收集中在“接入诊断与验收”。行为审计保留当前采集异常与历史覆盖缺口数量，采集边界和查询说明按需展开。审批列表仅显示一个同步时间，存在更多记录或已翻页时显示底部分页；Agent 与资产页仅在有恢复副本时展示该列表。
+
+Device information shows the last-used linked credential by default. Other credentials are collapsed; expanding them shows their status, last-use time and credential link. Credentials without a usage timestamp show “Never used”.
 
 
 ### AIDR 小版本兼容

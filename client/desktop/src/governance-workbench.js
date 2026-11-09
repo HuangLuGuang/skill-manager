@@ -25,9 +25,25 @@
     group.entries.push(product)
   }
   let selected = groups[0]?.entries[0]?.id, latest = {}, selectedSignature = ''
+  let showAll = false
   const buttons = new Map(), actionGroups = new Map(), hostCards = new Map()
   function init() {
     $('aidr-runtime-summary').parentElement.append(document.querySelector('[data-aidr-action="retry"]'))
+    const diagnostics = node('details', 'governance-diagnostics'), diagnosticsTitle = node('summary', '', t('compactDiagnostics'))
+    diagnostics.id = 'aidr-compact-diagnostics'; diagnosticsTitle.dataset.i18n = 'ui.governanceDesign.compactDiagnostics'
+    diagnostics.append(diagnosticsTitle)
+    $('aidr-product-inspector').append(diagnostics)
+    for (const item of [...$('aidr-product-inspector').children]) {
+      if (item.matches('details, #aidr-managed-note') && item !== diagnostics) diagnostics.append(item)
+    }
+    $('aidr-product-inspector').append($('aidr-audit-history'))
+    const catalogToggle = node('button', 'governance-catalog-toggle', t('showProducts'))
+    catalogToggle.type = 'button'; catalogToggle.id = 'aidr-product-toggle'
+    catalogToggle.addEventListener('click', () => { showAll = !showAll; render(latest) })
+    $('aidr-product-navigation').after(catalogToggle)
+    const empty = node('p', 'governance-empty', t('noLocalProducts'))
+    empty.id = 'aidr-product-empty'; empty.dataset.i18n = 'ui.governanceDesign.noLocalProducts'
+    $('aidr-product-navigation').after(empty)
     for (const group of groups) {
       const button = node('button', 'governance-product-option'), text = node('span'), name = node('strong', '', group.name), state = node('small')
       button.type = 'button'; button.append(logo(group.id), text); text.append(name, state)
@@ -37,10 +53,14 @@
     const hostDetails = node('details', 'governance-diagnostics'), summary = node('summary')
     summary.dataset.i18n = 'ui.governanceDesign.versions'
     summary.textContent = t('versions'); hostDetails.append(summary)
-    $('aidr-host-status').before(hostDetails); hostDetails.append($('aidr-host-status'))
+    diagnostics.prepend(hostDetails); hostDetails.append($('aidr-host-status'))
     for (const product of (window.aidrProducts || []).filter(item => item.hooks)) {
       const section = $(`aidr-host-${product.id}-status`), card = section.parentElement
       const actions = card.querySelector('.governance-host-actions')
+      const more = node('details', 'governance-more-actions'), label = node('summary', '', t('moreActions'))
+      label.dataset.i18n = 'ui.governanceDesign.moreActions'; more.append(label)
+      for (const button of actions.querySelectorAll('[data-aidr-action="disconnect"], [data-aidr-action="remove-managed"]')) more.append(button)
+      actions.append(more)
       hostCards.set(product.id, card); actionGroups.set(product.id, actions)
     }
     $('aidr-product-navigation').setAttribute('aria-label', t('products'))
@@ -72,14 +92,33 @@
     latest = data
     $('aidr-product-navigation').setAttribute('aria-label', t('products'))
     $('aidr-host-status').parentElement.querySelector('summary').textContent = t('versions')
-    const product = (window.aidrProducts || []).find(item => item.id === selected)
-    if (!product) return
+    const target = data.snapshot?.policy?.target
+    const visibleGroups = groups.filter(group => showAll || group.entries.some(entry => {
+      const host = data.hosts?.[entry.id]
+      return target?.hosts?.includes(entry.id)
+        || data.collection?.runtime_policy?.target?.log_sources?.includes(entry.log_entry || entry.id)
+        || (host?.plugin && host.plugin.source_code !== 'aidr_desktop_host_missing')
+    }))
+    $('aidr-product-toggle').textContent = t(showAll ? 'localProducts' : 'showProducts')
+    $('aidr-product-toggle').setAttribute('aria-expanded', String(showAll))
+    $('aidr-product-empty').hidden = visibleGroups.length > 0
+    for (const group of groups) buttons.get(group.id).button.hidden = !visibleGroups.includes(group)
+    if (!visibleGroups.some(group => group.entries.some(entry => entry.id === selected))) selected = visibleGroups[0]?.entries[0]?.id
+    $('aidr-product-heading').hidden = !selected; $('aidr-product-channels').hidden = !selected
+    const product = products.find(item => item.id === selected)
+    if (!product) {
+      selectedSignature = ''
+      $('aidr-host-status').parentElement.hidden = true
+      for (const card of hostCards.values()) card.hidden = true
+      for (const actions of actionGroups.values()) actions.hidden = true
+      return
+    }
     const group = groups.find(item => item.id === groupId(selected))
     for (const item of groups) {
       const entry = item.id === group.id ? product : item.entries[0]
       const state = states(entry, data), ui = buttons.get(item.id)
       ui.button.setAttribute('aria-pressed', String(item.id === group.id))
-      ui.state.textContent = item.entries.length > 1 ? t('multipleEntries') : `Hook · ${t(state.hooks)}`
+      ui.state.textContent = item.entries.length > 1 ? t('multipleEntries') : t(entry.hooks ? state.hooks : state.logs)
     }
     for (const [id, card] of hostCards) {
       card.hidden = id !== selected
@@ -90,12 +129,15 @@
     const report = data.collection?.channels?.logs
     const stamp = Date.parse(report?.reported_at)
     const fresh = !data.collectionError && Number.isFinite(stamp) && Date.now() - stamp < 30000 && stamp <= Date.now() + 5000
-    const signature = JSON.stringify([selected, state, report?.state, fresh, data.collectionError, window.clientI18n.getLocale()])
+    const automatic = target?.enabled && target?.installation === 'automatic' && target.hosts?.includes(product.id)
+    const managed = target?.access_mode === 'managed'
+    const signature = JSON.stringify([selected, state, automatic, managed, target, report?.state, fresh, data.collectionError, window.clientI18n.getLocale()])
     if (signature === selectedSignature) return
     selectedSignature = signature
     const heading = $('aidr-product-heading'); heading.replaceChildren()
     const titles = node('div'), name = node('h2', '', group.name), entry = node('p', '', hostText(`entry_${product.entry.replaceAll('-', '_')}`))
     titles.append(name, entry); heading.append(logo(group.id), titles)
+    heading.append(node('span', 'governance-management-badge', t(!target ? 'managementUnknown' : !target.enabled ? 'platformControlled' : managed ? 'managedAccess' : automatic ? 'platformAutomatic' : target.allow_user_enrollment || target.installation === 'manual' ? 'localAccess' : 'platformControlled')))
     if (group.entries.length > 1) {
       const selectEntry = node('select'); selectEntry.setAttribute('aria-label', t('entry'))
       for (const item of group.entries) {
@@ -107,46 +149,32 @@
     const channels = $('aidr-product-channels')
     // Keep the existing action nodes and their in-flight state/listeners.
     for (const actions of actionGroups.values()) $('aidr-host-status').append(actions)
+    $('aidr-compact-diagnostics').append($('aidr-authorization-note'))
     channels.replaceChildren()
     for (const kind of ['logs', 'hooks']) {
-      const card = node('section', 'governance-channel-card'), title = node('h3', '', t(kind === 'hooks' && product.hooks === 'native-review-http' ? 'nativeReview' : kind === 'hooks' && product.hooks && product.hooks !== 'native-plugin' ? 'hookConfiguration' : kind)), status = node('strong', `governance-channel-state state-${state[kind]}`, t(state[kind]))
+      const card = node('section', 'governance-channel-card'), title = node('h3', '', t(kind === 'hooks' && product.hooks === 'native-review-http' ? 'nativeReview' : kind)), status = node('strong', `governance-channel-state state-${state[kind]}`, t(state[kind]))
       card.append(title, status)
       if (kind === 'logs') {
-        card.append(node('p', '', t(state.logProduct.logs ? 'logScope' : 'logUnsupported')))
-        if (state.logProduct.logs) {
-          card.append(node('p', 'governance-channel-meta', `${t('sharedLogChannel')} · ${fresh ? hostText(`channel_state_${report.state}`) : t('unknown')}`))
-        }
+        if (state.logs === 'unknown') card.append(node('p', '', t('checkStatusHint')))
       } else {
-        if (product.hooks) card.append(node('p', 'governance-channel-meta', t(product.hooks === 'native-review-http' ? 'nativeReviewName' : product.hooks === 'native-plugin' ? 'nativeName' : 'hookName')))
-        const configurationOnly = product.hook_setup?.host_authorization === false && product.hook_setup?.host_enablement === false
-        const hint = product.hooks === 'native-review-http' ? 'nativeReviewHint' : configurationOnly ? state.hooks === 'configured' ? 'configurationEnabledHint' : 'configurationHint'
-          : state.hooks === 'needsAuth' ? 'authHint' : state.hooks === 'configured' ? 'hookEnabledHint' : product.hooks ? 'hookHint' : 'hookUnsupported'
-        card.append(node('p', '', t(hint)))
+        if (state.hooks === 'needsAuth') card.append(node('p', '', t('authHint')))
+        else if (state.hooks === 'hostDisabled') card.append(node('p', '', t('hostEnableHint')))
+        else if (['unchecked', 'unknown'].includes(state.hooks)) card.append(node('p', '', t('checkStatusHint')))
+        else if (automatic && state.hooks === 'notInstalled') card.append(node('p', '', t('automaticHint')))
+        else if (state.hooks === 'notEnabled') card.append(node('p', '', t('policyDisabledHint')))
         if (state.hooks === 'pendingPolicy') {
           const syncCode = state.host?.enrollment_sync_code
           const message = ['aidr_enrollment_sync_retrying', 'aidr_enrollment_submitted'].includes(syncCode) ? `code.${syncCode}` : 'enrollment_pending'
           card.append(node('p', 'governance-enrollment-progress', hostText(message)))
         }
         if (actionGroups.has(selected)) card.append(actionGroups.get(selected))
+        const authorization = $('aidr-authorization-note')
+        authorization.hidden = !managed || !target?.hosts?.includes(selected) || (state.host?.managed_installed === true && data.snapshot?.enabled === true)
+        if (!authorization.hidden) card.append(authorization)
       }
       channels.append(card)
     }
     $('aidr-host-status').parentElement.hidden = !product.hooks
-    const progress = $('aidr-product-progress'); progress.replaceChildren(); progress.hidden = !product.hooks
-    if (product.hooks) {
-      progress.append(node('h3', '', t('progress')))
-      const list = node('ol', 'governance-steps')
-      const steps = [['installed', state.installed === true]]
-      if (product.hook_setup?.host_authorization !== false) steps.push(['authorized', state.trusted])
-      steps.push(['policyEnabled', state.enabled === true], ['delivery', false])
-      list.style.setProperty('--step-count', steps.length)
-      for (const [label, confirmed] of steps) {
-        const item = node('li', confirmed ? 'confirmed' : '')
-        item.append(node('span', '', t(label)), node('small', '', t(confirmed ? 'confirmed' : label === 'delivery' ? 'checkPlatform' : 'unconfirmed')))
-        list.append(item)
-      }
-      progress.append(list)
-    }
   }
   window.aidrWorkbench = { init, render, productState: (id, data) => states(window.aidrProducts.find(product => product.id === id), data) }
 })()

@@ -577,6 +577,8 @@ func TestDaemonAutomaticallyInstallsApprovedPendingWithClassification(t *testing
 			_, _ = response.Write(packageBody)
 		case strings.HasSuffix(request.URL.Path, "/heartbeat"):
 			json.NewEncoder(response).Encode(map[string]any{"policy": Policy{Mode: "audit", ReleasePublicKey: base64.StdEncoding.EncodeToString(publicKey), Classification: DefaultClassificationPolicy()}})
+		case strings.HasSuffix(request.URL.Path, "/diagnostics/config"):
+			json.NewEncoder(response).Encode(diagnosticUploadConfig{EffectiveLevel: "OFF"})
 		case strings.HasSuffix(request.URL.Path, "/policy"):
 			json.NewEncoder(response).Encode(Policy{Mode: "audit", ReleasePublicKey: base64.StdEncoding.EncodeToString(publicKey), Classification: DefaultClassificationPolicy()})
 		case strings.HasSuffix(request.URL.Path, "/tasks"):

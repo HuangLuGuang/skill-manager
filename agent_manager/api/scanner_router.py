@@ -38,6 +38,7 @@ from agent_manager.core.scan_cache import compute_content_fingerprint
 from agent_manager.core.scanner_tokens import DEFAULT_SCOPES, ScannerToken, ScannerTokenStore
 from agent_manager.core.vetting import _load_manifest
 from backend.models import AccessToken, ManagedClient
+from backend.client_assignment import device_user
 from backend.api_errors import ApiError
 from backend.routers.access_tokens import (
     ensure_agent_prompt_allowed,
@@ -755,7 +756,7 @@ def submit_scanner_import(
             channel="agent_manager_client" if scanner_auth.access_token and scanner_auth.access_token.token_type == "client" else "scanner",
             token_name=scanner_auth.token_name,
             client_id=scanner_auth.access_token.bound_client_id if scanner_auth.access_token and scanner_auth.access_token.token_type == "client" else None,
-            device_user=submission_client.device_user if submission_client else None,
+            device_user=device_user(submission_client, scanner_auth.access_token) if submission_client else None,
             hostname=submission_client.hostname if submission_client else None,
         )
         deep_scan_enabled = use_deep_scan or use_skillspector

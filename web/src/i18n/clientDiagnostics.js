@@ -1,0 +1,26 @@
+export const clientDiagnosticsMessages = {
+  'zh-CN': {
+    title: '运行日志', upload: '上传级别', INHERIT: '跟随全局', OFF: '关闭', DEBUG: '调试及以上', INFO: '信息及以上', WARN: '警告及以上', ERROR: '仅错误',
+    description: '默认上传错误及对应恢复记录，重复错误合并上报；离线补传，平台按 7 天及容量上限清理。',
+    recovered: '已恢复',
+    temporaryHelp: '保存调试或信息级别后，1 小时自动恢复为仅错误。',
+    expires: '自动恢复仅错误：{time}',
+    repeated: '重复 {count} 次',
+    effective: '当前策略：{level}', save: '保存', saved: '已保存', failed: '加载失败，请重试', retry: '重试', saveFailed: '保存失败，请重试',
+    search: '搜索日志内容', all: '全部', time: '时间', level: '级别', module: '模块', event: '事件', version: '版本',
+    refresh: '刷新', reset: '清空筛选', download: '下载本页', raw: '查看原文', close: '关闭', downloadFailed: '下载失败，请重试',
+    start: '开始时间', end: '结束时间', exact: '精确匹配',
+  },
+  'en-US': {
+    title: 'Runtime logs', upload: 'Upload level', INHERIT: 'Use global setting', OFF: 'Off', DEBUG: 'Debug and above', INFO: 'Info and above', WARN: 'Warning and above', ERROR: 'Errors only',
+    description: 'Errors and their recovery records upload by default, with repeated errors aggregated. Offline logs retry automatically; retention is limited to 7 days and storage caps.',
+    recovered: 'Recovered',
+    temporaryHelp: 'Saving Debug or Info automatically restores Errors only after 1 hour.',
+    expires: 'Returns to Errors only: {time}',
+    repeated: 'Repeated {count} times',
+    effective: 'Current policy: {level}', save: 'Save', saved: 'Saved', failed: 'Failed to load. Retry.', retry: 'Retry', saveFailed: 'Failed to save. Retry.',
+    search: 'Search log content', all: 'All', time: 'Time', level: 'Level', module: 'Module', event: 'Event', version: 'Version',
+    refresh: 'Refresh', reset: 'Clear filters', download: 'Download this page', raw: 'View original', close: 'Close', downloadFailed: 'Download failed. Retry.',
+    start: 'Start time', end: 'End time', exact: 'Exact match',
+  },
+}

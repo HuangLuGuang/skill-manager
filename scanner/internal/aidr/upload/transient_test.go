@@ -59,6 +59,44 @@ func TestHTTPFailureClassificationAndDiagnostics(t *testing.T) {
 	}
 }
 
+func TestHTTPDiagnosticUnderlyingErrorAndDeadline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Request-ID") == "" {
+			t.Error("request ID missing")
+		}
+		select {
+		case <-r.Context().Done():
+		case <-time.After(100 * time.Millisecond):
+		}
+	}))
+	defer server.Close()
+	for _, method := range []string{"POST", "GET"} {
+		c := newClient(t, server.URL)
+		var observed []HTTPDiagnostic
+		c.observeHTTP = func(d HTTPDiagnostic) { observed = append(observed, d) }
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+		if method == "POST" {
+			c.post(ctx, "hooks:batch", []byte(`{}`), nil)
+		} else {
+			c.RuntimeGet(ctx, "snapshot")
+		}
+		cancel()
+		if len(observed) != 1 {
+			t.Fatalf("missing deadline diagnostic: %+v", observed)
+		}
+		d := observed[0]
+		if !strings.Contains(d.Error, "context deadline exceeded") || d.ContextError != context.DeadlineExceeded.Error() || d.RequestID == "" || !d.HasDeadline || d.DurationMS == 0 {
+			t.Fatalf("lost transport cause: %+v", d)
+		}
+		ctx, cancel = context.WithCancel(context.Background())
+		cancel()
+		c.RuntimeGet(ctx, "snapshot")
+		if len(observed) != 1 {
+			t.Fatal("shutdown cancellation logged as failure")
+		}
+	}
+}
+
 func TestHookLoopSurvivesMissingEndpointAndDrainsExactBatches(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)

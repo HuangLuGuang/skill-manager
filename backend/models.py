@@ -20,6 +20,7 @@ from .scan_schedule_models import (  # noqa: F401
     SecurityTaskTrigger,
 )
 from .sqlite_db import Base
+from .client_diagnostics import DiagnosticSettings, DiagnosticLog, DiagnosticDebugLease, DiagnosticUsage  # noqa: F401
 from .external_access_models import ExternalPlatform, ExternalApiRequest  # noqa: F401
 from .dify_runtime_models import DifyRuntimeBinding, DifyRuntimeRun, DifyRuntimeCall, DifyRuntimeProcess, DifyRuntimeSkill  # noqa: F401
 from .aidr_models import AidrPolicyReceipt, AidrDevice, AidrBatch, AidrEvent, AidrSource, AidrCoverageRecord, AidrLegacyDestination, AidrOperation, AidrAuditState  # noqa: F401
@@ -632,6 +633,7 @@ class ClientRecoveryRecord(Base):
 
 class ClientTask(Base):
     __tablename__ = "client_tasks"
+    __table_args__ = (Index("ix_client_tasks_recent_status", "client_id", "status", "created_at"),)
 
     id = Column(Integer, primary_key=True, index=True)
     client_id = Column(String(128), ForeignKey("managed_clients.client_id"), index=True, nullable=False)

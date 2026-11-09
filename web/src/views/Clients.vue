@@ -22,14 +22,30 @@
       </template>
 
     <a-row :gutter="[16, 16]" class="summary-row">
-      <a-col :xs="12" :lg="6"><a-card><a-statistic :title="$t('legacy.1kv2rkb')" :value="clients.length" /></a-card></a-col>
-      <a-col :xs="12" :lg="6"><a-card><a-statistic :title="$t('legacy.hf6go')" :value="onlineCount" /></a-card></a-col>
-      <a-col :xs="12" :lg="6"><a-card><a-statistic :title="$t('legacy.1k2vlh1')" :value="agentCount" /></a-card></a-col>
-      <a-col :xs="12" :lg="6"><a-card><a-statistic :title="$t('legacy.1iz81li')" :value="issueCount" /></a-card></a-col>
+      <a-col v-for="kind in ['all', 'online', 'agents', 'issues']" :key="kind" :xs="12" :lg="6">
+        <a-card class="summary-card" :class="{ 'summary-selected': summaryFilter === kind || (kind === 'online' && summaryFilter === 'offline') }">
+          <button type="button" class="summary-trigger" :aria-pressed="summaryFilter === kind" @click="selectSummary(kind)">
+            <a-statistic :title="$t(`clientSummary.${kind}`)" :value="summary[kind]" />
+          </button>
+          <div class="summary-secondary">
+            <a-tooltip v-if="kind === 'online'" :title="$t('clientSummary.onlineHelp')">
+              <a-button size="small" type="link" :class="{ 'offline-selected': summaryFilter === 'offline' }" :aria-pressed="summaryFilter === 'offline'" @click="selectSummary('offline')">{{ $t('clientSummary.offlineCount', { count: summary.offline }) }} <InfoCircleOutlined /></a-button>
+            </a-tooltip>
+            <span v-else-if="kind === 'agents'">{{ $t('clientSummary.governable', { count: summary.governable }) }}</span>
+            <a-tooltip v-else-if="kind === 'issues'" :title="$t('clientSummary.issuesHelp')"><span tabindex="0">{{ $t('clientSummary.byClient') }} <InfoCircleOutlined /></span></a-tooltip>
+            <span v-else>{{ $t('clientSummary.visibleClients') }}</span>
+          </div>
+        </a-card>
+      </a-col>
     </a-row>
 
     <section class="table-card">
-      <a-table class="client-inventory-table" table-layout="fixed" :scroll="{ x: 1320 }" :columns="columns" :show-sorter-tooltip="false" :data-source="clients" row-key="client_id" :loading="loading" :pagination="{ pageSize: 10 }">
+      <div class="client-list-status">
+        <span role="status">{{ $t('clientSummary.results', { count: filteredClients.length }) }}<template v-if="summaryFilter !== 'all'"> · {{ $t(`clientSummary.${summaryFilter}`) }}</template></span>
+        <a-button v-if="summaryFilter !== 'all' || ownerFilter.length" type="link" size="small" @click="selectSummary('all')">{{ $t('clientSummary.clearFilters') }}</a-button>
+        <span v-if="lastRefreshed" class="muted last-refreshed">{{ $t('clientSummary.refreshed', { time: formatTime(lastRefreshed) }) }}</span>
+      </div>
+      <a-table class="client-inventory-table" table-layout="fixed" :scroll="{ x: 1320 }" :columns="columns" :show-sorter-tooltip="false" :data-source="filteredClients" row-key="client_id" :loading="loading" :pagination="clientPagination" @change="changeClientTable">
         <template #headerCell="{ column }">
           <span v-if="column.key === 'agents' || column.key === 'skills'" class="inventory-column-heading">
             {{ column.title }}
@@ -73,6 +89,7 @@
           <template v-else-if="column.key === 'credentialOwner'">{{ record.device_user || $t('deviceAssignment.unassigned') }}</template>
           <template v-else-if="column.key === 'status'">
             <a-tag :color="isOnline(record) ? 'green' : 'default'">{{ isOnline(record) ? $t('legacy.hf6go') : $t('legacy.1hsp9j3') }}</a-tag>
+            <a-button v-for="issue in record.issues || []" :key="`${issue.category}:${issue.code}:${issue.channel || ''}`" type="link" size="small" class="client-issue-link" :disabled="issue.category === 'runtime' && !hasAccess('clients:diagnostics')" @click="openIssues(record, issue)">{{ issueLabel(issue) }}</a-button>
           </template>
           <template v-else-if="column.key === 'lastSeen'">{{ formatTime(record.last_seen_at) }}</template>
           <template v-else-if="column.key === 'action'">
@@ -96,13 +113,30 @@
                   <template #content>
                     <div class="device-info-content">
                       <div>{{ $t('agentRuntimeGovernance.presentation.deviceId') }}</div>
-                      <code>{{ detail.client_id }}</code>
-                      <a-button type="link" size="small" @click="copyClientId">{{ $t('clientDetail.copyId') }}</a-button>
-                      <div>{{ $t('clientDetail.registeredBy') }}: {{ detail.registered_by || '-' }}</div>
-                      <div v-for="token in accessTokens.filter(item => item.token_type === 'client' && item.bound_client_id === detail.client_id)" :key="token.id">
-                        {{ $t('deviceAssignment.credential') }}:
-                        <router-link :to="{ path: '/credentials', query: { token_id: token.id } }">{{ token.name }}</router-link>
+                      <div class="device-id-line">
+                        <code>{{ detail.client_id }}</code>
+                        <a-tooltip :title="$t('clientDetail.copy')">
+                          <a-button type="text" size="small" :aria-label="$t('clientDetail.copyId')" @click="copyClientId"><CopyOutlined /></a-button>
+                        </a-tooltip>
                       </div>
+                      <div>{{ $t('clientDetail.registeredBy') }}: {{ detail.registered_by || '-' }}</div>
+                      <div v-if="deviceCredentials.length" class="device-credential">
+                        <span>{{ $t(deviceCredentials[0].last_used_at ? 'deviceAssignment.latestCredential' : 'deviceAssignment.credential') }}:</span>
+                        <router-link :to="{ path: '/credentials', query: { token_id: deviceCredentials[0].id } }">{{ deviceCredentials[0].name }}</router-link>
+                      </div>
+                      <a-collapse v-if="deviceCredentials.length > 1" :key="detail.client_id" ghost class="device-credential-collapse">
+                        <a-collapse-panel key="others" :header="$t('deviceAssignment.otherCredentials', { count: deviceCredentials.length - 1 })">
+                          <div class="device-credential-list">
+                            <div v-for="token in deviceCredentials.slice(1)" :key="token.id" class="device-credential-item">
+                              <div class="device-credential">
+                                <router-link :to="{ path: '/credentials', query: { token_id: token.id } }">{{ token.name }}</router-link>
+                                <a-tag>{{ $t(`deviceAssignment.credentialStates.${credentialState(token)}`) }}</a-tag>
+                              </div>
+                              <div class="muted">{{ $t('deviceAssignment.lastUsed') }}: {{ token.last_used_at ? formatTime(token.last_used_at) : $t('deviceAssignment.neverUsed') }}</div>
+                            </div>
+                          </div>
+                        </a-collapse-panel>
+                      </a-collapse>
                     </div>
                   </template>
                   <a-button type="text" size="small" :aria-label="$t('agentRuntimeGovernance.presentation.deviceInfo')"><InfoCircleOutlined /></a-button>
@@ -120,6 +154,14 @@
             </div>
             <div class="detail-config-actions">
               <a-button v-if="hasAccess('clients:view') || hasAccess('settings:view')" @click="openClassification(detail.client_id)"><SettingOutlined />{{ $t('clientPolicy.settings') }}</a-button>
+              <a-dropdown v-if="hasAccess('clients:diagnostics')" :trigger="['click']">
+                <a-button>{{ $t('clientDetail.moreMenu') }}<DownOutlined /></a-button>
+                <template #overlay>
+                  <a-menu @click="diagnosticsUnresolved = false; diagnosticsOpen = true">
+                    <a-menu-item key="diagnostics">{{ $t('clientDiagnostics.title') }}</a-menu-item>
+                  </a-menu>
+                </template>
+              </a-dropdown>
             </div>
           </div>
 
@@ -134,6 +176,7 @@
                 <a-radio-button value="recovery">{{ $t('clientDetail.recovery') }}<span v-if="detail.recovery?.length"> · {{ detail.recovery.length }}</span></a-radio-button>
               </a-radio-group>
               <template v-if="inventoryView === 'inventory'">
+              <a-checkbox v-model:checked="issueSkillsOnly">{{ $t('clientSummary.unresolvedOnly') }}</a-checkbox>
               <div class="skill-policy-controls">
                 <a-radio-group v-model:value="inventoryType" :aria-label="$t('clientDetail.sourceType')"><a-radio-button value="agents">{{ $t('clientDetail.agents') }} · {{ actualAgentCount(detail) }}</a-radio-button><a-radio-button value="shared">{{ $t('clientDetail.shared') }} · {{ sharedSkillsCount(detail) }}</a-radio-button></a-radio-group>
                 <label>
@@ -146,7 +189,7 @@
               </div>
           <details><summary>{{ $t('agentRuntimeGovernance.presentation.policyHelp') }}</summary><p>{{ detail.classification?.enabled ? $t('clientGovernance.active') : policyDescription(currentPolicy) }}</p><p>{{ governanceDescription(currentGovernance) }}</p></details>
 
-          <a-table class="local-agents-table" :columns="visibleAgentColumns" :data-source="inventoryAgents" :row-key="row => row.local_agent_id || row.agent_type" size="small" :pagination="{ pageSize: 8, hideOnSinglePage: true }" :expandable="agentTableExpandable" :scroll="{ x: 800 }">
+          <a-table class="local-agents-table" :columns="visibleAgentColumns" :data-source="inventoryAgents" :expanded-row-keys="issueSkillsOnly ? inventoryAgents.map(row => row.local_agent_id || row.agent_type) : undefined" :row-key="row => row.local_agent_id || row.agent_type" size="small" :pagination="{ pageSize: 8, hideOnSinglePage: true }" :expandable="agentTableExpandable" :scroll="{ x: 800 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">
                 <a-button v-if="record.managed_agent_id && hasAccess('agents:view') && !isSharedSkillsRecord(record)" type="link" size="small" :title="$t('agentWorkspace.openAgent')" @click="router.push({ path: '/agents', query: { agent: record.managed_agent_id, client: detail.client_id, local: record.local_agent_id } })">{{ agentLabel(record.agent_type, record) }}</a-button><strong v-else>{{ agentLabel(record.agent_type, record) }}</strong>
@@ -224,6 +267,7 @@
           </template>
           <template v-if="inventoryView === 'tasks'">
           <div class="section-title">{{ $t("agentRuntimeGovernance.detail.skillTasks") }}</div>
+          <a-checkbox v-model:checked="issueTasksOnly">{{ $t('clientSummary.unresolvedOnly') }}</a-checkbox>
           <a-table :columns="taskColumns" :data-source="skillTasks" row-key="id" size="small" :pagination="{ pageSize: 6 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">
@@ -245,7 +289,7 @@
           </a-table>
           </template>
 
-          <ClientEventRecords v-if="inventoryView === 'history'" ref="eventRecordsPanel" :client-id="detail.client_id" :client-name="detail.name || detail.hostname" :agent-label="agentLabel" @collection="navigateDetail('collection')" />
+          <ClientEventRecords v-if="inventoryView === 'history'" ref="eventRecordsPanel" :client-id="detail.client_id" :client-name="detail.name || detail.hostname" :initial-status="issueEventStatus" :agent-label="agentLabel" @collection="navigateDetail('collection')" />
             </a-tab-pane>
             <a-tab-pane key="plugins" :tab="$t('clientConnections.title')"><ClientConnections :client-id="detail.client_id" :request="connectionRequest" :offline="!isOnline(detail)" :discovered-agents="detail.agents || []" @refresh="refreshDeviceStatus" @policy="openClassification(detail.client_id)" @activity="openConnectionActivity" /></a-tab-pane>
             <a-tab-pane key="risks" :tab="$t('aidrRisk.title')"><ClientAidrRisks :client-id="detail.client_id" :initial-agent="riskAgent" /></a-tab-pane>
@@ -256,6 +300,12 @@
           </a-tabs>
         </template>
       </a-spin>
+      <a-drawer v-if="detail && hasAccess('clients:diagnostics')" v-model:open="diagnosticsOpen" :title="$t('clientDiagnostics.title')" width="min(1080px, 100vw)" :destroy-on-close="true">
+        <ClientDiagnosticLogs v-if="diagnosticsOpen" :client-id="detail.client_id" :initial-unresolved="diagnosticsUnresolved" />
+      </a-drawer>
+      <a-drawer v-if="detail" v-model:open="collectionIssueOpen" :title="$t('agentRuntimeGovernance.detail.collection')" width="min(1080px, 100vw)" :destroy-on-close="true">
+        <ClientCollectionStatus v-if="collectionIssueOpen" :client-id="detail.client_id" :initial-channel="issueCollectionChannel" :offline="!isOnline(detail)" @policy="collectionIssueOpen = false; openClassification(detail.client_id)" />
+      </a-drawer>
     </a-drawer>
 
 
@@ -375,6 +425,8 @@ import ClientPolicyWorkbench from '../components/ClientPolicyWorkbench.vue'
 import ClientBehaviorAudit from '../components/ClientBehaviorAudit.vue'
 import ClientAidrRisks from '../components/ClientAidrRisks.vue'
 import ClientEventRecords from '../components/ClientEventRecords.vue'
+import ClientDiagnosticLogs from '../components/ClientDiagnosticLogs.vue'
+import ClientCollectionStatus from '../components/ClientCollectionStatus.vue'
 import ClientDeviceOverview from '../components/ClientDeviceOverview.vue'
 import ClientConnections from '../components/ClientConnections.vue'
 import ClientSkillScan from '../components/ClientSkillScan.vue'
@@ -392,7 +444,7 @@ import {
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { InfoCircleOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons-vue'
+import { CopyOutlined, DownOutlined, InfoCircleOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import { copyText } from '../utils/clipboard'
 
 import {
@@ -461,6 +513,9 @@ const detailLoading = ref(false)
 const submitting = ref(false)
 const eventRecordsPanel = ref(null)
 const detailVisible = ref(false)
+const diagnosticsOpen = ref(false)
+const diagnosticsUnresolved = ref(false), collectionIssueOpen = ref(false), issueCollectionChannel = ref('logs')
+const issueTasksOnly = ref(false), issueSkillsOnly = ref(false), issueEventStatus = ref('')
 const runtimeTab = ref('overview')
 const inventoryView = ref('inventory'), inventoryType = ref('agents')
 const auditView = ref('tools'), controlView = ref('tools')
@@ -484,7 +539,7 @@ const navigateDetail = target => {
   if (target === 'systemControl') controlView.value = 'system'
   runtimeTab.value = target === 'systemEvents' ? 'audit' : target === 'systemControl' ? 'control' : target === 'skillTasks' ? 'skills' : target
 }
-const skillTasks = computed(() => (detail.value?.tasks || []).filter(task => task.task_type !== 'aidr_plugin_action'))
+const skillTasks = computed(() => (detail.value?.tasks || []).filter(task => issueTasksOnly.value ? (detail.value?.issue_task_ids || []).includes(task.id) : task.task_type !== 'aidr_plugin_action'))
 const installVisible = ref(false)
 const modelConfigVisible = ref(false)
 const modelConfigSubmitting = ref(false)
@@ -497,6 +552,20 @@ const skills = ref([])
 const skillsLoading = ref(false)
 const targetInstalledSkills = ref([])
 const detail = ref(null)
+watch([detailVisible, () => detail.value?.client_id], () => { diagnosticsOpen.value = false; collectionIssueOpen.value = false })
+const credentialTime = value => {
+  if (!value) return 0
+  const raw = String(value)
+  return Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? raw : `${raw}Z`) || 0
+}
+const deviceCredentials = computed(() => accessTokens.value
+  .filter(token => token.token_type === 'client' && token.bound_client_id === detail.value?.client_id)
+  .sort((a, b) => credentialTime(b.last_used_at) - credentialTime(a.last_used_at) || b.id - a.id))
+const credentialState = token => {
+  if (token.status === 'revoked' || token.status === 'disabled') return token.status
+  if (token.expires_at && credentialTime(token.expires_at) <= Date.now()) return 'expired'
+  return token.status === 'active' ? 'active' : 'unknown'
+}
 const overviewPanel = ref(null)
 const taskOperations = reactive(new Set())
 let detailSequence = 0
@@ -564,12 +633,12 @@ const columns = computed(() => [
   { title: 'Agent', key: 'agents', width: 180, sorter: (a, b) => actualAgentCount(a) - actualAgentCount(b) },
   { title: 'Skill', key: 'skills', width: 180, sorter: (a, b) => skillCount(a) - skillCount(b) },
   { ...withAssetNameSearch({ title: i18n.global.t('deviceAssignment.user'), key: 'credentialOwner', width: 160 }),
-    onFilter: (value, record) => String(record.device_user || '').toLocaleLowerCase().includes(String(value).trim().toLocaleLowerCase()),
+    filteredValue: ownerFilter.value, onFilter: undefined,
     sorter: (a, b) => compareClientText(a.device_user, b.device_user) },
-  { title: phrase('legacy.1ccx4t4'), key: 'status', width: 100, sorter: (a, b) => Number(isOnline(a)) - Number(isOnline(b)) },
+  { title: phrase('legacy.1ccx4t4'), key: 'status', width: 145, sorter: (a, b) => Number(isOnline(a)) - Number(isOnline(b)) },
   { title: phrase('legacy.12y43gp'), key: 'lastSeen', width: 200, sorter: (a, b) => heartbeatTime(a.last_seen_at) - heartbeatTime(b.last_seen_at) },
   { title: phrase('legacy.501w24'), key: 'action', width: 100 },
-])
+].map(column => ({ ...column, sortOrder: clientSort.value.columnKey === column.key ? clientSort.value.order : null })))
 const agentColumns = [
   { title: 'Agent', key: 'type', width: 180 },
   { title: i18n.global.t('clientModelConfig.model'), key: 'model', width: 230 },
@@ -579,7 +648,7 @@ const agentColumns = [
 const visibleAgentColumns = computed(() => agentColumns
   .filter(column => inventoryType.value !== 'shared' || column.key !== 'model')
   .map(column => column.key === 'type' && inventoryType.value === 'shared' ? { ...column, title: i18n.global.t('clientDetail.shared') } : column))
-const inventoryAgents = computed(() => (detail.value?.agents || []).filter(agent => isSharedSkillsRecord(agent) === (inventoryType.value === 'shared')))
+const inventoryAgents = computed(() => (detail.value?.agents || []).filter(agent => issueSkillsOnly.value ? agentSkills(agent).length > 0 : isSharedSkillsRecord(agent) === (inventoryType.value === 'shared')))
 const skillColumns = [
   withAssetNameSearch({ title: 'Skill', key: 'name' }),
   { title: phrase('legacy.1ccx4t4'), key: 'status', width: 240 },
@@ -593,12 +662,51 @@ const taskColumns = [
   { title: phrase('legacy.501w24'), key: 'action', width: 90 },
 ]
 
-const onlineCount = computed(() => clients.value.filter(isOnline).length)
 const isSharedSkillsRecord = record => record?.agent_type === 'global-skills'
 const actualAgentCount = record => record.agents?.filter(agent => !isSharedSkillsRecord(agent)).length || 0
 const sharedSkillsCount = record => record.agents?.filter(isSharedSkillsRecord).length || 0
-const agentCount = computed(() => clients.value.reduce((sum, item) => sum + actualAgentCount(item), 0))
-const issueCount = computed(() => clients.value.reduce((sum, item) => sum + (item.issue_count || 0), 0))
+const summaryFilter = ref('all'), ownerFilter = ref([]), clientSort = ref({})
+const lastRefreshed = ref(null)
+const clientPagination = reactive({ current: 1, pageSize: 10, showSizeChanger: true })
+const summary = computed(() => {
+  const result = { all: clients.value.length, online: 0, offline: 0, agents: 0, governable: 0, issues: 0, agentClients: new Set() }
+  for (const client of clients.value) {
+    result[isOnline(client) ? 'online' : 'offline']++
+    if (client.issue_count > 0) result.issues++
+    for (const agent of client.agents || []) {
+      if (isSharedSkillsRecord(agent)) continue
+      result.agents++
+      result.agentClients.add(client.client_id)
+      if (agent.skill_management_supported) result.governable++
+    }
+  }
+  return result
+})
+const filteredClients = computed(() => {
+  const owner = String(ownerFilter.value[0] || '').trim().toLocaleLowerCase()
+  return clients.value.filter(client => {
+    if (owner && !String(client.device_user || '').toLocaleLowerCase().includes(owner)) return false
+    if (summaryFilter.value === 'online') return isOnline(client)
+    if (summaryFilter.value === 'offline') return !isOnline(client)
+    if (summaryFilter.value === 'agents') return summary.value.agentClients.has(client.client_id)
+    if (summaryFilter.value === 'issues') return client.issue_count > 0
+    return true
+  })
+})
+const selectSummary = kind => {
+  summaryFilter.value = kind === summaryFilter.value ? 'all' : kind
+  if (kind === 'all') ownerFilter.value = []
+  clientPagination.current = 1
+}
+const changeClientTable = (pagination, filters, sorter, extra) => {
+  ownerFilter.value = filters.credentialOwner || []
+  clientSort.value = sorter
+  clientPagination.pageSize = pagination.pageSize
+  clientPagination.current = extra.action === 'paginate' ? pagination.current : 1
+}
+watch(() => filteredClients.value.length, count => {
+  clientPagination.current = Math.min(clientPagination.current, Math.max(1, Math.ceil(count / clientPagination.pageSize)))
+})
 const localAssetCounts = record => ({ mcp: (record.asset_inventory?.mcp_servers?.length || 0) + (record.asset_inventory?.plugins || []).reduce((count, plugin) => count + plugin.mcp_servers.length, 0), plugins: record.asset_inventory?.plugins?.length || 0 })
 const agentTableExpandable = { rowExpandable: record => !isSharedSkillsRecord(record) || Boolean(record.skills?.length) }
 const selectedManagedAgent = computed(() => agents.value.find(agent => agent.agent_id === installForm.managed_agent_id))
@@ -646,17 +754,43 @@ const installableSkills = computed(() => {
   return available.filter(skill => allowed.has(skill.skill_id) || allowed.has(skill.name))
 })
 
+let clientsSequence = 0
 const loadClients = async () => {
+  const sequence = ++clientsSequence
   loading.value = true
   try {
-    clients.value = await listClients()
+    const rows = await listClients()
+    if (sequence !== clientsSequence) return
+    clients.value = rows
+    lastRefreshed.value = new Date().toISOString()
   } catch (error) {
-    message.error(error.response?.data?.detail || phrase('legacy.167k0p'))
+    if (sequence === clientsSequence) message.error(error.response?.data?.detail || phrase('legacy.167k0p'))
   } finally {
-    loading.value = false
+    if (sequence === clientsSequence) loading.value = false
   }
 }
+const issueLabel = issue => {
+  const channel = issue.channel ? i18n.global.t(`clientSummary.channels.${issue.channel}`) + ' · ' : ''
+  const reason = i18n.global.te(`clientSummary.reasons.${issue.code}`) ? i18n.global.t(`clientSummary.reasons.${issue.code}`) : i18n.global.t(`aidr.channelHealth.${issue.code}`)
+  return `${channel}${reason}${issue.count > 1 ? ` · ${issue.count}` : ''}`
+}
+const openIssues = async (record, issue) => {
+  try {
+    if (!await openDetail(record)) return
+    if (!detailVisible.value || detail.value?.client_id !== record.client_id) return
+    if (issue.category === 'runtime') { diagnosticsUnresolved.value = true; diagnosticsOpen.value = true }
+    else if (issue.category === 'collection' || issue.code === 'policy_failed') { issueCollectionChannel.value = issue.channel || 'hooks'; collectionIssueOpen.value = true }
+    else {
+      runtimeTab.value = 'skills'
+      inventoryView.value = issue.category === 'tasks' ? 'tasks' : issue.code === 'active_alert' ? 'history' : 'inventory'
+      issueTasksOnly.value = issue.category === 'tasks'
+      issueSkillsOnly.value = issue.code === 'skill_failed'
+      issueEventStatus.value = issue.code === 'active_alert' ? 'alert_active' : ''
+    }
+  } catch { message.error(i18n.global.t('clientDetail.refreshFailed')) }
+}
 const openDetail = async (record) => {
+  issueTasksOnly.value = false; issueSkillsOnly.value = false; issueEventStatus.value = ''
   riskAgent.value = ''
   inventoryView.value = 'inventory'; inventoryType.value = 'agents'
   runtimeTab.value = 'overview'; auditView.value = 'tools'; controlView.value = 'tools'; connectionRequest.value = null
@@ -670,6 +804,7 @@ const openDetail = async (record) => {
     detail.value = result
     currentPolicy.value = detail.value.policy_mode || 'audit'
     currentGovernance.value = detail.value.governance_mode || 'registry'
+    return true
   } finally {
     if (sequence === detailSequence) detailLoading.value = false
   }
@@ -907,7 +1042,7 @@ const sharedSkillsDescription = record => {
     `${readers.join(', ') || phrase('legacy.waagmd')} may read this directory, depending on version and configuration.`,
   )
 }
-const agentSkills = agent => (agent.skills || []).map(skill => ({ ...skill, agent_type: agent.agent_type }))
+const agentSkills = agent => (agent.skills || []).filter(skill => !issueSkillsOnly.value || (detail.value?.issue_skill_paths || []).includes(skill.path)).map(skill => ({ ...skill, agent_type: agent.agent_type }))
 const taskSkillName = task => task.payload?.skill_name
   || (detail.value?.agents || []).flatMap(agent => agent.skills || []).find(skill => skill.skill_id === task.payload?.skill_id)?.name
   || skills.value.find(skill => skill.skill_id === task.payload?.skill_id)?.name
@@ -1003,8 +1138,29 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.detail-config-actions { flex-shrink: 0; margin-left: auto; }
+.device-id-line { display: flex; align-items: center; gap: 4px; }
+.device-id-line code { min-width: 0; overflow-wrap: anywhere; }
+.device-id-line .ant-btn { flex-shrink: 0; }
+.device-credential { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.device-credential a { min-width: 0; overflow-wrap: anywhere; }
+.device-credential-collapse :deep(.ant-collapse-header) { padding: 6px 0 !important; }
+.device-credential-collapse :deep(.ant-collapse-content-box) { padding: 0 0 4px 16px !important; }
+.device-credential-list { max-height: 240px; overflow-y: auto; }
+.device-credential-item + .device-credential-item { margin-top: 8px; }
+.detail-config-actions { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; margin-left: auto; }
 .summary-row { margin-top: 8px; }
+.summary-card { height: 100%; }
+.summary-card :deep(.ant-card-body) { padding: 16px; }
+.summary-selected { border-color: #245eea; background: #f5f8ff; }
+.summary-trigger { display: block; width: 100%; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.summary-trigger:focus-visible { outline: 2px solid #245eea; outline-offset: 4px; }
+.summary-trigger :deep(.ant-statistic-title) { overflow-wrap: anywhere; }
+.summary-secondary { margin-top: 8px; color: #626b78; font-size: 12px; overflow-wrap: anywhere; }
+.summary-secondary :deep(.ant-btn) { height: auto; padding: 0; white-space: normal; text-align: left; }
+.offline-selected { font-weight: 600; text-decoration: underline; }
+.client-list-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.last-refreshed { margin-left: auto; }
+.client-issue-link { display: block; padding: 0; height: auto; white-space: normal; text-align: left; color: #b45309; }
 .table-card {
   margin-top: 16px;
 }

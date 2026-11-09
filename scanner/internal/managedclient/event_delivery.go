@@ -165,7 +165,7 @@ func (api API) sendOrdinaryEvent(ctx context.Context, e QueuedEvent) (err error)
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := api.http.Do(req)
+	resp, err := api.do(req)
 	if err != nil {
 		return err
 	}
@@ -179,7 +179,11 @@ func (api API) sendOrdinaryEvent(ctx context.Context, e QueuedEvent) (err error)
 		} else if t, parseErr := http.ParseTime(resp.Header.Get("Retry-After")); parseErr == nil {
 			after = time.Until(t)
 		}
-		return fmt.Errorf("client_events_http_%d", resp.StatusCode)
+		failure := fmt.Errorf("client_events_http_%d", resp.StatusCode)
+		if api.eventsStore != nil {
+			return reportedDiagnosticError{failure}
+		}
+		return failure
 	}
 	var ack struct {
 		OK         bool   `json:"ok"`

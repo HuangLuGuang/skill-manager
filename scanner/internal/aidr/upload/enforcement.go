@@ -15,22 +15,28 @@ func (c *Client) RuntimeGet(ctx context.Context, resource string) (body []byte, 
 	if resource != "snapshot" && resource != "commands" && resource != "bootstrap" && resource != "collection/device" {
 		return nil, Result{Code: "aidr_enforcement_request_invalid"}
 	}
-	diagnostic := HTTPDiagnostic{Method: http.MethodGet, Resource: "enforcement/" + resource}
+	diagnostic := c.newHTTPDiagnostic(ctx, http.MethodGet, "enforcement/"+resource)
 	defer func() { c.reportHTTP(ctx, diagnostic, result) }()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/api/v1/clients/"+url.PathEscape(c.clientID)+"/aidr/enforcement/"+resource, nil)
 	if err != nil {
 		return nil, Result{Code: "aidr_enforcement_request_invalid"}
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("X-Request-ID", diagnostic.RequestID)
 	req.Header.Set("Accept-Encoding", "identity")
 	response, err := c.http.Do(req)
 	if err != nil {
+		diagnostic.Error = err.Error()
 		return nil, Result{Code: "aidr_upload_transport", Retryable: true}
 	}
 	defer response.Body.Close()
 	diagnostic.StatusCode = response.StatusCode
+	diagnostic.ServerRequestID = response.Header.Get("X-Request-ID")
 	data, err := io.ReadAll(io.LimitReader(response.Body, 1048577))
 	if err != nil || len(data) > 1048576 {
+		if err != nil {
+			diagnostic.Error = err.Error()
+		}
 		return nil, Result{Code: "aidr_upload_response_invalid", Retryable: true}
 	}
 	diagnostic.ServerCode = responseErrorCode(data)

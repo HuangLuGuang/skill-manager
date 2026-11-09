@@ -46,10 +46,19 @@
 .governance-product-heading > div { flex: 1; min-width: 0; }
 .governance-product-heading h2 { font-size: 23px; }
 .governance-product-heading select { max-width: 48%; min-width: 0; font-size: 12px; }
-.governance-channel-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.governance-channel-card { min-width: 0; padding: 18px; border: 1px solid #dce5e8; border-radius: 8px; }
-.governance-channel-card h3, .governance-progress h3 { margin: 0 0 12px; font-size: 14px; }
-.governance-channel-state { display: block; font-size: 17px; color: #52636d; margin-bottom: 14px; }
+.governance-channel-cards { display: grid; grid-template-columns: minmax(0, 1fr); }
+.governance-channel-card { min-width: 0; padding: 18px 0; border: 0; border-top: 1px solid #dce5e8; display: grid; grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr); gap: 10px 16px; align-items: baseline; }
+.governance-channel-card h3 { margin: 0; font-size: 14px; }
+.governance-channel-state { display: block; font-size: 15px; color: #52636d; margin: 0; }
+.governance-channel-card > p, .governance-channel-card > .governance-host-actions { grid-column: 2; margin: 0; }
+.governance-management-badge { padding: 5px 8px; border-radius: 6px; background: #f0f3f5; color: #52636d; font-size: 12px; max-width: 220px; overflow-wrap: anywhere; }
+.governance-catalog-toggle { margin: 16px 12px 0; background: transparent; border: 0; text-align: left; color: #28745f; text-decoration: underline; cursor: pointer; white-space: normal; }
+.governance-empty { margin: 12px; color: #627480; font-size: 12px; }
+.governance-more-actions { width: 100%; }
+.governance-more-actions summary { cursor: pointer; font-size: 12px; }
+.governance-more-actions button { margin-top: 8px; }
+#aidr-compact-diagnostics, #aidr-plugin-settings .governance-audit-history { border: 0; border-top: 1px solid #dce5e8; border-radius: 0; background: transparent; margin: 10px 0 0; padding: 14px 0; }
+#aidr-plugin-settings button:focus-visible, #aidr-plugin-settings summary:focus-visible { outline: 2px solid #28745f; outline-offset: 3px; }
 .governance-channel-state.state-configured, .governance-channel-state.state-inPolicy { color: #28745f; }
 .governance-channel-state.state-needsAuth, .governance-channel-state.state-pendingPolicy { color: #a56c10; }
 .governance-channel-card p { font-size: 12px; }
@@ -57,11 +66,6 @@
 #runtime-governance .governance-channel-card .governance-host-actions { gap: 6px; margin-top: 14px; }
 #runtime-governance .governance-channel-card .governance-host-actions button { flex: 1 1 100%; font-size: 12px; padding: 7px 10px; }
 #runtime-governance .governance-channel-card [data-aidr-action="connect"] { background: #28765f; border-color: #28765f; color: #fff; }
-.governance-progress { padding: 18px 0; }
-.governance-steps { display: grid; grid-template-columns: repeat(var(--step-count, 4), minmax(0,1fr)); list-style: none; padding: 0; margin: 0; gap: 8px; }
-.governance-steps li { border-top: 3px solid #e1e6e9; padding-top: 10px; display: grid; gap: 5px; color: #71818b; font-size: 12px; }
-.governance-steps li.confirmed { border-color: #328168; color: #28745f; }
-.governance-steps small { font-size: 11px; }
 #runtime-governance .governance-diagnostics { padding: 14px 0; }
 #runtime-governance .governance-diagnostics summary { font-weight: 600; color: #344a57; }
 #aidr-host-status, #aidr-collection-channels { display: block; }

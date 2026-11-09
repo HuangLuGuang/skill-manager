@@ -32,7 +32,7 @@ import { RightOutlined } from '@ant-design/icons-vue'
 import { getClientEventRecords } from '../api'
 import ClientEventDetail from './ClientEventDetail.vue'
 import '../../../client/desktop/src/event-records.js'
-const props = defineProps({ clientId:String, clientName:String, agentLabel:{ type:Function, required:true } })
+const props = defineProps({ clientId:String, clientName:String, initialStatus:{ type:String, default:'' }, agentLabel:{ type:Function, required:true } })
 defineEmits(['collection'])
 const { t, te, locale } = useI18n()
 const ui = (key, args = {}, fallback = 'unknown') => t('clientEvents.' + (te('clientEvents.' + key) ? key : fallback), args)
@@ -64,7 +64,7 @@ function filter() { page.value = 1; void load() }
 function searchLater() { clearTimeout(timer); request++; timer = setTimeout(filter, 300) }
 function reset() { Object.assign(filters, { keyword:'', agent:'', category:'', status:'', days:0 }); filter() }
 function changePage(value) { page.value = value.pageSize === pageSize.value ? value.current : 1; pageSize.value = value.pageSize; void load() }
-watch(() => props.clientId, () => { selected.value = null; reset() }, { immediate:true })
+watch(() => [props.clientId, props.initialStatus], () => { selected.value = null; Object.assign(filters, { keyword:'', agent:'', category:'', status:props.initialStatus, days:0 }); filter() }, { immediate:true })
 onBeforeUnmount(() => { disposed = true; request++; clearTimeout(timer) })
 defineExpose({ refresh:load })
 </script>

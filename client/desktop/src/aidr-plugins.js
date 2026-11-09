@@ -100,8 +100,8 @@
     const localInstallation = (target?.installation === 'manual' || selfEnrollment) && target?.access_mode === 'ordinary'
     $('aidr-connection-needed').hidden = configured
     $('aidr-receiver-controls').hidden = !configured
-    $('aidr-authorization-note').hidden = !managed
-    document.querySelectorAll('[data-aidr-action="authorize"]').forEach(button => { button.hidden = !managed || !snapshot.policy?.target?.hosts?.includes(button.dataset.aidrAgent) })
+    document.querySelectorAll('[data-aidr-action="authorize"]').forEach(button => { button.hidden = !managed || !snapshot.policy?.target?.hosts?.includes(button.dataset.aidrAgent) || (hosts[button.dataset.aidrAgent]?.managed_installed === true && snapshot.enabled === true) })
+    $('aidr-authorization-note').hidden = !managed || !document.querySelector('[data-aidr-action="authorize"]:not([hidden])')
     document.querySelectorAll('[data-aidr-action="remove-managed"]').forEach(button => { button.hidden = hosts[button.dataset.aidrAgent]?.managed_installed !== true })
     $('aidr-managed-note').hidden = !snapshot.managed_task || snapshot.managed_task === '0'
     $('aidr-managed-note').textContent = t(selfEnrollment ? 'self_enrollment_note' : localInstallation ? 'manual_installation_note' : 'managed_note')
@@ -120,10 +120,10 @@
       const product = products.find(item => item.id === auditGap.agent)
       const name = product?.name || t('unknown')
       const at = new Date(auditGap.observed_at).toLocaleString(window.clientI18n.getLocale())
-      $('aidr-audit-history-summary').textContent = `${t('audit_history_title')} · ${name} · ${at}`
+      $('aidr-audit-history-summary').textContent = t('audit_history_title')
       $('aidr-audit-history-explanation').textContent = t('audit_history_explanation')
       const fields = $('aidr-audit-history-fields'); fields.replaceChildren()
-      add(fields, t('audit_history_product'), name)
+      add(fields, t('audit_history_product'), `${name} · ${at}`)
       add(fields, t('audit_gap_at'), at)
       const causeKey = `ui.aidrDesktop.code.${auditGap.cause}`
       const causeText = window.clientI18n.t(causeKey)
@@ -142,6 +142,7 @@
       if (action === 'disconnect' && paired) button.textContent = t(product.id === 'teleagent' ? 'paired_disconnect' : 'product_disconnect')
       if (action === 'disconnect') button.hidden = hosts[button.dataset.aidrAgent]?.plugin?.installed !== true || managed
       const plugin = hosts[button.dataset.aidrAgent]?.plugin
+      const automatic = target?.installation === 'automatic' && target?.hosts?.includes(button.dataset.aidrAgent)
       if (action === 'retry') { button.title = t('retry_scope'); button.hidden = !snapshot.retry_suspended && snapshot.next_retry_seconds == null }
       if (action === 'upgrade') button.hidden = plugin?.installed !== true
       if (action === 'enable') button.hidden = snapshot.enabled === true
@@ -149,10 +150,15 @@
       const enrollmentBlocked = action === 'connect' && (!target || target.allow_user_enrollment == null || !target.enabled || target.channels?.hooks === false || (!selfEnrollment && !target.hosts?.includes(button.dataset.aidrAgent)))
       const logsBlocked = action === 'connect' && paired && (target?.channels?.logs !== true || (!selfEnrollment && !target?.log_sources?.includes(product.enrollment_log_source)))
       const policyBlocked = logsBlocked || enrollmentBlocked || platformManaged && (['enable', 'disable'].includes(action) || (!localInstallation && ['connect', 'upgrade', 'disconnect'].includes(action)))
+      if (action === 'connect') button.hidden = automatic || managed || policyBlocked || enrollment === 'enabled'
+      if (action === 'disconnect') button.hidden = button.hidden || automatic || policyBlocked
+      if (action === 'upgrade') button.hidden = button.hidden || target?.updates === 'automatic' || managed || policyBlocked
+      if (action === 'remove-managed') button.hidden = button.hidden || automatic
       button.disabled = busy || !!enrollment || !configured || (action === 'retry-logs' && (collectionError !== '' || collection.channels?.logs?.state !== 'failed')) || policyBlocked || (['connect','upgrade'].includes(action) && !['interface_compatible', 'adapter_available'].includes(plugin?.version_status))
       if (['connect', 'upgrade', 'disconnect'].includes(action)) button.title = !configured ? codeText('aidr_desktop_not_configured') : logsBlocked ? codeText('aidr_enrollment_logs_blocked') : policyBlocked ? t('managed_note') : action === 'disconnect' ? t(product?.id === 'teleagent' ? 'paired_remove_scope' : 'remove_scope') : !['interface_compatible', 'adapter_available'].includes(plugin?.version_status) ? t(plugin?.version_status ? 'unsupported' : 'unchecked') : ''
       if (enrollment && !policyBlocked) button.title = t(enrollment === 'enabled' ? product?.id === 'teleagent' ? 'paired_waiting_event' : 'enrollment_waiting_event' : 'enrollment_pending')
     })
+    document.querySelectorAll('.governance-more-actions').forEach(group => { group.hidden = !group.querySelector('button:not([hidden])') })
     const channelList = $('aidr-collection-channels'); channelList.replaceChildren()
     for (const kind of ['logs', 'hooks', 'system']) {
       const card = document.createElement('section'), title = document.createElement('h3'), fields = document.createElement('dl')
@@ -210,11 +216,11 @@
     const receiverText = [retryState, receiverCode].filter(Boolean).join(' · ')
     const summary = $('aidr-runtime-summary'); summary.replaceChildren()
     summary.parentElement.dataset.health = statusError || snapshot.retry_suspended ? 'attention' : ['aidr_desktop_running', 'aidr_desktop_shared_receiver'].includes(snapshot.code) ? 'running' : 'unknown'
-    add(summary, t('receiver'), statusError ? t('unknown') : receiverText)
-    add(summary, t('transport'), statusError ? t('unknown') : telemetry.runtime_code ? codeText(telemetry.runtime_code) : t('unknown'))
-    add(summary, t('queued'), statusError || !telemetry.state ? t('unknown') : String(telemetry.state.queued_records))
-    add(summary, t('latest_ack'), telemetry.state?.last_event_ack_at ? new Date(telemetry.state.last_event_ack_at).toLocaleString(window.clientI18n.getLocale()) : t('unknown'))
+    add(summary, t('receiver'), statusError ? t('unknown') : !retryState && ['aidr_desktop_running', 'aidr_desktop_shared_receiver'].includes(snapshot.code) ? window.clientI18n.t('ui.governanceDesign.receiverRunning') : receiverText)
+    add(summary, t('transport'), statusError ? t('unknown') : telemetry.runtime_code === 'aidr_hook_runtime_received' ? window.clientI18n.t('ui.governanceDesign.reportConfirmed') : telemetry.runtime_code ? codeText(telemetry.runtime_code) : t('unknown'))
+    if (telemetry.state?.queued_records > 0) add(summary, t('queued'), String(telemetry.state.queued_records))
     const state = $('aidr-receiver-state'); state.replaceChildren()
+    add(state, t('latest_ack'), telemetry.state?.last_event_ack_at ? new Date(telemetry.state.last_event_ack_at).toLocaleString(window.clientI18n.getLocale()) : t('unknown'))
     add(state, t('receiver'), receiverText)
     if (diagnostic) {
       add(state, t('ownership'), t(`ownership_${diagnostic.ownership || 'unavailable'}`))
